@@ -45,6 +45,7 @@ namespace PSXRacing.EditorTools
             nearMisses = 0;
             owMeets = 0; owSeconds = 0f; owAt.Clear(); owLines.Clear(); respawnAt.Clear(); headLines.Clear();
             headOnsRival = headOnsPlayer = headOnsSlow = headOnsAfterRespawn = headOnsOneWay = headOnsPassing = 0;
+            oncomingStreamHits = oncomingStreamHard = 0; streamLines.Clear();
             RaceManager.Respawned -= OnRespawned;
             AIDriver.ResetPassStats();
             if (rm == null) return;
@@ -61,6 +62,27 @@ namespace PSXRacing.EditorTools
         }
 
         static void OnRespawned(CarController c, int step, float lat) { if (c != null) respawnAt[c] = Time.time; }
+
+        /// <summary>Every traffic hit (RacePlayCheck): one on a car of the ONCOMING stream ahead of the rival, nose to
+        /// nose, whatever its own speed - a queued or braking oncoming car is not a head-on by RacePlayCheck's rule
+        /// (coming at 3 m/s or more) and is the same crash.</summary>
+        static int oncomingStreamHits, oncomingStreamHard;
+        static readonly List<string> streamLines = new List<string>();
+        public static void TrafficHit(CarController who, Rigidbody other, float speed)
+        {
+            if (rm == null || who == null || other == null || who == rm.playerCar) return;
+            var ts = TrafficSystem.Instance;
+            if (ts == null) return;
+            int i = ts.Obstacles.IndexOf(other);
+            bool stream = i >= 0 && i < ts.ObstacleDir.Count && ts.ObstacleDir[i] < 0;
+            bool coming = Vector3.Dot(other.linearVelocity, who.transform.forward) < -1f;
+            Vector3 lo = who.transform.InverseTransformPoint(other.position);
+            if (!(stream || coming) || lo.z < 1.5f) return;
+            oncomingStreamHits++;
+            if (speed >= 10f) oncomingStreamHard++;
+            if (streamLines.Count < 8)
+                streamLines.Add($"ONCOMING-STREAM HIT {who.name} at {Time.time - t0:0.0}s, {speed:0.0} m/s: traffic {lo.z:+0.0} m ahead {lo.x:+0.0;-0.0} right at {Vector3.Dot(other.linearVelocity, who.transform.forward) * 3.6f:+0;-0} km/h along");
+        }
 
         /// <summary>RacePlayCheck's head-on (a traffic car coming at the car, hit): what the car's AI was doing.</summary>
         public static void HeadOn(CarController who, Rigidbody other, float speed)
@@ -196,8 +218,10 @@ namespace PSXRacing.EditorTools
             }
             foreach (var s in owLines) RacePlayCheck.Note("  " + s);
             foreach (var s in headLines) RacePlayCheck.Note("  " + s);
+            foreach (var s in streamLines) RacePlayCheck.Note("  " + s);
             RacePlayCheck.Summary($"LANE USE {(AIDriver.PassOncoming ? "ON" : "OFF")} | passes {begun} oncoming-lane {oncoming} held {held} done {done} aborted {aborted} | near misses {nearMisses} | over-line {over:0}s longest {lg:0.0}s | better-line {open:0}s" +
-                                  $" | head-ons rival {headOnsRival} player {headOnsPlayer} (slow {headOnsSlow}, after respawn {headOnsAfterRespawn}, one-way {headOnsOneWay}, passing {headOnsPassing}) | one-way meets {owMeets} {owSeconds:0}s");
+                                  $" | head-ons rival {headOnsRival} player {headOnsPlayer} (slow {headOnsSlow}, after respawn {headOnsAfterRespawn}, one-way {headOnsOneWay}, passing {headOnsPassing}) | one-way meets {owMeets} {owSeconds:0}s" +
+                                  $" | oncoming-stream hits {oncomingStreamHits} (hard {oncomingStreamHard})");
             RacePlayCheck.Check(lg <= 20f, "every rival comes back to the right lane (no stay over the centreline past 20 s)", $"{lg:0.0} s ({lgWho})");
             RaceManager.Respawned -= OnRespawned;
             rm = null;

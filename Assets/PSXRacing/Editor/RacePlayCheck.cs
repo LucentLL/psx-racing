@@ -1145,6 +1145,9 @@ namespace PSXRacing.EditorTools
             if (kind == "traffic")
             {
                 bool isPlayer = who.GetComponentInParent<CarController>() == rm.playerCar;
+                // aipass: a hit on a car of the ONCOMING stream from its front, whatever its speed (a queued or slowing
+                // oncoming car met nose to nose is not a head-on below: it is not coming at 3 m/s)
+                LaneUseWatch.TrafficHit(who.GetComponentInParent<CarController>(), lastHitOther != null ? lastHitOther.GetComponentInParent<Rigidbody>() : null, speed);
                 if (isPlayer) trafficHitsPlayer++;
                 else { trafficHitsRivals++; if (speed >= 10f) hardTrafficHitsRivals++; }
                 // HEAD-ON: the traffic car was coming at us.
