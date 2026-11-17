@@ -70,6 +70,77 @@ namespace PSXRacing
         /// need no state change between them (measured 2026-11-10: one set-pass
         /// call a draw with it). Off until it has been seen on screen.</summary>
         public static bool BaseFromArgs;
+
+        /// <summary>
+        /// THE FOREST'S DEPTH PRE-PASS (perf round, 2026-11-16; owner: "we need
+        /// to start focusing HEAVILY on performance" - 40-49 fps on the mountain
+        /// stages at 3832x2054, the GPU the bound). A leaf card is cut out by
+        /// its texture's alpha, so every leaf fragment the rasteriser makes
+        /// runs PSX/Lit's whole pixel program - lamps, shadows, fog - before
+        /// the clip throws most of them away, and crowns stand many cards deep.
+        /// With this on, each CUTOUT draw of the main view is issued twice:
+        /// first depth only (the same shader and keywords, so the same vertices
+        /// to the bit; _SkylinePass 4 leaves the pixel program right after its
+        /// clips; no colour written; one queue earlier, so every cutout's depth
+        /// is down before any is shaded), then the colour draw with ZTest Equal
+        /// and no depth write - the whole program runs once a visible pixel.
+        /// No shader change: PSX/Lit already carries the per-material ZTest /
+        /// ZWrite / ColorMask and the early return (the city skyline's draws).
+        /// Same picture; the forest's cutout triangles are drawn twice.
+        /// ON by default (measured 2026-11-16: -5.5 ms of a 24.7 ms frame at Lake
+        /// Lure, the pair of lossless frames identical); PSX_FOREST_PREPASS=0 = the
+        /// single draw as before. A perf tour's probe flips it inside one run
+        /// (set:MeshForest.DepthPre:0).
+        /// </summary>
+        public static bool DepthPre = System.Environment.GetEnvironmentVariable("PSX_FOREST_PREPASS") != "0";
+        /// <summary>The pre-pass's queue, relative to the cutout's own.</summary>
+        const int PreQueueStep = -1;
+        RenderParams[] cmdRpDepth, cmdRpEq;     // a cutout draw's depth-only twin, and its colour draw against that depth
+        bool[] cmdPre;                          // this draw is a cutout (has the twin)
+        bool preBuilt;
+        readonly System.Collections.Generic.Dictionary<Material, Material> preDepthOf = new System.Collections.Generic.Dictionary<Material, Material>();
+        readonly System.Collections.Generic.Dictionary<Material, Material> preEqOf = new System.Collections.Generic.Dictionary<Material, Material>();
+        static readonly int IdSkylinePass = Shader.PropertyToID("_SkylinePass"), IdSkyColorMask = Shader.PropertyToID("_SkyColorMask"),
+                            IdSkyZTest = Shader.PropertyToID("_SkyZTest"), IdSkyZWrite = Shader.PropertyToID("_SkyZWrite"), IdCutoff = Shader.PropertyToID("_Cutoff");
+
+        /// <summary>The pre-pass twins of the main view's cutout draws, for the
+        /// materials of this dress (made on the first frame the switch is on).</summary>
+        void BuildPre()
+        {
+            preBuilt = true;
+            if (cmdRpDepth == null || cmdRpDepth.Length != cmds.Length)
+            {
+                cmdRpDepth = new RenderParams[cmds.Length];
+                cmdRpEq = new RenderParams[cmds.Length];
+                cmdPre = new bool[cmds.Length];
+            }
+            for (int c = 0; c < mainCmds; c++)
+            {
+                cmdPre[c] = false;
+                if (!cmdOn[c]) continue;
+                var mat = cmdRp[c].material;
+                if (mat == null || !mat.HasProperty(IdCutoff) || mat.GetFloat(IdCutoff) <= 0.001f || !mat.HasProperty(IdSkylinePass)) continue;
+                if (!preDepthOf.TryGetValue(mat, out var dm) || dm == null)
+                {
+                    dm = new Material(mat) { name = mat.name + "_pre", enableInstancing = true };
+                    dm.SetFloat(IdSkylinePass, 4f);     // past the skyline's own 1-3: no squeeze in the vertex, out of the pixel program after the clips
+                    dm.SetFloat(IdSkyColorMask, 0f);
+                    dm.renderQueue = mat.renderQueue + PreQueueStep;
+                    preDepthOf[mat] = dm;
+                }
+                if (!preEqOf.TryGetValue(mat, out var em) || em == null)
+                {
+                    em = new Material(mat) { name = mat.name + "_eq", enableInstancing = true };
+                    em.SetFloat(IdSkyZTest, (float)CompareFunction.Equal);
+                    em.SetFloat(IdSkyZWrite, 0f);
+                    em.renderQueue = mat.renderQueue;
+                    preEqOf[mat] = em;
+                }
+                cmdRpDepth[c] = cmdRp[c]; cmdRpDepth[c].material = dm;
+                cmdRpEq[c] = cmdRp[c]; cmdRpEq[c].material = em;
+                cmdPre[c] = true;
+            }
+        }
         /// <summary>The pop measure (PerfTour PopWalk): the forest's levels and
         /// rings worked out from <see cref="LodEye"/> instead of the camera, so
         /// two pictures from one place differ only by what changes level.</summary>
@@ -572,6 +643,7 @@ namespace PSXRacing
                     matProps = argsHaveBase ? null : cmdProps[c],
                 };
             }
+            preBuilt = false;   // (the depth pre-pass's twins follow the materials: BuildPre)
         }
 
         /// <summary>One frame of the GPU path for the main view (or an
@@ -675,11 +747,23 @@ namespace PSXRacing
             lodBounds[2] = new Bounds(camPos + fwd * ((lod1To + meshRange) * 0.5f), size);
             lodBounds[3] = new Bounds(camPos + fwd * (meshRange + 400f), size);
             int drawn = 0;
+            bool pre = DepthPre;
+            if (pre && !preBuilt) BuildPre();
             for (int c = 0; c < mainCmds; c++)
             {
                 if (!cmdOn[c]) continue;
                 int v = cmds[c].variant, l = cmds[c].lod;
                 if (!reachAll && ((v < 64 ? reachLo[l] >> v : reachHi[l] >> (v - 64)) & 1UL) == 0) continue;
+                if (pre && cmdPre[c])
+                {
+                    // a cutout: its depth first, then its colour where that depth is (DepthPre)
+                    cmdRpDepth[c].camera = cam; cmdRpDepth[c].worldBounds = lodBounds[l];
+                    Graphics.RenderMeshIndirect(in cmdRpDepth[c], cmds[c].mesh, argsBuf, 1, c);
+                    cmdRpEq[c].camera = cam; cmdRpEq[c].worldBounds = lodBounds[l];
+                    Graphics.RenderMeshIndirect(in cmdRpEq[c], cmds[c].mesh, argsBuf, 1, c);
+                    drawn++;
+                    continue;
+                }
                 cmdRp[c].camera = cam;
                 cmdRp[c].worldBounds = lodBounds[l];
                 Graphics.RenderMeshIndirect(in cmdRp[c], cmds[c].mesh, argsBuf, 1, c);

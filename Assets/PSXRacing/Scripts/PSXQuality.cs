@@ -306,6 +306,84 @@ namespace PSXRacing
         public static float Amount => Enabled ? 1f : 0f;
     }
 
+    /// <summary>
+    /// RENDER SCALE (VISUALS; the perf round, 2026-11-16 - owner: "we need to
+    /// start focusing HEAVILY on performance", 60 fps the floor and 144 the
+    /// goal at 3832x2054 on an RTX 3070). At that size the graphics card is
+    /// the limit and its work goes with the pixel count, so the one switch
+    /// that buys frame rate everywhere is drawing the HD picture at a share
+    /// of the display's lines and scaling it up: 85 % is 28 % fewer pixels,
+    /// 75 % is 44 % fewer, 67 % is 55 % fewer. The display blit (PSX/Blit)
+    /// then smooths edges as before and, when it is scaling up, sharpens
+    /// (an unsharp mask held inside each pixel's own neighbourhood, so no
+    /// halo). 100 % is the picture as it always was, and the default: this
+    /// is the player's choice, never made for them. HD in the PC tier's
+    /// picture only (PSXQuality.PCHD); every other picture is untouched.
+    /// PSX_RENDER_SCALE=75 (or a perf tour's scale=75) sets it for one run.
+    /// </summary>
+    public static class RenderScalePrefs
+    {
+        const string PrefKey = "psx.renderscale";
+        static readonly int[] Steps = { 100, 85, 75, 67, 50 };
+        static int cached = -1, run = -2;
+
+        static int Snap(int v)
+        {
+            int best = Steps[0];
+            foreach (int s in Steps) if (Mathf.Abs(s - v) < Mathf.Abs(best - v)) best = s;
+            return best;
+        }
+
+        /// <summary>This run only (the environment's PSX_RENDER_SCALE, a perf
+        /// tour's scale=, the probe): 0 = the player's own setting.</summary>
+        public static int Override
+        {
+            get
+            {
+                if (run == -2)
+                {
+                    run = 0;
+                    string e = System.Environment.GetEnvironmentVariable("PSX_RENDER_SCALE");
+                    if (!string.IsNullOrEmpty(e) && int.TryParse(e, out int ev) && ev >= 25 && ev <= 100) run = ev;
+                }
+                return run;
+            }
+            set { int v = value >= 25 && value <= 100 ? value : 0; if (v == Override) return; run = v; PSXQuality.Bump(); }
+        }
+
+        public static int Percent
+        {
+            get
+            {
+                if (Override > 0) return Override;
+                if (cached < 0) cached = Snap(PlayerPrefs.GetInt(PrefKey, 100));
+                return cached;
+            }
+            set
+            {
+                int v = Snap(value);
+                if (v == cached) return;
+                cached = v;
+                PlayerPrefs.SetInt(PrefKey, v);
+                PlayerPrefs.Save();
+                PSXQuality.Bump();
+            }
+        }
+
+        public static float Scale => Percent / 100f;
+        public static string Label => Percent + "%";
+
+        public static void Cycle()
+        {
+            int i = System.Array.IndexOf(Steps, Snap(Percent));
+            Percent = Steps[(i + 1) % Steps.Length];
+        }
+
+        /// <summary>How hard the display blit sharpens at this scale: nothing
+        /// at 100 %, more the further the picture is scaled up.</summary>
+        public static float Sharpen => Scale >= 0.995f ? 0f : Mathf.Lerp(0.3f, 0.7f, Mathf.InverseLerp(0.85f, 0.5f, Scale));
+    }
+
     public static class PSXQuality
     {
         public static readonly string[] Names = { "SHARP", "CLASSIC", "RETRO", "HD" };
@@ -349,6 +427,8 @@ namespace PSXRacing
         /// framebuffer without an event a scene load could leave dangling.
         /// Same pattern as <see cref="ClusterBulbs"/>.</summary>
         public static int Changed { get; private set; }
+        /// <summary>The framebuffer must be rebuilt (RENDER SCALE changed).</summary>
+        internal static void Bump() => Changed++;
 
         public static void Cycle(int step = 1)
         {
@@ -367,7 +447,7 @@ namespace PSXRacing
         /// size, which is the single biggest thing between "console" and
         /// "spreadsheet". HD goes the rest of the way (<see cref="HDLines"/>).
         /// </summary>
-        public static int Height => Current == PSXPixels.HD ? HDLines(Screen.height)
+        public static int Height => Current == PSXPixels.HD ? ScaledHD(HDLines(Screen.height))
                                   : Current == PSXPixels.Sharp ? 480
                                   : Current == PSXPixels.Classic ? 360 : 240;
 
@@ -387,6 +467,12 @@ namespace PSXRacing
         /// a 1125-line window doubles every 24th row, a seam across every edge.
         /// </summary>
         public static int HDLines(int displayLines) => Mathf.Clamp(displayLines, 480, HDMaxLines);
+
+        /// <summary>HD's lines at the player's RENDER SCALE (the PC tier's
+        /// picture only: its blit is the one that smooths and sharpens an
+        /// upscale; 100 % = the display's own lines, as ever).</summary>
+        static int ScaledHD(int lines) =>
+            PlatformProfile.PCPicture && RenderScalePrefs.Scale < 0.995f ? Mathf.Max(480, Mathf.RoundToInt(lines * RenderScalePrefs.Scale)) : lines;
 
         /// <summary>The line count the HUD is laid out in. The race HUD is
         /// ConstantPixelSize on the PSX camera - its type, the cluster and the

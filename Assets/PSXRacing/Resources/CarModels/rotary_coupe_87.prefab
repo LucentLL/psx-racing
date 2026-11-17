@@ -1,0 +1,93 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &855028028323723393
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 3303877699235902673}
+  - component: {fileID: 2498056564982213905}
+  m_Layer: 0
+  m_Name: rotary_coupe_87
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &3303877699235902673
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 855028028323723393}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &2498056564982213905
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 855028028323723393}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9003aa5af5df0914a836bf189308f6ae, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PSXRacing.CarModelDef
+  key: rotary_coupe_87
+  displayName: Rotary Coupe 87 (FC)
+  bodyMesh: {fileID: -2432090755550338912, guid: 9928e01cf931f9646823d4e207e4cf88, type: 3}
+  wheelMesh: {fileID: 4300000, guid: d2f99e21d68703448837db7ffb3d4ea1, type: 2}
+  skinMaterials:
+  - {fileID: 2100000, guid: 3840f89b637cf9d4786a6cc31d3ccda2, type: 2}
+  skinNames:
+  - rotary_coupe_87_bronze_512x256
+  wheelMaterial: {fileID: 0}
+  skinColors:
+  - {r: 0.41530964, g: 0.35339954, b: 0.2826234, a: 1}
+  bodyYaw: 180
+  bodyYOffset: -0.021133242
+  bodyZOffset: 0
+  wheelbase: 2.445416
+  trackWidth: 1.465237
+  wheelRadius: 0.28077024
+  wheelMeshScale: 0.93
+  trackRear: 1.455174
+  tyreRadiusRear: 0.3019035
+  tyreWidthRear: 0.21133202
+  lowerBodyWidth: 1.693718
+  cowlZ: 0.71124166
+  cowlY: 0.8363715
+  noseZ: 2.152398
+  roofY: 1.2375417
+  headLamp: {x: 0.5581085, y: 0.5717103, z: 1.9700996}
+  headLampNormal: {x: 0.09246419, y: 0.93260205, z: 0.34886074}
+  headLampSize: {x: 0.46809098, y: 0.28}
+  tailLamp: {x: 0.58899426, y: 0.6479213, z: -2.0679574}
+  tailLampNormal: {x: 0.20002773, y: 0.055902634, z: -0.9781942}
+  tailLampSize: {x: 0.32176608, y: 0.10743311}
+  lampsUpMesh: {fileID: -2432090755550338912, guid: 868f0f325ac76b54cada25c9762b130f, type: 3}
+  headLampUp: {x: 0.5273878, y: 0.6827079, z: 1.9370486}
+  headLampUpNormal: {x: 0.27455044, y: -0.024035173, z: 0.96127224}
+  headLampUpSize: {x: 0.26746753, y: 0.1820235}
+  lensBodyMesh: {fileID: 0}
+  lensHeadMesh: {fileID: 0}
+  lensTailMesh: {fileID: 0}
+  lensHeadMaterial: {fileID: 0}
+  lensTailMaterial: {fileID: 0}
+  coverMesh: {fileID: 0}
+  coverUpMesh: {fileID: 0}
+  coverMaterial: {fileID: 0}
+  colliderCenter: {x: 0, y: 0.70268625, z: -0.0026019812}
+  colliderSize: {x: 1.6473203, y: 0.9987849, z: 4.1160502}
+  blobSize: {x: 2.196427, y: 4.6117005}

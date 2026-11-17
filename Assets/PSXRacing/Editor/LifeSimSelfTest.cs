@@ -180,6 +180,7 @@ namespace PSXRacing.EditorTools
             RunEventsTests();   // v29 events: LifeSimSelfTest.Events.cs
             RunFix1Tests();   // fix pass 1 (concussion, the live bench, panel by stage): LifeSimSelfTest.Fix1.cs
             RunDamageViewTests();   // damageview: every view of a career car shows its condition: LifeSimSelfTest.DamageView.cs
+            RunDamage2Tests();   // damage round 2: the panes that break, the wheels' curb rash: LifeSimSelfTest.Damage2.cs
             // R0b stop the leaks (LifeSimSelfTest.LeaksR0b.cs). LAST: its page
             // renders build the home screen in edit mode, and nothing after
             // them should inherit what that leaves behind.
@@ -523,7 +524,9 @@ namespace PSXRacing.EditorTools
             var todayIds = TrackCatalog.All.Select(t => t.id).ToList();
             // v30 appended Lake Lure, its twin and its four sections: the v21 survivors are today's list without them
             string[] v30Added = { "LakeLure", "LakeLureRev", "LakeLureShore", "LakeLureShoreRev", "LakeLureGorge", "LakeLureGorgeRev" };
-            var beforeV30 = todayIds.Where(id => System.Array.IndexOf(v30Added, id) < 0).ToList();
+            // and the Charlotte tracks (CityTracks: hostScene), appended after everything from their own files
+            var beforeV30 = TrackCatalog.All.Where(t => System.Array.IndexOf(v30Added, t.id) < 0 && string.IsNullOrEmpty(t.hostScene))
+                                            .Select(t => t.id).ToList();
             Check(TrackCatalog.V21Count == 57 && survivors.SequenceEqual(beforeV30) && v30Added.All(id => TrackCatalog.TryIndexOf(id, out _)),
                   "the frozen v21 list less the retired ids is today's list less the v30 additions, in order",
                   TrackCatalog.V21Count + " v21, " + survivors.Count + " kept vs " + beforeV30.Count + " today before v30");
@@ -2471,6 +2474,12 @@ namespace PSXRacing.EditorTools
                           t.id + " races in " + t.reverseOf + " s scene");
                     continue;
                 }
+                if (!string.IsNullOrEmpty(t.hostScene))
+                {
+                    // a Charlotte track of charlotte_tracks.json races in its host's scene (CityTracksRegistrar)
+                    Check(System.IO.File.Exists("Assets/PSXRacing/Scenes/" + t.hostScene + ".unity"), t.id + " races in " + t.hostScene + " s scene");
+                    continue;
+                }
                 Check(System.IO.File.Exists("Assets/PSXRacing/Scenes/" + t.id + ".unity"),
                       t.id + " scene exists");
 
@@ -2496,6 +2505,7 @@ namespace PSXRacing.EditorTools
                         Check(!string.IsNullOrEmpty(t.dragLabel), t.id + " is named for the HUD");
                         Check(!string.IsNullOrEmpty(t.stageAttribution), t.id + " carries its map attribution");
                         var cityMap = PSXRacing.City.CityMap.Get();
+                        CityTracks.Register(cityMap);   // the races of charlotte_tracks.json, as every city scene does
                         var route = cityMap != null ? cityMap.RouteById(t.cityRoute) : null;
                         Check(route != null, t.id + " route exists in the city graph", t.cityRoute);
                         if (route != null)
@@ -2753,7 +2763,9 @@ namespace PSXRacing.EditorTools
             for (int i = 0; i < TrackCatalog.Count; i++)
             {
                 var t = TrackCatalog.At(i);
-                string wantId = t.Reversed ? t.reverseOf : t.IsSprintVariant ? t.sprintOf : t.id;
+                // a Charlotte track (and its twin) races in its host's scene (CityTracks, TrackDef.hostScene)
+                string wantId = !string.IsNullOrEmpty(t.hostScene) ? t.hostScene
+                              : t.Reversed ? t.reverseOf : t.IsSprintVariant ? t.sprintOf : t.id;
                 int got = TrackCatalog.SceneIndex(i);
                 Check(got > 0 && got < scenes.Length &&
                       scenes[got].path == TrackCatalog.ScenePathOf(wantId),
@@ -5138,7 +5150,8 @@ namespace PSXRacing.EditorTools
                 // ROAD — and the eighth mile, which is cheaper than any of
                 // them, must not be what a dry tank always gets.
                 for (int i = 0; i < TrackCatalog.Count; i++)
-                    if (!TrackCatalog.At(i).IsRoam && !TrackCatalog.At(i).drag)
+                    // (a noDelivery road is out of that pool too: the 402 m CltD1 is cheaper than any road in it)
+                    if (!TrackCatalog.At(i).IsRoam && !TrackCatalog.At(i).drag && !TrackCatalog.At(i).noDelivery)
                         cheapest = Mathf.Min(cheapest,
                                    LifeRules.RequiredFuelPct(TrackCatalog.At(i), s.ActiveCar));
                 Check(cheapest > 0f, "an empty tank really does fit nowhere",
@@ -10030,11 +10043,40 @@ namespace PSXRacing.EditorTools
                     if (isEvo) evo6++; if (isEvo && k == "rally_sedan_99") evo6Ok++;
                     if (isFb) s13++; if (isFb && k == "fastback_96") s13Ok++;
                     if ((k == "longnose_71" && !isZ) || (k == "rally_sedan_99" && !isEvo) || (k == "fastback_96" && !isFb)) { z30Ok = -99; }
-                    if ((c.name.Contains("(S13)") || c.name.StartsWith("SILEIGHTY")) && k != "nissan_180sx") s13Ok = -99;
+                    if (c.name.StartsWith("SILEIGHTY") && k != "nissan_180sx") s13Ok = -99;
+                    if (c.name.Contains("(S13)") && k != "coupe_88") s13Ok = -99;   // cars-1116: the owner's S13 notchback
                 }
                 Check(z30 == 1 && z30Ok == 1, "the S30 240ZG wears the owner's Long-nose Coupe 71 (and nothing else does)", z30Ok + " of " + z30);
                 Check(evo6 == 3 && evo6Ok == 3, "the three `99 Evolution VIs wear the owner's Rally Sedan 99", evo6Ok + " of " + evo6);
-                Check(s13 == 1 && s13Ok == 1, "the 240SX `96 wears the owner's Fastback 96; the S13 Silvias and SILEIGHTY keep the 180SX shell", s13Ok + " of " + s13);
+                Check(s13 == 1 && s13Ok == 1, "the 240SX `96 wears the owner's Fastback 96; the S13 Silvias wear the Coupe 88, SILEIGHTY keeps the 180SX shell", s13Ok + " of " + s13);
+                // cars-1116 (2026-11-16): the owner's five new shells, each on its exact rows only.
+                {
+                    var want = new System.Collections.Generic.Dictionary<string, string>
+                    {
+                        { "coupe_88", @"^Nissan SILVIA (K|Q)'s \(S13\) `(88|91)$" },
+                        { "rotary_coupe_87", @"^Mazda RX-7 .*\(FC, J\) `\d\d$" },
+                        { "lux_coupe_97", @"^Lexus SC300 `97$" },
+                        { "gt_liftback_88", @"^Toyota SUPRA (3\.0GT Turbo A `88|2\.5GT Twin Turbo R `90)$" },
+                        { "pony_coupe_67", @"^Chevrolet Camaro SS 350 `67$" },
+                    };
+                    var rows = new System.Collections.Generic.Dictionary<string, int>();
+                    int stray = 0;
+                    foreach (var c in CarCatalog.All)
+                    {
+                        string k = CarModelLibrary.KeyFor(c);
+                        foreach (var kv in want)
+                        {
+                            bool named = System.Text.RegularExpressions.Regex.IsMatch(c.name, kv.Value);
+                            if (named && k == kv.Key) rows[kv.Key] = (rows.TryGetValue(kv.Key, out int n) ? n : 0) + 1;
+                            else if (named != (k == kv.Key)) stray++;
+                        }
+                    }
+                    int Rows(string k) => rows.TryGetValue(k, out int n) ? n : 0;
+                    Check(stray == 0 && Rows("coupe_88") == 4 && Rows("rotary_coupe_87") == 3 && Rows("lux_coupe_97") == 1 &&
+                          Rows("gt_liftback_88") == 2 && Rows("pony_coupe_67") == 1,
+                          "cars-1116: the S13 notchback, FC, Z30, A70 and `67 pony coupe dress exactly their rows",
+                          $"S13 {Rows("coupe_88")}/4 FC {Rows("rotary_coupe_87")}/3 Z30 {Rows("lux_coupe_97")}/1 A70 {Rows("gt_liftback_88")}/2 67 {Rows("pony_coupe_67")}/1, stray {stray}");
+                }
                 // The owner's 2026-10-02 set.
                 int integra = 0, integraOk = 0, s2k = 0, s2kOk = 0, prelude = 0, preludeOk = 0;
                 foreach (var c in CarCatalog.All)

@@ -137,6 +137,7 @@ namespace PSXRacing.LifeSim
             foreach (var f in car.faults)
                 if (f != null && (f.id == DamageModel.PanelId || f.id == DamageModel.GlassId)) pct += Mathf.Max(0f, f.mag);
                 else if (f != null && SrsOn && f.id == SrsBag.Id && f.mag > 0f) pct += SrsValuePct * (1f + 0.5f * (Mathf.Min(f.mag, 2f) - 1f));   // R1c-A
+                else if (f != null && WheelScuff.On && WheelScuff.Is(f.id)) pct += Mathf.Max(0f, f.mag);   // damage round 2: a scraped rim
             return 1f - Mathf.Min(ValueCap, pct / 100f);
         }
 
@@ -156,6 +157,7 @@ namespace PSXRacing.LifeSim
                 case DamageModel.GlassId: return "value -3/-15/-40% by stage";
                 case SrsBag.Id: return SrsOn ? "value -12% (both bags -18%); dealer parts only" : null;   // R1c-A
             }
+            if (WheelScuff.Is(id)) return "that rim scraped: value -0.4/-1/-2% by stage";   // damage round 2
             return null;
         }
     }

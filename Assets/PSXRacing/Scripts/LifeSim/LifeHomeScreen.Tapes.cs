@@ -59,7 +59,11 @@ namespace PSXRacing.LifeSim
         void TapeRow(Tapes.Header h, string right, ref float y, string page)
         {
             bool picked = h.id == tapeSel;
-            const float rowH = 50f;
+            // Round 2: the tape's best clip under its spine ("CP 3: 94 MPH ·
+            // SLIDE · LED"); a tape with no clips (v1, a montage) keeps one line.
+            string best = Tapes.RowLine(h);
+            bool two = best.Length > 0;
+            float rowH = two ? 72f : 50f;
             var row = MenuKit.Button(body, "", new Vector2(0.5f, 1f),
                 new Vector2(MenuKit.ColLeft(ColL, ColW), y), new Vector2(ColW, rowH),
                 () => { tapeSel = h.id; armKey = null; tab = page; Rebuild(); }, 16,
@@ -73,15 +77,39 @@ namespace PSXRacing.LifeSim
             var stripeImg = stripe.GetComponent<UnityEngine.UI.Image>();
             if (stripeImg != null) stripeImg.raycastTarget = false;
             float rightW = 150f;
-            var label = MenuKit.Label(row.transform, h.Spine, 17, new Vector2(0f, 0.5f), new Vector2(28f, 0f),
+            var label = MenuKit.Label(row.transform, h.Spine, 17, new Vector2(0f, 0.5f), new Vector2(28f, two ? 13f : 0f),
                 TextAnchor.MiddleLeft, picked ? MenuKit.Accent : Color.white, ColW - rightW - 50f, height: 26f, bold: picked);
             label.raycastTarget = false;
             MenuKit.FitOneLine(label, ColW - rightW - 50f);
+            if (two)
+            {
+                var sub = MenuKit.Label(row.transform, best, MenuKit.Tiny, new Vector2(0f, 0.5f), new Vector2(28f, -15f),
+                    TextAnchor.MiddleLeft, MenuKit.Dim, ColW - rightW - 50f, height: 24f);
+                sub.raycastTarget = false;
+                MenuKit.FitOneLine(sub, ColW - rightW - 50f);
+            }
             // Right-aligned text pivots on its right edge (MenuKit.PivotXFor).
             var r = MenuKit.Label(row.transform, right, 17, new Vector2(1f, 0.5f), new Vector2(-18f, 0f),
                 TextAnchor.MiddleRight, MenuKit.Dim, rightW, height: 26f);
             r.raycastTarget = false;
             y -= rowH + 6f;
+        }
+
+        /// <summary>WHAT THE CAMERAS SAW (round 2): the tape's clips in order,
+        /// each with its tags ("CP 3: 94 MPH · SLIDE · LED"), and at the store
+        /// what each is worth. Nothing for a tape with no clips.</summary>
+        void ClipBlock(Tapes.Header h, bool withValue, ref float y)
+        {
+            if (h == null || h.clips == null || h.clips.Count == 0) return;
+            var lines = Tapes.ClipLines(h, withValue);
+            string text = string.Join("   |   ", lines);
+            if (withValue) text += "   |   THE RESULT  +$" + Tapes.ResultValue(h);
+            MenuKit.Label(body, withValue ? "WHAT THE CAMERAS SAW   ·   WHAT IT IS WORTH" : "WHAT THE CAMERAS SAW", MenuKit.Tiny,
+                new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Dim, ColW, height: 24f).raycastTarget = false;
+            y -= 26f;
+            MenuKit.Para(body, text, MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(ColL, y - 8f),
+                out float ph, TextAnchor.UpperLeft, Color.white, ColW);
+            y -= ph + 14f;
         }
 
         // =================== THE SHELF ===================
@@ -139,6 +167,7 @@ namespace PSXRacing.LifeSim
                 y -= 54f;
             }
             y -= 6f;
+            ClipBlock(pick, false, ref y);
 
             MenuKit.Rect(body, "Rule", new Vector2(0.5f, 1f), new Vector2(0f, 1f),
                 new Vector2(ColL, y), new Vector2(ColW, 2f), MenuKit.Line);
@@ -198,6 +227,7 @@ namespace PSXRacing.LifeSim
             ArmedButton("selltape:" + pick.id, "SELL IT FOR " + MenuKit.Money(offer), null,
                 () => SellTape(captured), Mathf.Min(420f, ColW), ref y);
             y -= 6f;
+            ClipBlock(pick, true, ref y);
 
             MenuKit.Rect(body, "Rule", new Vector2(0.5f, 1f), new Vector2(0f, 1f),
                 new Vector2(ColL, y), new Vector2(ColW, 2f), MenuKit.Line);

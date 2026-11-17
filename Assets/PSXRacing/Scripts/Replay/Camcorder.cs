@@ -6,9 +6,10 @@ namespace PSXRacing
     /// THE CAMCORDER (owner, 2026-11-16: "replays could look like they're
     /// recorded on camcorders. The tapes can be saved ... then sell for
     /// in-game money"). The replay's default view became a 1999 Hi8 / VHS-C
-    /// camcorder: bystanders at the roadside filming with one in their
-    /// hands, now and then a buddy's car behind with one out of the
-    /// passenger seat, and the picture and the sound of the tape.
+    /// camcorder: bystanders filming with one in their hands at the race's
+    /// points - the start line, every checkpoint, the finish line (round 2:
+    /// nothing travels with the cars) - and the picture and the sound of the
+    /// tape.
     ///
     /// This class is the switchboard and the one place the parts meet: the
     /// director (<see cref="CamcorderCam"/>) publishes what the lens is doing
@@ -44,6 +45,24 @@ namespace PSXRacing
             }
         }
 
+        static float gainCap = -1f;
+        /// <summary>The most the camcorder's GAIN UP multiplies a dark picture
+        /// by: PSX_CAM_GAIN, default 3.2 (the value every night frame of
+        /// round 2 was shot at; round 1's was 1.7). Lower = darker nights.</summary>
+        public static float GainCap
+        {
+            get
+            {
+                if (gainCap < 0f)
+                {
+                    gainCap = 3.2f;
+                    if (float.TryParse(System.Environment.GetEnvironmentVariable("PSX_CAM_GAIN") ?? "", System.Globalization.NumberStyles.Float,
+                                       System.Globalization.CultureInfo.InvariantCulture, out float g)) gainCap = Mathf.Clamp(g, 1f, 6f);
+                }
+                return gainCap;
+            }
+        }
+
         /// <summary>For tools: force the switch either way in this process.</summary>
         public static void ForceEnabled(bool on) => enabled = on ? 1 : 0;
 
@@ -66,9 +85,15 @@ namespace PSXRacing
         public static bool EyeReset;
         /// <summary>Where the eye starts after a cut: a stop up or down.</summary>
         public static float EyeKick;
-        /// <summary>Filmed from a car's passenger seat: the dash and the
-        /// A-pillar framed in the picture.</summary>
-        public static bool Interior;
+        /// <summary>The static between two recordings (a cut from one
+        /// point's camera to the next), 0 .. 1.</summary>
+        public static float Static;
+        /// <summary>The clip on screen, for the OSD: "START", "CHECKPOINT 3/9",
+        /// "FINISH" (and "LAP 2/3" under a circuit's checkpoints).</summary>
+        public static string ClipLabel = "", ClipSub = "";
+        /// <summary>A TAPE's own course (the points it was shot at), set by
+        /// the VCR before the replay begins; null for a race just run.</summary>
+        public static RaceCourse TapeCourse;
 
         /// <summary>The VCR's transport, drawn by the pass: 0 play (the tape's
         /// own picture), 1 pause (the still field's jitter and its bar),
@@ -121,7 +146,8 @@ namespace PSXRacing
         {
             Camera = null;
             Defocus = 0f; PanSmear = 0f; Tracking = 0f;
-            EyeReset = false; EyeKick = 0f; Interior = false;
+            EyeReset = false; EyeKick = 0f; Static = 0f;
+            ClipLabel = ""; ClipSub = "";
             Transport = 0; ScanRate = 0f;
         }
     }

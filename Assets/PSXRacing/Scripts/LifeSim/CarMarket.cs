@@ -663,8 +663,9 @@ namespace PSXRacing.LifeSim
         /// <summary>The bodies the starter lanes draw from (the owner's models).</summary>
         /// Each entry is one FAMILY, its shells separated by '|': since
         /// 2026-10-10 the 240SX `96 wears the late-face fastback_96, the S13
-        /// Silvias the 180SX shell - one starter family still.
-        public static readonly string[] StarterBodies = { "nissan_180sx|fastback_96", "civic_eg" };
+        /// Silvias the 180SX shell - one starter family still. 2026-11-16: the S13
+        /// Silvias wear the owner's own S13 notchback (coupe_88), same family.
+        public static readonly string[] StarterBodies = { "nissan_180sx|fastback_96|coupe_88", "civic_eg" };
 
         /// <summary>Which StarterBodies family a shell key belongs to, or -1.</summary>
         public static int StarterBodyOf(string key)

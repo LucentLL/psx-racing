@@ -106,6 +106,7 @@ namespace PSXRacing.OnFoot
             var donorMat = CarModelLibrary.WheelMaterial(donor);
             if (donorMat != null) PSXTexDecode.Stamp(donorMat);
             var donorRatio = CarModelLibrary.WheelRatio(def, donor);
+            var wheelRends = new Renderer[4];
 
             for (int i = 0; i < 4; i++)
             {
@@ -133,6 +134,7 @@ namespace PSXRacing.OnFoot
                 fit.PlaceWheel(w.transform, i, slide);
                 w.AddComponent<MeshFilter>().sharedMesh = donor != null ? donor.wheelMesh : def.wheelMesh;
                 var wr = w.AddComponent<MeshRenderer>();
+                wheelRends[i] = wr;
                 if (donor != null)
                 {
                     if (donorMat != null) wr.sharedMaterial = donorMat;
@@ -156,7 +158,7 @@ namespace PSXRacing.OnFoot
             SpeedBlur.MarkOtherCar(shell);
             // The player's own car stands in its current condition, as it
             // drives (DamageView); a shell with no owner is untouched.
-            if (owned != null) DamageView.Dress(shell, br, def, fit, slide, owned);
+            if (owned != null) DamageView.Dress(shell, br, def, fit, slide, owned, wheelRends);
             return shell;
         }
 
@@ -170,7 +172,13 @@ namespace PSXRacing.OnFoot
             var br = body != null ? body.GetComponent<Renderer>() : null;
             var fit = CarModelLibrary.Fit(def, spec != null ? CarModelLibrary.SpecGeometry.Of(spec)
                                                             : CarModelLibrary.SpecGeometry.WidthOnly(widthMm));
-            DamageView.Dress(shell, br, def, fit, new Vector3(0f, 0f, -fit.P(def.colliderCenter).z), car);
+            var wheelRends = new Renderer[4];
+            for (int i = 0; i < 4; i++)
+            {
+                var w = shell.Find("Wheel" + i);
+                wheelRends[i] = w != null ? w.GetComponent<Renderer>() : null;
+            }
+            DamageView.Dress(shell, br, def, fit, new Vector3(0f, 0f, -fit.P(def.colliderCenter).z), car, wheelRends);
         }
 
         static Mesh standMesh;

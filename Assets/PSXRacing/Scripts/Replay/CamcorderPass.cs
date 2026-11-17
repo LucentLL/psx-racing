@@ -37,6 +37,9 @@ namespace PSXRacing
         readonly RTHandle[] eye = new RTHandle[2];
         int current;
 
+        /// <summary>For the tools: frames the pass drew, and frames it stood
+        /// down on (a camera drawing straight into its target).</summary>
+        public static int RecordedForTools, SkippedForTools;
         /// <summary>The eye pixel the last frame wrote, for the tools.</summary>
         public static RenderTexture EyeForTools;
 
@@ -76,7 +79,8 @@ namespace PSXRacing
         public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
         {
             var resources = frameData.Get<UniversalResourceData>();
-            if (material == null || resources.isActiveTargetBackBuffer) return;
+            if (material == null || resources.isActiveTargetBackBuffer) { SkippedForTools++; return; }
+            RecordedForTools++;
             var colour = resources.activeColorTexture;
             var desc = renderGraph.GetTextureDesc(colour);
             desc.name = "_PSXCamcorderSource";
@@ -169,7 +173,7 @@ namespace PSXRacing
             // The eye's two time constants: exposure ~0.7 s, white balance ~2.5 s.
             float k = 1f - Mathf.Exp(-dt / 0.7f);
             float kc = 1f - Mathf.Exp(-dt / 2.5f);
-            m.SetVector(Cam3Id, new Vector4(Camcorder.Interior ? 1f : 0f, 0f, 0f, 0f));
+            m.SetVector(Cam3Id, new Vector4(Mathf.Clamp01(Camcorder.Static), Camcorder.GainCap, 0f, 0f));
             m.SetVector(EyeKId, new Vector4(k, kc, Camcorder.EyeReset ? 1f : 0f,
                                             Camcorder.EyeReset ? Mathf.Max(0.05f, Camcorder.EyeKick) : 1f));
             Camcorder.EyeReset = false;

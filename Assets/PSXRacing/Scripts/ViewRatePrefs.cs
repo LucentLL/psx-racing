@@ -55,6 +55,20 @@ namespace PSXRacing
             PlayerPrefs.Save();
         }
 
+        /// <summary>A rate set outright (the GRAPHICS presets): one of the
+        /// row's own steps, the nearest when it is not.</summary>
+        public static void Set(View v, int rate)
+        {
+            int best = Steps[0];
+            foreach (int s in Steps) if (Mathf.Abs(s - rate) < Mathf.Abs(best - rate)) best = s;
+            if (System.Array.IndexOf(Steps, rate) >= 0) best = rate;
+            if (Rate(v) == best) return;
+            cached[(int)v] = best;
+            acc[(int)v] = 0f;
+            PlayerPrefs.SetInt(Keys[(int)v], best);
+            PlayerPrefs.Save();
+        }
+
         public static string Label(View v)
         {
             int r = Rate(v);

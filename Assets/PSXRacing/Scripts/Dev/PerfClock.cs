@@ -47,6 +47,9 @@ namespace PSXRacing
             // (PerfTour.Stage &offscreen=WxH: the main view drawn into a texture of that size
             // with no window - the render call, then the wait for the GPU to finish it)
             OffscreenCpu, OffscreenGpu,
+            // (perf round 2026-11-16: the sun's and the sky's shadow maps recorded - SunShadows.RenderFor,
+            // inside the driver camera's begin-rendering hook, so inside "render submit")
+            SunShadowMaps,
             COUNT
         }
 
@@ -62,6 +65,7 @@ namespace PSXRacing
             "traffic lead", "traffic ctl", "traffic swept steps",
             "forest cull", "forest draw", "forest other cams",
             "offscreen cpu", "offscreen gpu wait",
+            "sun shadow maps",
         };
 
         static readonly double ToMs = 1000.0 / Stopwatch.Frequency;
@@ -93,6 +97,26 @@ namespace PSXRacing
         static bool frameStarted;
 
         struct Marker { }
+
+        // ---- every camera's own render on the main thread (perf round 2026-11-16) ----
+        /// <summary>Main-thread ms between a camera's begin- and end-rendering
+        /// callbacks (its culling, its passes recorded), summed by camera name
+        /// since <see cref="CamReset"/>; and how many times each drew.</summary>
+        public static readonly Dictionary<string, double> CamMs = new Dictionary<string, double>();
+        public static readonly Dictionary<string, int> CamCalls = new Dictionary<string, int>();
+        static UnityEngine.Camera camOpen;
+        static long camT0;
+        public static void CamReset() { CamMs.Clear(); CamCalls.Clear(); }
+        static void CamBegin(UnityEngine.Rendering.ScriptableRenderContext ctx, UnityEngine.Camera c) { camOpen = c; camT0 = Stopwatch.GetTimestamp(); }
+        static void CamEnd(UnityEngine.Rendering.ScriptableRenderContext ctx, UnityEngine.Camera c)
+        {
+            if (c == null || c != camOpen) return;
+            camOpen = null;
+            double ms = (Stopwatch.GetTimestamp() - camT0) * ToMs;
+            string k = c.name;
+            CamMs.TryGetValue(k, out double v); CamMs[k] = v + ms;
+            CamCalls.TryGetValue(k, out int n); CamCalls[k] = n + 1;
+        }
 
         /// <summary>Put the markers into the player loop (once).</summary>
         public static void Install()
@@ -127,6 +151,8 @@ namespace PSXRacing
             SystemMs = new double[SystemNames.Length];
             SystemCalls = new int[SystemNames.Length];
             PlayerLoop.SetPlayerLoop(loop);
+            UnityEngine.Rendering.RenderPipelineManager.beginCameraRendering += CamBegin;
+            UnityEngine.Rendering.RenderPipelineManager.endCameraRendering += CamEnd;
             On = true;
         }
 

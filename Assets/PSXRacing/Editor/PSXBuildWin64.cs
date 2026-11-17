@@ -122,13 +122,23 @@ namespace PSXRacing.EditorTools
                     options = BuildOptions.None,
                 };
                 BuildReport report;
+                // PSX_FRAME_TIMING=1 (the perf round's measuring player): Unity's Frame Timing Stats in this
+                // player only - FrameTimingManager then reports the GPU's and the render thread's time a frame
+                // (PerfTour's summary). The project's own setting is put back whatever happens.
+                bool timingWas = PlayerSettings.enableFrameTimingStats;
+                bool timingOn = Environment.GetEnvironmentVariable("PSX_FRAME_TIMING") == "1";
                 try
                 {
+                    if (timingOn) PlayerSettings.enableFrameTimingStats = true;
                     if (tileStamp != null) CityTileBake.WriteStamp(tileStamp);
                     EditionParking.Park(EditionKind.All);
                     report = BuildPipeline.BuildPlayer(options);
                 }
-                finally { EditionParking.Restore(); CityTileBake.RemoveStamp(); }
+                finally
+                {
+                    EditionParking.Restore(); CityTileBake.RemoveStamp();
+                    if (timingOn) PlayerSettings.enableFrameTimingStats = timingWas;
+                }
                 var s = report.summary;
                 Debug.Log($"[PSXBuildWin64] Result={s.result} size={s.totalSize / (1024 * 1024)}MB errors={s.totalErrors} time={s.totalTime}");
                 if (s.result != BuildResult.Succeeded)

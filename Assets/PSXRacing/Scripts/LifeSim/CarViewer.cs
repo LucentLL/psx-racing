@@ -172,6 +172,8 @@ namespace PSXRacing.LifeSim
                 "gtr_89", "gtr_99", "hatch_76", "hatch_83_popup", "liftback_95", "midship_coupe",
                 "pony_fastback_69", "rally_coupe_98", "roadster_99", "roadster_na_popup",
                 "rx7_fd_93", "rx7_fd_99", "rx7_fd_nowing", "sedan_98", "viper_gts",
+                // cars-1116: the owner's five new shells (S13 painted, A70 modelled on the body, Z30, F-body, FC painted)
+                "coupe_88", "gt_liftback_88", "lux_coupe_97", "pony_coupe_67", "rotary_coupe_87",
             };
 
         readonly MeshRenderer[] brakeRenderers = new MeshRenderer[4];
@@ -590,6 +592,8 @@ namespace PSXRacing.LifeSim
 
         /// <summary>The turntable's body (tests and the picture tools).</summary>
         public Renderer BodyRenderer => bodyRenderer;
+        /// <summary>The turntable's wheels, FL FR RL RR (tests and the picture tools).</summary>
+        public Renderer WheelRenderer(int i) => wheelRenderers[Mathf.Clamp(i, 0, 3)];
         /// <summary>The turntable's own 320 x 200 frame (the picture tools).</summary>
         public RenderTexture Picture => rt;
         /// <summary>Where the shown car's own origin (between its axles, on the
@@ -605,7 +609,7 @@ namespace PSXRacing.LifeSim
         public void Dress(OwnedCar car)
         {
             if (Shown == null || rig == null || bodyRenderer == null) return;
-            DamageView.Dress(rig, bodyRenderer, Shown, shownFit, shownSlide, car);
+            DamageView.Dress(rig, bodyRenderer, Shown, shownFit, shownSlide, car, wheelRenderers);
         }
 
         void PlaceCamera()

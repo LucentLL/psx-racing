@@ -1,0 +1,6 @@
+# PSX Racing car model
+newmtl lux_coupe_97_wheels_f
+Ka 1 1 1
+Kd 1 1 1
+illum 1
+map_Kd textures/lux_coupe_97_garnet_512x256.png

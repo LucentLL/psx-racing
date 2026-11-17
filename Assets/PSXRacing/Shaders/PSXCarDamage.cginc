@@ -14,6 +14,7 @@
 #define PSX_CAR_DAMAGE_INCLUDED
 
 float _PSXDmgOn;
+float _PSXGlsOn;   // damage round 2 (PSXCarGlass.cginc): 1 = the panes and the lenses break there, not here
 float4 _PSXDmgA, _PSXDmgB, _PSXDmgF, _PSXDmgR, _PSXDmgU, _PSXDmgC, _PSXLampOut;
 
 float DmgHash(float3 p)
@@ -156,7 +157,7 @@ float PSXCarDamage(inout float3 albedo, inout float3 N, out float matte, float3 
         matte = max(matte, dent * 0.35);
     }
     // CRACKED GLASS: a web of pale lines across the windows of a struck roof
-    float crack = saturate(roof * 3.0) * glassM;
+    float crack = saturate(roof * 3.0) * glassM * step(_PSXGlsOn, 0.5);
     if (crack > 0.0)
     {
         float w1 = DmgNoise(bpos * 9.0 + seed * 5.0), w2 = DmgNoise(bpos * 23.0 + seed * 7.0);

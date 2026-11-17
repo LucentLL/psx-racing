@@ -40,6 +40,7 @@ namespace PSXRacing
         public static bool On = System.Environment.GetEnvironmentVariable("PSX_VIEW_DAMAGE") != "0";
 
         static readonly List<Renderer> rends = new List<Renderer>();
+        static readonly int LightMaskId = Shader.PropertyToID("_LightMask");
         static MaterialPropertyBlock block;
 
         /// <summary>Dresses written since load (the self-test and the cost note).</summary>
@@ -55,7 +56,8 @@ namespace PSXRacing
         /// (never the wheels, stands or brakes beside it). <paramref name="car"/>
         /// null = mint. True when the model now shows damage.
         /// </summary>
-        public static bool Dress(Transform frame, Renderer body, Vector3 boxCentre, Vector3 boxSize, OwnedCar car)
+        public static bool Dress(Transform frame, Renderer body, Vector3 boxCentre, Vector3 boxSize, OwnedCar car,
+                                 CarModelDef def = null, float stretchZ = 1f, Renderer[] wheels = null, float[] radii = null)
         {
             if (!On || frame == null || body == null) return false;
             PaintGloss.Collect(body.transform, rends);
@@ -67,6 +69,7 @@ namespace PSXRacing
             Vector3 half = Vector3.Max(Vector3.Scale(boxSize * 0.5f, new Vector3(Mathf.Abs(ls.x), Mathf.Abs(ls.y), Mathf.Abs(ls.z))),
                                        Vector3.one * 0.1f);
             float seed = DamageLook.Seed(car != null ? car.id : "");
+            Vector4 cabin = DamageGlass.Cabin(def, stretchZ, half);   // round 2: where the panes and the seats are
             if (block == null) block = new MaterialPropertyBlock();
             foreach (var r in rends)
             {
@@ -75,23 +78,36 @@ namespace PSXRacing
                 if (!any && gloss >= 1f && !r.HasPropertyBlock()) continue;
                 var t = r.transform;
                 DamageLook.WriteBlock(r, look, any, t.localToWorldMatrix, t.rotation, cW, half,
-                                      frame.forward, frame.right, frame.up, seed);
+                                      frame.forward, frame.right, frame.up, seed, cabin);
                 r.GetPropertyBlock(block);
                 block.SetFloat(PaintGloss.GlossId, gloss);
+                // a broken lamp: its lens is found in the model's lamp map, as the drive's CarLights binds it
+                if (look.lampOut != 0 && def != null)
+                {
+                    var map = CarLights.LampMapFor(def.key);
+                    if (map != null) block.SetTexture(LightMaskId, map);
+                }
                 r.SetPropertyBlock(block);
             }
+            // round 2: each wheel's rash (0 clears what an earlier car left)
+            if (wheels != null)
+                for (int i = 0; i < wheels.Length && i < 4; i++)
+                    WheelScuff.Write(wheels[i], look.rash[i], look.rashSeed[i], radii != null && i < radii.Length ? radii[i] : 0.3f);
             Dresses++;
-            Watch(frame, body, boxCentre, boxSize, car);
-            return any;
+            Watch(frame, body, boxCentre, boxSize, car, def, stretchZ, wheels, radii);
+            return any || look.rash != Vector4.zero;
         }
 
         /// <summary>The same, off a model's def and fit (CarShell, CarViewer).</summary>
         public static bool Dress(Transform frame, Renderer body, CarModelDef def, CarModelLibrary.ShellFit fit,
-                                 Vector3 slide, OwnedCar car)
+                                 Vector3 slide, OwnedCar car, Renderer[] wheels = null)
         {
             if (!On || def == null) return false;
+            float[] radii = null;
+            if (wheels != null) { radii = new float[4]; for (int i = 0; i < 4; i++) radii[i] = fit.Radius(i); }
             return Dress(frame, body, fit.P(def.colliderCenter) + slide,
-                         new Vector3(def.colliderSize.x * fit.sx, def.colliderSize.y, def.colliderSize.z * fit.sz), car);
+                         new Vector3(def.colliderSize.x * fit.sx, def.colliderSize.y, def.colliderSize.z * fit.sz), car,
+                         def, fit.sz, wheels, radii);
         }
 
         /// <summary>
@@ -105,7 +121,7 @@ namespace PSXRacing
             if (car == null || !DamageLook.On) return k;
             k = DamageLook.Read(car.faults, LiveLedger(car));
             if (!DamageLook.LampsOn) k.lampOut = 0;
-            if (!DamageLook.BodyOn) { k.zones = Vector4.zero; k.roof = 0f; }
+            if (!DamageLook.BodyOn) { k.zones = Vector4.zero; k.roof = 0f; k.panes = Vector4.zero; }
             k.bags = 0;
             k.radStage = 0;
             return k;
@@ -142,12 +158,13 @@ namespace PSXRacing
             }
         }
 
-        static void Watch(Transform frame, Renderer body, Vector3 centre, Vector3 size, OwnedCar car)
+        static void Watch(Transform frame, Renderer body, Vector3 centre, Vector3 size, OwnedCar car,
+                          CarModelDef def, float stretchZ, Renderer[] wheels, float[] radii)
         {
             var w = frame.GetComponent<DamageViewWatch>();
             if (car == null) { if (w != null) w.Stop(); return; }
             if (w == null) w = frame.gameObject.AddComponent<DamageViewWatch>();
-            w.Set(body, centre, size, car);
+            w.Set(body, centre, size, car, def, stretchZ, wheels, radii);
         }
     }
 }
