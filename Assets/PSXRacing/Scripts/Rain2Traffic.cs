@@ -135,6 +135,12 @@ namespace PSXRacing
             return true;
         }
 
+        /// <summary>Build the shared system now (the driver, on the session's first rainy frame).</summary>
+        public static void Prewarm()
+        {
+            if (Rain2.On && Rain2.Spray && ps == null) Build();
+        }
+
         /// <summary>A new scene: the last one's cars are gone, and its mist with them.</summary>
         public static void Clear()
         {

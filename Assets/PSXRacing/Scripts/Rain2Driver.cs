@@ -51,8 +51,8 @@ namespace PSXRacing
 
         // ---- per tier -------------------------------------------------------
         static int ProbesFor(Rain2.Tier t) => t == Rain2.Tier.High ? 4 : t == Rain2.Tier.Low ? 3 : 2;
-        static float CrownRateFor(Rain2.Tier t) => t == Rain2.Tier.High ? 700f : t == Rain2.Tier.Low ? 350f : 150f;
-        static float RingRateFor(Rain2.Tier t) => t == Rain2.Tier.High ? 450f : t == Rain2.Tier.Low ? 220f : 0f;
+        static float CrownRateFor(Rain2.Tier t) => t == Rain2.Tier.High ? 480f : t == Rain2.Tier.Low ? 260f : 120f;
+        static float RingRateFor(Rain2.Tier t) => t == Rain2.Tier.High ? 300f : t == Rain2.Tier.Low ? 160f : 0f;
         const int CrownCap = 256, RingCap = 256;
 
         /// <summary>Probe disc: its radius, how far ahead of the lens its
@@ -87,7 +87,7 @@ namespace PSXRacing
         float crownOwed, ringOwed;
 
         float rain, level;
-        bool snap = true, wasOn;
+        bool snap = true, wasOn, prewarmed;
         Vector3 camVel, lastCam;
         bool haveLastCam;
         static readonly int WetWaterId = Shader.PropertyToID("_PSXWetWater");
@@ -181,6 +181,17 @@ namespace PSXRacing
                 return;
             }
             var tier = Rain2.CurrentTier;
+            // Everything that is built once is built on the first rainy frame
+            // of the session - a scene's first frame, under its own load - and
+            // not on the frame a drop first lands or a car first passes (the
+            // play check caught that build, and the collection it set off, as
+            // a 41 ms frame in mid-drive).
+            if (!prewarmed)
+            {
+                prewarmed = true;
+                if (Rain2.Splashes && crowns == null) BuildSplashes();
+                Rain2Traffic.Prewarm();
+            }
             Vector3 eye = cam.transform.position;
             if (haveLastCam && dt > 1e-4f)
             {
