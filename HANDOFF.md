@@ -1,4 +1,76 @@
-﻿# CHARLOTTE TRACKS, THE FOUNDATION: the pipeline finished and made merge-safe for four lanes (agent "tracksb1", branch charlotte-tracks, 2026-11-16 18:48-20:00; NOT pushed, NOT merged)
+﻿# CHARLOTTE TRACKS, LANE B: H4, C2, S1, X3 (agent "laneB", branch tracks-lane-B off charlotte-tracks ec1dd760, 2026-11-16 19:58-21:10; NOT pushed, NOT merged)
+
+Sandbox PSXPerf (StandaloneWindows64, PC content kept). Scratch with every report, card and frame:
+`C:\Users\mcgee\AppData\Local\Temp\claude\be91fcb74e64226b\40ca151a-c5be-4aaa-9ea2-b8dd0e7c98a9\scratchpad\tracksb1\laneB\`
+(out\race_*.txt, out\closures_check.txt, out\selftest.txt, out_base\selftest.txt, out\cards\, out\eye\, laneB_sheet.png,
+PROGRESS.md, failed\ = the held-out C2 and H4 files).
+
+## Result
+| cand | venue | name | race | verdict |
+|---|---|---|---|---|
+| S1 | CltS1 (route s1) | PROVIDENCE ROAD SPRINT (HUD "PROVIDENCE RD") | 4.5 km point to point, TryonSprint's scene | PASS, committed 17085911 |
+| X3 | CltX3 (route x3) | INDEPENDENCE: TO BRIAR CREEK (HUD "US 74") | 2.96 km cut of IndependenceSprint, same start | PASS, committed 09955923 |
+| C2 | CltC2 (route c2) | SOUTH END CIRCUIT | 5.34 km lap | FAIL: a hit into a closure (held out) |
+| H4 | CltH4 (route h4) | I-277 SOUTH - RAMPS | 5.43 km lap | FAIL: closure hit, deck-end hit, 2 retired (held out) |
+
+No reverse twin is possible on any of the four (the guide's rule): S1 has 2.5 km of divided Providence Road, X3 is all
+one-way expressway, C2 has 17 one-way edges (divided South Blvd, South Tryon, Remount), H4 is a freeway lap.
+
+## Proof (watched, sanctioned, -Traffic NONE, -Finish, seed 0, PSXPerf)
+- Scenes: `-Mode scenes` CITY BUILD OK in 6 min (20:01). Closures job 20:15: ALL CLEAR, 0 on the race line for all
+  routes: c2 61 closed (nearest 8.9 m, lanes 7.6), h4 21 (5.9 m, lanes 4.9), s1 33 (9.2 m, 7.6), x3 8 (10.9 m, 9.4).
+- CltS1: all four home (player 141 s, rivals 142-153 s), 0 retired, wrong way none, FAIL lines: pumping 1.16 only.
+  Two AI incidents, both recovered: Skyline off the road 15 m right at chain ~428 m (HARD into Ground 14.1 m/s, stuck
+  3 s, recovered); Charger spun and rolled at ~700-730 m (158 km/h, no hard hit). The road profile there is smooth.
+- CltX3 (road width 13.4): Charger 63 s, player 67 s, Supra 70 s; Skyline RETIRED (allowed: at most one). At full
+  throttle, lat -2.1, 161 -> 143 km/h in 0.25 s at chain ~1000 m: the e2338 deck end -> e2342 ground transition
+  (~35.2177,-80.8140); it slid left into the median barrier (HARD into Barriers 31.5 m/s). Identical in two runs
+  (width 18.8 and 13.4). FAIL lines: pumping 1.41-1.43 only. All 15 edges are the shipped IndependenceSprint's.
+- CltC2 (1 lap): player 206 s, Supra 209 s, Skyline 216 s; Charger RETIRED: its planned mistake fired at 13 s and
+  again at 39 s, it never braked for the South Tryon -> Remount Road left turn (chain 1884 m) and hit the barricades
+  18 m up South Tryon (e13708) at 55.1 m/s. FAIL lines: pumping 1.25 only. Every corner of C2 is a junction turn
+  whose straight-on road is closed, so a planned mistake there ends in a closure.
+- CltH4 (venue 2 laps, raced 1): player 179 s, Skyline 213 s; Supra RETIRED (planned mistake at wp 117, then at
+  147 km/h missed the right-hand exit at the South Blvd C-D split and hit the barricades on the closed C-D ramp e172,
+  9.5 m left of the line); Charger RETIRED (HARD into Ground at 156 km/h at chain 2342 m, the e9697 deck end ->
+  e1832 on I-277 WB, ~35.2245,-80.8552; the Skyline spun at the same spot). FAILs: pumping 2.18, at most one
+  rival retires [2]. Those I-277 WB edges are the shipped UptownLoop's own.
+- Self-test (PSXPerf, defaults): 69 FAIL lines with all four tracks present = 69 before them (same set). The only
+  line naming them is the old "CITY offers the four Charlotte races and nothing else" (it lists every city venue).
+  Every per-venue check of CltC2/CltH4/CltS1/CltX3 is ok.
+- Cards out\cards\citymap_Clt{S1,X3,C2,H4}.png; eye frames out\eye\{s1,x3,c2,h4}_{grid,<corner>}_laneB_{day,night}.png
+  (corner = s1 queens, x3 sweep, c2 remount, h4 ramp). Lanes clear in all; sheet laneB_sheet.png.
+
+## Found (shared code, NOT changed in this lane)
+1. Hosted loops race the HOST's lap count: `RaceManager.totalLaps` is baked by the scene build
+   (`Editor/PSXRacingBuilder.cs:8603`) and `Scripts/CityTracksRegistrar.cs` Awake never sets it, so a venue file with
+   laps 2 races 1 lap in UptownLoop's scene while the menu says 2 (H4: home in 179 s for "10.9 km"). Fix at
+   integration: in the registrar's swap block, `var rm = Object.FindAnyObjectByType<RaceManager>(FindObjectsInactive.Include);
+   if (rm != null && venue.loop) rm.totalLaps = Mathf.Max(1, venue.laps);`. Until then every lane circuit should
+   use --laps 1 (C2 was re-emitted at 1 lap).
+2. The early planned mistake (known issue) is general to loops: `RaceManager.cs:330` progress after the rolling-start
+   crossing is lap(1) x L + s, and `RaceFraction` (631-638) divides by totalLaps x L, so the fraction starts at
+   1/totalLaps (1.0 on a one-lap loop) and every planned mistake fires at the first big braking zone (H4 planned 51 %,
+   fired at 8.6 %; C2 planned 41 %, fired at 5 %). Fix: use (progress - L) for loops.
+3. Planned mistakes vs sanctioned closures on city circuits: closures stand 14-18 m up the straight-on road of every
+   junction turn, so a missed corner ends in barricades (C2, H4). Either accept a mistake-induced closure hit as known
+   (like the trees) or give that straight-on closure more set-back (Scripts/CityRaceClosures.cs SetBack).
+4. Deck-end knocks on shipped routes: I-277 WB e9697 -> e1832 (UptownLoop's route) and US 74 EB e2338 -> e2342
+   (IndependenceSprint's route) each upset cars at 155-160 km/h. City geometry (Scripts/City), not track data.
+
+## Merge
+- Files: Assets/PSXRacing/Resources/CityTracks/s1.json, x3.json (+ .meta). No .cs, no shared file, no re-bake.
+- Integrator: order.mjs --write appends CltS1, CltX3. Closures once over the union. citymap-bake before the build.
+- To bring C2/H4 back after the fixes above: `node tools/city/tracks/emit_track.mjs C2 --laps 1 --label "SOUTH END"`
+  and `node tools/city/tracks/emit_track.mjs H4 --name "I-277 SOUTH - RAMPS" --label "I-277"` (blurbs in failed\*.json).
+- Street races on S1 get two-way race traffic on its divided sections (TrafficSystem, per venue; known).
+- Disk: 16.7 GB free on C: at 21:05 (under the 20 GB line); this lane added the worktree (0.7 GB) and 34 MB scratch.
+
+What the owner will notice: two new Charlotte sprints in the race list, Providence Road (4.5 km through Myers Park)
+and the short Independence half (3 km to Briar Creek Road). The South End circuit and the I-277 ramps loop are held
+back until the lap count, the early rival mistakes and two freeway deck ends are fixed.
+
+# CHARLOTTE TRACKS, THE FOUNDATION: the pipeline finished and made merge-safe for four lanes (agent "tracksb1", branch charlotte-tracks, 2026-11-16 18:48-20:00; NOT pushed, NOT merged)
 
 Supersedes "STATE AT THE STOP" below (its NEXT steps a-d are done). The owner: "Now that Charlotte roads are more
 accurate, I'd like to start adding race tracks (circuits, sprints, drag [the current drag/sprints are veeery
