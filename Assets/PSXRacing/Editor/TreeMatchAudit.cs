@@ -59,7 +59,7 @@ namespace PSXRacing.EditorTools
         sealed class PairRow
         {
             public string kit, name, group, dress, pair; public int variant, inst;
-            public Stat a, b; public string why; public Tile ta, tb;
+            public Stat a, b; public string why; public Tile ta, tb; public string farMat; public float farGain;
             public bool Fail => why.Length > 0;
         }
 
@@ -90,6 +90,7 @@ namespace PSXRacing.EditorTools
                     var rows = AuditKit(id, dresses, inst, root, summary);
                     if (rows == null) { code = 1; continue; }
                     totals.Add(Tally(id, rows, dresses, summary));
+                    Calibrate(rows, summary);
                     WriteCsv(Path.Combine(root, "tm_" + id + ".csv"), rows);
                     foreach (int d in dresses) WriteFailSheet(root, id, d, rows);
                 }
@@ -287,6 +288,11 @@ namespace PSXRacing.EditorTools
                                 var tb = Shoot(cam, forest, p, h, span, D, eyeOf[pr + 1], gameFov, az);
                                 var row = new PairRow { kit = id, name = names[v], group = groups[v], dress = dn, pair = PairNames[pr], variant = v, inst = k, a = ta.st, b = tb.st, ta = ta, tb = tb };
                                 row.why = noFar ? "NOFAR" : Verdict(ta.st, tb.st, ta.mpp);
+                                if (pr == 2 && !noFar && vr.impostorDress != null && d < vr.impostorDress.Length && vr.impostorDress[d] != null)
+                                {
+                                    row.farMat = vr.impostorDress[d].name;
+                                    row.farGain = vr.impostorDress[d].color.r;
+                                }
                                 if (!row.Fail && k > 0) { row.ta = null; row.tb = null; }   // (pictures kept for the first plant and for failures)
                                 rows.Add(row);
                             }
@@ -423,6 +429,44 @@ namespace PSXRacing.EditorTools
             if (smax - smin > SatTol) why.Add("SAT");
             if (Mathf.Abs(a.luma - b.luma) / Mathf.Max(0.02f, Mathf.Max(a.luma, b.luma)) > LumaTol) why.Add("VALUE");
             return string.Join("+", why);
+        }
+
+        /// <summary>PSX_TM_CALIB=1: THE CARDS' GAINS, MEASURED. For each match card material (a species in a
+        /// look), the gain at which its mean light over the plants and bearings just drawn equals its mesh's:
+        /// its present gain x mesh / card. Written to Assets/PSXRacing/Editor/TreeMatchGains.txt (kept with
+        /// the code: the kit builds read it), merged over what other kits wrote there.</summary>
+        static void Calibrate(List<PairRow> rows, StringBuilder log)
+        {
+            if (Env("PSX_TM_CALIB", "0") != "1") return;
+            var mesh = new Dictionary<string, double>(); var card = new Dictionary<string, double>(); var gain0 = new Dictionary<string, float>();
+            foreach (var r in rows)
+            {
+                if (r.pair != PairNames[2] || string.IsNullOrEmpty(r.farMat) || !r.a.Any || !r.b.Any || !r.farMat.StartsWith("TM_")) continue;
+                mesh.TryGetValue(r.farMat, out double m); mesh[r.farMat] = m + r.a.luma;
+                card.TryGetValue(r.farMat, out double c); card[r.farMat] = c + r.b.luma;
+                gain0[r.farMat] = r.farGain;
+            }
+            if (mesh.Count == 0) return;
+            string path = PSXRacingBuilder.TreeMatchGainsPath;
+            var table = new SortedDictionary<string, float>(System.StringComparer.Ordinal);
+            if (File.Exists(path))
+                foreach (var line in File.ReadAllLines(path))
+                {
+                    var q = line.Split('\t');
+                    if (q.Length == 2 && float.TryParse(q[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float g)) table[q[0]] = g;
+                }
+            float lo = float.MaxValue, hi = 0f;
+            foreach (var kv in mesh)
+            {
+                if (card[kv.Key] <= 1e-4) continue;
+                float g = Mathf.Clamp(gain0[kv.Key] * (float)(kv.Value / card[kv.Key]), 0.6f, 1.6f);
+                table[kv.Key] = g;
+                lo = Mathf.Min(lo, g); hi = Mathf.Max(hi, g);
+            }
+            var sb = new StringBuilder();
+            foreach (var kv in table) sb.Append(kv.Key).Append('\t').Append(kv.Value.ToString("0.000", CultureInfo.InvariantCulture)).Append('\n');
+            File.WriteAllText(path, sb.ToString());
+            log.Append($"  CALIBRATED {mesh.Count} card materials' gains (now {F(lo)} to {F(hi)}) -> {path} ({table.Count} entries)\n");
         }
 
         static void WriteCsv(string path, List<PairRow> rows)

@@ -163,6 +163,8 @@ namespace PSXRacing.EditorTools
                         // shade, each tree its own shade and fall colour); as bark where it is bare
                         bool leafy = leaf != null && leaf.HasProperty("_LeafVivid") && leaf.GetVector("_LeafVivid").z > 0.5f;
                         float gain = leafy ? TMLeafGain : TMBareGain;
+                        // (a gain measured for this very card - TreeMatchAudit's PSX_TM_CALIB - before the general one)
+                        if (TMGains().TryGetValue("TM_" + sk, out float measured)) gain = measured;
                         mat = MakeMat("TM_" + sk, path, cutoff: LeafCutoff, tint: new Color(gain, gain, gain), affine: 0f, twoSided: true);
                         mat.enableInstancing = true;
                         mat.SetVector("_LeafVivid", new Vector4(1f, 2f, leafy ? 1f : 0f, 0f));   // (the sheet holds half the albedo)
@@ -194,6 +196,22 @@ namespace PSXRacing.EditorTools
         }
 
         const int TMLayer = 31;
+
+        /// <summary>The cards' measured gains by material name (TreeMatchAudit.Calibrate writes them).</summary>
+        internal const string TreeMatchGainsPath = "Assets/PSXRacing/Editor/TreeMatchGains.txt";
+        static Dictionary<string, float> tmGains;
+        static Dictionary<string, float> TMGains()
+        {
+            if (tmGains != null) return tmGains;
+            tmGains = new Dictionary<string, float>();
+            if (System.Environment.GetEnvironmentVariable("PSX_TM_NOGAINS") == "1" || !File.Exists(TreeMatchGainsPath)) return tmGains;
+            foreach (var line in File.ReadAllLines(TreeMatchGainsPath))
+            {
+                var q = line.Split('\t');
+                if (q.Length == 2 && float.TryParse(q[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float g)) tmGains[q[0]] = g;
+            }
+            return tmGains;
+        }
         static readonly byte TMKeptAlpha = (byte)Mathf.Clamp(Mathf.RoundToInt(2f * LeafCutoff * 255f), 2, 255);
 
         /// <summary>The last kit's species by name: their frames and sheets (TMCityCardAtlas).</summary>
