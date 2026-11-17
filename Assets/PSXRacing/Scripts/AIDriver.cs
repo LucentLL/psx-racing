@@ -700,7 +700,10 @@ namespace PSXRacing
                     if (k > kMax) { kMax = k; at = nearestIdx + j; }
                 }
                 bool rightHand = Vector3.SignedAngle(path.GetTangent(at - 2), path.GetTangent(at + 2), Vector3.up) > 0f;
-                if (!PassOncoming)
+                // the wide better line only with NO traffic on the road (a sanctioned race, a stage): in street races
+                // the hairpin rule as before (C1 at MEDIUM, 11-17: 790 s of better line, 314 s over the centreline,
+                // a stay of 30 s, 3 near misses - not "prefer the right lane")
+                if (!PassOncoming || ts.Level != TrafficLevels.None)
                 {
                     if (kMax > 1f / OpenMaxRadiusM && rightHand)
                         want = -2f * LaneCentreHere(ts) * Mathf.InverseLerp(1f / OpenMaxRadiusM, 1f / OpenFullRadiusM, kMax);
