@@ -5,7 +5,7 @@
 #   powershell -ExecutionPolicy Bypass -File $j -Agent lane2 -Sandbox C:\Users\mcgee\PSXPerf -Mode scenes
 #        rebuild the four city scenes with this branch's code (CityTracksRegistrar on each); once per sandbox
 #   ... -Mode closures                       batch: every city route, sanctioned closures, 0 on the race line
-#   ... -Mode race -Venue CltD1 [-Seconds 420] [-MaxMinutes 0]
+#   ... -Mode race -Venue CltD1 [-Seconds 420] [-MaxMinutes 0] [-Seed 0]
 #        WATCHED race-play-check: sanctioned (closures built), -Traffic NONE, -Finish (every rival home)
 #   ... -Mode cards                          the whole-city map tiles (citymap-bake) + every city race card
 #   ... -Mode eye -Spots "a,lat,lon,road,hdg;b,lat,lon,road,hdg"   driver-eye frames, day and night
@@ -24,6 +24,8 @@ param(
     [Parameter(Mandatory = $true)][string]$Sandbox,
     [Parameter(Mandatory = $true)][ValidateSet("closures", "race", "cards", "eye", "scenes", "selftest")][string]$Mode,
     [string]$Venue = "", [int]$Seconds = 420, [int]$MaxMinutes = 0, [string]$Spots = "", [string]$Label = "track",
+    # race: the check's seed (race-play-check -Seed: the incident roll, the traffic); 0 as before
+    [int]$Seed = 0,
     [string]$Out = "",
     # ONLY to re-run a race whose watched editor stopped on Unity's "Revert All Window Layouts" dialog
     # (never press Continue there): the same race, hidden. Play tests are watched otherwise (owner's rule).
@@ -126,7 +128,7 @@ try {
         # a SANCTIONED event: its closures stand (a play check carries no event, =1 builds them for every city race)
         $env:PSX_TRACK_CLOSURES = "1"
         $env:PSX_WATCH = if ($NoWatch) { "0" } else { "1" }
-        $a = @("-ExecutionPolicy", "Bypass", "-File", "$wt\tools\race-play-check.ps1", "-Venue", $Venue, "-Seconds", "$Seconds", "-Finish", "-Traffic", "NONE")
+        $a = @("-ExecutionPolicy", "Bypass", "-File", "$wt\tools\race-play-check.ps1", "-Venue", $Venue, "-Seconds", "$Seconds", "-Finish", "-Traffic", "NONE", "-Seed", "$Seed")
         if ($NoWatch) { $a += "-NoWatch" }
         if ($MaxMinutes -gt 0) { $a += @("-MaxMinutes", "$MaxMinutes") }
         $said = @(& powershell @a 2>&1 | ForEach-Object { "$_" })
