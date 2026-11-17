@@ -2103,10 +2103,35 @@ namespace PSXRacing.City
 
         /// <summary>Round 5: while a refuge pair's common-mode shift is laid, the edges it reaches.</summary>
         static List<int> shiftLog;
+        // THE SHIFT RUNS ON (11-17 roads3, PSX_CITY_SHIFTRUN=1; North Tryon e14081 behind the owner's pose). Where one
+        // edge is held at a width change, the narrow arm's lines shift over on the MUTCD shifting taper - but that
+        // shift stopped at the next width change along (RoomAlong: "the next change owns the ribbon"): on North Tryon
+        // east of Dorton St the 1.83 m shift had 28.7 m for its 82 m (45 mph), the lane lines swung 17 deg and back.
+        // A shift moves the whole cross-section, so it may run on through a two-arm joint where the width changes:
+        // both sides of that joint move together and its own step is untouched. It still stops at a junction (no
+        // through partner). Default OFF until the gate has judged it.
+        public static bool ShiftRunOn = System.Environment.GetEnvironmentVariable("PSX_CITY_SHIFTRUN") == "1";
+        static float RoomAlongShift(CityMap map, System.Func<CityMap.Edge, int, int> partner, CityMap.Edge e, int fromNode)
+        {
+            float total = e.length;
+            var cur = e; int from = fromNode;
+            for (int guard = 0; guard < 12; guard++)
+            {
+                int far = cur.a == from ? cur.b : cur.a;
+                int pi = partner(cur, far);
+                if (pi < 0) break;
+                var p = map.edges[pi];
+                if (p == cur || p.a == p.b || p.oneway != cur.oneway) break;
+                if (map.nodeEdges[far].Count != 2) break;
+                total += p.length;
+                cur = p; from = far;
+            }
+            return total;
+        }
         static void PropagateShift(CityMap map, List<Ease>[] add, System.Func<CityMap.Edge, int, int> partner,
                                    CityMap.Edge e, int fromNode, float shift, float len, float d0, int depth)
         {
-            if (depth == 0) len = Mathf.Max(0.5f, Mathf.Min(len, RoomAlongFloor(map, partner, e, fromNode, 1, true, len)));
+            if (depth == 0) len = Mathf.Max(0.5f, Mathf.Min(len, ShiftRunOn ? RoomAlongShift(map, partner, e, fromNode) : RoomAlongFloor(map, partner, e, fromNode, 1, true, len)));
             (add[e.index] ??= new List<Ease>(2)).Add(new Ease { shift = true, fromA = e.a == fromNode, dw = shift, len = len, d0 = d0 });
             shiftLog?.Add(e.index);
             if (d0 + e.length >= len || depth >= 12) return;
