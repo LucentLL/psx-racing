@@ -541,7 +541,8 @@ namespace PSXRacing
             // the player (and a rival far off its road): the sticky locate at 10 Hz (staggered), a slide in between
             if (Time.time >= c.nextLocate || !c.loc.valid)
             {
-                R.Locate(pos, vel, car.transform.forward, ref c.loc);
+                // where two roads overlap (a ramp split), the one the route takes next
+                R.Locate(pos, vel, car.transform.forward, ref c.loc, Time.time, R.RouteNextEdge(F, c.loc, c.rDir));
                 c.nextLocate = Time.time + 0.1f + Random.Range(0f, 0.02f);
             }
             else R.Slide(pos, vel, car.transform.forward, ref c.loc);

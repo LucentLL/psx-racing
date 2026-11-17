@@ -36,6 +36,9 @@ namespace PSXRacing
         public readonly float[] predTurn;
         readonly float[] predTurnCost;
         public const float UTurnMax = 2.6f, TurnPen = 60f;
+        /// <summary>What a mid-block U-turn costs the ruler's held direction on a two-way street (cost-metres: the
+        /// turn model's 180 degrees is 240; half of it, so a clearly better way back still wins).</summary>
+        public const float UTurnHyst = 120f;
 
         static CityRouter cached;
         public static CityRouter For(CityMap map)
@@ -309,11 +312,13 @@ namespace PSXRacing
         /// THE RULER at a spot on an edge (cpfix 11-17): metres to the gate along the cost-optimal route, the one the
         /// GPS line draws. A TWO-WAY edge: the direction the cost prefers (the GPS's own choice, so a car following
         /// the line sees its remaining fall metre for metre); <paramref name="dir"/> (+1 a->b, -1 b->a, 0 none yet) is
-        /// held unless the other way is cheaper by more than <paramref name="hyst"/>. A ONE-WAY edge: its legal
-        /// direction only. No backwards credit: a car driven against it sees its remaining rise (WRONG WAY), and the
-        /// value never flips with a spinning car's heading (the 01:23 check race's crashed Supra: +-44-68 m swings).
+        /// held unless the other way is cheaper by more than <paramref name="hyst"/> (a mid-block U-turn is not free:
+        /// <see cref="UTurnHyst"/>); a fresh one (0) starts the way the car travels (<paramref name="travelDir"/>,
+        /// 0 = by the cost alone). A ONE-WAY edge: its legal direction only. No backwards credit: a car driven
+        /// against it sees its remaining rise (WRONG WAY), and the value never flips with a spinning car's heading
+        /// (the 01:23 check race's crashed Supra: +-44-68 m swings).
         /// </summary>
-        public float RouteRemaining(Field F, int e, float s, ref int dir, float hyst)
+        public float RouteRemaining(Field F, int e, float s, ref int dir, float hyst, int travelDir = 0)
         {
             var ed = map.edges[e];
             float L = ed.length;
@@ -321,6 +326,7 @@ namespace PSXRacing
             if (ed.oneway) { dir = 1; return RouteFrom(F, e * 2, s); }
             float cf = CostFrom(F, e * 2, s), cr = CostFrom(F, e * 2 + 1, L - s);
             int want = cr < cf ? -1 : 1;
+            if (dir == 0 && (travelDir == 1 || travelDir == -1)) dir = travelDir;
             if ((dir == 1 || dir == -1) && dir != want)
             {
                 float held = dir == 1 ? cf : cr, other = dir == 1 ? cr : cf;
@@ -455,10 +461,13 @@ namespace PSXRacing
         /// </summary>
         public void Locate(Vector3 pos, Vector3 vel, Vector3 nose, ref Loc loc) => Locate(pos, vel, nose, ref loc, Time.time);
 
-        public void Locate(Vector3 pos, Vector3 vel, Vector3 nose, ref Loc loc, float now)
+        /// <param name="prefer">The edge the car's route takes next (-1: none): where two roads overlap (a ramp
+        /// split's gore, a collector beside the main line) the route's one wins while the car is on its pavement.
+        /// The self-test's off-route walks read the sibling ramp at splits for 50-100 m.</param>
+        public void Locate(Vector3 pos, Vector3 vel, Vector3 nose, ref Loc loc, float now, int prefer = -1)
         {
             int keep = loc.valid && !loc.offGraph ? loc.edge : -1;
-            bool found = NearestScored(pos, vel, 25f, 4f, out int e, out float s, out float d, out float score);
+            bool found = NearestScored(pos, vel, 25f, 4f, prefer, out int e, out float s, out float d, out float score);
             // the kept edge is followed along its own arc from where the car was (a window that grows with the
             // distance moved): inside a loop ramp the edge's far side never steals the projection
             float win = 30f + 1.5f * new Vector2(pos.x - loc.at.x, pos.z - loc.at.z).magnitude;
@@ -475,8 +484,10 @@ namespace PSXRacing
                     float kScore = kd + HeadPen(keep, ks, vel);
                     // across a node only onto the new edge's pavement (the self-test's crash walk: a car coming
                     // back from 22 m off was handed to a ramp sharing the node, 125 m further from the gate)
+                    // A node's next edge (the route's: 0.5 m better; another: 2 m better, or the car off the kept
+                    // pavement), so two roads leaving one node side by side do not swap on a lane's width
                     if (onNew && SharesNode(e, keep))
-                    { take = score + 0.5f < kScore; loc.pending = -1; }
+                    { take = score + (e == prefer ? 0.5f : 2f) < kScore || (!onKeep && score < kScore); loc.pending = -1; }
                     else if (onNew && (!onKeep || score + 4f < kScore))
                     {
                         if (loc.pending != e) { loc.pending = e; loc.since = now; }
@@ -502,6 +513,18 @@ namespace PSXRacing
             loc.dir = DirOf(e, s, vel, nose);
         }
 
+        /// <summary>The edge the field's route takes after the car's located edge (in the ruler's direction
+        /// <paramref name="dir"/>), for <see cref="Locate"/>'s preference; -1 when none.</summary>
+        public int RouteNextEdge(Field F, in Loc loc, int dir)
+        {
+            if (F == null || !loc.valid || loc.offGraph) return -1;
+            var ed = map.edges[loc.edge];
+            int st = loc.edge * 2 + (ed.oneway || dir != -1 ? 0 : 1);
+            if (!legal[st]) return -1;
+            int y = F.nxt[st];
+            return y < 0 ? -1 : y >> 1;
+        }
+
         /// <summary>A heading-aware distance: an edge across the car's travel scores up to 6 m worse (only while it
         /// moves at 3 m/s or more: a spinning car's heading means nothing).</summary>
         float HeadPen(int e, float s, Vector3 vel)
@@ -513,7 +536,8 @@ namespace PSXRacing
             return 6f * (1f - Mathf.Abs(Vector2.Dot(v / sp, t)));
         }
 
-        bool NearestScored(Vector3 pos, Vector3 vel, float r, float dy, out int edge, out float s, out float dist, out float score)
+        const float PreferBonusM = 3f;
+        bool NearestScored(Vector3 pos, Vector3 vel, float r, float dy, int prefer, out int edge, out float s, out float dist, out float score)
         {
             edge = -1; s = 0f; dist = float.PositiveInfinity; score = float.PositiveInfinity;
             var p = new Vector2(pos.x, pos.z);
@@ -535,6 +559,7 @@ namespace PSXRacing
                 float sAt = e.s[si] + u * (e.s[si + 1] - e.s[si]);
                 if (dy > 0f && Mathf.Abs(pos.y - e.YAt(sAt)) > dy) continue;
                 float sc = d;
+                if (ei == prefer && d <= e.HalfMax + 1.5f) sc -= PreferBonusM;
                 if (v != Vector2.zero && L2 > 1e-8f) sc += 6f * (1f - Mathf.Abs(Vector2.Dot(v, ab / Mathf.Sqrt(L2))));
                 if (sc < score) { score = sc; dist = d; edge = ei; s = sAt; }
             }
@@ -618,7 +643,7 @@ namespace PSXRacing
             {
                 // on (or kept by) an edge: the ruler at the car's projection, plus how far it is off the pavement
                 var e = map.edges[loc.edge];
-                return RouteRemaining(F, loc.edge, loc.s, ref dir, 6f) + Mathf.Max(0f, loc.dist - (e.HalfMax + 2f));
+                return RouteRemaining(F, loc.edge, loc.s, ref dir, UTurnHyst, loc.dir) + Mathf.Max(0f, loc.dist - (e.HalfMax + 2f));
             }
             if (Nearest(pos, 60f, 8f, -1, 0f, out int ne, out float ns, out float nd))
             {

@@ -360,7 +360,7 @@ namespace PSXRacing.EditorTools
                             // the lane, not the OSM line: 2 m to the right of the travel direction
                             pos += new Vector3(tan.y, 0f, -tan.x) * 2f;
                             now += 0.5f;
-                            R.Locate(pos, fwd * 20f, fwd, ref loc, now);
+                            R.Locate(pos, fwd * 20f, fwd, ref loc, now, R.RouteNextEdge(F[k], loc, dir));
                             if (loc.edge != rEdge) { rEdge = loc.edge; dir = 0; }
                             float v = R.Remaining(F[k], pos, ref loc, ref dir);
                             float want = R.RouteFrom(F[k], s, t);
