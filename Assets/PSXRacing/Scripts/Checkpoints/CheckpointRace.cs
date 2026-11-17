@@ -413,6 +413,15 @@ namespace PSXRacing
             {
                 if (curSt < 0 || c.prevSt < 0) return false;
                 float pT = c.prevT;
+                // just over a node OFF the gate's state, short of the gate a frame ago: it ran the rest of that state,
+                // the gate's arc included (Uptown's lap line 2 m from its edge's end: two rivals went over the node
+                // unseen, then had 3.7 km "to go" round the loop)
+                if (curSt != c.prevSt && R.eNode[c.prevSt] == R.sNode[curSt])
+                {
+                    float gp = fields[k].seedG[c.prevSt];
+                    if (gp >= 0f && pT < gp - 0.01f && R.len[c.prevSt] - pT <= 30f && (!anchorOnly || c.prevSt == gates[k].anchorSt))
+                        return true;
+                }
                 // just over a node onto the gate's state: it came in at the state's start
                 if (curSt != c.prevSt) { if (R.eNode[c.prevSt] != R.sNode[curSt]) return false; pT = 0f; }
                 if (curT - pT > 30f) return false;
