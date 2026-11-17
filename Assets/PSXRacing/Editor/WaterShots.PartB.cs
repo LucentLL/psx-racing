@@ -102,6 +102,19 @@ namespace PSXRacing.EditorTools
             var tex = Render(cam, width, lines);
             File.WriteAllBytes(Path.Combine(dir, name + "_" + tag + ".png"), tex.EncodeToPNG());
             Object.DestroyImmediate(tex);
+            // PSX_WATERSHOT_DEBUG=1: the water's own debug views of the same frame (1 copies / mirror hit /
+            // depth; 4 roughness / AA variance / march weight)
+            if (System.Environment.GetEnvironmentVariable("PSX_WATERSHOT_DEBUG") == "1" && WaterLook.On && (name.Contains("noon") || name.Contains("rain")))
+            {
+                foreach (int mode in new[] { 1, 4 })
+                {
+                    Shader.SetGlobalFloat("_PSXWaterDebug", mode);
+                    var dbg = Render(cam, width, lines);
+                    File.WriteAllBytes(Path.Combine(dir, name + "_dbg" + mode + "_" + tag + ".png"), dbg.EncodeToPNG());
+                    Object.DestroyImmediate(dbg);
+                }
+                Shader.SetGlobalFloat("_PSXWaterDebug", 0f);
+            }
             if (rain) WeatherFx.PreviewClear();
             cam.ResetProjectionMatrix(); cam.ResetAspect();
             Debug.Log($"[WaterShot] {name}_{tag}: {note}; eye {eye} fov {fov:0.0} tier {shotTier} wind {Shader.GetGlobalVector("_PSXWaterWind")} " +
