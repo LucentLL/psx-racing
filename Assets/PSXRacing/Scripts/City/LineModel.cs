@@ -511,7 +511,7 @@ namespace PSXRacing.City
                             int mW = taprMap.tapr[tiW].side == 0 ? 1 : -1;       // the moving side, W's frame
                             fixT = -(wForward ? mW : -mW);
                         }
-                        else if (LineFixOn && OuterTurnLaneEnds(W, N, wForward, nForward, dLt + dRt, out int outerT)) { fixT = -outerT; OuterLaneEnds++; outerTurn = true; }
+                        else if (LineFixOn && OuterTurnLaneEnds(W, N, wForward, nForward, Mathf.Abs(dLt) + Mathf.Abs(dRt), out int outerT)) { fixT = -outerT; OuterLaneEnds++; outerTurn = true; }
                         else fixT = Mathf.Abs(dRt) <= Mathf.Abs(dLt) ? -1 : 1;   // the smaller step is held: the fewest lanes move
                         if (fixT == 0)
                         {
