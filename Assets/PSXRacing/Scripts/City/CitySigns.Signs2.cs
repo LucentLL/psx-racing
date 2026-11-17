@@ -489,7 +489,8 @@ namespace PSXRacing.City
             LineModel.Extents(o, oS, out float oR, out float oL);
             float edge = side > 0f ? oR : oL;
             var oc = o.PointAt(oS);
-            var F0 = oc + nF * (edge + CityMeshes.RailOverhangM);   // the parapet's outer face
+            // the parapet's outer face (PSX_CITY_RAILSHY: a street parapet stands up to RailW further out)
+            var F0 = oc + nF * (edge + CityMeshes.RailOverhangM + CityMeshes.RailShyOutAt(o, oS, oc + nF * edge));
             // the carriageway's lanes at the crossing, as Overhead lays them
             LineModel.ExtentsNoAux(ce, cs, out float eM, out float eP);
             int total = Mathf.Max(2, ex.lanes);

@@ -19,7 +19,14 @@ namespace PSXRacing.City
     ///                       bfr = Beatties Ford Road's 19 split-type nodes
     ///                             (the default, the owner's four spots);
     ///                       all = every split node city-wide (measure and
-    ///                             report; not the default).
+    ///                             report; not the default);
+    ///                       city = PHASE C (splits2, 2026-11-16 afternoon):
+    ///                             every split node city-wide but the held-back
+    ///                             ones, with Phase C's rules (CityPhaseC):
+    ///                             the blend sized on the own line's whole move
+    ///                             and bow, BAYEND only on the run into a nose,
+    ///                             the taper floors (PSX_CITY_TAPERFLOOR), the
+    ///                             approach marking at same-name meetings.
     ///   PSX_CITY_BAYEND=0   turn bays as OSM tags them (no bay ended).
     ///   PSX_CITY_NOSE=0     PC45 noses: CurbMedian's 12 m set-back, NoseMarks
     ///                       only at accepted refuge noses, every refuge nose
@@ -31,15 +38,57 @@ namespace PSXRacing.City
         // ================================================================
         //  Switches and scope
         // ================================================================
-        /// <summary>"0", "bfr" (default) or "all". Not readonly: the medians
+        /// <summary>"0", "bfr" (default), "all" or "city". Not readonly: the medians
         /// gate decides the refuge list for each scope in one process.</summary>
         public static string SplitAxis = SplitAxisOf(System.Environment.GetEnvironmentVariable("PSX_CITY_SPLITAXIS"));
         public static string SplitAxisOf(string v)
         {
             v = (v ?? "").Trim().ToLowerInvariant();
-            return v == "0" || v == "off" || v == "false" ? "0" : v == "all" ? "all" : "bfr";
+            return v == "0" || v == "off" || v == "false" ? "0" : v == "all" ? "all" : v == "city" ? "city" : "bfr";
         }
+        /// <summary>PHASE C (splits2): the scope 'city' draws every split node with Phase C's rules.
+        /// 'all' stays J1's measure exactly (the before of Phase C's numbers).</summary>
+        public static bool CityPhaseC => SplitAxis == "city";
         public static bool BayEndOn = System.Environment.GetEnvironmentVariable("PSX_CITY_BAYEND") != "0";
+        /// <summary>Phase C: bays on the stretches BAYEND walks whose lane goes on as a lane past one end (the
+        /// lane drops J1's rule makes; under city they are kept).</summary>
+        public static int PhaseCBayLaneOn;
+
+        /// <summary>Phase C: the lanes a piece carried before BAYEND (dir +1 a->b).</summary>
+        static int OrigLanes(CityMap.Edge e, int dir) => bayEndOrig.TryGetValue(e.index, out var o) ? (dir > 0 ? o.nF : o.nB) : (dir > 0 ? e.lsNF : e.lsNB);
+        static bool OrigBay(CityMap.Edge e, int dir)
+        {
+            if (!bayEndOrig.TryGetValue(e.index, out var o)) return BayOf(e, dir);
+            int fwd = o.to & 0xFF, bwd = (o.to >> 8) & 0xFF;
+            return dir > 0 ? o.nF >= 2 && (fwd & 1) != 0 : o.nB >= 2 && (bwd & 1) != 0;
+        }
+        /// <summary>Phase C: does the bay lane of direction dir on e go on as a lane past one of its ends - a
+        /// 2-arm node where the same road's next piece (not carrying the bay) carries at least as many lanes
+        /// that way? Then the bay is OSM's lane, not a turn bay that ends.</summary>
+        static bool BayLaneRunsOn(CityMap map, CityMap.Edge e, int dir, out string why)
+        {
+            // AHEAD only (the way the bay travels), followed along the bay's run to its end, so a run is kept
+            // or ended whole: where the run ends at a 2-arm node and the piece beyond carries as many lanes that
+            // way, the "bay" is OSM's lane going on (e16705 past n15089). A through lane that BECOMES the bay
+            // behind it and runs into a nose (e16690 into n10035) still ends, as J1 has it: kept, it would be a
+            // turn-only lane running into the island.
+            why = "";
+            var cur = e; int d = dir;
+            for (int g = 0; g < 16; g++)
+            {
+                int nd = d > 0 ? cur.b : cur.a;
+                var arms = map.nodeEdges[nd];
+                if (arms == null || arms.Count != 2) return false;          // a junction, a nose, a dead end: it ends there
+                var x = map.edges[arms[0] == cur.index ? arms[1] : arms[0]];
+                if (x.oneway || x.a == x.b || x.name != cur.name || !x.hasLset) return false;
+                int xd = x.a == nd ? 1 : -1;                                 // x's direction that goes on from cur's
+                if (OrigBay(x, xd)) { cur = x; d = xd; continue; }          // the same bay runs on
+                int n0 = OrigLanes(cur, d), nx = OrigLanes(x, xd);
+                if (nx >= n0) { why = $"past n{nd} (e{x.index} carries {nx} lanes that way, the bay's piece e{cur.index} {n0})"; return true; }
+                return false;
+            }
+            return false;
+        }
         public static bool NoseRuleOn = System.Environment.GetEnvironmentVariable("PSX_CITY_NOSE") != "0";
         /// <summary>PSX_CITY_REFUGECHORD=1: a refuge island's axis on the 30 m chord too, the undivided
         /// road's last metres eased onto it (unproven: the medians gate rejects it, see BuildRefugePair).</summary>
@@ -69,11 +118,28 @@ namespace PSXRacing.City
         public static readonly HashSet<int> BfrBayKeep = new HashSet<int> { 16705 };
         public static bool SplitsOn => SplitAxis != "0";
 
+        // ================================================================
+        //  THE ROAD-LINES ROUND (splits2, 2026-11-16 night; PSX_CITY_LINEFIX)
+        // ================================================================
+        // The owner on PC48, North Tryon Street: the double yellow S-jogs mid-road, a solid white line
+        // leaves a lane about 8 m wide, dark stripes run diagonally across the lanes. The classes behind
+        // each are fixed in the line model behind this one switch (PSX_CITY_LINEFIX=0: PC48's drawing).
+        static readonly string lineFixEnv = System.Environment.GetEnvironmentVariable("PSX_CITY_LINEFIX");
+        /// <summary>PSX_CITY_LINEFIX=1 on, =0 off (unset: off until each class is proven).</summary>
+        public static bool LineFixOn = lineFixEnv == "1";
+
+        // (Faults 1 + 2 - the centre line relayed a lane sideways, a lane 8 m wide - are the LANE FIT:
+        // LineModel.LaneFit.cs. A first rule that inferred "borrowed bays" from the neighbours' splits at run
+        // time was withdrawn: without the tags it could not tell a squeezed seven-lane street from two real
+        // back-to-back bays, and redrew 51 runs city-wide.)
+
         /// <summary>Is this split node drawn by the splits round's rules?</summary>
         public static bool InSplitScope(CityMap map, int node)
         {
             if (SplitAxis == "0" || map == null) return false;
             if (SplitAxis == "all") return true;
+            // Phase C: every node but the held-back ones (each waits for its own fix)
+            if (SplitAxis == "city") return map.graphHash != SplitsGraph || !BfrHeldBack.Contains(node);
             if (map.graphHash != SplitsGraph) return false;
             bfrSplitSet ??= new HashSet<int>(BfrSplitNodes);
             return bfrSplitSet.Contains(node) && !BfrHeldBack.Contains(node);
@@ -82,8 +148,10 @@ namespace PSXRacing.City
         /// <summary>The refuge list's scope bit for the current SplitAxis: an
         /// entry carrying any of 16/32/64 is drawn only under the scopes whose
         /// bit it carries (16 = 0, 32 = bfr, 64 = all); none: every scope.</summary>
-        public static int SplitScopeBit => SplitAxis == "0" ? 16 : SplitAxis == "bfr" ? 32 : 64;
-        public const int RefugeScopeMask = 16 | 32 | 64;
+        public static int SplitScopeBit => ScopeBitOf(SplitAxis);
+        /// <summary>A scope's bit in the refuge list (Phase C adds 128 = city).</summary>
+        public static int ScopeBitOf(string sc) => sc == "0" ? 16 : sc == "bfr" ? 32 : sc == "city" ? 128 : 64;
+        public const int RefugeScopeMask = 16 | 32 | 64 | 128;
 
         // ================================================================
         //  BAYEND (Phase A): a turn bay that serves no junction of the graph
@@ -169,7 +237,7 @@ namespace PSXRacing.City
                     var e = map.edges[kv.Key];
                     e.lsNF = kv.Value.nF; e.lsNB = kv.Value.nB; e.lsCentre = kv.Value.c; e.lsTurnOnly = kv.Value.to; e.lsFlags = kv.Value.fl;
                 }
-            bayEndOrig.Clear(); bayOpenNodes.Clear(); BayEndLog.Clear();
+            bayEndOrig.Clear(); bayOpenNodes.Clear(); BayEndLog.Clear(); PhaseCBayLaneOn = 0;
             bayEndMap = map; bayEndScope = SplitAxis;
             if (!SplitsOn || map == null || map.splt == null) return;
             var seen = new HashSet<int>();
@@ -188,6 +256,14 @@ namespace PSXRacing.City
                 if (!BayEndOn) continue;
                 // the stretch from the nose to the first junction
                 var cur = U; int at = sp.node;
+                // Phase C (scope city): a bay whose lane goes on as a lane past either of its ends (a 2-arm node
+                // where the piece beyond carries as many lanes that way and not the same bay) is OSM's lane, not
+                // a turn bay that ends: J1 ended it too, which dropped or added a lane at that 2-arm node (e16705
+                // at n15089: NB cars waited for the lane their straight-on needed; BfrBayKeep held that one
+                // edge back). Counted in every scope (PhaseCBayLaneOn: the lane drops J1's rule makes), kept
+                // under city. Every other bay on the stretch ends as J1's rule has it (a centre lane that runs
+                // into the nose: spot 34's island needs e8620's SB bay ended, or its relay moves the lines the
+                // hatch needs).
                 for (int g = 0; g < 12; g++)
                 {
                     if (!seen.Add(cur.index)) break;
@@ -198,9 +274,18 @@ namespace PSXRacing.City
                         int d = bf ? 1 : -1;
                         bool keep = SplitAxis == "bfr" && map.graphHash == SplitsGraph && BfrBayKeep.Contains(cur.index);
                         if (keep && BayEndLog.Count < 200) BayEndLog.Add($"n{sp.node}: e{cur.index} '{cur.name}' {cur.lsNF}+{cur.lsNB} bay {(d > 0 ? "a->b" : "b->a")}: kept as OSM tags it (BfrBayKeep: a driveway's bay far from any nose the round draws)");
-                        if (!keep && !BayServesJunction(map, cur, d, out int sv2))
+                        int sv2 = -1;
+                        bool serves = keep || BayServesJunction(map, cur, d, out sv2);
+                        string runWhy = "";
+                        bool runsOn = !serves && BayLaneRunsOn(map, cur, d, out runWhy);
+                        if (runsOn) PhaseCBayLaneOn++;
+                        if (runsOn && CityPhaseC)
                         {
-                            if (BayEndLog.Count < 200) BayEndLog.Add($"n{sp.node}: e{cur.index} '{cur.name}' {cur.lsNF}+{cur.lsNB} bay {(d > 0 ? "a->b" : "b->a")} serves n{sv2} ({map.nodeEdges[sv2].Count} arms, no street of the graph): ended, its space the centre lane (TWLTL)");
+                            if (BayEndLog.Count < 200) BayEndLog.Add($"n{sp.node}: e{cur.index} '{cur.name}' {cur.lsNF}+{cur.lsNB} bay {(d > 0 ? "a->b" : "b->a")}: kept as OSM tags it (Phase C: its lane goes on {runWhy})");
+                        }
+                        else if (!serves)
+                        {
+                            if (BayEndLog.Count < 200) BayEndLog.Add($"n{sp.node}: e{cur.index} '{cur.name}' {cur.lsNF}+{cur.lsNB} bay {(d > 0 ? "a->b" : "b->a")} serves n{sv2} ({(sv2 >= 0 ? map.nodeEdges[sv2].Count : 0)} arms, no street of the graph): ended, its space the centre lane (TWLTL){(runsOn ? $" - its lane goes on {runWhy}: a lane drop" : "")}");
                             EndBay(cur, d);
                         }
                     }

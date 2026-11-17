@@ -68,6 +68,10 @@ namespace PSXRacing.City
             /// the pavement ignores this ease while the lanes' centre (traffic,
             /// the AI, the race line) still eases over it as before.</summary>
             public long tag; public bool centreOnly;
+            /// <summary>(the road-lines round, 11-17) lines pair by PLACE, not by kind: a line of the wide edge goes to
+            /// the narrow edge's line within 0.3 m of it and stays; with none there it ends (an outer turn lane that
+            /// ends beside a centre lane changing hands: the TWLTL's near yellows end where the bay's white begins).</summary>
+            public bool coin;
             /// <summary>Roads pass L5, THE AUX LANE: a merge zone WIDENS the
             /// host on <see cref="side"/> (never a reduction). x = the host-chain
             /// distance from the zone's node, + into the zone arm (auxArm +1),
@@ -424,13 +428,15 @@ namespace PSXRacing.City
         {
             var add = new List<Ease>[map.edges.Length];
             foreach (var e in map.edges) e.lmEase = null;
+            var lap = System.Diagnostics.Stopwatch.StartNew(); float lapAt = 0f;
+            float Lap() { float now = (float)lap.Elapsed.TotalMilliseconds, d = now - lapAt; lapAt = now; return d; }
             // the splits round: the line sets for the current scope (the gate switches it in-process)
             if (bayEndMap != map || bayEndScope != SplitAxis) ApplyBayEnds(map);
             ClearSplitFrames();
             taggedEdges = new Dictionary<long, List<int>>();
             EasedJoins = 0; EasedDefault = 0; EaseSteps = 0; SplitTapers = 0; HeldJoins = 0; CrossedJoins = 0;
             BranchDropHeld = 0; BranchDropFound = 0; BranchDropLog.Clear(); BranchDropHeldAt.Clear();
-            TwoSidedJoins = 0; RelayJoins = 0; RelayShort = 0; ReShifts = 0; RelayNoseLive = 0;
+            TwoSidedJoins = 0; OuterLaneEnds = 0; RelayJoins = 0; RelayShort = 0; ReShifts = 0; RelayNoseLive = 0; TaperFloorRaised = 0; TaperFloorShort = 0; TaperFloorShortLog.Clear(); RelayHandOvers = 0; RelayBayCross = 0;
             var splitAt = new Dictionary<int, Split>();
             if (map.splt != null) foreach (var sp in map.splt) splitAt[sp.node] = sp;
             // the joins whose two arms agree in width but not in their lines
@@ -483,7 +489,7 @@ namespace PSXRacing.City
                         bool eWide = dLt > 0f;
                         var W = eWide ? E : O; var N = eWide ? O : E;
                         // travel frame (+1 left): which side is held
-                        int fixT;
+                        int fixT; bool outerTurn = false;
                         bool nForward = N == E ? eIn : oOut;     // N's a->b runs the travel way
                         bool wForward = W == E ? eIn : oOut;
                         if (N.oneway != W.oneway)
@@ -495,12 +501,19 @@ namespace PSXRacing.City
                             fixT = owForward ? -1 : 1;
                         }
                         else if (TwoSided(W, n)) fixT = 0;   // Q4: each direction widens on its own outside
+                        // the road-lines round (PSX_CITY_LINEFIX): a CENTRE LANE opens - the wide arm carries the
+                        // narrow arm's lanes each way and a two-way left-turn lane between them (six lanes into the
+                        // seven-lane street): both directions move out half a lane, each on its own side
+                        else if (LineFixOn && !W.oneway && !N.oneway && W.hasLset && N.hasLset && W.lsCentre == 2 && N.lsCentre == 1
+                                 && (((W.a == n) != (N.a == n)) ? (W.lsNF == N.lsNF && W.lsNB == N.lsNB) : (W.lsNF == N.lsNB && W.lsNB == N.lsNF))
+                                 && Mathf.Abs(Mathf.Abs(dLt) - Mathf.Abs(dRt)) < 0.05f) fixT = 0;
                         else if (taprAt != null && (taprAt.TryGetValue(TaprKey(W.index, W.a == n ? 0 : 1, 0), out int tiW)
                                                     || taprAt.TryGetValue(TaprKey(W.index, W.a == n ? 0 : 1, 1), out tiW)))
                         {
                             int mW = taprMap.tapr[tiW].side == 0 ? 1 : -1;       // the moving side, W's frame
                             fixT = -(wForward ? mW : -mW);
                         }
+                        else if (LineFixOn && OuterTurnLaneEnds(W, N, wForward, nForward, Mathf.Abs(dLt) + Mathf.Abs(dRt), out int outerT)) { fixT = -outerT; OuterLaneEnds++; outerTurn = true; }
                         else fixT = Mathf.Abs(dRt) <= Mathf.Abs(dLt) ? -1 : 1;   // the smaller step is held: the fewest lanes move
                         if (fixT == 0)
                         {
@@ -540,8 +553,12 @@ namespace PSXRacing.City
                         // (wedlane 11-06) the lane leaves on the branch: W holds its width to the node
                         if (BranchDropAt(map, add, partner, W, N, n, wSide, shiftN)) { HeldJoins++; continue; }
                         float len = LengthFor(W, n, wSide, dMove, out bool fromTapr);
+                        // an outer TURN lane that ends: its traffic turns off, nobody merges - the bay's taper (8:1 to
+                        // 15:1, AASHTO's deceleration-lane taper) at the node, not the merging taper W S that ran it out
+                        // over 165 m (North Tryon at Dorton St: over the whole seven-lane piece the owner stood on)
+                        if (outerTurn && !fromTapr) len = Mathf.Max(BayCrossMinM, dMove * BayTaperRate(Mathf.Max(SpeedMph(W), SpeedMph(N))));
                         EasedJoins++; HeldJoins++; if (!fromTapr) EasedDefault++;
-                        Propagate(map, add, partner, W, n, wSide, dMove, len, 0f, N, (W.a == n) == (N.a == n), 0);
+                        Propagate(map, add, partner, W, n, wSide, dMove, len, 0f, N, (W.a == n) == (N.a == n), 0, coin: outerTurn);
                         continue;
                     }
                     // CROSSED: each arm sticks out on a different side - the two
@@ -599,8 +616,10 @@ namespace PSXRacing.City
             // starts where its lanes are in the undivided road and eases onto
             // its own line over the MUTCD shifting taper - two carriageways,
             // never one road that bulges into two
+            PartJoinsMs = Lap();
             var refuge = RefugeOn ? FindRefuges(map, add, partner, plan) : null;
             if (!RefugeOn) ClearRefuges();
+            PartRefugesMs = Lap();
             // the splits round (J1 Phase B, PSX_CITY_SPLITAXIS): the axis-frame profile at in-scope split nodes
             HashSet<int> splitNodeSet = null; HashSet<long> refugeEndSet = null;
             if (SplitsOn)
@@ -608,11 +627,15 @@ namespace PSXRacing.City
                 splitNodeSet = new HashSet<int>(splitAt.Keys);
                 refugeEndSet = refuge != null ? new HashSet<long>(refuge.Keys) : new HashSet<long>();
             }
+            // Phase C: the tight twins (two carriageways mapped closer than their own lanes) pushed apart, before
+            // any split's profile reads their lines
+            if (SplitsOn && (CityPhaseC || TwinsEverywhere) && PhaseCTightOn) BuildTightTwins(map, add, partner, splitAt, splitNodeSet, refugeEndSet);
+            PartTwinsMs = Lap();
             foreach (var sp in splitAt.Values)
             {
                 if (sp.u < 0 || sp.u >= map.edges.Length) continue;
                 var U = map.edges[sp.u];
-                var framed = SplitsOn && InSplitScope(map, sp.node) ? BuildSplitNode(map, add, partner, sp, splitNodeSet, refugeEndSet) : null;
+                var framed = SplitsOn && (InSplitScope(map, sp.node) || TwinScopeNode(sp.node)) ? BuildSplitNode(map, add, partner, sp, splitNodeSet, refugeEndSet) : null;
                 var tu = U.a == sp.node ? -U.TangentAt(0f) : U.TangentAt(U.length);   // into the node
                 var leftU = new Vector2(-tu.y, tu.x);
                 for (int c = 0; c < 2; c++)
@@ -650,9 +673,11 @@ namespace PSXRacing.City
             // the splits round (J1 Phase B): the same profile at same-name fan meetings (a two-way
             // road meeting its own carriageways at a junction, no SPLT record: n7868, n9152 on
             // Beatties Ford) - PSX_CITY_SPLITMEET=0 leaves them as live (no taper at a fan)
+            PartSplitsMs = Lap();
             if (SplitsOn && SplitMeetOn)
                 foreach (var ms in SameNameMeetings(map, splitAt))
                     BuildSplitNode(map, add, partner, ms, splitNodeSet, refugeEndSet);
+            PartMeetingsMs = Lap();
             // SHIFT records (roads pass L4, plan B6 FX3): a run re-anchored at
             // a junction starts where the lanes were and eases back onto its
             // line past it - never a jump across the junction
@@ -665,7 +690,10 @@ namespace PSXRacing.City
                     // at a MITRED node the join's own eases already draw the
                     // step smoothly (held / crossed above): no second shift
                     if (partner(e, t.end == 0 ? e.a : e.b) >= 0) continue;
-                    PropagateShift(map, add, partner, e, t.end == 0 ? e.a : e.b, t.off, Mathf.Max(0.5f, t.len), 0f, 0);
+                    // J1b: the record was written at L/2 in places: at least the floored length
+                    float shL = TaperFloorOn ? Mathf.Max(t.len, FlooredLength(e, Mathf.Abs(t.off))) : t.len;
+                    if (TaperFloorOn && shL > t.len + 0.05f) TaperFloorRaised++;
+                    PropagateShift(map, add, partner, e, t.end == 0 ? e.a : e.b, t.off, Mathf.Max(0.5f, shL), 0f, 0);
                     ReShifts++;
                 }
             for (int i = 0; i < add.Length; i++) if (add[i] != null) map.edges[i].lmEase = add[i].ToArray();
@@ -1514,13 +1542,15 @@ namespace PSXRacing.City
             return res;
         }
 
-        /// <summary>The eases on an edge so far, less any refuge profile's (the joins' own).</summary>
+        /// <summary>The eases on an edge so far, less any refuge profile's (the joins' own) - and with a
+        /// tight twin's push (tags from -3000000 down): that push IS the carriageway's own line, the one a
+        /// split's profile blends onto.</summary>
         static Ease[] PreEases(List<Ease>[] add, CityMap.Edge e)
         {
             var l = add[e.index];
             if (l == null) return null;
             var o = new List<Ease>(l.Count);
-            foreach (var z in l) if (z.tag >= 0 || z.prof == null) o.Add(z);
+            foreach (var z in l) if (z.tag >= 0 || z.prof == null || z.tag <= -3000000) o.Add(z);
             return o.Count > 0 ? o.ToArray() : null;
         }
 
@@ -1800,6 +1830,11 @@ namespace PSXRacing.City
             var lE = LayoutOf(E); var lO = LayoutOf(O);
             bool same = (E.a == n) != (O.a == n);              // one arrives, one leaves: one a->b frame
             var oInE = same ? lO : Flipped(lO);
+            // the road-lines round (PSX_CITY_LINEFIX): the centre lane changes hands. Against a two-way
+            // left-turn lane no line moves; between two opposing bays only the double yellow crosses the
+            // centre lane, over the bay taper (no through lane follows it)
+            bool handOver = LineFixOn && CentreHandOver(E, O, lE, oInE, same);
+            if (handOver && (E.lsCentre == 2 || O.lsCentre == 2)) { RelayHandOvers++; return; }
             var pE = RelayPairs(lE, oInE);                      // E line k -> O's m (E frame), or NaN
             var eInO = same ? lE : Flipped(lE);
             var pO = RelayPairs(lO, eInO);
@@ -1809,7 +1844,11 @@ namespace PSXRacing.City
             if (move < 0.005f && !ends) return;
             float mph = Mathf.Max(SpeedMph(E), SpeedMph(O));
             float rate = Mathf.Max(10f, mph <= 40f ? mph * mph / 60f : mph);
-            float L = Mathf.Max(Mathf.Max(FloorOf(E), FloorOf(O)), Mathf.Max(move, ends ? RoadProfiles.LaneM : 0f) * rate * (ends ? 1f : 0.5f));
+            // J1b: the shifting taper's L/2 only to 35 mph; full L from 40 (and the smoothstep's Rmin)
+            float half = TaperFloorOn && mph > 37.5f ? 1f : 0.5f;
+            float L = Mathf.Max(Mathf.Max(FloorOf(E), FloorOf(O)), Mathf.Max(move, ends ? RoadProfiles.LaneM : 0f) * rate * (ends ? 1f : half));
+            if (TaperFloorOn && !ends) L = Mathf.Max(L, Mathf.Sqrt(6f * move * RminAt(mph)));
+            if (handOver) L = Mathf.Max(BayCrossMinM, move * BayTaperRate(mph));
             // Round 4 (review r3 #5): an arm whose far end is a carriageway
             // split's nose keeps the nose approach (RelayNoseKeepM) clear of the
             // relay - at n10229 a 46 m relay from the junction behind left the
@@ -1841,9 +1880,109 @@ namespace PSXRacing.City
             if (lenE + lenO < 0.5f) return;
             if (lenE + lenO < L - 0.5f) RelayShort++;
             RelayJoins++;
+            if (handOver) RelayBayCross++;
             float fE = lenE + lenO > 1e-3f ? lenE / (lenE + lenO) : 0.5f;
             AddRelay(add, E, n, lE, pE, fE, lenE);
             AddRelay(add, O, n, lO, pO, 1f - fE, lenO);
+        }
+
+        // ================================================================
+        //  THE CENTRE LANE CHANGES HANDS (the road-lines round, 2026-11-17)
+        // ================================================================
+        // 788 joins city-wide relay between two line sets of one profile; at 428 of them (and at the
+        // untagged ones on the odd, centre-turn-lane profiles) the only thing that differs is WHOSE the
+        // centre lane is: one direction's left bay, the other's, or a two-way left-turn lane (East 7th
+        // Street, Gleneagles Road, Beam Road...: 3 + 2 / 2 + 3, 2 + 1 / 1 + 2 piece after piece). Every
+        // line of the two layouts is in the same place - the lane's two boundaries only change kind (the
+        // double yellow is on its far side, a white bay line on its near side) - but the relay paired
+        // yellow with yellow and carried the double yellow diagonally ACROSS the centre lane and back at
+        // the next piece: the owner's S, 214 times. A real centre lane's boundaries never move: where a
+        // bay begins the two-way lane's broken yellow ends and a white line starts in its place. So:
+        // where the two layouts' lines all sit within 0.3 m of a line of the other, and each direction's
+        // THROUGH lanes are the same on both pieces (an inner turn-only lane, the centre lane of an odd
+        // profile, or a TWLTL is not a through lane), the join is a HAND-OVER:
+        //   - a two-way left-turn lane against a bay: no relay at all; each piece draws its own lines to
+        //     the join (the far pair becomes the double yellow where it is, the near pair ends, the bay's
+        //     line starts);
+        //   - one direction's bay against the other's (back-to-back bays): the double yellow does cross
+        //     the centre lane - the real reverse taper - but over the BAY taper (8:1 to 30 mph, 15:1 from
+        //     50: no through lane follows it), not the merging taper W S that swept it along whole pieces;
+        //     the bay lines end at the taper's ends and the through lanes' lines stay where they are.
+        // A bay too short to hold its tapers and 30 m of storage between two such joins is drawn as a
+        // two-way left-turn lane (LineModel.ApplyCentreRuns, at load). A join where a through lane really
+        // ends keeps its relay (and its taper length).
+        public static int RelayHandOvers, RelayBayCross;
+        public const float BayStorageM = 30f, BayCrossMinM = 12f;
+        public static float BayTaperRate(float mph) => Mathf.Lerp(8f, 15f, Mathf.InverseLerp(30f, 50f, mph));
+        static void ThruOf(CityMap.Edge e, out int tf, out int tb)
+        {
+            CityMeshes.TurnOnly(e, out int fw, out int bw, out int nF, out int nB, out _);
+            tf = nF - ((fw & 1) != 0 && nF >= 2 ? 1 : 0);
+            tb = nB - ((bw & 1) != 0 && nB >= 2 ? 1 : 0);
+            // an odd profile's middle lane IS the centre lane (RoadProfiles.IndexFor): on an uneven split
+            // with a double yellow the larger direction's extra lane is that lane, tagged as a bay or not
+            if (e.lsCentre == 1 && RoadProfiles.All[e.profile].turnLane && nF != nB)
+            {
+                int k = (RoadProfiles.All[e.profile].lanes - 1) / 2;
+                if (nF == k + 1 && nB == k) tf = Mathf.Min(tf, k);
+                else if (nB == k + 1 && nF == k) tb = Mathf.Min(tb, k);
+            }
+        }
+        // ================================================================
+        //  AN OUTER TURN LANE ENDS (the road-lines round, 2026-11-17)
+        // ================================================================
+        // Two two-way pieces one lane apart in width, both centred on the mapped line, where the wide piece's extra
+        // lane is ONE direction's OUTER turn-only lane (a right-turn lane) and every other lane - through lanes and
+        // the centre lane - is on both: on the street the right-turn lane ends at its corner and nothing else moves.
+        // The pavement narrows on THAT direction's outer side only. The old rule ("the smaller step is held") had
+        // equal steps here (half a lane each side) and always held the travel-right edge: half of these joins eased
+        // the wrong side, and the opposing through lanes shifted half a lane (North Tryon Street at Dorton Street,
+        // behind the owner's pose). outerT = the side (travel frame, +1 left) that eases.
+        public static int OuterLaneEnds;
+        /// <summary>The last load's BuildEases time (ms): the line model's cost, logged by CityMeshes.</summary>
+        public static float BuildEasesMs;
+        /// <summary>Its parts (ms): the joins (tapers, relays), the refuge pairs, the tight twins, the split nodes, the
+        /// same-name meetings (the rest = BuildEasesMs less these).</summary>
+        public static float PartJoinsMs, PartRefugesMs, PartTwinsMs, PartSplitsMs, PartMeetingsMs;
+        static bool OuterTurnLaneEnds(CityMap.Edge W, CityMap.Edge N, bool wForward, bool nForward, float dW, out int outerT)
+        {
+            outerT = 0;
+            if (W.oneway || N.oneway || !W.hasLset || !N.hasLset || (W.lsFlags & 1) == 0 || (N.lsFlags & 1) == 0) return false;
+            if (Mathf.Abs(dW - RoadProfiles.LaneM) > 0.35f) return false;
+            CityMeshes.TurnOnly(W, out int wf, out int wb, out int wnF, out int wnB, out _);
+            CityMeshes.TurnOnly(N, out int nf, out int nb, out int nnF, out int nnB, out _);
+            // per direction in the TRAVEL frame: 0 = with travel (its outer side is travel-right), 1 = against
+            int[] wn = { wForward ? wnF : wnB, wForward ? wnB : wnF }, wbits = { wForward ? wf : wb, wForward ? wb : wf };
+            int[] nn = { nForward ? nnF : nnB, nForward ? nnB : nnF }, nbits = { nForward ? nf : nb, nForward ? nb : nf };
+            // each direction's lanes less an inner bay (the centre lane, where one direction has it): equal on both
+            // pieces but for ONE direction, whose wide piece has one more and that one is its outer turn lane - then
+            // the widths differ by that lane alone (dW) and every other line is on both
+            int Core(int n, int bits) => n - ((bits & 1) != 0 && n >= 2 ? 1 : 0);
+            int x = -1;
+            for (int d = 0; d < 2; d++)
+            {
+                int cw = Core(wn[d], wbits[d]), cn = Core(nn[d], nbits[d]);
+                if (cw == cn) continue;
+                bool outer = wn[d] >= 2 && (wbits[d] & (1 << (wn[d] - 1))) != 0;
+                if (cw - cn != 1 || !outer || x >= 0) return false;
+                x = d;
+            }
+            if (x < 0) return false;
+            outerT = x == 0 ? -1 : 1;
+            return true;
+        }
+
+        static bool CentreHandOver(CityMap.Edge E, CityMap.Edge O, Layout a, Layout b, bool same)
+        {
+            if (E.profile != O.profile || a.m.Length == 0 || b.m.Length == 0) return false;
+            ThruOf(E, out int ef, out int eb); ThruOf(O, out int of, out int ob);
+            if (!same) { int q = of; of = ob; ob = q; }
+            if (ef != of || eb != ob) return false;
+            const float tol = 0.30f;
+            bool Has(Layout l, float m) { for (int i = 0; i < l.m.Length; i++) if (Mathf.Abs(l.m[i] - m) <= tol) return true; return false; }
+            for (int i = 0; i < a.m.Length; i++) if (!Has(b, a.m[i])) return false;
+            for (int i = 0; i < b.m.Length; i++) if (!Has(a, b.m[i])) return false;
+            return true;
         }
 
         /// <summary>Round 5: the split nodes of the refuge pairs drawn (null: none).</summary>
@@ -1964,10 +2103,35 @@ namespace PSXRacing.City
 
         /// <summary>Round 5: while a refuge pair's common-mode shift is laid, the edges it reaches.</summary>
         static List<int> shiftLog;
+        // THE SHIFT RUNS ON (11-17 roads3, PSX_CITY_SHIFTRUN=1; North Tryon e14081 behind the owner's pose). Where one
+        // edge is held at a width change, the narrow arm's lines shift over on the MUTCD shifting taper - but that
+        // shift stopped at the next width change along (RoomAlong: "the next change owns the ribbon"): on North Tryon
+        // east of Dorton St the 1.83 m shift had 28.7 m for its 82 m (45 mph), the lane lines swung 17 deg and back.
+        // A shift moves the whole cross-section, so it may run on through a two-arm joint where the width changes:
+        // both sides of that joint move together and its own step is untouched. It still stops at a junction (no
+        // through partner). Default OFF until the gate has judged it.
+        public static bool ShiftRunOn = System.Environment.GetEnvironmentVariable("PSX_CITY_SHIFTRUN") == "1";
+        static float RoomAlongShift(CityMap map, System.Func<CityMap.Edge, int, int> partner, CityMap.Edge e, int fromNode)
+        {
+            float total = e.length;
+            var cur = e; int from = fromNode;
+            for (int guard = 0; guard < 12; guard++)
+            {
+                int far = cur.a == from ? cur.b : cur.a;
+                int pi = partner(cur, far);
+                if (pi < 0) break;
+                var p = map.edges[pi];
+                if (p == cur || p.a == p.b || p.oneway != cur.oneway) break;
+                if (map.nodeEdges[far].Count != 2) break;
+                total += p.length;
+                cur = p; from = far;
+            }
+            return total;
+        }
         static void PropagateShift(CityMap map, List<Ease>[] add, System.Func<CityMap.Edge, int, int> partner,
                                    CityMap.Edge e, int fromNode, float shift, float len, float d0, int depth)
         {
-            if (depth == 0) len = Mathf.Max(0.5f, Mathf.Min(len, RoomAlong(map, partner, e, fromNode, 1, true)));
+            if (depth == 0) len = Mathf.Max(0.5f, Mathf.Min(len, ShiftRunOn ? RoomAlongShift(map, partner, e, fromNode) : RoomAlongFloor(map, partner, e, fromNode, 1, true, len)));
             (add[e.index] ??= new List<Ease>(2)).Add(new Ease { shift = true, fromA = e.a == fromNode, dw = shift, len = len, d0 = d0 });
             shiftLog?.Add(e.index);
             if (d0 + e.length >= len || depth >= 12) return;
@@ -1987,15 +2151,15 @@ namespace PSXRacing.City
 
         static void Propagate(CityMap map, List<Ease>[] add, System.Func<CityMap.Edge, int, int> partner,
                               CityMap.Edge e, int fromNode, int side, float dw, float len, float d0, CityMap.Edge narrow, bool flip, int depth,
-                              float dwOther = 0f, byte twoRole = 0, long tag = 0)
+                              float dwOther = 0f, byte twoRole = 0, long tag = 0, bool coin = false, int narrowProf = -1)
         {
             // the join's tag (roads pass L5): set at the join, carried on through
             if (depth == 0) tag = EaseTag(fromNode, e.index, side);
             // never longer than the run it eases: the next change along owns the
             // ribbon from there (a default length ran past a 35 m piece into the
             // next join, whose own step it then did not see)
-            if (depth == 0) len = Mathf.Max(0.5f, Mathf.Min(len, RoomAlong(map, partner, e, fromNode, side, false)));
-            var z = new Ease { side = (sbyte)side, fromA = e.a == fromNode, dw = dw, len = len, d0 = d0, narrow = narrow.profile, narrowLay = LayoutOf(narrow), narrowFlip = flip, dwOther = dwOther, twoRole = twoRole, tag = tag };
+            if (depth == 0) len = Mathf.Max(0.5f, Mathf.Min(len, RoomAlongFloor(map, partner, e, fromNode, side, false, len)));
+            var z = new Ease { side = (sbyte)side, fromA = e.a == fromNode, dw = dw, len = len, d0 = d0, narrow = narrowProf >= 0 ? narrowProf : narrow.profile, narrowLay = narrowProf >= 0 ? LayoutOf(narrowProf) : LayoutOf(narrow), narrowFlip = flip, dwOther = dwOther, twoRole = twoRole, tag = tag, coin = coin };
             if (taggedEdges != null) { if (!taggedEdges.TryGetValue(tag, out var tl)) taggedEdges[tag] = tl = new List<int>(2); tl.Add(e.index); }
             var lay = LayoutOf(e);
             z.partner = new float[lay.m.Length];
@@ -2014,7 +2178,7 @@ namespace PSXRacing.City
             float extE = side > 0 ? e.lmPlus : e.lmMinus, extP = pSide > 0 ? p.lmPlus : p.lmMinus;
             if (Mathf.Abs(extE - extP) > 0.05f) return;
             bool pFlip = flip ^ ((e.a == fromNode) != (p.a == far));
-            Propagate(map, add, partner, p, far, pSide, dw, len, d0 + e.length, narrow, pFlip, depth + 1, dwOther, twoRole, tag);
+            Propagate(map, add, partner, p, far, pSide, dw, len, d0 + e.length, narrow, pFlip, depth + 1, dwOther, twoRole, tag, coin, narrowProf);
         }
 
         /// <summary>A taper's length: TAPR's MUTCD length where the exporter
@@ -2219,7 +2383,7 @@ namespace PSXRacing.City
             {
                 var t = taprMap.tapr[ti];
                 int tSide = t.side == 0 ? 1 : -1;
-                if (tSide == side && t.len >= 0.5f) { fromTapr = true; return t.len; }
+                if (tSide == side && t.len >= 0.5f) { fromTapr = true; return TaperFloorOn ? Mathf.Max(t.len, FlooredLength(w, dw)) : t.len; }
                 // "full width at the node" (a junction mouth) that the builder
                 // mitres - a lane that opens at a merge, beside the branch
                 // that brings it: the shortest taper the class allows
@@ -2227,12 +2391,57 @@ namespace PSXRacing.City
             }
             float mph = w.speedKmh > 0 ? w.speedKmh / 1.609344f : w.link ? 35f : ClassMph[Mathf.Clamp(w.cls, 0, 5)];
             float rate = mph <= 40f ? mph * mph / 60f : mph;
+            if (TaperFloorOn) return FlooredLength(w, dw);
             return Mathf.Max(FloorOf(w), dw * rate);
         }
         static readonly float[] ClassMph = { 25f, 35f, 40f, 45f, 55f, 65f };
         /// <summary>The taper floors (plan A4 WP-10 item 6): street 15,
-        /// arterial 30, freeway 90 m.</summary>
-        static float FloorOf(CityMap.Edge w) => (w.cls >= 5 || (w.cls == 4 && w.oneway && !w.link)) ? 90f : (w.link || w.cls >= 2) ? 30f : 15f;
+        /// arterial 30, freeway 90 m. J1b (TaperFloorOn): every urban street
+        /// 30.5 m (MUTCD's 100 ft), freeways 90 m as before.</summary>
+        static float FloorOf(CityMap.Edge w) => (w.cls >= 5 || (w.cls == 4 && w.oneway && !w.link)) ? 90f : TaperFloorOn ? TaperUrbanFloorM : (w.link || w.cls >= 2) ? 30f : 15f;
+
+        // ================================================================
+        //  J1b, THE TAPER FLOORS (splits2, Phase C; PSX_CITY_TAPERFLOOR)
+        // ================================================================
+        // MUTCD 11th 3B.12-3B.13 (2009 3B.09-3B.10): a lateral move of W needs
+        // L = W S^2/60 to 40 mph and W S from 45 mph; never under 100 ft
+        // (30.5 m) urban, 200 ft (61 m) rural; and a smoothstep of W over L
+        // has its least radius L^2/(6W), so L >= sqrt(6 W Rmin(S)) keeps it
+        // inside Green Book's Rmin at -2 %. The exporter wrote TAPR lengths and
+        // SHIFT records at L/2 in places, the street floor was 15 m, and the
+        // relays used L/2 at every speed. Now (scope city by default):
+        //   * every taper (a TAPR record's own length too) at least
+        //     max(floor, r(S) W, sqrt(6 W Rmin(S)));
+        //   * the street floor 30.5 m (Charlotte is urban);
+        //   * a relay's shifting taper L/2 only to 35 mph, full L from 40;
+        //   * a SHIFT record's ease at least the floored length;
+        // each still within the room RoomAlong gives (a short room is counted,
+        // TaperFloorShort, never squeezed further than before).
+        public const float TaperUrbanFloorM = 30.5f;
+        static readonly string taperFloorEnv = System.Environment.GetEnvironmentVariable("PSX_CITY_TAPERFLOOR");
+        /// <summary>PSX_CITY_TAPERFLOOR=1 on in every scope, =0 off; unset: on under the scope 'city' only.</summary>
+        public static bool TaperFloorOn => taperFloorEnv == "1" || (taperFloorEnv != "0" && CityPhaseC);
+        public static int TaperFloorRaised, TaperFloorShort;
+        static float FlooredLength(CityMap.Edge w, float dw)
+        {
+            float mph = SpeedMph(w);
+            float rate = mph <= 40f ? mph * mph / 60f : mph;
+            return Mathf.Max(FloorOf(w), Mathf.Max(dw * rate, Mathf.Sqrt(6f * Mathf.Max(0f, dw) * SplitRminOf(mph))));
+        }
+        static float SplitRminOf(float mph) => RminAt(mph);
+        /// <summary>J1b: the room for a taper, counted (and the first 300 listed) where the floored length
+        /// does not fit: listed, never squeezed further than the room.</summary>
+        public static readonly List<string> TaperFloorShortLog = new List<string>();
+        static float RoomAlongFloor(CityMap map, System.Func<CityMap.Edge, int, int> partner, CityMap.Edge e, int fromNode, int side, bool shift, float want)
+        {
+            float room = RoomAlong(map, partner, e, fromNode, side, shift);
+            if (TaperFloorOn && room < want - 0.5f)
+            {
+                TaperFloorShort++;
+                if (TaperFloorShortLog.Count < 300) TaperFloorShortLog.Add($"e{e.index} '{e.name}' from n{fromNode}: room {room:0.0} m for {want:0.0} m ({(shift ? "shift" : "taper")})");
+            }
+            return room;
+        }
 
         /// <summary>Where along an edge its tapers start and end (arc
         /// positions), for the builder's sections (every taper end is a
@@ -2587,6 +2796,40 @@ namespace PSXRacing.City
             if (kind == KEdgeM && z.side < 0) { int j = Find(nar, KEdgeM, 0); return j < 0 ? float.NaN : -(minus - z.dw) + (nar.W - nar.m[j]); }
             if (kind == KEdgeP) { int j = Find(nar, KEdgeP, 0); return j < 0 ? float.NaN : nLat(nar.m[j]); }
             if (kind == KEdgeM) { int j = Find(nar, KEdgeM, 0); return j < 0 ? float.NaN : nLat(nar.m[j]); }
+            if (z.coin)
+            {
+                // a line the narrow piece has too (within 0.3 m) stays; one that it has not but that lies on the narrow
+                // piece's MOVING edge line - the line of the lane that opens or ends - rides with that edge (MUTCD: a
+                // lane line starts / ends where its lane's taper does, not at the full-width section); else it ends
+                float own = plus - lay.m[k], best = 0.3f, at = float.NaN;
+                for (int i = 0; i < nar.m.Length; i++)
+                {
+                    if (nar.kind[i] == KEdgeP || nar.kind[i] == KEdgeM) continue;
+                    float d = Mathf.Abs(nLat(nar.m[i]) - own);
+                    if (d <= best) { best = d; at = nLat(nar.m[i]); }
+                }
+                if (float.IsNaN(at))
+                {
+                    int j = Find(nar, z.side > 0 ? KEdgeP : KEdgeM, 0);
+                    if (j >= 0)
+                    {
+                        float edgeAt = z.side > 0 ? (plus - z.dw) - nar.m[j] : -(minus - z.dw) + (nar.W - nar.m[j]);
+                        if (Mathf.Abs(edgeAt - own) <= 0.3f) at = own;           // it IS the line at the edge: it stays put
+                        else if (Mathf.Abs(edgeAt - own) <= RoadProfiles.LaneM + 0.3f)
+                        {
+                            // the lane line next to the moving edge: is it the nearest line of the wide layout to that edge?
+                            float nearest = float.MaxValue;
+                            for (int i = 0; i < lay.m.Length; i++)
+                            {
+                                if (lay.kind[i] == KEdgeP || lay.kind[i] == KEdgeM) continue;
+                                nearest = Mathf.Min(nearest, Mathf.Abs(edgeAt - (plus - lay.m[i])));
+                            }
+                            if (Mathf.Abs(Mathf.Abs(edgeAt - own) - nearest) < 0.01f) at = edgeAt;
+                        }
+                    }
+                }
+                return at;
+            }
             if (z.twoRole != 0)
             {
                 // BOTH EDGES (Q4): the narrow layout sits in by each side's dw,

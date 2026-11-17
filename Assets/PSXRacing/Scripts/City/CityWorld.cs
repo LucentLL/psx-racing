@@ -2121,6 +2121,9 @@ namespace PSXRacing.City
             if (slot == CityMeshes.Slot.MedianBed) return MatFor(CityMeshes.Slot.Ground);
             // ...and one built before the Uptown street dress: the pavers wear the walk's slab
             if (slot == CityMeshes.Slot.WalkPaver) return MatFor(CityMeshes.Slot.Sidewalk);
+            // ...and one built before the seven-lane street: it wears the six-lane street's surface
+            if (i >= (int)CityMeshes.Slot.RoadXFirst && CityMeshes.RoadSlot(i, out int xp, out int xs) && xp == RoadProfiles.Tw7)
+                return MatFor(CityMeshes.SlotOf(4, (CityMeshes.Surface)xs));
             return null;
         }
 

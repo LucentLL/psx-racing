@@ -411,7 +411,7 @@ namespace PSXRacing.City
             /// <summary>Streets pass 4: the curbs and sidewalks (CityMeshes.Walks),
             /// a submesh of the ground; after the driving surfaces, so no
             /// existing slot moves.</summary>
-            Sidewalk = RoadFirst + RoadClassCount * SurfaceCount,
+            Sidewalk = RoadFirst + (RoadProfiles.BaseCount + 1) * SurfaceCount,
             /// <summary>The bridges pass (2026-10-29): girders, piers, caps,
             /// bearings, abutments, object markers and high masts on the
             /// structure atlas (Art/City/Pack/city_structure.png) - the tile's
@@ -434,11 +434,43 @@ namespace PSXRacing.City
             /// three facade slots nothing has emitted into since the facade atlas:
             /// FacadeBrick, FacadeMid, FacadeTower.) Last, so no slot moves.</summary>
             HousePaint,
-            COUNT,
+            /// <summary>The road-lines round (2026-11-16): the driving surfaces of the profiles added after
+            /// the first twenty (RoadProfiles.BaseCount; the seven-lane street), four surfaces each. Last, so
+            /// no slot moves: a scene or kit built before them draws everything else as it did, and a
+            /// seven-lane road wears the six-lane material until the kit is rebuilt (CityWorld.MatFor).</summary>
+            RoadXFirst,
+            COUNT = RoadXFirst + (RoadProfiles.ProfileCount - RoadProfiles.BaseCount) * SurfaceCount,
         }
 
-        public static Slot SlotOf(int profile, Surface surf) =>
-            (Slot)((int)Slot.RoadFirst + profile * SurfaceCount + (int)surf);
+        /// <summary>A driving surface's slot. The first RoadProfiles.BaseCount profiles and the junction slab
+        /// keep the block every scene was baked with (RoadFirst + row * SurfaceCount + surface, the junction
+        /// the row after them); a later profile's block is at the end of the table.</summary>
+        public static Slot SlotOf(int profile, Surface surf)
+        {
+            if (profile == JunctionProfile) return (Slot)((int)Slot.RoadFirst + RoadProfiles.BaseCount * SurfaceCount + (int)surf);
+            if (profile >= RoadProfiles.BaseCount) return (Slot)((int)Slot.RoadXFirst + (profile - RoadProfiles.BaseCount) * SurfaceCount + (int)surf);
+            return (Slot)((int)Slot.RoadFirst + profile * SurfaceCount + (int)surf);
+        }
+
+        /// <summary>Is this slot a driving surface, and whose (profile, JunctionProfile for the slab) and which surface?</summary>
+        public static bool RoadSlot(int slot, out int profile, out int surf)
+        {
+            profile = -1; surf = 0;
+            int rel = slot - (int)Slot.RoadFirst;
+            if (rel >= 0 && slot < (int)Slot.Sidewalk)
+            {
+                int row = rel / SurfaceCount; surf = rel % SurfaceCount;
+                profile = row == RoadProfiles.BaseCount ? JunctionProfile : row;
+                return true;
+            }
+            int rx = slot - (int)Slot.RoadXFirst;
+            if (rx >= 0 && slot < (int)Slot.COUNT)
+            {
+                profile = RoadProfiles.BaseCount + rx / SurfaceCount; surf = rx % SurfaceCount;
+                return true;
+            }
+            return false;
+        }
 
         /// <summary>
         /// Has this stretch been resurfaced recently? RG2's own _roadAge hash,
@@ -1910,12 +1942,16 @@ namespace PSXRacing.City
             // the line model's one-sided tapers, run on through mitred joints
             // (the splits round: a fan's edge is where a junction split's profile starts)
             LineModel.SplitTrimHook = (e, node) => t.TrimAt(e, node);
+            var lmClock = System.Diagnostics.Stopwatch.StartNew();
             LineModel.BuildEases(map, joins, (e, node) =>
             {
                 if (!t.mitre[node]) return -1;
                 int o = t.throughA[node] == e.index ? t.throughB[node] : t.throughB[node] == e.index ? t.throughA[node] : -1;
                 return o == e.index ? -1 : o;
             });
+            // (the road-lines round, 11-17) the cost: the line model's eases, every load (scope and switches on the line)
+            LineModel.BuildEasesMs = (float)lmClock.Elapsed.TotalMilliseconds;
+            Debug.Log($"[city] line model eases built in {LineModel.BuildEasesMs:0.0} ms (PSX_CITY_SPLITAXIS {LineModel.SplitAxis}, LINEFIX {(LineModel.LineFixOn ? 1 : 0)}): joins {LineModel.PartJoinsMs:0}, refuges {LineModel.PartRefugesMs:0}, twins {LineModel.PartTwinsMs:0} ({LineModel.TightTwinPairs} pairs, {LineModel.TwinPruned} + {LineModel.TwinCoarsePruned} coarse pruned), splits {LineModel.PartSplitsMs:0}, meetings {LineModel.PartMeetingsMs:0} ms");
             // roads pass L5: the merge zones (aux lanes on the hosts, the ramps cut at N)
             BuildMergeZones(map, t);
             // Five Points round 2: a branch whose drawn end stands past its host's edge gets a paved apron
@@ -2456,8 +2492,15 @@ namespace PSXRacing.City
         static readonly Slot[] RoadAndStructureSlots = BuildRoadSlotList();
         static Slot[] BuildRoadSlotList()
         {
+            // (the scene-baked block in its own order - the first profiles, the junction slab - then the
+            // later profiles' block, then the concrete)
             var list = new Slot[RoadClassCount * SurfaceCount + 1];
-            for (int i = 0; i < list.Length - 1; i++) list[i] = (Slot)((int)Slot.RoadFirst + i);
+            int q = 0;
+            for (int p = 0; p < RoadProfiles.BaseCount; p++)
+                for (int s = 0; s < SurfaceCount; s++) list[q++] = SlotOf(p, (Surface)s);
+            for (int s = 0; s < SurfaceCount; s++) list[q++] = SlotOf(JunctionProfile, (Surface)s);
+            for (int p = RoadProfiles.BaseCount; p < RoadProfiles.ProfileCount; p++)
+                for (int s = 0; s < SurfaceCount; s++) list[q++] = SlotOf(p, (Surface)s);
             list[list.Length - 1] = Slot.Concrete;
             return list;
         }
@@ -6765,20 +6808,22 @@ namespace PSXRacing.City
                 return;
             }
 
+            // (11-17 roads3) PSX_CITY_RAILSHY: the face clear of the edge line (RailShyOut)
+            float shyA = RailShyOut(e, A, side, tm.origin), shyB = RailShyOut(e, B, side, tm.origin);
             if (sf.rail && WBeamRunAt(side, i))
             {
                 // the bridges pass: a warranted drop on the ground is guarded
                 // by W-beam on posts, as a real fill is - not by a parapet
-                float outAm = flare[i - 1] + Mathf.Max(shift[i - 1], VertexRailOut(e, A, side, tm.origin)),
-                      outBm = flare[i] + Mathf.Max(shift[i], VertexRailOut(e, B, side, tm.origin));
+                float outAm = flare[i - 1] + Mathf.Max(shift[i - 1], VertexRailOut(e, A, side, tm.origin) + shyA),
+                      outBm = flare[i] + Mathf.Max(shift[i], VertexRailOut(e, B, side, tm.origin) + shyB);
                 EmitWBeamRun(tm, e, i, side, outAm, outBm);
                 ConNote(ConKind.WBeam, "w-beam-run", eA, eB, 0.15f, WBeamTopM, WBeamTopM);
                 tm.railMetres += len;
             }
             else if (sf.rail)
             {
-                float outAm = flare[i - 1] + Mathf.Max(shift[i - 1], VertexRailOut(e, A, side, tm.origin)),
-                      outBm = flare[i] + Mathf.Max(shift[i], VertexRailOut(e, B, side, tm.origin));
+                float outAm = flare[i - 1] + Mathf.Max(shift[i - 1], VertexRailOut(e, A, side, tm.origin) + shyA),
+                      outBm = flare[i] + Mathf.Max(shift[i], VertexRailOut(e, B, side, tm.origin) + shyB);
                 float drop = f.elev ? CityElevation.DeckThick : RailBuryM + 0.5f * Mathf.Max(outAm, outBm);
                 // A flared or eased rail stands over the verge, which falls at
                 // most 1V:6H past a 4% shoulder: half its offset buries its
@@ -7330,6 +7375,44 @@ namespace PSXRacing.City
         }
 
         const float RailVertexOutMaxM = RailW * 0.5f;
+
+        // THE RAIL'S SHY OFFSET (11-17 roads3; the line gate's BARRIER class, 1,622 places of the baseline). A rail's
+        // traffic face stands RailW inside the drawn edge (EmitRail), and a street's shoulder is 0.3 m (RoadProfiles.TW /
+        // OW): the face stood ON the edge line's outer paint, 6 cm from its centre - every city street bridge parapet,
+        // retaining-wall rail and W-beam on a marked street. A barrier's face is AT the edge already (the flush
+        // transition above eases a rail out RailW to meet it). Now a rail whose side's nearest painted line is closer
+        // than RailShyLineM to the drawn edge steps out until its face stands at the edge at least (no more than RailW):
+        // the edge line keeps its shoulder in front of the face; a freeway's or ramp's wide shoulder moves nothing.
+        // Not on a squeezed side (the strip and its rail are the neighbour's too), nor on an unmarked road.
+        // PSX_CITY_RAILSHY=1: on (default OFF until the gates have judged it).
+        public static bool RailShyOn = System.Environment.GetEnvironmentVariable("PSX_CITY_RAILSHY") == "1";
+        const float RailShyLineM = 0.36f;
+        static readonly List<LineModel.LineAt> railShyLines = new List<LineModel.LineAt>(16);
+
+        /// <summary>How far a rail on this section's side steps out for its face to clear the edge line (0..RailW).</summary>
+        static float RailShyOut(CityMap.Edge e, Section sec, int side, Vector3 origin)
+        {
+            if (!RailShyOn || sec.Strip(side) >= 0f || sec.collapsed) return 0f;
+            var ed = sec.Edge(side);
+            return RailShyOutAt(e, sec.s, new Vector2(ed.x + origin.x, ed.z + origin.z));
+        }
+
+        /// <summary>The same for a drawn edge point (world plan) of edge <paramref name="e"/> at arc <paramref name="s"/>.</summary>
+        public static float RailShyOutAt(CityMap.Edge e, float s, Vector2 edgeW)
+        {
+            if (!RailShyOn) return 0f;
+            var c = e.PointAt(s); var t = e.TangentAt(s);
+            float edgeLat = Vector2.Dot(edgeW - c, new Vector2(-t.y, t.x));
+            LineModel.LinesAt(e, s, railShyLines);
+            float best = float.MaxValue;
+            foreach (var l in railShyLines)
+            {
+                float d = edgeLat >= 0f ? edgeLat - l.lat : l.lat - edgeLat;   // the line's distance in from the edge
+                if (d >= -0.05f && d < best) best = d;
+            }
+            if (best == float.MaxValue) return 0f;
+            return Mathf.Clamp(RailW - (best - RailShyLineM), 0f, RailW);
+        }
 
         /// <summary>Does span <paramref name="i"/>'s side on a span drawn as
         /// deck get a verge (EmitSide)? Only the grounded end of one: one
@@ -10622,6 +10705,7 @@ namespace PSXRacing.City
                 const float proud = FanProudM;
                 FanCorners(map, trims, n, tm.origin, corners);
                 if (corners.Count < 3) continue;
+                if (FanLipOn) SeatMouths(corners);
 
                 FanCentre(map, trims, n, out var fc, out float fcY);
                 var centre = new Vector3(fc.x - tm.origin.x, fcY + proud, fc.y - tm.origin.z);
@@ -10815,6 +10899,35 @@ namespace PSXRacing.City
         public static readonly Dictionary<long, string> CurbPastAt = new Dictionary<long, string>();
         /// <summary>The perimeter chords a corner walk laid (streets pass 4).</summary>
         static readonly HashSet<int> walkGroupOf = new HashSet<int>();
+
+        // =====================================================================
+        //  THE FAN'S MOUTH LIP (the line gate, 2026-11-17; TRACK_FAULTS S1)
+        // =====================================================================
+        // Every junction slab stood FanProudM (12 mm) over the ribbons at its mouths - against z-fighting where
+        // the two overlap - so every car crossed a 12 mm step into and out of every junction: the line gate's
+        // STEP / fan lip, 5,781 places (the NCDOT limit is 1/8 inch, 3.2 mm: Std Spec 610-12), and the track
+        // races' rolls at Providence Road's Ardsley Rd / Fenton Pl mouths at 150-215 km/h. At a mouth the fan and
+        // the ribbon meet edge to edge and do not overlap: nothing there needs the lift. The ribbon corners of the
+        // ring (an arm's two mouth corners: not a curb return's arc, not an envelope point) are seated on the
+        // arm's own height (FanMouthProudM over it); the centre, the Steiner points and the curb returns keep the
+        // lift, so the slab still stands clear of whatever it does overlap inside, rising 12 mm over its first
+        // metres - a slope of a few hundredths of a percent. The crack along the seated mouth is the road slab's
+        // JOIN (two faces looking at each other, RoadSlab), as at any ribbon-to-ribbon joint. Verges, kerbs and
+        // fills that read the corners read the seated height. Default ON (11-17: the line gate box at Providence Rd / Ardsley Rd STEP 23 -> 0 with no other class changed; whole city fan lips 5,785 -> 64); PSX_CITY_FANLIP=0: the 12 mm lip as before.
+        public static bool FanLipOn = System.Environment.GetEnvironmentVariable("PSX_CITY_FANLIP") != "0";
+        const float FanMouthProudM = 0f;
+        public static int FanMouthsSeated;
+        static void SeatMouths(List<FanCorner> corners)
+        {
+            for (int i = 0; i < corners.Count; i++)
+            {
+                var c = corners[i];
+                if (c.extra || c.arc || c.edge < 0) continue;
+                float y = c.yArm + FanMouthProudM;
+                if (c.pos.y <= y + 1e-5f) continue;
+                c.pos.y = y; corners[i] = c; FanMouthsSeated++;
+            }
+        }
 
         struct FanCorner
         {

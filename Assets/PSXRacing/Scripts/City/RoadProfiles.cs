@@ -60,11 +60,22 @@ namespace PSXRacing.City
             Ramp(1), Ramp(2), Ramp(3),
             Xw(2), Xw(3), Xw(4),
             Mw(2), Mw(3), Mw(4), Mw(5), Mw(6),
+            // THE ROAD-LINES ROUND (2026-11-16): the seven-lane street - three lanes each way and a centre
+            // two-way left-turn lane (North Tryon Street east of Sugar Creek Road: OSM lanes=7, lanes:both_ways=1).
+            // "A seven-lane surface street is painted as six, which nobody driving it will count" - the owner
+            // did: the lane sets the six lanes could not hold relayed the double yellow a lane sideways.
+            // APPENDED: the first BaseCount rows' order is baked into every city scene's material slots
+            // (CityMeshes.SlotOf); a row after them takes its slots at the END of the slot table.
+            TW(7, true),
         };
+        /// <summary>The rows whose material slots are the scene-baked first block (CityMeshes.Slot.RoadFirst...).</summary>
+        public const int BaseCount = 20;
+        /// <summary>The seven-lane two-way street (3 + TWLTL + 3).</summary>
+        public const int Tw7 = 20;
         /// <summary>The table's length as a CONSTANT, because CityMeshes.Slot
         /// counts material slots from it and an enum member has to be one.
         /// The static initialiser below shouts if the table drifts.</summary>
-        public const int ProfileCount = 20;
+        public const int ProfileCount = 21;
         public static int Count => All.Length;
 
         static RoadProfiles()

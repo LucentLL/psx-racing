@@ -9500,6 +9500,23 @@ real road (the gate proves the game against the standard; map-caused failures ne
 **Every rule that lets something pass was proven on sampled frames** (`CityAudit.RunLineGateShots`, 30 random places a
 class): the census line `passed by rule:` in `city_linegate.txt` counts each one, so a pass is never silent.
 
+**Changes after the first baseline** (each in its own commit; the baseline re-recorded on mountain-nm code after a
+tooling fix, never to make a branch's number pass):
+- b7f92df4 (linegate): an S-jog swinging 75 deg and back within 12 m is a gore's V read as a hairpin: passed. Recorded in
+  the baseline 05cda1f8 / baee68f8 (11-17): the SHIFT rows those hairpins had absorbed count again (SHIFT 2703 -> 2764).
+- b272bd4f (roads3): places are clustered in a deterministic order (a full tie-break after visibility). The unstable sort
+  moved place counts by one or two with every row of a class identical. Baseline baee68f8.
+- (roads3) THE TWLTL HANDS OVER TO A TURN LANE (CONT "line ends at a joint"). Where a two-way left-turn lane becomes one
+  direction's exclusive left-turn lane, the TWLTL's boundary on that direction's side - its solid and its broken
+  yellow - ends and a solid white lane line begins in its place, between the turn lane and the through lane; the far
+  side's pair goes on as the double yellow. MUTCD 2009 3B.03 P03 (a TWLTL: a broken and a solid yellow line each side),
+  3B.04 P25 (a solid white lane line separates a through lane from an added mandatory turn lane), Figure 3B-7 (past the
+  TWLTL "a solid white line is shown separating the center and the innermost ... through lane"). Passes only where the
+  white line goes on within 0.3 m on the ending line's straight AND the TWLTL's broken yellow ends at that very joint; a
+  centre yellow turning white anywhere else still fails. Counted in the census; every passed place listed in
+  `city_linegate_handovers.tsv`. Proven on 12 random places of 428 (PSX_CITY_LINEFIX=1), every one the Figure 3B-7
+  pattern (roads3 scratch `linegate_twltl_handover_proof.jpg`).
+
 **Tools.**
 - `tools\city-linegate.ps1` - the gate (`-Box` / `-Name` for one place, `-Shots n` for editor frames of the worst
   spots, `-Heat out.png`, `-WriteBaseline`).

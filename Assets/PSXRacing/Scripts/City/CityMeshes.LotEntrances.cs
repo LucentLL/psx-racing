@@ -1322,6 +1322,10 @@ namespace PSXRacing.City
                 void Mix(int v) { h = (h ^ (uint)v) * 16777619u; }
                 void MixF(float f) { Mix(Mathf.RoundToInt(f * 100f)); }
                 Mix((int)map.graphHash); Mix(LotEntVersion); Mix(map.lots.Length); Mix(map.stationLotsFrom);
+                // Phase C (splits2): the scope 'city' and the taper floors move the drawn pavement edges (eases,
+                // which the key does not read) at entrances city-wide: a result kept for another drawing is not
+                // read (worked out at load until LotEntranceBake re-makes it). bfr and 0 keep their key.
+                if (LineModel.CityPhaseC || LineModel.TaperFloorOn) Mix(0x43495459 ^ (LineModel.CityPhaseC ? 2 : 0) ^ (LineModel.TaperFloorOn ? 1 : 0));
                 Mix(map.footprints != null ? map.footprints.Length : 0); Mix(map.edges.Length);
                 foreach (var e in map.edges) { MixF(e.length); MixF(e.width); Mix(e.cls); }
                 foreach (var L in map.lots)

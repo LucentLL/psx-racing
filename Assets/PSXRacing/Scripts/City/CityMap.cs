@@ -1057,6 +1057,9 @@ namespace PSXRacing.City
                     Close("LSET");
                     if (bad > 0) Debug.LogWarning($"[City] LSET: {bad} rows do not fit their profile's lanes - drawn with the profile's own split");
                 }
+                // the road-lines round (PSX_CITY_LINEFIX): the ways whose tags carry seven lanes take the
+                // seven-lane profile and their own line set (LineModel.LaneFit.cs) before the line model starts
+                LineModel.ApplyLaneFit(map);
                 LineModel.Init(map, taprOff);
                 // roads pass L8: the turning circles, the parking lots, their entrances
                 if (Has("TURN"))

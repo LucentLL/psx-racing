@@ -423,8 +423,7 @@ namespace PSXRacing.City
                 // concrete surface: a deck or an approach) or a fan's: no foreslope
                 int sheetSlot = (int)RoadAndStructureSlots[bi];
                 skirtNoSlope = sheetSlot == (int)Slot.Concrete ||
-                               (sheetSlot - (int)Slot.RoadFirst) / SurfaceCount == JunctionProfile ||
-                               (sheetSlot - (int)Slot.RoadFirst) % SurfaceCount >= (int)Surface.ConcreteNew;
+                               (RoadSlot(sheetSlot, out int shProf, out int shSurf) && (shProf == JunctionProfile || shSurf >= (int)Surface.ConcreteNew));
                 SkirtDown(map, o, paved ? pv : g, paved, A + Vector3.down * kerb, B + Vector3.down * kerb, nrm);
                 skirtNoSlope = false;
             }

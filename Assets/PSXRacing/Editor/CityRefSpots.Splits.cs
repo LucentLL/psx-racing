@@ -33,6 +33,19 @@ namespace PSXRacing.EditorTools
             float fovWas = 60f; Camera camK = null;
             try
             {
+                // the city kit as THIS code's slot table has it (a shared sandbox's kit may be another branch's:
+                // a road profile whose slots it lacks would draw with a fallback texture)
+                PSXRacingBuilder.EnsureCityTextures();
+                // (the road-lines round, 11-17) THE PC LOOK: PSX_HD=1 draws the HD road base as the PC build does
+                // (TextureHD; the base tiled through the ribbon's uv); PSX_SPLITS_HDIMPORT=1 first re-imports the HD
+                // sets and writes the road table as PSXBuildWin64 does, so a new road texture (tw7t) has its paint mask
+                if (System.Environment.GetEnvironmentVariable("PSX_HD") == "1" && System.Environment.GetEnvironmentVariable("PSX_SPLITS_HDIMPORT") == "1")
+                {
+                    string herr = TextureHDTool.Import(out int hsets);
+                    TextureHD.ResetMap();
+                    log.Append($"HD import: {(herr ?? hsets + " sets")}\n");
+                }
+                log.Append($"PSX_HD {System.Environment.GetEnvironmentVariable("PSX_HD") ?? "-"}\n");
                 var def = TrackCatalog.At(TrackCatalog.IndexOf("Charlotte"));
                 if (def.id != "Charlotte" || !PSXScreenshotTool.Open(def, out var cam, out var player)) throw new System.Exception("Charlotte did not open");
                 camK = cam; fovWas = cam.fieldOfView;
@@ -62,11 +75,28 @@ namespace PSXRacing.EditorTools
                     if (globals != null) globals.Apply();
                     NightGlow.PreviewAll(TimeOfDay.At(hour).lightsOn);
                 }
+                // (the road-lines round) PSX_SPLITS_POSES = "id:x:z:hdg|id:x:z:hdg": these chase-camera poses instead of
+                // the four Beatties Ford ones; PSX_SPLITS_CONDS = "noon" / "night_rain,noon" (default both)
+                var poseList = new List<(string id, float x, float z, float hdg)>(poses);
+                {
+                    string pe = System.Environment.GetEnvironmentVariable("PSX_SPLITS_POSES");
+                    if (!string.IsNullOrEmpty(pe))
+                    {
+                        poseList.Clear();
+                        var inv2 = System.Globalization.CultureInfo.InvariantCulture;
+                        foreach (var one in pe.Split('|'))
+                        {
+                            var q = one.Split(':');
+                            if (q.Length >= 4) poseList.Add((q[0], float.Parse(q[1], inv2), float.Parse(q[2], inv2), float.Parse(q[3], inv2)));
+                        }
+                    }
+                }
+                var condList = (System.Environment.GetEnvironmentVariable("PSX_SPLITS_CONDS") ?? "night_rain,noon").Split(',');
                 if (want.Contains("poses"))
-                    foreach (var cond in new[] { "night_rain", "noon" })
+                    foreach (var cond in condList)
                     {
                         Light(cond);
-                        foreach (var ps in poses)
+                        foreach (var ps in poseList)
                         {
                             var at = new Vector2(ps.x, ps.z);
                             float y = 0f;
@@ -84,9 +114,48 @@ namespace PSXRacing.EditorTools
                             PSXScreenshotTool.ShotAs(cam, $"splits/{tag}_{ps.id}_{cond}", cp, cr);
                             if (cond == "night_rain") WeatherFx.PreviewClear();
                             shots++;
-                            log.Append($"{ps.id}\t{cond}\tcar ({pos.x:0.0},{pos.y:0.00},{pos.z:0.0}) hdg {ps.hdg:0.0}\tcam ({cp.x:0.0},{cp.y:0.00},{cp.z:0.0}) vfov {vfov:0.0}\te{(ei)}\tlens rain {System.Environment.GetEnvironmentVariable("PSX_LENS_RAIN") ?? "off"}\n");
+                            log.Append($"{ps.id}\t{cond}\tcar ({pos.x:0.0},{pos.y:0.00},{pos.z:0.0}) hdg {ps.hdg:0.0}\tcam ({cp.x:0.00},{cp.y:0.00},{cp.z:0.00}) vfov {vfov:0.00} rot ({cr.eulerAngles.x:0.00},{cr.eulerAngles.y:0.00},{cr.eulerAngles.z:0.00})\te{(ei)}\tlens rain {System.Environment.GetEnvironmentVariable("PSX_LENS_RAIN") ?? "off"}\n");
                         }
                     }
+                // (the road-lines round) PSX_SPLITS_POSETOPS = "ahead:height|ahead:height": for every pose, noon frames
+                // looking straight down from <height> m over the point <ahead> m in front of the car (its heading up),
+                // the car left where the pose stands it
+                {
+                    string pt = System.Environment.GetEnvironmentVariable("PSX_SPLITS_POSETOPS");
+                    if (!string.IsNullOrEmpty(pt) && want.Contains("poses"))
+                    {
+                        Light("noon");
+                        var inv3 = System.Globalization.CultureInfo.InvariantCulture;
+                        var canv2 = new List<Canvas>();
+                        foreach (var c in Object.FindObjectsByType<Canvas>(FindObjectsSortMode.None)) if (c.enabled) { c.enabled = false; canv2.Add(c); }
+                        try
+                        {
+                            foreach (var ps in poseList)
+                            {
+                                var fw = new Vector2(Mathf.Sin(ps.hdg * Mathf.Deg2Rad), Mathf.Cos(ps.hdg * Mathf.Deg2Rad));
+                                float y0 = 0f;
+                                if (map.NearestRoadPoint(new Vector2(ps.x, ps.z), 40f, false, out int e9, out float s9, out _)) y0 = map.edges[e9].YAt(s9);
+                                var carPos = new Vector3(ps.x, y0 + 0.35f, ps.z);
+                                int ti = 0;
+                                foreach (var one in pt.Split('|'))
+                                {
+                                    var q = one.Split(':');
+                                    if (q.Length < 2) continue;
+                                    float ah = float.Parse(q[0], inv3), hh = float.Parse(q[1], inv3);
+                                    var c2 = new Vector2(ps.x, ps.z) + fw * ah;
+                                    world.EnsureRing(new Vector3(c2.x, y0, c2.y), 1);
+                                    PSXTexDecode.StampAll();
+                                    if (car != null) car.TeleportTo(carPos, Quaternion.Euler(0f, ps.hdg, 0f)); else player.transform.SetPositionAndRotation(carPos, Quaternion.Euler(0f, ps.hdg, 0f));
+                                    cam.fieldOfView = 60f;
+                                    PSXScreenshotTool.ShotAs(cam, $"splits/{tag}_{ps.id}_top{ti}", new Vector3(c2.x, y0 + hh, c2.y), Quaternion.LookRotation(Vector3.down, new Vector3(fw.x, 0f, fw.y)));
+                                    shots++; ti++;
+                                    log.Append($"{ps.id}\ttop{ti - 1}\tcentre ({c2.x:0.0},{c2.y:0.0}) {hh:0} m up, {ah:0} m ahead\n");
+                                }
+                            }
+                        }
+                        finally { foreach (var c in canv2) c.enabled = true; }
+                    }
+                }
                 if (want.Contains("tops"))
                 {
                     Light("noon");
@@ -122,6 +191,58 @@ namespace PSXRacing.EditorTools
                             PSXScreenshotTool.ShotAs(cam, $"splits/{tag}_top_n{n}", eye, rot);
                             shots++;
                             log.Append($"top n{n}\tcentre ({centre.x:0.0},{centre.y:0.0}) axis ({ax.x:0.000},{ax.y:0.000}) y {y:0.0}\n");
+                        }
+                    }
+                    finally { foreach (var c in canv) c.enabled = true; }
+                }
+                // PHASE C (splits2): PSX_SPLITS_SPOTS = node:x:z,... (any split node city-wide) - a top frame 78 m
+                // over the node and a driver-height frame (1.15 m, the inner travel lane in, 34 m before the node,
+                // looking along the undivided road's axis), at noon, the car out of view
+                string spots = System.Environment.GetEnvironmentVariable("PSX_SPLITS_SPOTS");
+                if (!string.IsNullOrEmpty(spots) && want.Contains("spots"))
+                {
+                    Light("noon");
+                    var canv = new List<Canvas>();
+                    foreach (var c in Object.FindObjectsByType<Canvas>(FindObjectsSortMode.None)) if (c.enabled) { c.enabled = false; canv.Add(c); }
+                    try
+                    {
+                        foreach (var tok in spots.Split(','))
+                        {
+                            if (!int.TryParse(tok.Trim().TrimStart('n'), out int n) || n < 0 || n >= map.nodes.Length) continue;
+                            var c = map.nodes[n];
+                            int ui = -1;
+                            if (LineModel.SplitUOf(map, n, out int u0)) ui = u0;
+                            else if (LineModel.SplitMeetingU(n, out int u1)) ui = u1;
+                            else foreach (int ei in map.nodeEdges[n]) { var e = map.edges[ei]; if (!e.oneway && !e.link) ui = ei; }
+                            if (ui < 0) { log.Append($"spot n{n}: no undivided road\n"); continue; }
+                            var U = map.edges[ui];
+                            var pb = U.PointAt(U.a == n ? Mathf.Min(30f, U.length) : Mathf.Max(0f, U.length - 30f));
+                            Vector2 ax = (c - pb).sqrMagnitude > 1f ? (c - pb).normalized : Vector2.up;
+                            var right = new Vector2(ax.y, -ax.x);
+                            float y = 0f;
+                            if (map.NearestRoadPoint(c, 40f, false, out int ej, out float sj, out _)) y = map.edges[ej].YAt(sj);
+                            world.EnsureRing(new Vector3(c.x, y, c.y), 1);
+                            PSXTexDecode.StampAll();
+                            // top
+                            var centre = c + ax * 30f;
+                            var eye = new Vector3(centre.x, y + 92f, centre.y);
+                            var rot = Quaternion.LookRotation(Vector3.down, new Vector3(ax.x, 0f, ax.y));
+                            var hide = eye + Vector3.down * 400f;
+                            if (car != null) car.TeleportTo(hide, Quaternion.identity); else player.transform.position = hide;
+                            cam.fieldOfView = 60f;
+                            PSXScreenshotTool.ShotAs(cam, $"splits/{tag}_spot_n{n}_top", eye, rot);
+                            shots++;
+                            // driver height: the inner travel lane toward the node (right-hand traffic), 34 m before it
+                            float laneOff = Mathf.Clamp(0.25f * U.width, 1.8f, 5.5f);
+                            var p2 = c - ax * 34f + right * laneOff;
+                            float y2 = y;
+                            if (map.NearestRoadPoint(p2, 20f, false, out int ek, out float sk, out _)) y2 = map.edges[ek].YAt(sk);
+                            var eye2 = new Vector3(p2.x, y2 + 1.15f, p2.y);
+                            var look = new Vector3(ax.x, -0.035f, ax.y);
+                            cam.fieldOfView = 62f;
+                            PSXScreenshotTool.ShotAs(cam, $"splits/{tag}_spot_n{n}_eye", eye2, Quaternion.LookRotation(look, Vector3.up));
+                            shots++;
+                            log.Append($"spot n{n}\tU e{ui} '{U.name}'\ttop ({centre.x:0.0},{centre.y:0.0})\teye ({eye2.x:0.0},{eye2.y:0.00},{eye2.z:0.0}) axis ({ax.x:0.000},{ax.y:0.000})\n");
                         }
                     }
                     finally { foreach (var c in canv) c.enabled = true; }
