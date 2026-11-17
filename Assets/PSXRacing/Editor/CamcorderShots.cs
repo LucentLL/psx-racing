@@ -462,6 +462,7 @@ namespace PSXRacing.EditorTools
             yield return null;
         }
 
+        bool saidPass;
         IEnumerator Shot(string name, bool quiet = false)
         {
             yield return null;
@@ -491,6 +492,9 @@ namespace PSXRacing.EditorTools
                 // look are the game's; text the HUD camera draws may be absent.
                 var rt = new RenderTexture(fb.width, fb.height, 24, fb.graphicsFormat);
                 rt.Create();
+                // No frame loop built the UI's meshes either.
+                Canvas.ForceUpdateCanvases();
+                int rec0 = CamcorderPass.RecordedForTools, skip0 = CamcorderPass.SkippedForTools;
                 var request = new UnityEngine.Rendering.RenderPipeline.StandardRequest { destination = rt };
                 if (UnityEngine.Rendering.RenderPipeline.SupportsRenderRequest(cam, request))
                     for (int i = 0; i < 3; i++) UnityEngine.Rendering.RenderPipeline.SubmitRenderRequest(cam, request);
@@ -498,6 +502,12 @@ namespace PSXRacing.EditorTools
                 tex.ReadPixels(new Rect(0, 0, fb.width, fb.height), 0, 0);
                 RenderTexture.active = prev == rt ? null : prev;
                 cam.targetTexture = fb;
+                if (!quiet && !saidPass)
+                {
+                    saidPass = true;
+                    CamcorderShots.Line("    (hidden frame: the camcorder pass drew " + (CamcorderPass.RecordedForTools - rec0) + "x, stood down " +
+                                        (CamcorderPass.SkippedForTools - skip0) + "x; lens camera " + (Camcorder.Camera == cam ? "set" : "NOT set") + ")");
+                }
                 rt.Release();
                 Object.DestroyImmediate(rt);
             }

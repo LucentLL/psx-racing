@@ -37,6 +37,9 @@ namespace PSXRacing
         readonly RTHandle[] eye = new RTHandle[2];
         int current;
 
+        /// <summary>For the tools: frames the pass drew, and frames it stood
+        /// down on (a camera drawing straight into its target).</summary>
+        public static int RecordedForTools, SkippedForTools;
         /// <summary>The eye pixel the last frame wrote, for the tools.</summary>
         public static RenderTexture EyeForTools;
 
@@ -76,7 +79,8 @@ namespace PSXRacing
         public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
         {
             var resources = frameData.Get<UniversalResourceData>();
-            if (material == null || resources.isActiveTargetBackBuffer) return;
+            if (material == null || resources.isActiveTargetBackBuffer) { SkippedForTools++; return; }
+            RecordedForTools++;
             var colour = resources.activeColorTexture;
             var desc = renderGraph.GetTextureDesc(colour);
             desc.name = "_PSXCamcorderSource";
