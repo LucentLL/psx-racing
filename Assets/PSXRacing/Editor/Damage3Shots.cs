@@ -24,7 +24,7 @@ namespace PSXRacing.EditorTools
     ///   A  the CAR MENU's showroom stage (the owner's view, the real page);
     ///   B  the turntable rig, camera moved in: the left glass at 2.7 m and at
     ///      1.4 m (the alignment: sills, roof, pillars), the rear three-quarter;
-    ///   C  a venue (UptownLoop, Charlotte), the player's car in the shell: the chase camera,
+    ///   C  a venue (BeechGap; in edit mode Charlotte's city does not stream in, and a mountain night is black: dusk instead - the night is the curb drive's, in play mode), the player's car in the shell: the chase camera,
     ///      a replay's trackside camera, beside the left door, and the cockpit
     ///      looking at the left glass from the seat (round 2's leftover: the side
     ///      glass now breaks there too) - day for every shell, night and rain for
@@ -272,7 +272,7 @@ namespace PSXRacing.EditorTools
         {
             var vdef = TrackCatalog.At(TrackCatalog.CheckVenue);
             string only = System.Environment.GetEnvironmentVariable("PSX_SHOT_VENUE");
-            if (string.IsNullOrEmpty(only)) only = "UptownLoop";   // Charlotte: its street lamps light the night frames
+            if (string.IsNullOrEmpty(only)) only = "BeechGap";
             foreach (var d in TrackCatalog.All) if (d.id == only) { vdef = d; break; }
             if (!PSXScreenshotTool.Open(vdef, out var cam, out var player)) { L("FAIL venue " + only + " did not open"); return; }
             foreach (var c in Object.FindObjectsByType<Canvas>(FindObjectsSortMode.None)) c.enabled = false;
@@ -310,7 +310,7 @@ namespace PSXRacing.EditorTools
                     DamageView.Dress(t, body.bodyRenderer, box.center, box.size, owned, shell, body.LengthScale, wheels, radii);
                     var look = DamageView.LookOf(owned);
                     bool full = key == "civic_eg" || key.StartsWith("rx7_fd");
-                    var hours = full ? new[] { "day", "night", "rain" } : new[] { "day" };
+                    var hours = full ? new[] { "day", "dusk", "rain" } : new[] { "day" };
                     foreach (var h in hours)
                     {
                         SetHour(h, sun, globals, cam);
@@ -364,7 +364,7 @@ namespace PSXRacing.EditorTools
                         ci.Show(false, false);
                         if (cv != null) cv.PreviewShow(false);
                     }
-                    // W: the EG's body at the glass severities, day and night, on the road
+                    // W: the EG's body at the glass severities, day and dusk, on the road
                     if (sevSt != null && key == "civic_eg")
                     {
                         ChaseCamera.PreviewView(ChaseCamera.View.Chase);
@@ -376,7 +376,7 @@ namespace PSXRacing.EditorTools
                             if (owned.history != null) owned.history.Clear();
                             c.wreck(sevSt, owned);
                             DamageView.Dress(t, body.bodyRenderer, box.center, box.size, owned, shell, body.LengthScale, wheels, radii);
-                            foreach (var h in new[] { "day", "night" })
+                            foreach (var h in new[] { "day", "dusk" })
                             {
                                 SetHour(h, sun, globals, cam);
                                 DamageCabin.Step(true);
@@ -417,7 +417,7 @@ namespace PSXRacing.EditorTools
 
         static void SetHour(string h, Light sun, PSXGlobals globals, Camera cam)
         {
-            TimeOfDay.Apply(h == "night" ? TimeOfDay.Night : TimeOfDay.Noon, sun);
+            TimeOfDay.Apply(h == "night" ? TimeOfDay.Night : h == "dusk" ? TimeOfDay.Dusk : TimeOfDay.Noon, sun);
             if (globals != null) globals.Apply();
             bool rain = h == "rain";
             Shader.SetGlobalFloat(PaintGloss.CarWetId, rain ? 1f : 0f);
