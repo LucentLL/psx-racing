@@ -567,7 +567,7 @@ namespace PSXRacing.EditorTools
                     if (Vector2.Distance(p, c) > reach) continue;
                     float dd = WaterDistance(w, p, out _);
                     bool el = e.ElevatedAt(s);
-                    if (onBridge) { if (!el || dd > -8f) continue; all.Add((-dd, ei, s)); }
+                    if (onBridge) { if (!el || dd > -8f) continue; all.Add((dd, ei, s)); }   // (the middle of the crossing first)
                     else { if (el || dd < 8f || dd > 70f) continue; all.Add((dd, ei, s)); }
                 }
             }
@@ -589,7 +589,7 @@ namespace PSXRacing.EditorTools
                 outL.Add(new Drive
                 {
                     road = new Vector3(pe.x, ed.YAt(a.s), pe.y), fwd = new Vector3(t2.x, 0f, t2.y), pitch = -2f, waterY = float.NaN,
-                    what = $"'{ed.name}' {(onBridge ? "on a bridge over" : "beside")} '{w.name}' (edge {a.ei} at {a.s:0} m, {a.score:0} m {(onBridge ? "in from its shore" : "off the water")}), the right-hand lane",
+                    what = $"'{ed.name}' {(onBridge ? "on a bridge over" : "beside")} '{w.name}' (edge {a.ei} at {a.s:0} m, {Mathf.Abs(a.score):0} m {(onBridge ? "in from its shore" : "off the water")}), the right-hand lane",
                 });
                 if (outL.Count >= max) break;
             }

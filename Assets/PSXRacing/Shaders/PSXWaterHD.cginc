@@ -133,7 +133,8 @@ sampler2D _CameraOpaqueTexture;        // URP's copy of the frame after the sky 
 // 0.96 0.83 0.61 0.36 0.15 0.03 at levels 1-6).
 #define HD_SHEET_VAR       0.0441
 #define HD_SHEET_TEXELS    512.0
-#define HD_GEO_AA          0.5      // the normal's own screen-space variance, as roughness
+#define HD_GEO_AA          0.5      // the normal's own screen-space variance, as roughness...
+#define HD_GEO_AA_MAX      0.035    //   ...capped: at 0.09 a grazing river read as fully rough (a blurred sky)
 #define HD_SPEC_FLOOR      40.0     // the far glitter path's broadest
 
 struct appdata_hd
@@ -544,7 +545,7 @@ fixed4 fragHD(v2f_hd i) : SV_Target
     // (Toksvig); the normal's own spread across the pixel (screen-space
     // specular AA, capped); white water; and the rain, at every distance
     float3 dNx = ddx(N), dNy = ddy(N);
-    float aaVar = lostVar + min(0.25 * (dot(dNx, dNx) + dot(dNy, dNy)) * HD_GEO_AA, 0.09);
+    float aaVar = lostVar + min(0.25 * (dot(dNx, dNx) + dot(dNy, dNy)) * HD_GEO_AA, HD_GEO_AA_MAX);
     float rough = saturate(length(rip) * 2.2 + white + 2.2 * sqrt(aaVar) + rainK * HD_RAIN_ROUGH);
 
     // ---- light ----
