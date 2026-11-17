@@ -1932,6 +1932,8 @@ namespace PSXRacing.City
         // the wrong side, and the opposing through lanes shifted half a lane (North Tryon Street at Dorton Street,
         // behind the owner's pose). outerT = the side (travel frame, +1 left) that eases.
         public static int OuterLaneEnds;
+        /// <summary>The last load's BuildEases time (ms): the line model's cost, logged by CityMeshes.</summary>
+        public static float BuildEasesMs;
         static bool OuterTurnLaneEnds(CityMap.Edge W, CityMap.Edge N, bool wForward, bool nForward, float dW, out int outerT)
         {
             outerT = 0;

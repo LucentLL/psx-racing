@@ -1942,12 +1942,16 @@ namespace PSXRacing.City
             // the line model's one-sided tapers, run on through mitred joints
             // (the splits round: a fan's edge is where a junction split's profile starts)
             LineModel.SplitTrimHook = (e, node) => t.TrimAt(e, node);
+            var lmClock = System.Diagnostics.Stopwatch.StartNew();
             LineModel.BuildEases(map, joins, (e, node) =>
             {
                 if (!t.mitre[node]) return -1;
                 int o = t.throughA[node] == e.index ? t.throughB[node] : t.throughB[node] == e.index ? t.throughA[node] : -1;
                 return o == e.index ? -1 : o;
             });
+            // (the road-lines round, 11-17) the cost: the line model's eases, every load (scope and switches on the line)
+            LineModel.BuildEasesMs = (float)lmClock.Elapsed.TotalMilliseconds;
+            Debug.Log($"[city] line model eases built in {LineModel.BuildEasesMs:0.0} ms (PSX_CITY_SPLITAXIS {LineModel.SplitAxis}, LINEFIX {(LineModel.LineFixOn ? 1 : 0)})");
             // roads pass L5: the merge zones (aux lanes on the hosts, the ramps cut at N)
             BuildMergeZones(map, t);
             // Five Points round 2: a branch whose drawn end stands past its host's edge gets a paved apron
