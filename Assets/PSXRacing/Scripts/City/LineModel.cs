@@ -1526,13 +1526,15 @@ namespace PSXRacing.City
             return res;
         }
 
-        /// <summary>The eases on an edge so far, less any refuge profile's (the joins' own).</summary>
+        /// <summary>The eases on an edge so far, less any refuge profile's (the joins' own) - and with a
+        /// tight twin's push (tags from -3000000 down): that push IS the carriageway's own line, the one a
+        /// split's profile blends onto.</summary>
         static Ease[] PreEases(List<Ease>[] add, CityMap.Edge e)
         {
             var l = add[e.index];
             if (l == null) return null;
             var o = new List<Ease>(l.Count);
-            foreach (var z in l) if (z.tag >= 0 || z.prof == null) o.Add(z);
+            foreach (var z in l) if (z.tag >= 0 || z.prof == null || z.tag <= -3000000) o.Add(z);
             return o.Count > 0 ? o.ToArray() : null;
         }
 

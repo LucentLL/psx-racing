@@ -33,6 +33,9 @@ namespace PSXRacing.EditorTools
             float fovWas = 60f; Camera camK = null;
             try
             {
+                // the city kit as THIS code's slot table has it (a shared sandbox's kit may be another branch's:
+                // a road profile whose slots it lacks would draw with a fallback texture)
+                PSXRacingBuilder.EnsureCityTextures();
                 var def = TrackCatalog.At(TrackCatalog.IndexOf("Charlotte"));
                 if (def.id != "Charlotte" || !PSXScreenshotTool.Open(def, out var cam, out var player)) throw new System.Exception("Charlotte did not open");
                 camK = cam; fovWas = cam.fieldOfView;

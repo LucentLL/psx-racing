@@ -910,8 +910,8 @@ namespace PSXRacing.City
                 if (refugeEnds.Contains(RefugeKey(sp.node, sp.a)) || refugeEnds.Contains(RefugeKey(sp.node, sp.b))) continue;
                 var A = map.edges[sp.a]; var B = map.edges[sp.b];
                 if (!A.oneway || !B.oneway || A.a == A.b || B.a == B.b) continue;
-                CarriagewayChain(map, splitNodes, sp.a, sp.node, 420f, chA, out _, out float lenA);
-                CarriagewayChain(map, splitNodes, sp.b, sp.node, 420f, chB, out _, out float lenB);
+                CarriagewayChain(map, splitNodes, sp.a, sp.node, 420f, chA, out int farA, out float lenA);
+                CarriagewayChain(map, splitNodes, sp.b, sp.node, 420f, chB, out int farB, out float lenB);
                 if (chA.Count == 0 || chB.Count == 0 || Mathf.Min(lenA, lenB) < 25f) continue;
                 // the pair made already from its other end: this node's split is a tight twin's too
                 if (tightTwinEdges.Contains(sp.a) && tightTwinEdges.Contains(sp.b)) { tightTwinNodes.Add(sp.node); continue; }
@@ -930,19 +930,26 @@ namespace PSXRacing.City
                 TightTwinPairs++; TightTwinM += runAll;
                 tightTwinNodes.Add(sp.node);
                 if (TightTwinLog.Count < 400) TightTwinLog.Add($"n{sp.node} e{sp.a}/e{sp.b} '{A.name}': the two carriageways' lane bands {worst:+0.00;-0.00} m apart at their closest past the fan, short of the divider's {TightGapM:0.00} m over {run:0} m: pushed apart (chains {lenA:0} / {lenB:0} m)");
+                // the far ends: a pair that closes at one split node keeps its push to that node (its own
+                // profile starts there); any other end eases the push out before it
+                bool closes = farA == farB && farA >= 0 && splitNodes.Contains(farA);
                 for (int c = 0; c < 2; c++)
                 {
                     var chain = c == 0 ? chA : chB; var other = c == 0 ? LB : LA; var own = c == 0 ? LA : LB;
-                    // the side this carriageway lies on of the other (where they are well apart): its push's way at the fan
-                    int from = sp.node; float d0 = 0f;
+                    float chainLen = c == 0 ? lenA : lenB;
+                    // pass 1: what each sample needs (m, unsigned) and which way (the edge's left = +1)
+                    var needs = new List<float[]>(chain.Count); var sides = new List<float[]>(chain.Count);
+                    var dsOf = new List<float>(chain.Count); var fwdOf = new List<bool>(chain.Count);
+                    int from = sp.node; float mph = 0f;
                     foreach (int ei in chain)
                     {
                         var e = map.edges[ei];
                         bool fwd = e.a == from;
+                        mph = Mathf.Max(mph, SpeedMph(e));
                         var keep = e.lmEase; e.lmEase = PreEases(add, e);
                         int n = Mathf.Max(2, Mathf.CeilToInt(e.length / RefugeDs) + 1);
                         float ds = e.length / (n - 1);
-                        var sh = new float[n]; bool any = false;
+                        var nd = new float[n]; var sd = new float[n];
                         for (int k = 0; k < n; k++)
                         {
                             float s = fwd ? k * ds : e.length - k * ds;
@@ -951,8 +958,6 @@ namespace PSXRacing.City
                             var p = e.PointAt(s) + el * cc;
                             float d = TwinNearest(other, p, out float ho, out var at, out bool end);
                             if (end) continue;
-                            float need = 0.5f * (TightGapM - (d - hh - ho));
-                            if (need <= 0f) continue;
                             // away from the other carriageway (at the fan, where the two lines cross: its side further on)
                             Vector2 nrm;
                             if (d > 0.5f) nrm = (p - at) / d;
@@ -962,17 +967,53 @@ namespace PSXRacing.City
                                 TwinNearest(other, far, out _, out var atF, out _);
                                 nrm = (far - atF).sqrMagnitude > 1e-4f ? (far - atF).normalized : el;
                             }
-                            sh[k] = need * (Vector2.Dot(nrm, el) >= 0f ? 1f : -1f);
-                            any = true;
+                            sd[k] = Vector2.Dot(nrm, el) >= 0f ? 1f : -1f;
+                            nd[k] = Mathf.Max(0f, 0.5f * (TightGapM - (d - hh - ho)));
                         }
                         e.lmEase = keep;
+                        needs.Add(nd); sides.Add(sd); dsOf.Add(ds); fwdOf.Add(fwd);
+                        from = fwd ? e.b : e.a;
+                    }
+                    // pass 2: no step in the push. Its upper envelope under the shifting taper's slope (the lanes
+                    // move sideways no faster than the speed allows; inside the mapped fan the need itself is
+                    // steeper and stands - there it only undoes the fan), eased to nothing before an open end.
+                    float slope = 1f / Mathf.Max(10f, mph <= 40f ? mph * mph / 60f : mph);
+                    {
+                        float prev = 0f, lastSide = 0f;
+                        for (int j = 0; j < needs.Count; j++)
+                            for (int k = j == 0 ? 0 : 1; k < needs[j].Length; k++)
+                            {
+                                if (j > 0 && k == 1) needs[j][0] = Mathf.Max(needs[j][0], prev);
+                                needs[j][k] = Mathf.Max(needs[j][k], prev - slope * dsOf[j]);
+                                prev = needs[j][k];
+                                if (sides[j][k] != 0f) lastSide = sides[j][k]; else sides[j][k] = lastSide;
+                            }
+                        prev = 0f; lastSide = 0f;
+                        float dEnd = 0f;
+                        for (int j = needs.Count - 1; j >= 0; j--)
+                            for (int k = needs[j].Length - 1; k >= 0; k--)
+                            {
+                                float v = Mathf.Max(needs[j][k], prev - slope * dsOf[j]);
+                                if (!closes) v = Mathf.Min(v, dEnd * slope);
+                                needs[j][k] = v; prev = v;
+                                if (sides[j][k] != 0f) lastSide = sides[j][k]; else sides[j][k] = lastSide;
+                                if (k > 0) dEnd += dsOf[j];
+                            }
+                    }
+                    // pass 3: one sampled shift ease an edge
+                    float d0 = 0f;
+                    for (int j = 0; j < chain.Count; j++)
+                    {
+                        var e = map.edges[chain[j]];
+                        var sh = new float[needs[j].Length]; bool any = false;
+                        for (int k = 0; k < sh.Length; k++) { sh[k] = needs[j][k] * (sides[j][k] == 0f ? 1f : sides[j][k]); any |= needs[j][k] > 1e-3f; }
                         if (any)
                         {
-                            (add[e.index] ??= new List<Ease>(3)).Add(new Ease { shift = true, fromA = fwd, dw = 1f, len = d0 + e.length + 1f, d0 = d0, prof = sh, profD0 = d0, profDs = ds, tag = -(3000000 + sp.node * 2 + c) });
+                            (add[e.index] ??= new List<Ease>(3)).Add(new Ease { shift = true, fromA = fwdOf[j], dw = 1f, len = d0 + e.length + 1f, d0 = d0, prof = sh, profD0 = d0, profDs = dsOf[j], tag = -(3000000 + sp.node * 2 + c) });
                             TightTwinEdgeCount++;
                         }
-                        tightTwinEdges.Add(ei);
-                        d0 += e.length; from = fwd ? e.b : e.a;
+                        tightTwinEdges.Add(chain[j]);
+                        d0 += e.length;
                     }
                 }
             }
