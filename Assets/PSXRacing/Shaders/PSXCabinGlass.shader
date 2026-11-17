@@ -82,9 +82,9 @@ Shader "PSX/CabinGlass"
             sampler2D _PSXSSRColour;
             float _PSXSSRLive;    // 1 while this camera's frame copy is bound (SpeedBlurFeature.WetPass)
             #define R2G_LENS    0.000016   // a drop's bend of what is behind it: metres squared (see the note at its use)
-            #define R2G_MAXPX   46.0       // ...never further than this many pixels
+            #define R2G_MAXPX   46.0       // ...never further than this many pixels (of a 1080-line frame)
             #define R2G_SHEET   0.85       // how much of the pane a downpour's sheet covers while parked
-            #define R2G_WOBBLE  7.0        // the sheet's wobble of what is seen through it, pixels
+            #define R2G_WOBBLE  7.0        // the sheet's wobble of what is seen through it, pixels of a 1080-line frame
             fixed4 _PSXSkyAmbient;
             fixed4 _PSXAmbient;
             fixed4 _PSXFogColor;
@@ -254,11 +254,12 @@ Shader "PSX/CabinGlass"
                         // Between the beads a parked pane in a downpour wears
                         // a sheet that wobbles what is seen through it.
                         float m2 = max(abs(qdx.x * qdy.y - qdx.y * qdy.x), 1e-12);
-                        float2 dpx = clamp(gpx * (R2G_LENS / m2), -R2G_MAXPX, R2G_MAXPX);
+                        float px1080 = _ScreenParams.y / 1080.0;
+                        float2 dpx = clamp(gpx * (R2G_LENS / m2), -R2G_MAXPX * px1080, R2G_MAXPX * px1080);
                         float sheet = rainW * R2G_SHEET * (1.0 - wind) * (1.0 - cover);
                         float2 wob = float2(sin(q.y * 190.0 + sin(q.x * 71.0 + _CabinRun * 9.0) * 2.1),
                                             sin(q.x * 163.0 + sin(q.y * 83.0 - _CabinRun * 12.0) * 2.3));
-                        dpx += wob * (R2G_WOBBLE * sheet);
+                        dpx += wob * (R2G_WOBBLE * px1080 * sheet);
                         float wetA = saturate(max(cover, sheet));
                         float2 suv = (i.pos.xy + dpx) / _ScreenParams.xy;
                         through = tex2Dlod(_PSXSSRColour, float4(suv, 0.0, 0.0)).rgb * (wetA * (1.0 - 0.45 * edge * cover));
