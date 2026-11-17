@@ -208,8 +208,8 @@ namespace PSXRacing.EditorTools
             }
             Physics.SyncTransforms();
             int chunks = BuildRockSkin(rock.transform, FarRockMat(), cells, "StageFarRock_", "FarRock_");
-            Log($"Far mountain template: {cells.Count} rock cells of 12 m ({nearCells} from the near grid's rule, {farCells} from the far grid's share" +
-), {cells.Count * CliffCell * CliffCell / 1e6f:0.000} km2, " +
+            Log($"Far mountain template: {cells.Count} rock cells of 12 m ({nearCells} from the near grid's rule, {farCells} from the far grid's share), " +
+                $"{cells.Count * CliffCell * CliffCell / 1e6f:0.000} km2, " +
                 $"{chunks} chunks; left out: {skipRoad} by the road, {skipKeep} on the world's keep-out; keep-out {farRockKeep.Count} cells.");
         }
 
