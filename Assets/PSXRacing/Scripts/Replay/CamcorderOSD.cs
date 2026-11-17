@@ -28,7 +28,7 @@ namespace PSXRacing
         static CamcorderOSD instance;
 
         RectTransform root;
-        Text rec, counter, mode, date, clock, help;
+        Text rec, counter, mode, date, clock, help, label, sub;
         Image dot;
         RectTransform battery;
         Image[] cells;
@@ -56,6 +56,7 @@ namespace PSXRacing
 
         /// <summary>For the tools: the OSD's texts this frame.</summary>
         public static string Describe() => instance == null || !instance.isActiveAndEnabled ? "" :
+            instance.label.text + (instance.sub.text.Length > 0 ? " " + instance.sub.text : "") + " | " +
             instance.mode.text + " | " + instance.rec.text + " | " + instance.counter.text + " | " +
             instance.clock.text + " | " + instance.date.text;
 
@@ -73,6 +74,9 @@ namespace PSXRacing
             clock = MakeText("Clock", font, TextAnchor.LowerLeft);
             date = MakeText("Date", font, TextAnchor.LowerLeft);
             help = MakeText("Help", font, TextAnchor.LowerCenter);
+            // The clip's name (round 2): START, CHECKPOINT 3/9, FINISH.
+            label = MakeText("Clip", font, TextAnchor.UpperLeft);
+            sub = MakeText("ClipSub", font, TextAnchor.UpperLeft);
             help.color = new Color(1f, 0.85f, 0.35f);
             dot = MakeImage("Dot", root, new Color(0.95f, 0.1f, 0.08f));
             dot.sprite = Circle();
@@ -189,7 +193,8 @@ namespace PSXRacing
             float foot = y0 + ph * (touch ? 0.17f : 0.08f);
             if (touch) RelabelTouch();
 
-            foreach (var t in new[] { rec, counter, mode, date, clock }) t.fontSize = fs;
+            foreach (var t in new[] { rec, counter, mode, date, clock, label }) t.fontSize = fs;
+            sub.fontSize = Mathf.Max(8, Mathf.RoundToInt(fs * 0.8f));
             help.fontSize = Mathf.Max(8, Mathf.RoundToInt(fs * 0.6f));
 
             float clockHours = Camcorder.StampClock + rp.ReplayTime / 3600f;
@@ -199,6 +204,12 @@ namespace PSXRacing
             Place(clock.rectTransform, x0 + mx, foot + fs * 1.25f, pw * 0.6f, fs * 1.3f, Vector2.zero);
 
             float top = y0 + ph - my;
+            // The clip's name on the second line, left; a circuit's lap under it.
+            label.text = Camcorder.ClipLabel ?? "";
+            sub.text = Camcorder.ClipSub ?? "";
+            label.color = sub.color = Camcorder.Vcr ? new Color(0.55f, 1f, 0.6f) : Color.white;
+            Place(label.rectTransform, x0 + mx, top - fs * 1.3f, pw * 0.7f, fs * 1.3f, new Vector2(0f, 1f));
+            Place(sub.rectTransform, x0 + mx, top - fs * 2.55f, pw * 0.7f, fs * 1.1f, new Vector2(0f, 1f));
             float blink = Mathf.Repeat(Time.unscaledTime, 1f);
             if (Camcorder.Vcr)
             {

@@ -5,43 +5,33 @@
 # (a batch capture with graphics).
 #
 #   $env:PSX_SANDBOX = 'C:\Users\mcgee\PSXRec'
-#   powershell -ExecutionPolicy Bypass -File tools\tape-check.ps1 [-SkipPages] [-Out <folder>]
+#   powershell -ExecutionPolicy Bypass -File tools\tape-check.ps1 [-SkipPages] [-SkipRun] [-Out <folder>]
 #
-# Takes AGENT_LOCK.txt itself, mirrors ONLY Scripts / Editor / Shaders,
-# deletes the lock even on failure. Exit code 0 = no FAIL in either report.
+# Takes the sandbox's lock atomically (tools\sandbox-lock.ps1), mirrors ONLY
+# Scripts / Editor / Shaders (from -Src, a snapshot, when given), releases the
+# lock even on failure. Exit code 0 = no FAIL in either report.
 param([switch]$NoWatch, [int]$MaxMinutes = 35, [switch]$SkipPages, [switch]$SkipRun,
       [string]$Me = "camcorder", [string]$Src = "", [string]$Out = "")
 $ErrorActionPreference = "Stop"
 $proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXRec" }
-$src  = if ($Src) { $Src } else { Split-Path -Parent $PSScriptRoot }
+$from = if ($Src) { $Src } else { Split-Path -Parent $PSScriptRoot }
 . "$PSScriptRoot\unity-wait.ps1"
+. "$PSScriptRoot\sandbox-lock.ps1"
 # PSXRec is an ANDROID sandbox: never let unity-wait default it to WebGL (a
 # target switch re-imports the project).
 if (-not $env:PSX_BUILD_TARGET) { $env:PSX_BUILD_TARGET = "Android" }
-$lock = Join-Path $proj "AGENT_LOCK.txt"
 
-function Wait-Lock {
-    while (Test-Path $lock) {
-        $txt = (Get-Content $lock -Raw).Trim()
-        $age = ((Get-Date) - (Get-Item $lock).LastWriteTime).TotalMinutes
-        if ($txt.StartsWith($Me) -or $age -gt 90) { break }
-        "sandbox locked by '$txt' ($([int]$age) min) - waiting"
-        Start-Sleep -Seconds 60
-    }
-}
-
-Wait-Lock
-"$Me $(Get-Date -Format s)" | Out-File -FilePath $lock -Encoding ascii
+$stamp = Enter-SandboxLock -Project $proj -Me $Me
 $code = 0
 try {
     foreach ($d in @("Assets\PSXRacing\Scripts", "Assets\PSXRacing\Editor", "Assets\PSXRacing\Shaders")) {
-        robocopy "$src\$d" "$proj\$d" /MIR /NFL /NDL /NJH /NJS /NP /MT:8 /R:1 /W:1 | Out-Null
+        robocopy "$from\$d" "$proj\$d" /MIR /NFL /NDL /NJH /NJS /NP /MT:8 /R:1 /W:1 | Out-Null
     }
     $env:PSX_EDITION = "ALL"
     if (-not $SkipRun) {
         $report = "$proj\PSXRacing_tape_check.txt"
         Remove-Item $report -ErrorAction SilentlyContinue
-        Get-ChildItem "$proj\Screenshots\tapes\*.png" -ErrorAction SilentlyContinue | Remove-Item
+        Get-ChildItem "$proj\Screenshots\tapes\vcr_*.png" -ErrorAction SilentlyContinue | Remove-Item
         $log = "$proj\tapecheck.log"
         Invoke-UnityJob -Watch:(Test-PSXWatch -NoWatch:$NoWatch) -Log $log -MaxMinutes $MaxMinutes -Project $proj -UnityArgs @(
             "-batchmode","-nographics","-projectPath",$proj,
@@ -60,6 +50,7 @@ try {
     if (-not $SkipPages) {
         $report = "$proj\PSXRacing_tape_pages.txt"
         Remove-Item $report -ErrorAction SilentlyContinue
+        Get-ChildItem "$proj\Screenshots\tapes\menu_*.png" -ErrorAction SilentlyContinue | Remove-Item
         $log = "$proj\tapepages.log"
         # A capture, not a play test: hidden, but WITH graphics (it renders UI).
         Invoke-UnityJob -Log $log -MaxMinutes 20 -Project $proj -UnityArgs @(
@@ -69,6 +60,7 @@ try {
         if (Test-Path $report) {
             Get-Content $report
             if (Select-String -Path $report -Pattern "FAIL" -Quiet) { $code = 1 }
+            Select-String -Path $log -Pattern "\[HomePreview\] (CLIP|OVERLAP)" | Select-Object -First 20 | ForEach-Object { $_.Line }
         } else {
             "NO PAGES REPORT. Tail of the log:"
             Get-Content $log -Tail 30
@@ -83,9 +75,6 @@ try {
         }
     }
 } finally {
-    if (Test-Path $lock) {
-        $txt = (Get-Content $lock -Raw).Trim()
-        if ($txt.StartsWith($Me)) { Remove-Item $lock -Force }
-    }
+    Exit-SandboxLock -Project $proj -Stamp $stamp
 }
 exit $code
