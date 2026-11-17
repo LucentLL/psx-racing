@@ -119,7 +119,7 @@ namespace PSXRacing.EditorTools
                 File.WriteAllText(Path.Combine(root, $"treeseason_{tag}_Charlotte_log.txt"), log.ToString());
                 Debug.Log("[TreeSeasonWalk]\n" + log);
             }
-            if (Application.isBatchMode) EditorApplication.Exit(code);
+            if (Application.isBatchMode && !TreeMatchAudit.NoExit) EditorApplication.Exit(code);
         }
 
         /// <summary>
@@ -198,7 +198,7 @@ namespace PSXRacing.EditorTools
                 File.WriteAllText(Path.Combine(root, $"treeseason_{tag}_Charlotte_cost.txt"), log.ToString());
                 Debug.Log("[TreeMatchCost]\n" + log);
             }
-            if (Application.isBatchMode) EditorApplication.Exit(code);
+            if (Application.isBatchMode && !TreeMatchAudit.NoExit) EditorApplication.Exit(code);
         }
 
         public static void RunTreeCards()
@@ -276,7 +276,7 @@ namespace PSXRacing.EditorTools
                 File.WriteAllText(Path.Combine(root, $"treeseason_{tag}_Charlotte_cards.txt"), log.ToString());
                 Debug.Log("[TreeCards]\n" + log);
             }
-            if (Application.isBatchMode) EditorApplication.Exit(code);
+            if (Application.isBatchMode && !TreeMatchAudit.NoExit) EditorApplication.Exit(code);
         }
     }
 }

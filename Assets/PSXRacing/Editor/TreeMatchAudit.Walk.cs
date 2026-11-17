@@ -22,6 +22,69 @@ namespace PSXRacing.EditorTools
     /// </summary>
     public static partial class TreeMatchAudit
     {
+        /// <summary>Set while RunMany drives the runners below: they leave the editor open for the next.</summary>
+        internal static bool NoExit;
+
+        /// <summary>
+        /// SEVERAL RUNNERS IN ONE PROCESS (a sandbox shared by three agents: one lock, one editor start, for a whole
+        /// set of checks made with the same switches). PSX_TM_RUN = "name|K=V&amp;K=V;name|..." in order; each item's
+        /// variables are set before it runs and cleared after. Names: citycards (CityRefSpots.RunTreeCards),
+        /// citywalk (RunTreeSeason), citycost (RunTreeMatchCost), stagecards (RunStageCards), stagewalk (RunStageWalk),
+        /// stagecost (RunStageMatchCost). The process-wide switches (PSX_TREE_MATCH, PSX_TREE_MATCH_CARDS) are the
+        /// job's own: read once when the editor starts.
+        ///   -executeMethod PSXRacing.EditorTools.TreeMatchAudit.RunMany
+        /// </summary>
+        public static void RunMany()
+        {
+            NoExit = true;
+            var done = new StringBuilder($"TREE SEASON RUNS {System.DateTime.Now:yyyy-MM-dd HH:mm}; PSX_TREE_MATCH={Env("PSX_TREE_MATCH", "(default)")}, PSX_TREE_MATCH_CARDS={Env("PSX_TREE_MATCH_CARDS", "(default)")}\n");
+            try
+            {
+                foreach (var item in Env("PSX_TM_RUN", "").Split(';'))
+                {
+                    var parts = item.Split('|');
+                    string name = parts[0].Trim();
+                    if (name.Length == 0) continue;
+                    var keys = new List<string>();
+                    if (parts.Length > 1)
+                        foreach (var kv in parts[1].Split('&'))
+                        {
+                            int eq = kv.IndexOf('=');
+                            if (eq <= 0) continue;
+                            string k = kv.Substring(0, eq).Trim();
+                            System.Environment.SetEnvironmentVariable(k, kv.Substring(eq + 1).Trim());
+                            keys.Add(k);
+                        }
+                    var clock = System.Diagnostics.Stopwatch.StartNew();
+                    try
+                    {
+                        switch (name)
+                        {
+                            case "citycards": CityRefSpots.RunTreeCards(); break;
+                            case "citywalk": CityRefSpots.RunTreeSeason(); break;
+                            case "citycost": CityRefSpots.RunTreeMatchCost(); break;
+                            case "stagecards": RunStageCards(); break;
+                            case "stagewalk": RunStageWalk(); break;
+                            case "stagecost": RunStageMatchCost(); break;
+                            default: done.Append($"  {name}: no such runner\n"); continue;
+                        }
+                        done.Append($"  {name} ({(parts.Length > 1 ? parts[1] : "")}): ran, {clock.Elapsed.TotalSeconds:0} s\n");
+                    }
+                    catch (System.Exception ex) { done.Append($"  {name}: FAILED {ex.Message}\n"); Debug.LogException(ex); }
+                    finally { foreach (var k in keys) System.Environment.SetEnvironmentVariable(k, null); }
+                }
+            }
+            finally
+            {
+                NoExit = false;
+                string root = Path.Combine(Directory.GetParent(Application.dataPath).FullName, "Screenshots", "treeseason");
+                Directory.CreateDirectory(root);
+                File.WriteAllText(Path.Combine(root, "treeseason_runmany_" + Env("PSX_TM_RUNTAG", "run") + ".txt"), done.ToString());
+                Debug.Log("[TreeSeasonRuns]\n" + done);
+            }
+            if (Application.isBatchMode) EditorApplication.Exit(0);
+        }
+
         public static void RunStageWalk()
         {
             // (PSX_TM_WALKS = "venue:m[,m];venue:m...": several stages in one process; else PSX_TM_VENUE + PSX_TM_M)
@@ -33,7 +96,7 @@ namespace PSXRacing.EditorTools
                 if (q.Length != 2 || q[0].Trim().Length == 0) continue;
                 code |= StageWalkOne(q[0].Trim(), q[1].Trim());
             }
-            if (Application.isBatchMode) EditorApplication.Exit(code);
+            if (Application.isBatchMode && !TreeMatchAudit.NoExit) EditorApplication.Exit(code);
         }
 
         static int StageWalkOne(string id, string mList)
@@ -297,7 +360,7 @@ namespace PSXRacing.EditorTools
                 File.WriteAllText(Path.Combine(root, $"treeseason_{tag}_{id}_cards.txt"), log.ToString());
                 Debug.Log("[TreeCards]\n" + log);
             }
-            if (Application.isBatchMode) EditorApplication.Exit(code);
+            if (Application.isBatchMode && !TreeMatchAudit.NoExit) EditorApplication.Exit(code);
         }
 
         /// <summary>
@@ -444,7 +507,7 @@ namespace PSXRacing.EditorTools
                 File.WriteAllText(Path.Combine(root, $"treeseason_{tag}_{id}_cost.txt"), log.ToString());
                 Debug.Log("[TreeMatchCost]\n" + log);
             }
-            if (Application.isBatchMode) EditorApplication.Exit(code);
+            if (Application.isBatchMode && !TreeMatchAudit.NoExit) EditorApplication.Exit(code);
         }
 
         /// <summary>The road's centre at <paramref name="m"/> metres along the path, and its heading.</summary>
