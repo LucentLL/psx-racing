@@ -526,6 +526,36 @@ namespace PSXRacing
             tan = Vector3.Slerp(path.GetTangent(i), path.GetTangent(i + 1), t).normalized;
         }
 
+        /// <summary>
+        /// The player's metres along the race path, the traffic window's centre. In a CHECKPOINT race he may leave the
+        /// suggested route for any street: while he is more than 40 m off it the window holds where he left it, and
+        /// when he comes back an unhinted scan finds him wherever he rejoined (no ghost window dragged along a road
+        /// he is not on).
+        /// </summary>
+        float PlayerS()
+        {
+            var pos = rm.playerCar.transform.position;
+            if (rm.Checkpoints == null) return SOf(pos, ref playerHint);
+            int h = path.NearestIndex(pos, playerHint);
+            var w = path.GetPoint(h);
+            bool off = new Vector2(pos.x - w.x, pos.z - w.z).sqrMagnitude > 40f * 40f;
+            if (off)
+            {
+                if (!playerOff) { playerOff = true; heldS = playerHint * path.spacing; }
+                if (Time.frameCount % 25 == 0)
+                {
+                    int full = path.NearestIndex(pos);
+                    var fw = path.GetPoint(full);
+                    if (new Vector2(pos.x - fw.x, pos.z - fw.z).sqrMagnitude <= 40f * 40f) { playerOff = false; playerHint = full; return full * path.spacing; }
+                }
+                return heldS;
+            }
+            playerOff = false;
+            playerHint = h;
+            return h * path.spacing;
+        }
+        bool playerOff; float heldS;
+
         float SOf(Vector3 p, ref int hint)
         {
             hint = path.NearestIndex(p, hint);
@@ -571,7 +601,7 @@ namespace PSXRacing
                 Populate();
             }
 
-            float ps = SOf(rm.playerCar.transform.position, ref playerHint);
+            float ps = PlayerS();
             MeasureField();
             Recycle(ps);
             SpawnAtEdge(ps);
@@ -606,7 +636,7 @@ namespace PSXRacing
 
         void Populate()
         {
-            float ps = SOf(rm.playerCar.transform.position, ref playerHint);
+            float ps = PlayerS();
             foreach (int dir in Dirs())
                 foreach (float lat in LanesFor(dir))
                 {

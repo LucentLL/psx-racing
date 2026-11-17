@@ -522,6 +522,7 @@ namespace PSXRacing
             void Add<T>() where T : Behaviour { var b = c.GetComponent<T>(); if (b != null && b.enabled) list.Add(b); }
             Add<CarController>(); Add<AIDriver>(); Add<PlayerCarInput>(); Add<StuckRecovery>();
             Add<CollisionResponder>(); Add<FuelTank>(); Add<EngineTemp>(); Add<CarBodyLean>();
+            Add<AIRoutePlanner>();   // a checkpoint race's per-car plan
             return list.ToArray();
         }
 
