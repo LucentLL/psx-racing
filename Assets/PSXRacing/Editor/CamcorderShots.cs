@@ -467,6 +467,24 @@ namespace PSXRacing.EditorTools
         }
 
         bool saidPass;
+        static int fbLive = -1;
+
+        /// <summary>A sum over the middle of a render texture (to tell whether it changes).</summary>
+        static long Sum(RenderTexture rt)
+        {
+            int w = Mathf.Min(96, rt.width), h = Mathf.Min(64, rt.height);
+            var t = new Texture2D(w, h, TextureFormat.RGB24, false);
+            var prev = RenderTexture.active;
+            RenderTexture.active = rt;
+            t.ReadPixels(new Rect((rt.width - w) / 2, (rt.height - h) / 2, w, h), 0, 0);
+            t.Apply();
+            RenderTexture.active = prev;
+            long sum = 0;
+            foreach (var c in t.GetPixels32()) sum += c.r * 3 + c.g * 5 + c.b * 7;
+            Object.DestroyImmediate(t);
+            return sum;
+        }
+
         IEnumerator Shot(string name, bool quiet = false)
         {
             yield return null;
@@ -480,9 +498,21 @@ namespace PSXRacing.EditorTools
                 if (!quiet) CamcorderShots.Line("    shot " + name + " not taken (no framebuffer / no graphics)");
                 yield break;
             }
+            // A HIDDEN run: is the game's own framebuffer being drawn each frame
+            // (then it is the picture, OSD and all) or not (then the camera is
+            // rendered on request)? The tape's grain changes every frame, so
+            // two reads a few frames apart tell.
+            if (Application.isBatchMode && fbLive < 0)
+            {
+                long a = Sum(fb);
+                for (int i = 0; i < 6; i++) yield return null;
+                long b = Sum(fb);
+                fbLive = a != b ? 1 : 0;
+                CamcorderShots.Line("    (hidden run: the game's framebuffer is " + (fbLive == 1 ? "drawn each frame - read as it is" : "not drawn - the camera is rendered on request") + ")");
+            }
             var tex = new Texture2D(fb.width, fb.height, TextureFormat.RGB24, false);
             var prev = RenderTexture.active;
-            if (!Application.isBatchMode)
+            if (!Application.isBatchMode || fbLive == 1)
             {
                 // A watched editor: the frame as the game drew it, OSD and all.
                 RenderTexture.active = fb;
