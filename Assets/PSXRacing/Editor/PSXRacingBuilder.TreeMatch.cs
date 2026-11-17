@@ -467,7 +467,15 @@ namespace PSXRacing.EditorTools
         /// just made, the rest (conifers, the bare tree) as the dress's own atlas has them. Worn by the B chunks'
         /// cards and crowns (MeshForest.matchCardAtlas): what the mirrors show behind the car and the forest past
         /// the far range are then the kit's own trees in the dress, as the meshes and far cards are.</summary>
-        internal static Texture2D[] TMStageCardAtlas() => TMCardAtlas("stageatlas_", TMStageCellTrees, DressAtlasPath);
+        internal static Texture2D[] TMStageCardAtlas() => TMCardAtlas("stageatlas_", TMStageCellTrees, TMStageBaseAtlas);
+
+        /// <summary>The dress's own stage atlas: the stage being built's (its theme's art folder), or - outside a
+        /// stage build (TreeMatchBuild.PatchStages: no theme is set) - the mountain stages' shared one in Art/BRP.</summary>
+        static string TMStageBaseAtlas(int dress)
+        {
+            if (theme != null) return DressAtlasPath(dress);
+            return Root + "/Art/BRP/Gen" + (dress == (int)Season.Fall ? "/TreeAtlas.png" : "/TreeAtlas_" + DressSuffix[dress] + ".png");
+        }
 
         static Texture2D[] TMCardAtlas(string stem, string[][] cellTrees, System.Func<int, string> baseOfDress)
         {
