@@ -7,14 +7,17 @@ namespace PSXRacing
     /// DAMAGE ROUND 2 (owner on PC48, 2026-11-16: "I'd also like to see
     /// scuffing for wheels (hitting curbs, etc)"). CURB RASH, per wheel, from
     /// real contacts of the career car - never rolled:
-    ///   THE WHEEL'S SIDE ON A CURB. Every physics step, one short ray per
-    ///     grounded wheel out of the tyre's side at the rim's lip (7 cm over
-    ///     the road): a STEEP face (steeper than 53 degrees) that stands
-    ///     within 60 degrees of square to the axle and has reached the
-    ///     sidewall is a strike. What it is NOT: a kerb the tread rides - a
-    ///     ramped or low kerb (no steep face at lip height: the racing kerbs),
-    ///     and any kerb met nose-on (the face square to the wheel's travel:
-    ///     the tread climbs it, an ordinary kerb mount).
+    ///   THE WHEEL'S SIDE ON A CURB. Every physics step the ground is read
+    ///     beside each grounded wheel (rays down, outside the tyre): a KERB is
+    ///     ground that stands 12 to 40 cm over the wheel's own within 40 cm of
+    ///     its sidewall, and the wheel has struck it when the ground under the
+    ///     sidewall itself has begun to rise - the DRAWN curb's face is in the
+    ///     tyre (the city's curb colliders are chamfered so a car can climb
+    ///     them; the wheel still met the drawn face). What it is NOT: a kerb
+    ///     the tread rides - a low or rolled kerb (under 12 cm: the racing
+    ///     kerbs, a mountable rolled curb), and any kerb met nose-on (its face
+    ///     more than 60 degrees off square to the axle: the tread climbs it,
+    ///     an ordinary kerb mount).
     ///   THE CAR'S SIDE ON A WALL, A BARRIER, A ROCK OR ANOTHER CAR at a
     ///     wheel (a sideways contact of the body within a tyre's radius of an
     ///     axle, at wheel height): the arch and the sill share that one, so it
@@ -46,10 +49,12 @@ namespace PSXRacing
         public static string IdFor(int corner) => Ids[Mathf.Clamp(corner, 0, 3)];
 
         // ---------------- the rules (pure) ----------------
-        /// <summary>The lip's height over the road: a face lower than this is a kerb the tyre rides.</summary>
-        public const float ProbeUp = 0.07f;
-        /// <summary>A face whose normal stands up more than this is a ramp (under 53 degrees): a kerb mount.</summary>
-        public const float RampNormalY = 0.6f;
+        /// <summary>A kerb stands this far over the wheel's ground (m): lower is a kerb the
+        /// tyre rides (a racing kerb, a rolled curb's 10 cm), higher a wall (the body meets it).</summary>
+        public const float KerbMin = 0.12f, KerbMax = 0.40f;
+        /// <summary>Read this far outside the sidewall (m), and the sidewall has met the
+        /// face when the ground under it has risen this much.</summary>
+        public const float KerbReach = 0.40f, FaceIn = 0.012f;
         /// <summary>The face stands within 60 degrees of square to the axle, or the tread meets it.</summary>
         public const float SideCos = 0.5f;
         /// <summary>Pressed into the face at (m/s): a kiss, a hard strike, a gouging one.</summary>
@@ -70,11 +75,16 @@ namespace PSXRacing
             return vn >= KissMps || rub >= RubLight ? 1 : 0;
         }
 
-        /// <summary>A strike this is not: a ramped kerb, or a face met nose-on.
-        /// <paramref name="normalUp"/> the face's normal along the car's up,
-        /// <paramref name="squareToAxle"/> the cosine between the face and the axle.</summary>
-        public static bool IsStrike(float normalUp, float squareToAxle) =>
-            Mathf.Abs(normalUp) < RampNormalY && squareToAxle >= SideCos;
+        /// <summary>A strike, or a kerb the tread rides: <paramref name="kerb"/> how far
+        /// the ground beside the wheel stands over its own (m), <paramref name="underSide"/>
+        /// how far it has risen under the sidewall, <paramref name="squareToAxle"/> the
+        /// cosine between the kerb's face and the axle.</summary>
+        public static bool IsStrike(float kerb, float underSide, float squareToAxle) =>
+            kerb >= KerbMin && kerb <= KerbMax && underSide >= FaceIn && squareToAxle >= SideCos;
+
+        /// <summary>How hard the wheel's SIDE was pressed: the closing speed square to the
+        /// kerb's face, by how square that face stands to the axle.</summary>
+        public static float Press(float closing, float squareToAxle) => Mathf.Max(0f, closing) * Mathf.Clamp01(squareToAxle);
 
         /// <summary>By stage: the value a buyer takes off (% per wheel), the paint lane's loss.</summary>
         public static readonly float[] ValuePct = { 0f, 0.4f, 1.0f, 2.0f };
@@ -116,12 +126,13 @@ namespace PSXRacing
         }
 
         // ---------------- the contacts ----------------
-        const float ProbeBack = 0.05f, Touch = 0.012f, LostAfter = 0.25f;
+        const float LostAfter = 0.25f, RayUp = 0.5f, RayDown = 0.95f;
 
         CarController car;
         DamageLedger ledger;
         Rigidbody rb;
         CarBody body;
+        int mask = ~0;
         readonly bool[] touching = new bool[4], viaBody = new bool[4];
         readonly float[] vnMax = new float[4], rub = new float[4], lastSeen = new float[4], lastRubT = new float[4];
         readonly int[] told = new int[4];
@@ -131,6 +142,7 @@ namespace PSXRacing
         public int Strikes { get; private set; }
         public float RubOf(int i) => rub[i];
         public float PressOf(int i) => vnMax[i];
+        public int ToldOf(int i) => told[i];
 
         /// <summary>The career car's wheels, armed with its ledger (DamageLedger.Arm).</summary>
         public static void Attach(CarController car, DamageLedger L)
@@ -142,6 +154,18 @@ namespace PSXRacing
             w.ledger = L;
             w.rb = car.Body != null ? car.Body : car.GetComponent<Rigidbody>();
             w.body = car.GetComponent<CarBody>();
+            w.mask = car.SuspensionMask != 0 ? car.SuspensionMask : ~0;
+        }
+
+        /// <summary>The ground's height over the wheel's own at a point beside it
+        /// (NaN: none there, or something that moves).</summary>
+        float Rise(Vector3 at, Vector3 up, Vector3 patch, out Vector3 normal)
+        {
+            normal = up;
+            if (!Physics.Raycast(at + up * RayUp, -up, out RaycastHit h, RayDown, mask, QueryTriggerInteraction.Ignore)) return float.NaN;
+            if (h.rigidbody != null) return float.NaN;
+            normal = h.normal;
+            return Vector3.Dot(h.point - patch, up);
         }
 
         void FixedUpdate()
@@ -157,22 +181,33 @@ namespace PSXRacing
                     Vector3 fwd = wc.forward.sqrMagnitude > 0.5f ? wc.forward : car.transform.forward;
                     Vector3 outw = Vector3.Cross(up, fwd).normalized * (i % 2 == 0 ? -1f : 1f);
                     float halfW = body != null ? body.TyreHalfWidth(i) : 0.1f;
-                    Vector3 from = wc.point + up * ProbeUp - outw * ProbeBack;
-                    float reach = ProbeBack + halfW + Touch;
-                    if (Physics.Raycast(from, outw, out RaycastHit h, reach, ~0, QueryTriggerInteraction.Ignore) && h.rigidbody != rb)
+                    // a kerb beside the wheel?
+                    float far = Rise(wc.point + outw * (halfW + KerbReach), up, wc.point, out Vector3 nFar);
+                    float mid = float.NaN;
+                    Vector3 nMid = up;
+                    if (float.IsNaN(far) || far < KerbMin) mid = Rise(wc.point + outw * (halfW + KerbReach * 0.5f), up, wc.point, out nMid);
+                    float kerb = !float.IsNaN(far) && far >= KerbMin ? far : mid;
+                    if (!float.IsNaN(kerb) && kerb >= KerbMin && kerb <= KerbMax)
                     {
-                        Vector3 nH = Vector3.ProjectOnPlane(h.normal, up);
-                        if (nH.sqrMagnitude > 1e-4f && IsStrike(Vector3.Dot(h.normal, up), Vector3.Dot(-nH.normalized, outw)))
+                        // ...and has the sidewall met its face?
+                        float under = Rise(wc.point + outw * halfW, up, wc.point, out Vector3 nSide);
+                        if (!float.IsNaN(under))
                         {
-                            nH.Normalize();
-                            Vector3 v = rb.GetPointVelocity(wc.point);
-                            if (h.rigidbody != null) v -= h.rigidbody.GetPointVelocity(h.point);
-                            float vn = Vector3.Dot(v, -nH);
-                            if (vn > -0.05f)
+                            // the way the kerb faces: off the rising ground's own normal, else square to the wheel
+                            Vector3 nH = Vector3.ProjectOnPlane(nSide, up);
+                            if (nH.sqrMagnitude < 0.02f) nH = Vector3.ProjectOnPlane(!float.IsNaN(mid) ? nMid : nFar, up);
+                            nH = nH.sqrMagnitude < 0.02f ? -outw : nH.normalized;
+                            float square = Vector3.Dot(-nH, outw);
+                            if (IsStrike(kerb, under, square))
                             {
-                                float vt = (v - nH * Vector3.Dot(v, nH)).magnitude;
-                                if (!touching[i]) what[i] = Describe(h.collider, h.rigidbody, Tall(from, outw, up, reach));
-                                Feed(i, Mathf.Max(0f, vn), vt * dt, false, now);
+                                Vector3 v = rb.GetPointVelocity(wc.point);
+                                float closing = Vector3.Dot(v, -nH);
+                                if (closing > -0.05f)
+                                {
+                                    float vt = (v - nH * Vector3.Dot(v, nH)).magnitude;
+                                    if (!touching[i]) what[i] = Describe(null, null, false);
+                                    Feed(i, Press(closing, square), vt * dt, false, now);
+                                }
                             }
                         }
                     }
@@ -180,11 +215,6 @@ namespace PSXRacing
                 if (touching[i] && now - lastSeen[i] > LostAfter) touching[i] = false;
             }
         }
-
-        /// <summary>Something stands 30 cm over the road there too: a wall, not a curb.</summary>
-        static bool Tall(Vector3 from, Vector3 outw, Vector3 up, float reach) =>
-            Physics.Raycast(from + up * 0.25f, outw, out RaycastHit h, reach + 0.12f, ~0, QueryTriggerInteraction.Ignore) &&
-            Mathf.Abs(Vector3.Dot(h.normal, up)) < RampNormalY;
 
         void OnCollisionEnter(Collision c) => BodySide(c, true);
         void OnCollisionStay(Collision c) => BodySide(c, false);
