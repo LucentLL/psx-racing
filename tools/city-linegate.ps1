@@ -123,9 +123,11 @@ try {
         $rc = 0
     }
     elseif ($WriteBaseline) {
-        $commit = ""
+        $commit = ""; $drawing = ""
         try { $commit = (git -C $Source rev-parse --short=8 HEAD) } catch { }
-        $base = [ordered]@{ note = "The line gate's baseline: failing places per class, whole city. A branch may not raise any class."; commit = $commit; date = (Get-Date -Format "yyyy-MM-dd HH:mm"); graph = $run.graph; tiles = $run.tiles; classes = $run.classes; kinds = $run.kinds }
+        # the drawing code the counts are of: where this branch left mountain-nm (the gate's own files change no drawing)
+        try { $drawing = (git -C $Source merge-base HEAD mountain-nm 2>$null); if ($drawing) { $drawing = $drawing.Substring(0, 8) } } catch { }
+        $base = [ordered]@{ note = "The line gate's baseline: failing places per class, whole city. A branch may not raise any class."; commit = $commit; drawing = $drawing; date = (Get-Date -Format "yyyy-MM-dd HH:mm"); graph = $run.graph; tiles = $run.tiles; classes = $run.classes; kinds = $run.kinds }
         New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Baseline) | Out-Null
         ($base | ConvertTo-Json -Depth 6) | Set-Content -Path $Baseline -Encoding ascii
         Write-Host "baseline written: $Baseline"
