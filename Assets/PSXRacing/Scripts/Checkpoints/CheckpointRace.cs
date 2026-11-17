@@ -551,16 +551,14 @@ namespace PSXRacing
         string FlashText(CarCP c, int k)
         {
             int n = c.passedTotal;
-            int pos = rm.GetPosition(c.car);
             string label = "CHECKPOINT " + DisplayIndex(c, k);
-            if (pos <= 1) return label + "   LEAD";
-            // the car directly ahead now, at this same gate
-            CarCP ahead = null;
+            // the gap to the car that went through this same gate just before (none: first through it, LEAD).
+            // Not "the car one place up": the order is the ruler's, and at the gate it can still be last frame's.
+            float mine = c.passTimes[n - 1], best = float.NegativeInfinity;
             foreach (var o in cars.Values)
-                if (o != c && rm.GetPosition(o.car) == pos - 1) { ahead = o; break; }
-            if (ahead != null && ahead.passTimes.Count >= n)
-                return label + "   +" + (c.passTimes[n - 1] - ahead.passTimes[n - 1]).ToString("0.0");
-            return label;
+                if (o != c && o.passTimes.Count >= n && o.passTimes[n - 1] <= mine && o.passTimes[n - 1] > best) best = o.passTimes[n - 1];
+            if (float.IsNegativeInfinity(best)) return label + "   LEAD";
+            return label + "   +" + (mine - best).ToString("0.0");
         }
 
         void RaiseMissed(CarCP c)
