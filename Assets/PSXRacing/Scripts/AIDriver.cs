@@ -1477,6 +1477,7 @@ namespace PSXRacing
         /// a pass gains on the car being passed (m/s2).</summary>
         const float PassMaxS = 6.5f, PassMinMps = 7f, PassAccel = 2.0f, PassAccelRival = 0.4f;
         static readonly bool RivalPullOn = System.Environment.GetEnvironmentVariable("PSX_AI_PASS_RIVALPULL") == "1";
+        static readonly bool PassInTrafficOn = System.Environment.GetEnvironmentVariable("PSX_AI_PASS_IN_TRAFFIC") != "0";
         /// <summary>The pass ends with this car's centre a length plus air (m, + s of its speed) past the car's centre,
         /// then the swing back takes PassSwingS. A car within PassQueueGapM (+ s of speed) beyond the one passed is in its
         /// queue: the pass takes that one too, or is not made.</summary>
@@ -1707,6 +1708,10 @@ namespace PSXRacing
         /// started (or, already this car's pass, go on). Counts the refusal's reason for the harness.</summary>
         bool PassWindowOpen(Rigidbody target, float z, float theirSpeed, float wantRel, float line, bool committed)
         {
+            // PSX_AI_PASS_IN_TRAFFIC=0 (not raced; for the coordinator): no pass over the line while the race has traffic
+            // (a stage or sanctioned race without traffic keeps them); the rest of the window's lane rules stay
+            var tsW = TrafficSystem.Instance;
+            if (!PassInTrafficOn && tsW != null && tsW.Level != TrafficLevels.None) { Refuse("off in traffic"); return false; }
             if (!committed && Time.time < passRetryAt) { Refuse("retry"); return false; }
             // judged at most every PassJudgeEveryS for the same car (the answer moves slowly; the cost is per call)
             if (target == winTarget && committed == winCommitted && Time.time - winAt < PassJudgeEveryS) return winOk;
