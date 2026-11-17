@@ -1,8 +1,8 @@
 {
-    "note":  "The line gate\u0027s baseline: failing places per class, whole city. A branch may not raise any class. Re-recorded 2026-11-17 (roads3) with the gate as committed at b7f92df4 (the hairpin SJOG pass) on unchanged mountain-nm ba49c506 drawing code (= 742315cd's city code), run r3base.",
-    "commit":  "b7f92df4",
+    "note":  "The line gate\u0027s baseline: failing places per class, whole city. A branch may not raise any class. Re-recorded 2026-11-17 (roads3, run r3base2) with the gate as committed at b272bd4f (b7f92df4's hairpin SJOG pass + the deterministic place order) on unchanged mountain-nm ba49c506 drawing code (= 742315cd's city code).",
+    "commit":  "b272bd4f",
     "drawing":  "ba49c506",
-    "date":  "2026-11-17 05:58",
+    "date":  "2026-11-17 06:22",
     "graph":  "b2aa3453",
     "tiles":  10626,
     "classes":  {
@@ -21,11 +21,11 @@
                                  "T3":  14
                              },
                     "KINK":  {
-                                 "places":  3232,
+                                 "places":  3231,
                                  "failures":  9665,
                                  "T1":  1662,
                                  "T2":  968,
-                                 "T3":  602
+                                 "T3":  601
                              },
                     "WIDTH":  {
                                   "places":  630,
@@ -35,10 +35,10 @@
                                   "T3":  1
                               },
                     "CONT":  {
-                                 "places":  1727,
+                                 "places":  1726,
                                  "failures":  2780,
                                  "T1":  794,
-                                 "T2":  923,
+                                 "T2":  922,
                                  "T3":  10
                              },
                     "SURFACE":  {
@@ -49,10 +49,10 @@
                                     "T3":  0
                                 },
                     "JUNCTION":  {
-                                     "places":  656,
+                                     "places":  657,
                                      "failures":  902,
                                      "T1":  102,
-                                     "T2":  406,
+                                     "T2":  407,
                                      "T3":  148
                                  },
                     "MEDIAN":  {
@@ -63,17 +63,17 @@
                                    "T3":  22
                                },
                     "STEP":  {
-                                 "places":  9673,
+                                 "places":  9671,
                                  "failures":  20417,
-                                 "T1":  2238,
-                                 "T2":  4151,
-                                 "T3":  3284
+                                 "T1":  2239,
+                                 "T2":  4162,
+                                 "T3":  3270
                              },
                     "BARRIER":  {
-                                    "places":  1624,
+                                    "places":  1630,
                                     "failures":  6122,
-                                    "T1":  379,
-                                    "T2":  1195,
+                                    "T1":  380,
+                                    "T2":  1200,
                                     "T3":  50
                                 },
                     "BRIDGE":  {
@@ -85,29 +85,29 @@
                                }
                 },
     "kinds":  {
-                  "BARRIER / wall or barrier against the edge line":  1601,
+                  "BARRIER / wall or barrier against the edge line":  1607,
                   "BARRIER / wall or barrier inside the edge line":  23,
                   "BRIDGE / carriageway too narrow on a structure":  3,
                   "BRIDGE / lane count changes on the structure only":  9,
-                  "CONT / line ends at a joint":  589,
-                  "CONT / line ends inside its road":  1040,
+                  "CONT / line ends at a joint":  582,
+                  "CONT / line ends inside its road":  1046,
                   "CONT / line steps at a joint":  89,
                   "CONT / pavement edge steps":  1,
                   "CONT / two roads\u0027 lines cross":  6,
                   "CONT / two roads\u0027 lines doubled up":  2,
-                  "JUNCTION / side road with no control":  259,
+                  "JUNCTION / side road with no control":  260,
                   "JUNCTION / solid line across a road mouth":  306,
                   "JUNCTION / through lanes deflect across the junction":  91,
-                  "KINK / painted line":  1493,
-                  "KINK / pavement edge":  1739,
+                  "KINK / painted line":  1494,
+                  "KINK / pavement edge":  1737,
                   "MEDIAN / curb or island in the travelled way":  76,
                   "SHIFT / lane-add (bay) taper":  644,
                   "SHIFT / lane-drop taper":  1008,
                   "SHIFT / through lanes shift":  1112,
                   "SJOG / the line model\u0027s":  1696,
                   "SJOG / the road\u0027s own line":  1078,
-                  "STEP / grade break":  3882,
-                  "STEP / junction fan lip":  5791,
+                  "STEP / grade break":  3883,
+                  "STEP / junction fan lip":  5788,
                   "SURFACE / two roads\u0027 pavement drawn over each other":  261,
                   "WIDTH / curb lane too narrow":  1,
                   "WIDTH / curb lane too wide":  84,
