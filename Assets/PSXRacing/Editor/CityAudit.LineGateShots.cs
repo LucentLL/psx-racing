@@ -19,8 +19,10 @@ namespace PSXRacing.EditorTools
     /// No trees, poles, signs or traffic are in these frames (they are not the
     /// road's paint); nothing is staged.
     ///   -executeMethod PSXRacing.EditorTools.CityAudit.RunLineGateShots   (no -nographics)
-    ///   PSX_LG_SHOTS=file   rows "id x z edge s dir" (tab separated; dir +1 along a->b, -1 against;
-    ///                       0 = the side of the road the place lies on); default city_linegate_shots.tsv
+    ///   PSX_LG_SHOTS=file   rows "id x z edge s dir [half] [views]" (tab separated; dir +1 along a->b, -1
+    ///                       against; 0 = the side of the road the place lies on; half = the plan's half
+    ///                       height in metres, default 36; views = "plan" for the plan alone);
+    ///                       default city_linegate_shots.tsv
     /// Writes Screenshots\City\linegate\&lt;id&gt;_plan.png / _drive.png and linegate_shots.txt.
     /// </summary>
     public static partial class CityAudit
@@ -59,6 +61,8 @@ namespace PSXRacing.EditorTools
                     float x = float.Parse(c[1], inv), z = float.Parse(c[2], inv);
                     int ei = int.Parse(c[3], inv); float s = float.Parse(c[4], inv);
                     int dirWant = c.Length > 5 ? int.Parse(c[5], inv) : 0;
+                    float half = c.Length > 6 && float.TryParse(c[6], System.Globalization.NumberStyles.Float, inv, out float hv) && hv > 1f ? hv : 36f;
+                    bool planOnly = c.Length > 7 && c[7].Trim() == "plan";
                     if (ei < 0 || ei >= map.edges.Length) continue;
                     var e = map.edges[ei];
                     s = Mathf.Clamp(s, 0f, e.length);
@@ -124,9 +128,9 @@ namespace PSXRacing.EditorTools
                     var target = new Vector3(x, ty, z);
                     // look along the road, pitched to the place's height 45 m on
                     var aim = eye + fwd * 45f; aim.y = ty + 0.6f;
-                    LgShoot(dir, id + "_drive", eye, Quaternion.LookRotation(aim - eye), 0f, 1280, 720, 60f);
+                    if (!planOnly) LgShoot(dir, id + "_drive", eye, Quaternion.LookRotation(aim - eye), 0f, 1280, 720, 60f);
                     var upDir = new Vector3(tan.x * dirGo, 0f, tan.y * dirGo);
-                    LgShoot(dir, id + "_plan", target + Vector3.up * 80f, Quaternion.LookRotation(Vector3.down, upDir), 36f, 1280, 720, 60f);
+                    LgShoot(dir, id + "_plan", target + Vector3.up * 80f, Quaternion.LookRotation(Vector3.down, upDir), half, planOnly ? 640 : 1280, planOnly ? 360 : 720, 60f);
                     said.AppendLine($"{id}\t{ei}\t{LgRoad(e)}\t{LatLon(x, z)}\t{eye.x.ToString("0.0", inv)},{eye.y.ToString("0.00", inv)},{eye.z.ToString("0.0", inv)}\t{(Mathf.Atan2(fwd.x, fwd.z) * Mathf.Rad2Deg).ToString("0", inv)}");
                     done++;
                     if (done % 10 == 0) Debug.Log($"[LineGate] {done} places shot");

@@ -47,6 +47,18 @@ namespace PSXRacing.EditorTools
         /// (AASHTO Green Book 4.7.3: curbs are offset from the travelled way;
         /// MUTCD 3B.10: an obstruction in the roadway takes approach markings).</summary>
         public const float CurbInLaneM = 0.15f;
+        /// <summary>The most a through lane may deflect across an intersection,
+        /// by design speed (FDOT Plans Preparation Manual vol. 1 Table 2.8.1b,
+        /// read 2026-11-16: 16 deg at 20 mph, 11 at 25, 8 at 30, 6 at 35, 5 at
+        /// 40, 3 at 45).</summary>
+        public static float ThroughDeflectDeg(float mph)
+        {
+            float[] v = { 20, 25, 30, 35, 40, 45 }; float[] d = { 16, 11, 8, 6, 5, 3 };
+            if (mph <= v[0]) return d[0];
+            for (int i = 1; i < v.Length; i++) if (mph <= v[i]) return Mathf.Lerp(d[i - 1], d[i], (mph - v[i - 1]) / (v[i] - v[i - 1]));
+            return d[d.Length - 1];
+        }
+
         /// <summary>AASHTO Green Book Tables 5-6 / 6-6: a bridge's clear
         /// roadway is at least the travelled way plus 2 ft each side: one
         /// 12 ft lane gives 16 ft (4.9 m) between rails.</summary>
@@ -463,6 +475,142 @@ namespace PSXRacing.EditorTools
                     lgFails.Add(new LgFail { cls = "JUNCTION", sub = "side road with no control", edge = ei, node = n, s = e.a == n ? 0f : e.length, s1 = e.a == n ? 0f : e.length, x = p.x, z = p.y, measure = 0f, limit = 0f, unit = "",
                                              what = $"{LgRoad(e)} (e{ei}) meets {main ?? "the junction"} at n{n} ({arms.Count} arms) with no signal, STOP or yield" });
                 }
+            }
+        }
+
+        /// <summary>JUNCTION: the centre line of a road that runs on across a junction must meet itself:
+        /// where it stands off sideways on the far side, the through lanes deflect across the box.</summary>
+        static void LgThrough(CityMap map, CityMeshes.Trims t, bool[] scope)
+        {
+            // the centre yellow's end at an edge's mouth (the mean of a double line's two)
+            bool YellowAt(int ei, int node, out Vector2 at, out Vector2 dirIn)
+            {
+                at = default; dirIn = default;
+                var e = map.edges[ei];
+                var ids = lgByEdge[ei];
+                if (ids == null || e.oneway) return false;
+                float sEnd = e.a == node ? t.atA[ei] : e.length - t.atB[ei];
+                Vector2 sum = Vector2.zero; int n = 0;
+                foreach (int id in ids)
+                {
+                    var st = lgStrands[id];
+                    if (st.role != 2 || st.tk != LineModel.KYellow) continue;
+                    var p = e.a == node ? st.p[0] : st.p[st.p.Count - 1];
+                    if (Mathf.Abs(p.s - sEnd) > 1.5f) continue;
+                    sum += new Vector2((float)p.x, (float)p.z); n++;
+                }
+                if (n == 0 || n > 2) return false;
+                at = sum / n;
+                var tan = e.TangentAt(sEnd);
+                dirIn = e.a == node ? -tan : tan;       // toward the node
+                return true;
+            }
+            for (int n = 0; n < map.nodes.Length; n++)
+            {
+                var arms = map.nodeEdges[n];
+                if (arms.Count < 3 || t.mitre[n]) continue;
+                for (int i = 0; i < arms.Count; i++)
+                    for (int j = i + 1; j < arms.Count; j++)
+                    {
+                        int a = arms[i], b = arms[j];
+                        if (!scope[a] && !scope[b]) continue;
+                        var ea = map.edges[a]; var eb = map.edges[b];
+                        if (ea.name != eb.name || string.IsNullOrEmpty(ea.name)) continue;
+                        if (!YellowAt(a, n, out var ya, out var da) || !YellowAt(b, n, out var yb, out var db)) continue;
+                        if (Vector2.Dot(da, db) > -0.94f) continue;            // the same road running straight on
+                        var d = yb - ya;
+                        float along = Vector2.Dot(d, da), side = da.x * d.y - da.y * d.x;   // + : the far centre line lies LEFT of this one's straight
+                        if (along < 3f) continue;
+                        float deg = Mathf.Abs(Mathf.Atan2(side, along)) * Mathf.Rad2Deg;
+                        float mph = Mathf.Max(LineGateRules.Mph(ea), LineGateRules.Mph(eb)), lim = LineGateRules2.ThroughDeflectDeg(mph);
+                        if (deg <= lim || Mathf.Abs(side) < 0.5f) continue;
+                        var mid = 0.5f * (ya + yb);
+                        // traffic entering from a keeps right of its centre line: the far line standing to its RIGHT puts the inner lane on the oncoming side
+                        string into = Mathf.Abs(side) >= 1.8f ? (side < 0f ? $"; e{a}'s inner lane points into e{b}'s oncoming lanes" : $"; e{b}'s inner lane points into e{a}'s oncoming lanes") : "";
+                        lgFails.Add(new LgFail { cls = "JUNCTION", sub = "through lanes deflect across the junction", edge = a, node = n, s = ea.a == n ? 0f : ea.length, s1 = ea.a == n ? 0f : ea.length, x = mid.x, z = mid.y, measure = deg, limit = lim, unit = "deg", mph = mph,
+                                                 what = $"{LgRoad(ea)}'s centre line stands {Mathf.Abs(side):0.0} m to the side across the {along:0} m junction at n{n} (e{a} / e{b}): the through lanes deflect {deg:0.0} deg (limit {lim:0.0} deg at {mph:0} mph){into}" });
+                    }
+            }
+        }
+
+        /// <summary>CONT: two roads' lines doubled up (two solid lines of different edges running
+        /// together within 0.5 m for 6 m or more) or crossing each other away from a joint.</summary>
+        static void LgDoubles(CityMap map, CityMeshes.Trims t, bool[] scope)
+        {
+            var grid = new Dictionary<long, List<(int st, int i)>>();
+            foreach (var st in lgStrands)
+            {
+                if (st.role != 2) continue;
+                for (int i = 0; i + 1 < st.p.Count; i++)
+                {
+                    var a = st.p[i]; var b = st.p[i + 1];
+                    int cx0 = (int)Math.Floor(Math.Min(a.x, b.x) / 8.0), cx1 = (int)Math.Floor(Math.Max(a.x, b.x) / 8.0), cz0 = (int)Math.Floor(Math.Min(a.z, b.z) / 8.0), cz1 = (int)Math.Floor(Math.Max(a.z, b.z) / 8.0);
+                    if (cx1 - cx0 > 8 || cz1 - cz0 > 8) continue;
+                    for (int cx = cx0; cx <= cx1; cx++)
+                        for (int cz = cz0; cz <= cz1; cz++)
+                        {
+                            long k = ((long)cx << 32) ^ (uint)cz;
+                            if (!grid.TryGetValue(k, out var l)) grid[k] = l = new List<(int, int)>(8);
+                            l.Add((st.id, i));
+                        }
+                }
+            }
+            var doubled = new Dictionary<long, (float len, double x, double z, float s, int other)>();   // (strand, other edge) -> metres run together
+            var crossed = new HashSet<long>();
+            foreach (var st in lgStrands)
+            {
+                if (st.role != 2 || !scope[st.edge]) continue;
+                var e = map.edges[st.edge];
+                for (int i = 0; i + 1 < st.p.Count; i++)
+                {
+                    var a = st.p[i]; var b = st.p[i + 1];
+                    double dx = b.x - a.x, dz = b.z - a.z, len = Math.Sqrt(dx * dx + dz * dz);
+                    if (len < 0.05) continue;
+                    double mx = 0.5 * (a.x + b.x), mz = 0.5 * (a.z + b.z);
+                    if (!grid.TryGetValue(((long)(int)Math.Floor(mx / 8.0) << 32) ^ (uint)(int)Math.Floor(mz / 8.0), out var l)) continue;
+                    foreach (var (sid, k) in l)
+                    {
+                        var o = lgStrands[sid];
+                        if (o.edge == st.edge || sid == st.id) continue;
+                        // not the same road carrying on (a joint's two arms), nor a branch on its host's attach arc
+                        var oe = map.edges[o.edge];
+                        if (oe.a == e.a || oe.a == e.b || oe.b == e.a || oe.b == e.b) continue;
+                        var c = o.p[k]; var d = o.p[k + 1];
+                        if (Mathf.Abs(c.y - a.y) > 0.5f) continue;
+                        double ox = d.x - c.x, oz = d.z - c.z, ol = Math.Sqrt(ox * ox + oz * oz);
+                        if (ol < 0.05) continue;
+                        double cos = Math.Abs((dx * ox + dz * oz) / (len * ol));
+                        // the distance from this segment's middle to the other segment
+                        double tt = Math.Max(0, Math.Min(1, ((mx - c.x) * ox + (mz - c.z) * oz) / (ol * ol)));
+                        double px = c.x + tt * ox - mx, pz = c.z + tt * oz - mz, dist = Math.Sqrt(px * px + pz * pz);
+                        if (cos > 0.985 && dist < 0.5 && !st.broken && !o.broken)
+                        {
+                            long key = ((long)st.id << 24) ^ (uint)o.edge;
+                            doubled.TryGetValue(key, out var w);
+                            doubled[key] = (w.len + (float)len, w.len == 0f ? mx : w.x, w.len == 0f ? mz : w.z, w.len == 0f ? a.s : w.s, o.edge);
+                        }
+                        else if (cos < 0.97 && st.id < sid)
+                        {
+                            // a true crossing of the two segments
+                            double den = dx * oz - dz * ox;
+                            if (Math.Abs(den) < 1e-12) continue;
+                            double u = ((c.x - a.x) * oz - (c.z - a.z) * ox) / den, v = ((c.x - a.x) * dz - (c.z - a.z) * dx) / den;
+                            if (u < 0 || u > 1 || v < 0 || v > 1) continue;
+                            long key = ((long)st.id << 24) ^ (uint)sid;
+                            if (!crossed.Add(key)) continue;
+                            lgFails.Add(new LgFail { cls = "CONT", sub = "two roads' lines cross", edge = st.edge, s = a.s, s1 = b.s, x = a.x + u * dx, z = a.z + u * dz, measure = (float)(Math.Acos(Math.Min(1.0, cos)) * 180.0 / Math.PI), limit = 0f, unit = "deg", line = st.Kind,
+                                                     what = $"the {st.Kind} of {LgRoad(e)} (e{st.edge}) crosses the {o.Kind} of {LgRoad(oe)} (e{o.edge})" });
+                        }
+                    }
+                }
+            }
+            foreach (var kv in doubled)
+            {
+                var w = kv.Value;
+                if (w.len < 6f) continue;
+                var st = lgStrands[(int)(kv.Key >> 24)];
+                lgFails.Add(new LgFail { cls = "CONT", sub = "two roads' lines doubled up", edge = st.edge, s = w.s, s1 = w.s + w.len, x = w.x, z = w.z, measure = w.len, limit = 6f, unit = "m", line = st.Kind,
+                                         what = $"the {st.Kind} of {LgRoad(map.edges[st.edge])} (e{st.edge}) runs {w.len:0} m within 0.5 m of a line of {LgRoad(map.edges[w.other])} (e{w.other}): two roads drawn over each other" });
             }
         }
 

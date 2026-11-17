@@ -247,6 +247,47 @@ def sheet(a):
         n += 1
 
 
+def classes(a):
+    # small multiples: one map per class
+    fails = read_fails(a.csv)
+    roads = read_roads(a.roads)
+    xs = [p[0] for e in roads.values() for p in e[2]]; zs = [p[1] for e in roads.values() for p in e[2]]
+    x0, x1, z0, z1 = min(xs), max(xs), min(zs), max(zs)
+    M = 1000
+    sc = min(M / (x1 - x0), M / (z1 - z0))
+    cols = 4; rows = 3; PAD = 24; TOP = 110; CAP = 64
+    im = Image.new('RGB', (cols * (M + PAD) + PAD, TOP + rows * (M + CAP + PAD)), (16, 18, 22))
+    d = ImageDraw.Draw(im, 'RGBA')
+    d.text((PAD, 24), a.title or 'Charlotte line gate: each class on its own map', fill=(255, 255, 255), font=font(48, True))
+    best = {}
+    for r in fails:
+        k = (r['class'], r['place'])
+        if k not in best or r['visibility'] > best[k]['visibility']:
+            best[k] = r
+    for i, c in enumerate(ORDER):
+        ox = PAD + (i % cols) * (M + PAD); oy = TOP + (i // cols) * (M + CAP + PAD) + CAP
+
+        def P(x, z):
+            return (ox + (x - x0) * sc, oy + (z1 - z) * sc)
+        for e in roads.values():
+            if e[0] < 2 and not e[1]:
+                continue
+            pts = [P(*p) for p in e[2]]
+            if len(pts) >= 2:
+                d.line(pts, fill=(60, 62, 72) if e[0] < 4 else (96, 98, 110), width=1)
+        lst = [r for (cc, _), r in best.items() if cc == c]
+        lst.sort(key=lambda r: r['visibility'])
+        col = CLASS_COL[c]
+        for r in lst:
+            px, pz = P(r['x'], r['z'])
+            rad = 1.6 + min(3.5, 0.8 * math.sqrt(max(0.0, r['visibility'])))
+            d.ellipse((px - rad, pz - rad, px + rad, pz + rad), fill=col + (170,))
+        d.text((ox, oy - CAP + 4), f'{c}: {len(lst):,} places', fill=col + (255,), font=font(34, True))
+        d.text((ox, oy - CAP + 40), CLASS_TEXT[c], fill=(170, 176, 188, 255), font=font(20))
+    im.save(a.out)
+    print('class maps', a.out, im.size)
+
+
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('mode')
@@ -255,4 +296,4 @@ if __name__ == '__main__':
     ap.add_argument('--radius', type=float, default=70.0); ap.add_argument('--shots'); ap.add_argument('--list'); ap.add_argument('--per', type=int, default=10)
     a = ap.parse_args()
     a.centre = None
-    {'heat': heat, 'plans': plans, 'sheet': sheet}[a.mode](a)
+    {'heat': heat, 'plans': plans, 'sheet': sheet, 'classes': classes}[a.mode](a)

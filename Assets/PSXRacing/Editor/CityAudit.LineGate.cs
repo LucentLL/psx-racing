@@ -277,6 +277,31 @@ namespace PSXRacing.EditorTools
             public double x, z; public int edge, node = -1, tier, place, lines = 1;
             public float s, s1, measure, limit, mph, vis; public string unit;
             public bool model, absorbed;
+            /// <summary>What the builder has there (for the fix's worklist): the line model's eases over
+            /// the arc, a split node, a clipped branch, a merge zone.</summary>
+            public string cause = "";
+        }
+
+        /// <summary>The line model's own devices on an edge over [s0, s1] (read-only: for the worklist).</summary>
+        static string LgCauseOf(CityMap map, CityMeshes.Trims t, HashSet<int> splitEdges, CityMap.Edge e, float s0, float s1)
+        {
+            var parts = new List<string>(4);
+            var ez = e.lmEase;
+            if (ez != null)
+                foreach (var z in ez)
+                {
+                    float a = z.fromA ? -z.d0 : e.length - (z.len - z.d0), b = z.fromA ? z.len - z.d0 : e.length + z.d0;
+                    if (z.prof != null) { a = 0f; b = e.length; }
+                    if (b < s0 - 1f || a > s1 + 1f) continue;
+                    string kind = z.prof != null ? (z.widen ? "refuge-widen" : z.shift ? "refuge-shift" : "refuge-profile") : z.aux ? "aux-lane" : z.relay ? "relay" : z.shift ? "shift" : z.centreOnly ? "centre-only" : z.twoRole != 0 ? "two-sided-taper" : "taper";
+                    string d = z.relay ? $"{kind}(span {z.span:0.00} m over {z.len:0} m)" : z.aux ? kind : $"{kind}({z.dw:0.00} m over {z.len:0} m)";
+                    if (!parts.Contains(d)) parts.Add(d);
+                }
+            if (splitEdges.Contains(e.index)) parts.Add("split-end");
+            if (t.branchA[e.index] >= 0 || t.branchB[e.index] >= 0) parts.Add("clipped-branch");
+            if (LineModel.RefugeOf(e.index) != null) parts.Add("refuge-pair");
+            if (e.link) parts.Add("ramp");
+            return string.Join(" + ", parts);
         }
 
         static List<LgPiece>[] lgPieces; static List<LgSpan>[] lgSpans;
@@ -848,7 +873,7 @@ namespace PSXRacing.EditorTools
                 }
                 if (!peak || i - lastK < 6) continue;
                 lastK = i;
-                lgFails.Add(new LgFail { cls = "KINK", sub = st0.role == 2 ? "painted line" : "pavement edge", edge = e.index, s = r[i].s, s1 = r[i].s, x = r[i].x, z = r[i].z, measure = (float)k, limit = lim, unit = "deg", mph = mph, line = kind,
+                lgFails.Add(new LgFail { cls = "KINK", sub = st0.role == 2 ? "painted line" : "pavement edge", edge = e.index, s = r[i].s, s1 = r[i].s, x = r[i].x, z = r[i].z, measure = (float)k, limit = lim, unit = "deg", mph = mph, line = kind, model = false,
                                          what = $"the {kind} turns {k:0.0} deg at a point (limit {lim:0.00} deg at {mph:0} mph)" });
             }
             // ---- SJOG: the heading swings one way and back. Heading over a 4 m chord; turning points with 0.35 deg hysteresis.
@@ -928,7 +953,7 @@ namespace PSXRacing.EditorTools
                     var e = map.edges[r[im].e];
                     float mph = LineGateRules.Mph(e);
                     // what moves: this boundary alone (a lane added or dropped), or the travelled lanes
-                    string type = LgShiftType(map, e, st0, r[ja], r[jb], W, out bool through);
+                    string type = LgShiftType(map, members, r, ja, jb, out bool through);
                     float rate = type == "add" ? LineGateRules.BayRate(mph) : LineGateRules.TaperRate(mph);
                     float need = rate * Mathf.Abs(W);
                     if (L >= LineGateRules.TaperTol * need) return;
@@ -951,35 +976,45 @@ namespace PSXRacing.EditorTools
         /// <summary>What a lateral move is: "add" (this boundary alone moves
         /// out, in its side's direction of travel: a lane or bay opens),
         /// "drop" (it moves in: a lane ends), or "shift" (the lane lines move
-        /// with it, or it is a lane line itself: the travelled lanes shift).</summary>
-        static string LgShiftType(CityMap map, CityMap.Edge e, LgStrand st, LgR a, LgR b, float W, out bool through)
+        /// with it, or it is a lane line itself: the travelled lanes shift).
+        /// The move may run on through joints: its side and its direction are
+        /// read in the chain's frame (lat + = the chain's left), the lines
+        /// beside it on the edge at its middle.</summary>
+        static string LgShiftType(CityMap map, List<LgStrand> members, List<LgR> r, int ja, int jb, out bool through)
         {
             through = false;
-            if (a.e != b.e || a.e != e.index) { through = !st.Boundary; return st.Boundary ? "drop" : "shift"; }
-            // the chain may run against the edge: put the two stations back in the edge's own frame
-            float sa = a.s, sb = b.s;
-            // (lat is negated on a reversed walk; the strand's own points are in the edge frame)
-            float Wd = LgLatAt(st, sb) - LgLatAt(st, sa);
-            int moved = 0, held = 0;
-            var ids = lgByEdge[e.index];
-            if (ids != null)
-                foreach (int id in ids)
-                {
-                    var o = lgStrands[id];
-                    if (o == st || o.role != 2 || o.EdgeLine) continue;
-                    float s0 = Mathf.Min(sa, sb), s1 = Mathf.Max(sa, sb);
-                    if (o.S0 > s0 + 0.5f || o.S1 < s1 - 0.5f) continue;
-                    float d = LgLatAt(o, sb) - LgLatAt(o, sa);
-                    if (Mathf.Abs(d) >= 0.5f * Mathf.Abs(Wd) && d * Wd > 0) moved++; else held++;
-                }
-            if (!st.Boundary || moved > held) { through = true; return "shift"; }
-            // a boundary moving alone: outward along its side's travel direction = a lane opens
-            float mid = 0.5f * (LgLatAt(st, sa) + LgLatAt(st, sb));
-            bool plusSide = mid > 0f;                       // left of a->b
-            bool outward = plusSide ? Wd > 0f : Wd < 0f;    // going from sa to sb
-            bool travelAB = e.oneway || !plusSide;          // the right side travels a->b; the left side b->a on a two-way
-            bool opening = (sb > sa) == travelAB ? outward : !outward;
-            return opening ? "add" : "drop";
+            int im = (ja + jb) / 2, ei = r[im].e;
+            var e = map.edges[ei];
+            int a = im, b = im;
+            while (a > ja && r[a - 1].e == ei) a--;
+            while (b < jb && r[b + 1].e == ei) b++;
+            float sa = r[a].s, sb = r[b].s, s0 = Mathf.Min(sa, sb), s1 = Mathf.Max(sa, sb);
+            bool boundary = members[0].Boundary;
+            LgStrand st = null;
+            foreach (var m in members) if (m.edge == ei && m.S0 <= s1 + 0.5f && m.S1 >= s0 - 0.5f) { st = m; break; }
+            if (st != null && s1 - s0 > 1f)
+            {
+                float Wd = LgLatAt(st, sb) - LgLatAt(st, sa);
+                int moved = 0, held = 0;
+                var ids = lgByEdge[ei];
+                if (ids != null && Mathf.Abs(Wd) > 0.1f)
+                    foreach (int id in ids)
+                    {
+                        var o = lgStrands[id];
+                        if (o == st || o.role != 2 || o.EdgeLine) continue;
+                        if (o.S0 > s0 + 0.5f || o.S1 < s1 - 0.5f) continue;
+                        float d = LgLatAt(o, sb) - LgLatAt(o, sa);
+                        if (Mathf.Abs(d) >= 0.5f * Mathf.Abs(Wd) && d * Wd > 0) moved++; else held++;
+                    }
+                if (!boundary || moved > held) { through = true; return "shift"; }
+            }
+            else if (!boundary) { through = true; return "shift"; }
+            float W = r[jb].lat - r[ja].lat;                         // chain frame
+            bool left = 0.5f * (r[ja].lat + r[jb].lat) > 0f;
+            bool outward = left ? W > 0f : W < 0f;                    // along the chain
+            bool forward = b > a ? r[b].s > r[a].s : true;            // the chain runs a->b on this edge
+            bool travelWith = e.oneway ? forward : !left;             // a two-way's right side travels with the chain
+            return (travelWith ? outward : !outward) ? "add" : "drop";
         }
 
         static float LgLatAt(LgStrand st, float s)
@@ -1259,6 +1294,8 @@ namespace PSXRacing.EditorTools
             LgSteps(map, t);
             LgSolids(map);
             LgJunctions(map, t, scope);
+            LgThrough(map, t, scope);
+            LgDoubles(map, t, scope);
             LgBridges(map, t, scope);
             Line($"  {lgStrands.Count} strands in {chains} chains ({chainKm:0} km of painted line and pavement edge walked); {clock.Elapsed.TotalSeconds - buildS:0} s to judge");
 
@@ -1304,10 +1341,14 @@ namespace PSXRacing.EditorTools
         static void LgFinish(CityMap map, CityMeshes.Trims t, string root, string tag, bool whole, StringBuilder spotDump, Vector2 spot, float spotR)
         {
             // ---- fill in road, tier, speed; visibility ----
+            var splitEdges = new HashSet<int>();
+            if (map.splt != null) foreach (var sp in map.splt) { splitEdges.Add(sp.u); splitEdges.Add(sp.a); splitEdges.Add(sp.b); }
             foreach (var f in lgFails)
             {
                 if (f.s1 < f.s) { float sw = f.s; f.s = f.s1; f.s1 = sw; }
                 var e = map.edges[Mathf.Clamp(f.edge, 0, map.edges.Length - 1)];
+                if (f.cls == "SHIFT" || f.cls == "SJOG" || f.cls == "KINK" || f.cls == "WIDTH" || f.cls == "CONT" || f.cls == "SURFACE" || f.cls == "JUNCTION")
+                    f.cause = LgCauseOf(map, t, splitEdges, e, f.s, f.s1);
                 f.road = LgRoad(e); f.tier = CityTier.Of(e);
                 if (f.mph <= 0f) f.mph = LineGateRules.Mph(e);
                 float sp = f.mph / 30f;
@@ -1456,7 +1497,7 @@ namespace PSXRacing.EditorTools
                    .Append(f.edge).Append(',').Append(f.node).Append(',').Append(f.s.ToString("0.0", LgInv)).Append(',').Append(f.s1.ToString("0.0", LgInv)).Append(',')
                    .Append(f.x.ToString("0.00", LgInv)).Append(',').Append(f.z.ToString("0.00", LgInv)).Append(',').Append(ll).Append(',').Append(f.mph.ToString("0", LgInv)).Append(',')
                    .Append(f.measure.ToString("0.###", LgInv)).Append(',').Append(f.limit.ToString("0.###", LgInv)).Append(',').Append(f.unit).Append(',').Append(f.vis.ToString("0.00", LgInv)).Append(',')
-                   .Append(f.cls == "SJOG" || f.cls == "SHIFT" || f.cls == "KINK" ? (f.model ? "model" : "map") : "").Append(',').Append((f.line ?? "").Replace(',', ';')).Append(',').Append(f.absorbed ? 1 : 0).Append(',')
+                   .Append(f.cls == "SJOG" || f.cls == "SHIFT" || f.cls == "KINK" ? (f.model ? "model" : "map") : "").Append(f.cause.Length > 0 ? ":" + f.cause.Replace(',', ';') : "").Append(',').Append((f.line ?? "").Replace(',', ';')).Append(',').Append(f.absorbed ? 1 : 0).Append(',')
                    .Append('"').Append((f.what ?? "").Replace('"', '\'')).Append('"').Append('\n');
             }
             File.WriteAllText(Path.Combine(root, "city_linegate.csv"), csv.ToString());
