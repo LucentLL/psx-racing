@@ -767,54 +767,18 @@ namespace PSXRacing.EditorTools
             var fm = demFarMeta;
             float fx0 = fm.originX + 2f * fm.cell, fz0 = fm.originZ + 2f * fm.cell, fx1 = fm.originX + (fm.cols - 3) * fm.cell, fz1 = fm.originZ + (fm.rows - 3) * fm.cell;
             float halfW = RoadWidth * 0.5f;
-            var bufs = new Dictionary<long, (List<Vector3> v, List<Vector2> uv, List<int> t)>();
-            int cells = 0;
-            const float H = CliffCell * 0.5f, Tex = 9f;
+            var list = new List<Vector4>();
             for (int k = 0; k + 5 < C.Length; k += 6)
             {
                 float x = C[k], z = C[k + 1], dx = C[k + 3], dz = C[k + 4];
                 if (x < fx0 || x > fx1 || z < fz0 || z > fz1) continue;
                 if (StageCorridor(x, z, halfW + 14f, out _)) continue;
                 if ((WorldKeepBits(x, z) & 7) != 0) continue;
-                bool near = RouteDistanceCoarse(x, z) < NearCoverage - NearCell;
-                long ck = ((long)Mathf.FloorToInt(x / 500f) << 32) ^ (uint)Mathf.FloorToInt(z / 500f);
-                if (!bufs.TryGetValue(ck, out var b)) bufs[ck] = b = (new List<Vector3>(), new List<Vector2>(), new List<int>());
-                int v0 = b.v.Count;
-                // across the fall line (u) and up it (v): the grain upright on the face
-                Vector2 across = new Vector2(-dz, dx);
-                for (int j = 0; j <= 2; j++)
-                    for (int i = 0; i <= 2; i++)
-                    {
-                        float px = x - H + i * H, pz = z - H + j * H;
-                        float py = near ? DrapeY(px, pz) + 0.4f : FarSurfaceY(px, pz) + 0.9f;   // clear of the ground's creases
-                        b.v.Add(new Vector3(px, py, pz));
-                        b.uv.Add(new Vector2((px * across.x + pz * across.y) / Tex, py / Tex));
-                    }
-                for (int j = 0; j < 2; j++)
-                    for (int i = 0; i < 2; i++)
-                    {
-                        int a = v0 + j * 3 + i, bb = a + 3, c = a + 4, e = a + 1;
-                        // facing up: (x0,z0) (x0,z1) (x1,z1) wound for Unity's front face from above
-                        b.t.Add(a); b.t.Add(bb); b.t.Add(c);
-                        b.t.Add(a); b.t.Add(c); b.t.Add(e);
-                    }
-                cells++;
+                list.Add(new Vector4(x, z, dx, dz));
             }
-            int n = 0;
-            foreach (var kv in bufs)
-            {
-                var m = new Mesh { indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 };
-                m.SetVertices(kv.Value.v); m.SetUVs(0, kv.Value.uv); m.SetTriangles(kv.Value.t, 0);
-                m.RecalculateNormals(); m.RecalculateBounds();
-                SaveMesh(m, "LureGraniteSkin_" + n);
-                var go = new GameObject("GraniteSkin_" + n);
-                go.transform.SetParent(parent, false);
-                go.AddComponent<MeshFilter>().sharedMesh = m;
-                go.AddComponent<MeshRenderer>().sharedMaterial = mat;
-                go.isStatic = true;
-                if (HorizonLayer >= 0) go.layer = HorizonLayer;   // drawn as far as the far ground is
-                n++;
-            }
+            // the skin itself is the far mountain template's (PSXRacingBuilder.FarMtn: BuildRockSkin), the same cell for cell
+            int cells = list.Count;
+            int n = BuildRockSkin(parent, mat, list, "LureGraniteSkin_", "GraniteSkin_");
             Log($"Stage world granite skin: {cells} lidar cliff cells of 12 m laid in bare granite over the drawn ground ({n} chunks).");
         }
 
