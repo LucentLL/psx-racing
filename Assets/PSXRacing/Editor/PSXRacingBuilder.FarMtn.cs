@@ -283,6 +283,45 @@ namespace PSXRacing.EditorTools
             m.SetFloat("_FarRock", 1f);
         }
 
+        /// <summary>
+        /// THE LAB'S PATCH for a stage whose rock is its world file's lidar
+        /// granite (Lake Lure, Chimney Rock): there the template builds no cells
+        /// and plants exactly as before, so a scene built without it differs
+        /// from one built with it only by the far land's materials (SetFarRock,
+        /// from HorizonDress) and the switch's root. This makes those two
+        /// changes on a built scene and saves it - the scene a build with the
+        /// template would make, in a minute instead of forty. Refuses a stage
+        /// without lidar cliffs (its cells change the forest: build it).
+        /// Returns a line for the log.
+        /// </summary>
+        internal static string PatchLidarStageForLab(TrackCatalog.TrackDef def, UnityEngine.SceneManagement.Scene scene)
+        {
+            track = def; theme = ThemeFor(def);
+            string pre = StagePrefix, dir = theme.stageDir;
+            string wpath = ProjectRootPath(dir + "/" + pre + "_world.json");
+            if (!System.IO.File.Exists(wpath) || !System.IO.File.ReadAllText(wpath).Contains("\"cliffs\":[")) return def.id + ": no lidar cliffs in its world file - build it instead";
+            if (!FarMtnBuild) return def.id + ": PSX_FARMTN_TEMPLATE=0 / not the PC pass - nothing patched";
+            if (UnityEngine.Object.FindAnyObjectByType<FarMtnSwitch>(FindObjectsInactive.Include) != null) return def.id + ": already has the template's root";
+            var mats = new HashSet<Material>();
+            void Take(Material m) { if (m != null && m.HasProperty("_FarRock") && m.GetFloat("_Horizon") > 0.5f && m.GetFloat("_HorizonCrowns") > 0.5f && m.GetFloat("_HorizonFringe") < 0.5f) mats.Add(m); }
+            foreach (var r in UnityEngine.Object.FindObjectsByType<Renderer>(FindObjectsInactive.Include)) foreach (var m in r.sharedMaterials) Take(m);
+            foreach (var sd in UnityEngine.Object.FindObjectsByType<SeasonDress>(FindObjectsInactive.Include))
+                if (sd.entries != null) foreach (var e in sd.entries) if (e != null) { Take(e.baseMat); if (e.variants != null) foreach (var m in e.variants) Take(m); }
+            foreach (var m in mats) { SetFarRock(m); EditorUtility.SetDirty(m); }
+            var tp = UnityEngine.Object.FindAnyObjectByType<TrackPath>();
+            var parent = tp != null ? tp.transform : null;
+            var root = new GameObject("FarMtn");
+            if (parent != null) root.transform.SetParent(parent, false);
+            root.AddComponent<PCOnly>();
+            var rock = new GameObject("FarRock");
+            rock.transform.SetParent(root.transform, false);
+            root.AddComponent<FarMtnSwitch>().rock = rock;
+            UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(scene);
+            AssetDatabase.SaveAssets();
+            bool ok = UnityEditor.SceneManagement.EditorSceneManager.SaveScene(scene);
+            return $"{def.id}: far land's rock set on {mats.Count} material dresses, the switch's root added under {(parent != null ? parent.name : "the scene")}, saved {ok}";
+        }
+
         /// <summary>T_Photoscanned_Cliff_01_BC's mean albedo, linear (the 4096 px
         /// file measured whole, sRGB decoded: a greenish grey, lichen and moss).</summary>
         static readonly Color FarRockAlbedoMean = new Color(0.139f, 0.153f, 0.123f);

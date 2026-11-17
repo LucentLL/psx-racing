@@ -89,6 +89,36 @@ namespace PSXRacing.EditorTools
             return code;
         }
 
+        /// <summary>PSX_FM_PATCH="LakeLure,ChimneyRock": the lidar stages given the
+        /// template on their built scenes (PSXRacingBuilder.PatchLidarStageForLab:
+        /// exactly what a build with it adds there), then the shots of PSX_FM_VENUES.</summary>
+        public static void PatchAndCapture()
+        {
+            Directory.CreateDirectory(Shots);
+            string tag = Env("PSX_FM_TAG", "x");
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("farmtn patch " + tag + " " + System.DateTime.Now.ToString("s"));
+            int code = 0;
+            try
+            {
+                foreach (var raw in Env("PSX_FM_PATCH", "").Split(','))
+                {
+                    string id = raw.Trim(); if (id.Length == 0) continue;
+                    TrackCatalog.TrackDef def = null;
+                    foreach (var d in TrackCatalog.Scened) if (d.id == id) def = d;
+                    if (def == null) { sb.AppendLine("no venue " + id); code = 1; continue; }
+                    var scene = UnityEditor.SceneManagement.EditorSceneManager.OpenScene("Assets/PSXRacing/Scenes/" + id + ".unity", UnityEditor.SceneManagement.OpenSceneMode.Single);
+                    sb.AppendLine(PSXRacingBuilder.PatchLidarStageForLab(def, scene));
+                }
+            }
+            catch (System.Exception e) { sb.AppendLine("THREW " + e); code = 1; }
+            File.WriteAllText(Path.Combine(Shots, "fm_patch_" + tag + ".txt"), sb.ToString());
+            Debug.Log("[FarMtnLab] " + sb);
+            if (Env("PSX_FM_VENUES", "").Length == 0) System.Environment.SetEnvironmentVariable("PSX_FM_VENUES", Env("PSX_FM_PATCH", ""));
+            code |= CaptureCore();
+            if (Application.isBatchMode) EditorApplication.Exit(code);
+        }
+
         // ------------------------------------------------------------ poses
         [System.Serializable] public class Pose { public string name; public float m = -1f, yaw, pitch = 2f, lane = 1f, height = 1.15f, fov; public float[] eye, look; }
         [System.Serializable] public class VenuePoses { public string id; public Pose[] poses; }
