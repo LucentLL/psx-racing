@@ -158,9 +158,10 @@ namespace PSXRacing.EditorTools
                         nearCells++;
                     }
             }
-            // past the near grid (and on a lidar stage, past the lidar's reach
-            // as well as the near grid), to the far forest's reach: the far
-            // grid's share, laid as 12 m cells in clumps
+            // past the near grid, to the far forest's reach: the far grid's
+            // share, laid as 12 m cells in clumps (not on a lidar stage: the
+            // lidar's cells reach 2.2 km from its road, the far forest's 2.1)
+            if (!lidar)
             {
                 var fm = demFarMeta;
                 int cols = fm.cols, rows = fm.rows;
@@ -183,20 +184,14 @@ namespace PSXRacing.EditorTools
                                 if (InNear(x, z)) continue;
                                 if (FarRockClump(x, z) >= share) continue;
                                 if (RouteDistanceCoarse(x, z) > reach) continue;
-                                if (lidar && CliffKeepAt(x, z)) continue;
                                 if (!Clear(x, z)) continue;
                                 cells.Add(new Vector4(x, z, -dx / g, -dz / g));
                                 farCells++;
                             }
                     }
             }
-            if (cells.Count == 0) { Log($"Far mountain template: no rock cells ({(lidar ? "the lidar granite is this stage's rock" : "nothing that steep")})."); return; }
-            farRockKeep = new HashSet<long>();
-            foreach (var cl in cells)
-            {
-                int cx = Mathf.FloorToInt(cl.x / CliffCell), cz = Mathf.FloorToInt(cl.y / CliffCell);
-                for (int dz = -1; dz <= 1; dz++) for (int dx = -1; dx <= 1; dx++) farRockKeep.Add(CliffKey(cx + dx, cz + dz));
-            }
+            // the root and its switch on every stage the template is built on, rock or
+            // not: the switch is also the far land's (PSX/Lit _PSXFarMtnOff)
             var root = new GameObject("FarMtn");
             root.transform.SetParent(parent, false);
             root.AddComponent<PCOnly>();
@@ -204,10 +199,17 @@ namespace PSXRacing.EditorTools
             rock.transform.SetParent(root.transform, false);
             var sw = root.AddComponent<FarMtnSwitch>();
             sw.rock = rock;
+            if (cells.Count == 0) { Log($"Far mountain template: no rock cells ({(lidar ? "the lidar granite is this stage's rock near the road" : "nothing that steep")}); the far land's rock past 2 km."); return; }
+            farRockKeep = new HashSet<long>();
+            foreach (var cl in cells)
+            {
+                int cx = Mathf.FloorToInt(cl.x / CliffCell), cz = Mathf.FloorToInt(cl.y / CliffCell);
+                for (int dz = -1; dz <= 1; dz++) for (int dx = -1; dx <= 1; dx++) farRockKeep.Add(CliffKey(cx + dx, cz + dz));
+            }
             Physics.SyncTransforms();
             int chunks = BuildRockSkin(rock.transform, FarRockMat(), cells, "StageFarRock_", "FarRock_");
             Log($"Far mountain template: {cells.Count} rock cells of 12 m ({nearCells} from the near grid's rule, {farCells} from the far grid's share" +
-                $"{(lidar ? "; the lidar granite is the rock near the road" : "")}), {cells.Count * CliffCell * CliffCell / 1e6f:0.000} km2, " +
+), {cells.Count * CliffCell * CliffCell / 1e6f:0.000} km2, " +
                 $"{chunks} chunks; left out: {skipRoad} by the road, {skipKeep} on the world's keep-out; keep-out {farRockKeep.Count} cells.");
         }
 
