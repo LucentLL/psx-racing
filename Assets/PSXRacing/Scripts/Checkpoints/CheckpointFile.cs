@@ -67,8 +67,10 @@ namespace PSXRacing
             [System.NonSerialized] public uint graphHash;
         }
 
-        /// <summary>The master switch's default. Lands OFF; flipped ON once the watched proofs pass (stage 1).</summary>
-        public const bool RacesDefault = false;
+        /// <summary>The master switch's default: ON (2026-11-17, after the watched I485West races: by day, at night in
+        /// rain, with LIGHT traffic and the 2-lap run). Only venues whose route has a file convert (stage 1:
+        /// i485west); every other city venue races its fixed line. PSX_CP_RACES=0: every city race fixed-line.</summary>
+        public const bool RacesDefault = true;
 
         public static bool RacesOn
         {

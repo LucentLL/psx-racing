@@ -10,7 +10,7 @@ namespace PSXRacing
     /// - a glow BAND lying across each span of the gate, breathing at 1 Hz, and short glow posts on the kerb lines.
     /// Additive PSX/Glow quads (the lamps' and the free-roam start gates' shader). No LEDs, no numbers or text in the
     /// world (the number is on the HUD), no cones, barrels or barricades. Two gates lit at a time, about 8 quads each.
-    /// PSX_CP_MARKERS=0: none (HUD and minimap only).
+    /// PSX_CP_MARKERS=1: shown; unset (DEFAULT until the owner has seen the sheet, DESIGN_v2 Q5): none (HUD and minimap).
     /// </summary>
     public class CheckpointMarkers : MonoBehaviour
     {
@@ -33,7 +33,8 @@ namespace PSXRacing
 
         void Start()
         {
-            on = CheckpointFile.On("PSX_CP_MARKERS");
+            // DEFAULT OFF until the owner has looked at the beam sheet (DESIGN_v2 Q5): PSX_CP_MARKERS=1 shows them
+            on = System.Environment.GetEnvironmentVariable("PSX_CP_MARKERS") == "1";
             race = GetComponent<CheckpointRace>();
             rm = GetComponent<RaceManager>();
             if (!on || race == null) { enabled = false; return; }
