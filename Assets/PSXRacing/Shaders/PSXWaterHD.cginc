@@ -290,9 +290,10 @@ void HDOctave(float2 xz, float2 dxz, float2 dyz, float2 d, float scaleM, float d
 }
 
 // Rain on the water: rings spreading from drops, two layers of cells.
-float2 HDRainRings(float2 xz, float t, float rate)
+float2 HDRainRings(float2 xz, float t, float rate, out float crest)
 {
     float2 s = 0.0;
+    crest = 0.0;
     [unroll]
     for (int k = 0; k < 2; k++)
     {
@@ -311,6 +312,7 @@ float2 HDRainRings(float2 xz, float t, float rate)
         float x = (r - age * 0.28) / 0.05;   // (part B: a ring wide enough to read from the car at 20 m)
         float dh = -2.0 * x * exp(-x * x) * (1.0 - age) * (1.0 - age);
         s += (dv / max(r, 1e-3)) * dh * drop;
+        crest += exp(-x * x) * (1.0 - age) * (1.0 - age) * drop;
     }
     return s * 0.22;
 }
@@ -533,7 +535,8 @@ fixed4 fragHD(v2f_hd i) : SV_Target
     // rain rings
     float rain = rainK * saturate(1.0 - eyeDist / HD_RAIN_FADE_M);
     float2 rings = 0.0;
-    [branch] if (rain > 0.001) rings = HDRainRings(i.wpos.xz, t, rain);
+    float ringCrest = 0.0;
+    [branch] if (rain > 0.001) rings = HDRainRings(i.wpos.xz, t, rain, ringCrest);
 
     // n.xy of a normal is minus the slope
     float2 tilt = -slope + rip - rings;
@@ -761,9 +764,14 @@ fixed4 fragHD(v2f_hd i) : SV_Target
     // there) the pale sheen of their pocks; never brighter than that sky
     float rainGrey = rainK * (HD_RAIN_GREY + HD_RAIN_POCK * saturate((eyeDist - 20.0) / 30.0)) * edge;
     col = lerp(col, lerp(skyToned, fogCol, fog), rainGrey);
-    // ...and near, each drop's ring catches the sky's light on its crest: the
-    // pocked look, readable from the car (the rings alone were under a pixel)
-    col += skyToned * (HD_RAIN_SPARK * rain * saturate(length(rings) * 5.0) * (1.0 - fog) * edge);
+    // ...and near, each drop's ring stands out of the surface round it: on
+    // water darker than the sky its crest catches the sky's light, on water
+    // that already mirrors the bright sky (a river at a grazing angle) it
+    // throws back the darker world - the pocked look, both ways, readable
+    // from the car (the rings' slopes alone were under a pixel)
+    float lumW = dot(col, float3(0.2126, 0.7152, 0.0722)), lumS = dot(skyToned, float3(0.2126, 0.7152, 0.0722));
+    float3 pockTo = lerp(skyToned, col * 0.45, saturate((lumW / max(lumS, 1e-3) - 0.45) * 3.0));
+    col = lerp(col, pockTo, saturate(ringCrest) * rain * HD_RAIN_SPARK * (1.0 - fog) * edge);
     emit *= 1.0 - rainGrey;
     // the distant haze, as PSX/Lit gathers it (0 by day and outside the lit city)
     if (_PSXDistHaze.x > 0.0)
