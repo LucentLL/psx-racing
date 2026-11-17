@@ -374,7 +374,10 @@ namespace PSXRacing.EditorTools
         /// </summary>
         internal static string CostAB(Camera cam, System.Func<int, MeshForest> setMode, int rounds, string what)
         {
-            var rt = new RenderTexture(1920, 1080, 24, RenderTextureFormat.ARGB32);
+            // (PSX_TM_RES=WxH: the frame's size - the owner's display is 3832 x 2054; what grows with it is fill)
+            var resq = Env("PSX_TM_RES", "1920x1080").Split('x');
+            int resW = resq.Length == 2 && int.TryParse(resq[0], out int rw) ? rw : 1920, resH = resq.Length == 2 && int.TryParse(resq[1], out int rh) ? rh : 1080;
+            var rt = new RenderTexture(resW, resH, 24, RenderTextureFormat.ARGB32);
             var old = cam.targetTexture;
             cam.targetTexture = rt;
             var px = new Texture2D(1, 1, TextureFormat.RGBA32, false);
@@ -446,7 +449,7 @@ namespace PSXRacing.EditorTools
             // (the MEDIAN of the pairs: other editors on the machine throw single rounds out by 10-35 ms)
             double pmed = Med(pd);
             var sb = new StringBuilder();
-            sb.Append($"  COST A/B {what}{(only ? " [FOLIAGE LAYER ONLY]" : "")}: frame (1920x1080, editor, render + read-back, {rounds} rounds x {frames} frames each, ABBA): packs' far sheets {Med(ms[0]):0.00} ms [{All(ms[0])}], " +
+            sb.Append($"  COST A/B {what}{(only ? " [FOLIAGE LAYER ONLY]" : "")}: frame ({resW}x{resH}, editor, render + read-back, {rounds} rounds x {frames} frames each, ABBA): packs' far sheets {Med(ms[0]):0.00} ms [{All(ms[0])}], " +
                    $"tree match {Med(ms[1]):0.00} ms [{All(ms[1])}], {(d >= 0 ? "+" : "")}{d:0.00} ms (paired: median {(pmed >= 0 ? "+" : "")}{pmed:0.00} ms, mean {(pm >= 0 ? "+" : "")}{pm:0.00} +- {ps:0.00} ms [{All(pd)}]); drawn {plants[0]:0} -> {plants[1]:0} plants, " +
                    $"{tris[0] / 1e6:0.000} -> {tris[1] / 1e6:0.000} M tris (far level {far[0] / 1e6:0.000} -> {far[1] / 1e6:0.000} M)\n");
             sb.Append($"    by level, plants A/B: HIGH {lodP[0][0]}/{lodP[1][0]}, MID {lodP[0][1]}/{lodP[1][1]}, LOW {lodP[0][2]}/{lodP[1][2]}, FAR {lodP[0][3]}/{lodP[1][3]}; " +

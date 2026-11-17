@@ -311,6 +311,8 @@ namespace PSXRacing.City
                 m.SetVector("_PSXCrownCard", new Vector4(CardLight.x, CardLight.y, 0f, 0f));
                 PSXTexDecode.Stamp(m);
                 cardMine[d] = m;
+                // (the view only: the tiles' cards are the canopy's shadow stand-ins - it stays the one it was)
+                SunShadows.CastLike(m, ck.trees[d]);
                 ck.trees[d] = m;
                 n++;
             }

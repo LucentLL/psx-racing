@@ -701,6 +701,8 @@ namespace PSXRacing
                     copy.SetVector("_PSXCrownCard", new Vector4(BCardLight.x, BCardLight.y, 0f, 0f));
                     if (copy.HasProperty("_Color")) copy.color = want.color * new Color(BCardGain, BCardGain, BCardGain, 1f);
                     bCardCopy[want] = copy;
+                    // (the view only: the canopy's shadow - these cards are its stand-ins - stays the dress's own)
+                    SunShadows.CastLike(copy, want);
                 }
                 // (the texel decode is read off the texture the slot holds: stamped after the swap)
                 if (copy.mainTexture != atlas) { copy.mainTexture = atlas; PSXTexDecode.Stamp(copy); }

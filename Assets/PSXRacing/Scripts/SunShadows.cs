@@ -348,6 +348,20 @@ namespace PSXRacing
         }
 
         /// <summary>
+        /// A material worn for the VIEW ONLY (the tree match's cards in the kit's own trees, 2026-11-17): a
+        /// renderer wearing <paramref name="look"/> casts as one wearing <paramref name="shadowOf"/> does, so the
+        /// canopy's shadow - the stage's B cards and the city's tile cards are its stand-ins - stays the one it
+        /// was (measured: the cards' new atlas as the casters' alpha moved the shade on trunks and verges).
+        /// A renderer already counted keeps the caster it has.
+        /// </summary>
+        public static void CastLike(Material look, Material shadowOf)
+        {
+            if (look == null || shadowOf == null || look == shadowOf) return;
+            var c = CasterFor(shadowOf);
+            if (c != null) casterFor[look] = c;
+        }
+
+        /// <summary>
         /// This renderer never casts. For what lies ON the ground with nothing
         /// under it to shade - a city tile's ground, kerbs and water - and for
         /// its lamp posts, a hundred 30 cm poles a tile whose shadows are a
