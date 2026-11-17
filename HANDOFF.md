@@ -1,14 +1,158 @@
-# HANDOFF - ROAD LINES ROUND (splits2, 2026-11-17 01:00): state + pointer
+# HANDOFF - ROAD LINES ROUND, OPUS CONTINUATION (splits2, branch `charlotte-splits2`, 2026-11-17 01:00-04:30)
 
-The full note is `scratchpad\splits2\HANDOVER.md` (session scratch). The section below this one is the 11-16 afternoon state and is OLDER.
+Not pushed, not merged. mountain-nm 749e05de merged in (8365dfac; the HANDOFF conflict kept both top sections).
+Sandbox PSXRoadA (WebGL), shared with linegate. Scratch `scratchpad\splits2\` (PROGRESS.md = the hour-by-hour log).
+The line gate's three files (Editor/CityAudit.LineGate*.cs + metas) are copied UNTRACKED into this worktree so my jobs
+can run the gate; they are linegate's, not committed here.
 
-- Defaults unchanged: `PSX_CITY_SPLITAXIS=bfr`, `PSX_CITY_LINEFIX` off. Everything new is behind those two switches. No gate has run with LINEFIX on.
-- The owner's N Tryon spot (2487, 8201, hdg 273): the S-jog and the 8 m lane are one cause - OSM tags seven lanes, the widest profile had six, the exporter's fitted row took an opposing through lane on the bay pieces and the relay moved the centre line a lane four times in 200 m.
-- `PSX_CITY_LINEFIX=1`: seven-lane profile `RoadProfiles.Tw7` (slots appended at the end, COUNT 102 -> 106), lane-fit list (25 OSM ways, `tools/city/lanefit.mjs`), TWLTL arrows, centre-lane hand-over rules, short centre-lane bays drawn as TWLTL. Seen with eyes: ONE frame pair at his pose. The hand-over rules have been looked at nowhere.
-- The fork he circled (n3158): the two one-way ways are mapped closer than their own lanes (a tight twin). `BuildTightTwins` (scope city) is written; its result was NOT confirmed in a frame when this was written - see the note's section 6.
-- The dark stripes are NOT settled (not proven to be skid marks; they run along the road, which fits a stretched HD road base).
-- The build, if LINEFIX ships: flip the two defaults in code, rebuild the city kit (any city scene pass), give the committed tw7t textures the release texture pass + HD road-base entries, re-bake tiles, re-run the medians gate with LINEFIX on.
-- Phase C gates still not run on the current code: `chain8a.sh`, `chain8b.sh` in the scratch folder (add LINEFIX to the city variants).
+## What I found
+1. THE FORK HE CIRCLED (n3158, N Tryon 250 m ahead of his pose) is not a painted divider. A wider aerial look (Google,
+   viewed only) shows hatched paint from ~70 m before the fork to ~30 m past it, then a NARROW RAISED MEDIAN (~1.3 m) to
+   the East Sugar Creek Road junction, the WB left-turn lane beside it. Three other OSM tight twins looked at (Idlewild
+   Rd, Ballantyne Commons Pkwy, Dewitt Ln) are the same: a narrow kerbed or planted median. OSM splits a road into two
+   carriageways only where something physical parts them: a pair mapped closer than its lanes is a narrow island.
+2. Why the island kept growing to the junction (nf5-nf7): the split frame blends each carriageway in the STRAIGHT axis
+   frame of the undivided road; the pair bends ~15 deg by the junction, so the blend read the bend as a move and ran to its
+   room cap (~141 m), the whole divided piece (LineModel.SplitFrames.cs BuildSplitNode / PhaseCLength). And the export's
+   own carriageway lines stand 3.7-4.4 m apart past the fan (lanes + island = 2.4): a push-only twin never moved them
+   (twin-debug: need 0 from 20 to 110 m).
+3. The model gave the WB carriageway the TWLTL as its inner lane (4 lanes from the fork against 3), so opening the
+   island meant shifting all its through lanes ~3.3 m. On the street the added lane is the OUTER right-turn lane (OSM
+   none|none|none|right) and the centre lane becomes the hatching / median.
+4. BEHIND HIS POSE (e15599, way 1346185922): OSM tags 6 lanes (3+3, EB none|none|right) where the street is seven wide
+   (aerial: EB 2 + right-turn lane, centre raised nose -> hatching -> TWLTL, WB 3); its east neighbour e14081 is 2+4 with
+   the WB left bay in the centre; Dorton St (n13557) is not in the game graph. The model relayed the double yellow 3.4 m
+   in 64 m (11:1 at 45 mph).
+5. At a one-lane width change both pieces are centred on the mapped line (half a lane each side); the old rule ("the
+   smaller step is held") then always held travel-RIGHT (LineModel.cs BuildEases, BOTH EDGES STEP), so half such joins
+   eased the wrong side and shifted the opposing lanes; the taper's partner pairing (PartnerLat: yellows by kind, whites
+   from the moving edge) slid the TWLTL's near yellow 3.66 m across the centre lane and ended an EB lane line over 164 m
+   (the V and the missing lane line at his pose in nf7-nf10).
+6. THE DARK STRIPES: the PC look's HD road base rendered in the editor at his pose (PSX_HD=1, fresh process, nobody
+   driving), with PC48's lines and with the fix, shows NO stripes where his screenshot has them: tyre marks from his drive
+   (linegate agrees: the HD base and its maps are flat). Settled; nothing to change.
+7. The tw7t road textures were imported with Unity defaults (sRGB on, compressed), unlike every road texture (psx16
+   label, linear, RGB565) - a different look beside the six-lane road.
+8. The fan lip (gate STEP, 5,781 places; TRACK_FAULTS S1): CityMeshes.FanProudM lifts the whole junction slab 12 mm,
+   mouth included, where slab and ribbon meet edge to edge and need no lift.
+9. COST: the line model's eases take 17-22 s per city load in the editor with city + LINEFIX (the new log line, four
+   loads in lgB). The tight twins searched the other carriageway's nearest point with a full scan for every sample at all
+   ~1,000 split nodes (O(n^2)); now windowed. DEFAULT-SCOPE NUMBER AND THE PARTS: see Cost below.
+
+## What changed (all behind switches)
+- PSX_CITY_LINEFIX (default OFF):
+  - tools/city/lanefit.mjs rule B2: a 6-lane 3+3 piece between a seven-lane piece and a centre-left-bay piece is lent
+    3 + TWLTL + 3 (one way city-wide: e15599). LineModel.LaneFitList.cs regenerated (26 ways, 1.79 km).
+  - LineModel.OuterTurnLaneEnds: at a one-lane width change whose extra lane is one direction's OUTER turn lane, the
+    pavement eases on that direction's outer side at the BAY rate (8:1-15:1); lines pair by place (Ease.coin): a line the
+    narrow piece also has stays, the lane line at the opening lane stays on the narrow piece's edge line.
+- Scope city (PSX_CITY_SPLITAXIS=city), tight twins (LineModel.SplitFrames.cs), each with its own switch, on under city:
+  - PSX_CITY_TWINISLAND: hold the narrowest island (2.4 m lane gap = the 1.2 m kerb): pushed apart where closer, pulled
+    together where up to 3 m wider (fading by 6 m: a median that really widens stays).
+  - PSX_CITY_TWINBLEND: the split blends from its start into its own pushed line, one length for both carriageways.
+  - PSX_CITY_TWINOUTER: the carriageway with one lane more gets it on its outside (bay taper from the fork); the centre
+    lane is the island; its hatching runs 25 m past the fork before the kerb's tip.
+- PSX_CITY_FANLIP (default OFF; proposed ON): a junction slab's ribbon corners seat on the arm's height (CityMeshes.cs
+  SeatMouths); the lift stays at the centre, Steiner points and curb returns.
+- tw7t texture metas = tw6's import. City load logs "[city] line model eases built in X ms (...): parts". Line spot
+  report: bands, split frames, outer-lane counter. RunSplitShots: PSX_HD=1 (+PSX_SPLITS_HDIMPORT=1) = the PC look's
+  road base in editor frames.
+- PSX_CITY_TWINS=1 (default OFF; proposed ON): the tight twins and their split nodes' profiles under ANY scope - the fork
+  fixed with the default scope (bfr) without the rest of Phase C (InSplitScope is not widened; BuildEases' split loop
+  frames the twin nodes once BuildTightTwins knows them). Cost work: windowed nearest search, a prune of clearly
+  separated pairs, the push sampled every metre.
+
+## Proof (editor frames, PSXRoadA, fresh processes; same poses before / after)
+- Fork + seven-lane spot + behind his pose, before | after | Google aerial / Street View (viewed only, scratch only):
+  `scratchpad\splits2\splits2_ntryon_fork3.png` (after = bfr + LINEFIX + TWINS + FANLIP, nf13) and
+  `splits2_ntryon_fork2.png` (after = city + LINEFIX, nf11). nf12 = city with every fix; nf13 = the same picture under bfr.
+- Dark stripes: `scratchpad\splits2\splits2_stripes_pclook.png` (his screenshot | PC look PC48 lines | PC look fixed).
+- Fan lip, box round Providence Rd / Ardsley Rd (S1): line gate STEP 23 -> 0 with PSX_CITY_FANLIP=1, every other class
+  unchanged (s1b / s1a); driver's-eye frame at the mouth shows no crack (out\s1f_s1lip_drive.png).
+- North Tryon Street, the whole road (119 tiles), line gate defaults -> city + LINEFIX + FANLIP, same gate code:
+  328 -> 233 places; every class down but WIDTH 10 -> 11 (one 'curb lane too wide'); fan lips 51 -> 2, SJOG model
+  38 -> 23, CONT line ends 52 -> 40 (lgAn / lgBn).
+- Line spot (pnf12): e9470 (his pose) full 3 + TWLTL + 3 its whole length (steepest line 119:1); e15599 the EB right-turn
+  lane tapers out over the last 48 m before Dorton (8.9:1 peak), the TWLTL's near yellows hand over to the bay's white
+  line at the node, every other line straight.
+
+## Cost (measured; editor, Mono)
+- The line model's eases per city load ('[city] line model eases built in ...'): defaults (bfr, LINEFIX 0) 50-110 ms
+  (lgA). City + LINEFIX before this round's speed-ups: 17-22 s (lgB, four loads); after the windowed twin search:
+  3.7-4.0 s (pnf12: twins 2.8 s, split nodes 0.85 s, joins 0.04-0.07 s). The prune and the 1 m push sampling came after;
+  bfr + LINEFIX + TWINS + FANLIP (lgC, with the prune and 1 m sampling): 1.35-1.45 s, of it the twins 1.1-1.2 s (the
+  sampled lines of every split's pair, ~1,000 splits). Next cut, not done: sample those lines every 2-4 m, or cache the
+  twin set per graph hash. LINEFIX alone adds only the lane fit (26 ways) and a few join rules: a
+  few ms. FANLIP: none (the same vertices, seated lower). No per-frame cost: every change is in static road meshes.
+- Memory: 4 tw7t road textures, 256 x 64 RGB565 (~32 KB each); 4 more city-kit material slots (106 against 102), drawn
+  only on the 1.8 km of seven-lane street; the PC build adds 4 HD paint masks for tw7t (TextureHDTool.Import at build).
+
+## What still looks wrong / not done
+- At the fork node (n3158) the EB carriageway's outer pavement edge and edge line start ~0.5 m outside the undivided
+  road's (a small kerb notch in the 35 m close-up nf12/nf13 nt_top3); the WB side meets within 0.3 m. Not traced.
+- The island's kerb tip sits 25 m past the fork (the street's ~30 m), but the 25 m between is plain pavement between the
+  two yellow lines, not hatched.
+- The gate's SHIFT judges a line in its OWN edge's mapped frame: where a twin's mapped carriageway fans out 6 m in 20 m
+  and the drawn lines stay straight, it reads a move (e15583 'edge line moves 5.84 m in 15 m'). Around the 38 OSM
+  twin spots SHIFT went 41 -> 72 in lgB for that reason; KINK 3.2 deg on the WB yellow edge line ~17 m past the fork is real.
+- e14081 (east of Dorton): an SJOG remains (the lane line 4.2 m in 29 m: its own bay taper at n13555 plus the 1.83 m
+  shift from the Dorton join) - real, not fixed.
+- The EB right-turn lane at Dorton ends on a 48 m bay-rate taper because Dorton St is not in the graph; a gate may call
+  it a lane drop (MUTCD wants W x S = 165 m for a through lane).
+- The far end n3168 is still the old taper (a lane-add split; the twin push now eases out before it).
+- Not looked at: the hand-over rules at East 7th / Gleneagles (chain20 written, stopped for linegate's baseline); the
+  traffic census, launch, concrete and drive gates (not run on this code); the worklist's other causes beyond the fan
+  lip (BARRIER 1,6xx, grade breaks 5,0xx, map kinks); H3 / H4 / H5 / C9 / X3 track faults (S1 is the fan lip: fixed).
+- PSX_CITY_TWINS in the medians gate: see g7 below.
+
+## For the merge (coordinator)
+- Files: Scripts/City/LineModel.cs (BuildEases: OuterTurnLaneEnds, outerTurn bay length, coin partner pairing, timing
+  laps, BuildTightTwins call), LineModel.SplitFrames.cs (twins: island, pull, own blend, outer lane, hatch, prune,
+  windowed search, PSX_CITY_TWINS), LineModel.LaneFitList.cs (generated) + tools/city/lanefit.mjs, CityMeshes.cs
+  (FANLIP SeatMouths; the eases timing log), Editor/CityAudit.Lines.cs, Editor/CityRefSpots.Splits.cs (PSX_HD frames),
+  Art/City/city_road_tw7t_*.png.meta (import settings). Nothing in shared scene or Resources files.
+- If LINEFIX / TWINS / FANLIP ship (flip their defaults: LineModel.Splits.cs LineFixOn, LineModel.SplitFrames.cs
+  TwinsEverywhere, CityMeshes.cs FanLipOn): rebuild the city kit (BuildCityScenesOnly or EnsureCityTextures: the tracked
+  Resources/CityKit.asset has 101 slots, the code 106), re-bake any baked city tiles, re-make the lot entrances; the PC
+  build's TextureHDTool.Import makes the tw7t paint masks by itself (seen in the editor: 'HD import: 13 sets').
+- The refuge list: see g7 (medians gate, every scope with LINEFIX + TWINS + FANLIP on).
+- The line gate files in this worktree are linegate's (untracked copies): take them from city-linegate.
+
+## Gates (whole city, the line gate - linegate's code copied at ~01:16, the SAME copy for all three runs; fresh processes)
+| class | lgA defaults | lgB city + LINEFIX + FANLIP | lgC bfr + LINEFIX + TWINS + FANLIP |
+|---|---:|---:|---:|
+| ALL places | 26,880 | 20,924 | 21,337 |
+| STEP (fan lip) | 10,813 (5,785) | 5,121 (97) | 5,093 (64) |
+| SJOG | 3,050 | 2,514 | 3,074 |
+| SHIFT | 2,817 | 2,865 | 2,982 |
+| CONT | 2,322 | 2,428 | 2,405 |
+| KINK | 4,782 | 4,745 | 4,788 |
+| WIDTH | 704 | 862 | 582 |
+| BARRIER | 1,620 | 1,611 | 1,631 |
+| JUNCTION / MEDIAN / BRIDGE | 684 / 76 / 12 | 691 / 73 / 14 | 685 / 84 / 13 |
+lgB was run on 03646c44 (before the twins' far-end ease-out and the cost cuts), lgC on 29db3632.
+Read by cause (lgdiff.py): LINEFIX takes out the relays (CONT 'line ends' on relays -204, SHIFT on relays -69, wide lanes
+on relays -105, SJOG relays -33) but adds 'CONT line ends at a joint' +177 - nearly all on the S-weave roads (Gleneagles
+12, Beam 11, E 7th 9...): the TWLTL's yellow ending where the bay's white line begins (MUTCD's own hand-over; the gate
+does not count a white line continuing a yellow) - for linegate to judge. TWINS (the sampled pushes, 'refuge-shift')
+add SHIFT ~+180 (mostly the gate's road frame: the mapped carriageway fans out, the drawn lines stay straight), SJOG
+~+90 and KINK ~+60 (real world-frame wiggles at some twin pairs), MEDIAN +8. The city scope adds WIDTH +158, CONT +106,
+SHIFT +48, JUNCTION +7, BRIDGE +2 (Phase C's split frames: East Charlotte Ave, Brown Grier Rd...). FANLIP alone (box
+test): only STEP falls.
+So by linegate's rule (no class may rise) only FANLIP passes; it is now ON by default. LINEFIX, TWINS and the city scope
+stay OFF, each with its numbers.
+- Medians gate (g7: LINEFIX + TWINS + FANLIP, scopes 0 / bfr / all / city): the compiled refuge list still draws exactly
+  as committed (stale fingerprints 0; 17 / 19 / 22 / 21), but with those switches on the gate would accept 22 pairs in
+  scopes 0 / bfr / all (5 more, Beatties Ford n10229 / n10236, IKEA Blvd ...): if LINEFIX or TWINS ship, regenerate
+  LineModel.RefugeList.cs under them (the list has no LINEFIX dimension). FANLIP alone (g8): the list byte-for-byte the same (17 / 19 / 22 / 21 accepted and drawn).
+
+## What the owner will notice
+- With this branch as is (only the fan lip on by default): no 12 mm bump into and out of every junction.
+- With PSX_CITY_LINEFIX=1 + PSX_CITY_TWINS=1 (or the city scope): at his North Tryon spot the seven lanes run straight
+  with the centre turn lane, the road behind him no longer jinks at Dorton St, and the fork he circled becomes the street's
+  narrow kerbed median from just past the fork to the junction instead of the grass wishbone.
+
+---
 
 ﻿# HANDOFF - SPLITS PHASE C + TAPER FLOORS (agent "splits2", branch `charlotte-splits2`, 2026-11-16 afternoon; NOT pushed, NOT merged; STOPPED at 16:00 for the usage cap)
 
