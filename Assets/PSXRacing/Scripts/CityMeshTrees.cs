@@ -252,7 +252,9 @@ namespace PSXRacing.City
         public static bool CardAtlas = System.Environment.GetEnvironmentVariable("PSX_TREE_MATCH_CARDS") != "0";
         /// <summary>The cards' light normal (PSX/Lit _PSXCrownCard): a share of the direction to the eye, and up.</summary>
         public static Vector2 CardLight = new Vector2(ReadF("PSX_TM_CARDN", 0.32f), ReadF("PSX_TM_CARDUP", 0.4f));
-        public static float CardGain = ReadF("PSX_TM_CARDGAIN", 1f);
+        /// <summary>The tile cards' albedo gain over the kit atlas: MEASURED (cardsA, 2026-11-17: Charlotte arterial from
+        /// 60 m, the foliage's mean luma, mesh trees / cards: 0.78 in winter, 0.75 in fall).</summary>
+        public static float CardGain = ReadF("PSX_TM_CARDGAIN", 0.77f);
         Material[] cardWas, cardMine;
         public bool CardsMatched => cardMine != null;
 

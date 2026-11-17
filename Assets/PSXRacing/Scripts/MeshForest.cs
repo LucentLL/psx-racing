@@ -569,6 +569,15 @@ namespace PSXRacing
         public static bool MatchCardsOn = System.Environment.GetEnvironmentVariable("PSX_TREE_MATCH_CARDS") != "0";
         /// <summary>The B cards' light normal (PSX/Lit _PSXCrownCard), as Charlotte's tile cards take it.</summary>
         static readonly Vector2 BCardLight = new Vector2(0.32f, 0.4f);
+        /// <summary>The B cards' albedo gain over the kit atlas: MEASURED (stcards226A / stcardsLSA, 2026-11-17: the
+        /// forest from 25 m over the road, the foliage's mean luma, mesh forest / cards: 0.59 in fall on both stages,
+        /// 0.64 and 0.78 in winter). PSX_TM_BCARDGAIN sets it for a process.</summary>
+        static readonly float BCardGain = BCardGainEnv();
+        static float BCardGainEnv()
+        {
+            var s = System.Environment.GetEnvironmentVariable("PSX_TM_BCARDGAIN");
+            return s != null && float.TryParse(s, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float f) && f > 0f ? f : 0.65f;
+        }
         Renderer[] bCardR; Material[] bCardBase;
         readonly System.Collections.Generic.Dictionary<Material, Material> bCardCopy = new System.Collections.Generic.Dictionary<Material, Material>();
         int bCardDress = -1;
@@ -598,6 +607,7 @@ namespace PSXRacing
                 {
                     copy = new Material(want) { name = want.name + " (tree match)", hideFlags = HideFlags.DontSave };
                     copy.SetVector("_PSXCrownCard", new Vector4(BCardLight.x, BCardLight.y, 0f, 0f));
+                    if (copy.HasProperty("_Color")) copy.color = want.color * new Color(BCardGain, BCardGain, BCardGain, 1f);
                     bCardCopy[want] = copy;
                 }
                 // (the texel decode is read off the texture the slot holds: stamped after the swap)
