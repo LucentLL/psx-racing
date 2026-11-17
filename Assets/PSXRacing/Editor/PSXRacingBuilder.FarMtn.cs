@@ -115,6 +115,11 @@ namespace PSXRacing.EditorTools
         /// land draws far, cell for cell, and nothing changes as the skin
         /// dissolves at the detail's edge.</summary>
         class FarRockMaskData { public byte[] v; public float ox, oz, cell; public int cols, rows; }
+        /// <summary>The planned cells' slopes (tangent), in the cells' order.</summary>
+        static List<float> planSteep;
+        /// <summary>The template's cliff pieces' triangle budget on the PC pass
+        /// (Lake Lure's granite has 1.6 M; its 2,977 cells use 0.7 M).</summary>
+        const long FarRockPieceBudget = 800000;
 
         /// <summary>The mask and the skin's cells (x, z, downhill x, downhill z)
         /// for the loaded stage: the near grid's rule, the far grid's share past
@@ -127,6 +132,7 @@ namespace PSXRacing.EditorTools
         {
             lidar = world != null && world.cliffs != null && world.cliffs.Length >= 6 && WorldSwitch("PSX_LURE_GRANITE");
             var cells = new List<Vector4>();
+            planSteep = new List<float>();
             int nC = 0, fC = 0, sR = 0, sK = 0;
             float halfW = RoadWidth * 0.5f;
             float reach = Mathf.Min(FarForestMaxM, FarCoverage - FarCell) + FarCell;
@@ -139,6 +145,7 @@ namespace PSXRacing.EditorTools
             M.rows = Mathf.FloorToInt((fm.originZ + (fm.rows - 1) * fm.cell - M.oz) / c) + 1;
             M.v = new byte[M.cols * M.rows];
             var dir = new Dictionary<int, Vector2>();   // a rock texel's downhill
+            var tanAt = new Dictionary<int, float>();   // and its slope's tangent
             bool InNear(int i, int j)
             {
                 int cc = i - kx, rr = j - kz;
@@ -147,6 +154,7 @@ namespace PSXRacing.EditorTools
             // the far grid's slope share, per far node
             var share = new float[fm.cols * fm.rows];
             var fdir = new Vector2[fm.cols * fm.rows];
+            var ftan = new float[fm.cols * fm.rows];
             for (int r = 1; r < fm.rows - 1; r++)
                 for (int q = 1; q < fm.cols - 1; q++)
                 {
@@ -155,6 +163,7 @@ namespace PSXRacing.EditorTools
                     float g = Mathf.Sqrt(dx * dx + dz * dz);
                     share[r * fm.cols + q] = FarRockShare(Mathf.Atan(g) * Mathf.Rad2Deg);
                     fdir[r * fm.cols + q] = g > 1e-4f ? new Vector2(-dx / g, -dz / g) : Vector2.up;
+                    ftan[r * fm.cols + q] = g;
                 }
             if (lidar)
             {
@@ -191,6 +200,7 @@ namespace PSXRacing.EditorTools
                         M.v[idx] = 255;
                         float g = Mathf.Sqrt(dx * dx + dz * dz);
                         dir[idx] = new Vector2(-dx / g, -dz / g);
+                        tanAt[idx] = g;
                     }
             }
             // the far grid's share, laid in clumps: past the near grid (past the
@@ -208,6 +218,7 @@ namespace PSXRacing.EditorTools
                     int idx = j * M.cols + i;
                     M.v[idx] = 255;
                     dir[idx] = fdir[fr * fm.cols + fq];
+                    tanAt[idx] = ftan[fr * fm.cols + fq];
                 }
             // within the far forest's reach: nothing by the road or on the world's
             // keep-out (in the mask too: the land is never painted where the skin
@@ -229,6 +240,7 @@ namespace PSXRacing.EditorTools
                 if (!Clear(x, z)) { M.v[idx] = 0; continue; }
                 var dd = dir.TryGetValue(idx, out var d0) ? d0 : Vector2.up;
                 cells.Add(new Vector4(x, z, dd.x, dd.y));
+                planSteep.Add(tanAt.TryGetValue(idx, out var t0) ? t0 : 1f);
                 if (InNear(i, j)) nC++; else fC++;
             }
             nearCells = nC; farCells = fC; skipRoad = sR; skipKeep = sK;
@@ -329,10 +341,17 @@ namespace PSXRacing.EditorTools
                 for (int dz = -1; dz <= 1; dz++) for (int dx = -1; dx <= 1; dx++) farRockKeep.Add(CliffKey(cx + dx, cz + dz));
             }
             Physics.SyncTransforms();
-            int chunks = BuildRockSkin(rock.transform, FarRockMat(), cells, "StageFarRock_", "FarRock_");
+            var rmat = FarRockMat();
+            int chunks = BuildRockSkin(rock.transform, rmat, cells, "StageFarRock_", "FarRock_");
+            // and the photoscanned cliffs on them, as Lake Lure's granite has (the faces' relief and shade)
+            int pieces = 0;
+            if (System.Environment.GetEnvironmentVariable("PSX_FARMTN_PIECES") != "0" &&
+                AssetDatabase.LoadAssetAtPath<GameObject>(MeadowCliffDir + "/" + CliffNames[0] + ".FBX") != null)
+                pieces = PlaceRockPieces(rock.transform, rmat, LoadGraniteVars(rmat), cells, planSteep, FarRockPieceBudget,
+                                         "StageFarRockPiece_", "FarRockPiece_", "Far mountain template, cliff pieces");
             Log($"Far mountain template: {cells.Count} rock cells of 12 m ({nearCells} from the near grid's rule, {farCells} from the far grid's share), " +
                 $"{cells.Count * CliffCell * CliffCell / 1e6f:0.000} km2, " +
-                $"{chunks} chunks; left out: {skipRoad} by the road, {skipKeep} on the world's keep-out; keep-out {farRockKeep.Count} cells.");
+                $"{chunks} chunks, {pieces} cliff pieces; left out: {skipRoad} by the road, {skipKeep} on the world's keep-out; keep-out {farRockKeep.Count} cells.");
         }
 
         /// <summary>

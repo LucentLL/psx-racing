@@ -604,8 +604,6 @@ namespace PSXRacing.EditorTools
         }
 
         // ---------------------------------------------------------- granite
-        struct GraniteVar { public MeshForest.Variant v; public float frontAngle, length, height; public int[] tris; }
-
         static void BuildWorldGranite(Transform parent)
         {
             var C = world.cliffs;
@@ -618,6 +616,30 @@ namespace PSXRacing.EditorTools
             // Hickory Nut Gorge granite: paler and greyer than the Parkway's dark gneiss
             var mat = NMLitMat("NM_meadow_granite", MeadowCliffDir, "T_Photoscanned_Cliff_01_BC", "T_Photoscanned_Cliff_01_Normal",
                                null, false, new Color(0.84f, 0.83f, 0.80f));
+            var vars = LoadGraniteVars(mat);
+            // the rock's own skin over every cliff cell: the far land there is bare granite, not painted canopy
+            BuildWorldGraniteSkin(parent, mat);
+            if (vars.Count == 0) return;
+            // the far grid this stage stands on (the Park Road stage's is smaller)
+            var fm = demFarMeta;
+            float fx0 = fm.originX + 2f * fm.cell, fz0 = fm.originZ + 2f * fm.cell, fx1 = fm.originX + (fm.cols - 3) * fm.cell, fz1 = fm.originZ + (fm.rows - 3) * fm.cell;
+            var cells = new List<Vector4>(); var steep = new List<float>();
+            for (int k = 0; k + 5 < C.Length; k += 6)
+            {
+                float x = C[k], z = C[k + 1];
+                if (x < fx0 || x > fx1 || z < fz0 || z > fz1) continue;
+                cells.Add(new Vector4(x, z, C[k + 3], C[k + 4])); steep.Add(C[k + 5]);
+            }
+            // the pieces themselves are the far mountain template's (PlaceRockPieces), the same cluster for cluster
+            PlaceRockPieces(parent, mat, vars, cells, steep, PCContent ? 1600000 : 600000, "LureGranite_", "Granite_", "Stage world granite");
+        }
+
+        struct GraniteVar { public MeshForest.Variant v; public float frontAngle, length, height; public int[] tris; }
+
+        /// <summary>The Meadow pack's photoscanned cliffs, each with its face's
+        /// bearing, length, height and its levels' triangles.</summary>
+        static List<GraniteVar> LoadGraniteVars(Material mat)
+        {
             var vars = new List<GraniteVar>();
             foreach (var name in CliffNames)
             {
@@ -651,23 +673,33 @@ namespace PSXRacing.EditorTools
                     });
                 }
             }
-            // the rock's own skin over every cliff cell: the far land there is bare granite, not painted canopy
-            BuildWorldGraniteSkin(parent, mat);
-            if (vars.Count == 0) return;
-            // the far grid this stage stands on (the Park Road stage's is smaller)
-            var fm = demFarMeta;
-            float fx0 = fm.originX + 2f * fm.cell, fz0 = fm.originZ + 2f * fm.cell, fx1 = fm.originX + (fm.cols - 3) * fm.cell, fz1 = fm.originZ + (fm.rows - 3) * fm.cell;
+            return vars;
+        }
+
+        /// <summary>
+        /// THE CLIFF PIECES on rock cells (x, z, downhill x, downhill z; steep =
+        /// the slope's tangent): the photoscanned cliffs on 24 m clusters, faced
+        /// down the fall line, never by the road or on the town, within a
+        /// triangle budget (the detailed level within 450 m of the road, the low
+        /// one beyond; over budget the near ones go low, then the thinnest
+        /// clusters go). Lake Lure's granite and the far mountain template's
+        /// rock (PSXRacingBuilder.FarMtn) both lay theirs here. Returns the
+        /// pieces placed.
+        /// </summary>
+        static int PlaceRockPieces(Transform parent, Material mat, List<GraniteVar> vars, List<Vector4> cellsIn, List<float> steepIn,
+                                   long budget, string meshPrefix, string goPrefix, string what)
+        {
+            if (vars.Count == 0 || cellsIn.Count == 0) return 0;
             // 24 m clusters of the 12 m cells
             const float Cl = 24f;
             var clusters = new Dictionary<long, Vector4>();     // sum x, sum z, count, sum steep
             var cdir = new Dictionary<long, Vector2>();
-            for (int k = 0; k + 5 < C.Length; k += 6)
+            for (int k = 0; k < cellsIn.Count; k++)
             {
-                float x = C[k], z = C[k + 1];
-                if (x < fx0 || x > fx1 || z < fz0 || z > fz1) continue;
+                float x = cellsIn[k].x, z = cellsIn[k].y;
                 long key = ((long)Mathf.FloorToInt(x / Cl) << 32) ^ (uint)Mathf.FloorToInt(z / Cl);
-                clusters.TryGetValue(key, out var s); clusters[key] = s + new Vector4(x, z, 1f, C[k + 5]);
-                cdir.TryGetValue(key, out var dd); cdir[key] = dd + new Vector2(C[k + 3], C[k + 4]);
+                clusters.TryGetValue(key, out var s); clusters[key] = s + new Vector4(x, z, 1f, steepIn[k]);
+                cdir.TryGetValue(key, out var dd); cdir[key] = dd + new Vector2(cellsIn[k].z, cellsIn[k].w);
             }
             float halfW = RoadWidth * 0.5f;
             var chunks = new Dictionary<long, List<CombineInstance>>();
@@ -701,18 +733,15 @@ namespace PSXRacing.EditorTools
                 var pos = new Vector3(x, gy - gv.height * scale * 0.28f, z);
                 cand.Add((pos, yaw, scale, h % vars.Count, RouteDistanceCoarse(x, z), s.z * s.w));
             }
-            // A TRIANGLE BUDGET (1.6 M on the whole stage on PC, 0.6 M on Android): the detailed LOD within 450 m of the road, the low one beyond;
-            // over budget, the near ones go low too, then the thinnest clusters go (the fullest, steepest faces stay)
-            long Budget = PCContent ? 1600000 : 600000;   // the Android build carries a lighter set
             long Sum(bool nearDetail) { long t = 0; foreach (var c in cand) t += vars[c.v].tris[nearDetail && c.dRoute < 450f ? 1 : 2]; return t; }
-            bool detail = Sum(true) <= Budget;
+            bool detail = Sum(true) <= budget;
             cand.Sort((a, b) => b.weight.CompareTo(a.weight));
             int thinned = 0;
             foreach (var c in cand)
             {
                 var gv = vars[c.v];
                 int lod = detail && c.dRoute < 450f ? 1 : 2;
-                if (triTotal + gv.tris[lod] > Budget) { thinned++; continue; }
+                if (triTotal + gv.tris[lod] > budget) { thinned++; continue; }
                 var mesh = gv.v.lods[lod] ?? gv.v.lods[0];
                 long ck = ((long)Mathf.FloorToInt(c.pos.x / 500f) << 32) ^ (uint)Mathf.FloorToInt(c.pos.z / 500f);
                 if (!chunks.TryGetValue(ck, out var list)) chunks[ck] = list = new List<CombineInstance>();
@@ -725,20 +754,21 @@ namespace PSXRacing.EditorTools
             {
                 var m = new Mesh { indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 };
                 m.CombineMeshes(kv.Value.ToArray(), true, true, false);
-                SaveMesh(m, "LureGranite_" + n);
-                var go = new GameObject("Granite_" + n);
+                SaveMesh(m, meshPrefix + n);
+                var go = new GameObject(goPrefix + n);
                 go.transform.SetParent(parent, false);
                 go.AddComponent<MeshFilter>().sharedMesh = m;
                 go.AddComponent<MeshRenderer>().sharedMaterial = mat;
                 go.isStatic = true;
                 if (HorizonLayer >= 0) go.layer = HorizonLayer;   // drawn as far as the far ground is
-                // no collider: high on the gorge's walls, never within the road's reach
+                // no collider: high on the walls, never within the road's reach
                 n++;
             }
             var sizes = new List<string>(); foreach (var gv in vars) sizes.Add($"{gv.length:0}x{gv.height:0} m {gv.tris[0]}/{gv.tris[1]}/{gv.tris[2]}");
-            Log($"Stage world granite: {placed} photoscanned cliff faces on {clusters.Count} lidar clusters of 24 m ({nearRoad} by the road and {onTown} on the town left out, " +
+            Log($"{what}: {placed} photoscanned cliff faces on {clusters.Count} lidar clusters of 24 m ({nearRoad} by the road and {onTown} on the town left out, " +
                 $"{thinned} thinned to the budget; near LOD {(detail ? "1" : "2")}), " +
                 $"{n} chunks, {triTotal / 1000}k triangles. Cliffs (length x height, LOD0/1/2 triangles): {string.Join("; ", sizes)}.");
+            return placed;
         }
 
         /// <summary>The drawn far ground's height: its 60 m cells, each split
