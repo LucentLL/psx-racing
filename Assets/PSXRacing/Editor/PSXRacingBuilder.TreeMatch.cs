@@ -569,7 +569,7 @@ namespace PSXRacing.EditorTools
             ti.mipMapsPreserveCoverage = true;
             ti.alphaTestReferenceValue = PSXRacingBuilder.TreeMatchCutoff;
             ti.alphaIsTransparency = false;
-            ti.maxTextureSize = 1024;
+            ti.maxTextureSize = 2048;
             ti.filterMode = FilterMode.Bilinear;
             ti.npotScale = TextureImporterNPOTScale.None;
             ti.sRGBTexture = true;
