@@ -849,6 +849,17 @@ namespace PSXRacing.City
         // fan, no wedge, no island (the bands never part 2.4 m: the pavements stay flush all along).
         public const float TightGapM = 0.12f, TightPastFanM = 40f, TightMinRunM = 15f;
         public static bool PhaseCTightOn = System.Environment.GetEnvironmentVariable("PSX_CITY_TIGHTTWINS") != "0";
+        // THE NARROW ISLAND (11-17, the Opus continuation). OSM maps a road as two one-way carriageways only where
+        // something physical parts them; a pair mapped closer than its own lanes is a road with a NARROW kerbed
+        // median, not a painted one. Looked at on the aerial (viewed only): North Tryon Street west of the fork the
+        // owner circled (a raised median about 1.3 m wide from some 15 m past the hatched nose to the East Sugar
+        // Creek Road junction), Idlewild Road, Ballantyne Commons Parkway (kerbed, about 1 m), Dewitt Lane (a planted
+        // strip) - four of four. So the pair is pushed to the game's narrowest island (SplitIslandGapM between the lane
+        // bands: the 1.2 m island and its 0.6 m offsets), held all along the run - not flush with a double yellow
+        // (the first rule): the split's nose then draws the island's tip where the bands have parted that far.
+        // PSX_CITY_TWINISLAND=0: flush as before.
+        public static bool TwinIslandOn = System.Environment.GetEnvironmentVariable("PSX_CITY_TWINISLAND") != "0";
+        static float TwinGapM => TwinIslandOn ? SplitIslandGapM : TightGapM;
         static readonly HashSet<int> tightTwinEdges = new HashSet<int>();
         static readonly HashSet<int> tightTwinNodes = new HashSet<int>();
         public static int TightTwinPairs, TightTwinEdgeCount;
@@ -970,7 +981,7 @@ namespace PSXRacing.City
                                 nrm = (far - atF).sqrMagnitude > 1e-4f ? (far - atF).normalized : el;
                             }
                             sd[k] = Vector2.Dot(nrm, el) >= 0f ? 1f : -1f;
-                            nd[k] = Mathf.Max(0f, 0.5f * (TightGapM - (d - hh - ho)));
+                            nd[k] = Mathf.Max(0f, 0.5f * (TwinGapM - (d - hh - ho)));
                         }
                         e.lmEase = keep;
                         needs.Add(nd); sides.Add(sd); dsOf.Add(ds); fwdOf.Add(fwd);
