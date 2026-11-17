@@ -8,3 +8,7 @@ CltC7
 CltD3
 CltX1
 CltX1Rev
+CltC1
+CltC2
+CltH6
+CltH7
