@@ -47,6 +47,9 @@ namespace PSXRacing.EditorTools
             wwPhase = 0; wwShownAt = -1f; wwClearedAt = -1f;
             if (cp == null) return;
             t0 = Time.time;
+            // a watched race keeps running when another window has the focus (the 2026-11-16 23:24 run froze at a
+            // frame for minutes while a game window was in front): this play session only, never saved
+            Application.runInBackground = true;
             cp.EnsurePlanner(autopilotCar);
             CheckpointRace.GatePassed += OnGate;
             CheckpointRace.Missed += OnMissed;
