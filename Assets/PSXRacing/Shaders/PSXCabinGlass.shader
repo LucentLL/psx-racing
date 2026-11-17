@@ -227,7 +227,7 @@ Shader "PSX/CabinGlass"
                     float hB = max(Beads(q, 0.016, rainW * lerp(0.55, 0.25, wind) * dens, 1.7),
                                    Beads(q, 0.028, rainW * lerp(0.35, 0.15, wind) * dens, 9.3));
                     if (_CabinRain2.y > 0.5) hB = max(hB, Beads(q, 0.0085, rainW * 0.62 * (1.0 - wind), 5.9) * 0.8);
-                    float hR = Runners(q, _Down.xy, 0.026, 0.30, _CabinRun, rainW * 0.45, 4.1, 0.0) * (1.0 - wind);
+                    float hR = Runners(q, _Down.xy, 0.026, 0.30, _CabinRun, rainW * 0.45 * dens, 4.1, 0.0) * (1.0 - wind);
                     float hS = Runners(q, wdir, 0.020, 0.55, _CabinBlow, rainW * 0.75, 7.7, 0.85) * wind;
                     float hgt = max(hB, max(hR, hS));
                     // WATER, not paint: a drop is clear in the middle (a
