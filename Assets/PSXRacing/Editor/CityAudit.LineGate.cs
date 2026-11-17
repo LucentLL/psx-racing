@@ -1288,7 +1288,9 @@ namespace PSXRacing.EditorTools
                             // a curb lane: the lane runs to the pavement edge (gutter; parking on a local or collector street)
                             float max = LineGateRules.LaneMaxM + LineGateRules.GutterM + (e.cls <= 1 ? LineGateRules.ParkingM : 0f);
                             if (clear > max) { k = "curb lane too wide"; lm = max; wh = $"{clear:0.0} m between the {L.Kind} and the pavement edge with no line (limit {max:0.0} m)"; }
-                            else if (clear < LineGateRules.LaneMinM && clear >= LineGateRules.BufferMaxM && !L.yellow && !L.channel && LgHolds(A, B, s, w, 5f, 0.4f)) { k = "curb lane too narrow"; lm = LineGateRules.LaneMinM; wh = $"{clear:0.0} m between the {L.Kind} and the pavement edge"; }
+                            // (a SOLID white line this near the curb marks a shoulder or a bike lane, MUTCD 2009 3B.06 / 9C.04;
+                            // only a broken lane line bounds a curb travel lane: second sample set)
+                            else if (clear < LineGateRules.LaneMinM && clear >= LineGateRules.BufferMaxM && L.broken && !L.yellow && !L.channel && LgHolds(A, B, s, w, 5f, 0.4f)) { k = "curb lane too narrow"; lm = LineGateRules.LaneMinM; wh = $"{clear:0.0} m between the {L.Kind} and the pavement edge"; }
                         }
                         else if (A.yellow && B.yellow)
                         {
@@ -1301,7 +1303,7 @@ namespace PSXRacing.EditorTools
                         {
                             float max = e.link && e.lanes <= 1 ? LineGateRules.RampLaneMaxM : LineGateRules.LaneMaxM;
                             if (clear > max) { k = "lane too wide"; lm = max; wh = $"{clear:0.0} m between the {A.Kind} and the {B.Kind} (a lane is at most {max:0.0} m)"; }
-                            else if (clear < LineGateRules.LaneMinM && clear >= LineGateRules.BufferMaxM && LgHolds(A, B, s, w, 5f, 0.4f)) { k = "lane too narrow"; lm = LineGateRules.LaneMinM; wh = $"{clear:0.0} m between the {A.Kind} and the {B.Kind} (a lane is at least {lm:0.0} m)"; }
+                            else if (clear < LineGateRules.LaneMinM && clear >= LineGateRules.BufferMaxM && !(A.EdgeLine && B.EdgeLine) && LgHolds(A, B, s, w, 5f, 0.4f)) { k = "lane too narrow"; lm = LineGateRules.LaneMinM; wh = $"{clear:0.0} m between the {A.Kind} and the {B.Kind} (a lane is at least {lm:0.0} m)"; }
                         }
                         if (k == null) continue;
                         if (clear > lm && !LgHolds(A, B, s, w)) continue;               // widening or narrowing here: a taper (SHIFT judges it)
