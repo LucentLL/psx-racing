@@ -1628,6 +1628,7 @@ namespace PSXRacing
             stopped.Clear();
             stoppedHalf.Clear();
             stoppedWant.Clear();
+            bool heldTwoWay = twoWay != null && TwoWayHere(twoWay);
             if (rm != null)
                 for (int i = 0; i < rm.allCars.Count; i++)
                 {
@@ -1655,7 +1656,9 @@ namespace PSXRacing
                     }
                     // HELD BEHIND IT (PSX_AI_PASS_ONCOMING): in this lane, near, slower than this car would go
                     float heldWant = 0f;
-                    if (PassOncoming && !OnDeck && !closingOnIt && op != null && !op.retired && !op.finished)
+                    // ...on a TWO-WAY road only (the owner's ask is the oncoming lane); a multi-lane one-way freeway keeps
+                    // its racers' rule (held passes there at 180 km/h swung a pack about: UptownLoop, 11-17)
+                    if (PassOncoming && heldTwoWay && !OnDeck && !closingOnIt && op != null && !op.retired && !op.finished)
                     {
                         Vector3 lh = transform.InverseTransformPoint(o.transform.position);
                         float want = lastFreeSpeed - o.forwardSpeed;
