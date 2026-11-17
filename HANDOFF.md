@@ -1,28 +1,71 @@
-# RAIN 2 (branch rain-1116 from 742315cd; 2026-11-16/17; agent "rain") - PAUSED AT A HAND-OVER, NOT FINISHED
+﻿# RAIN 2 (branch rain-1116 from 742315cd; 2026-11-16/17; agents "rain" and its successor) - code at 0b824e42; round 3 by the successor agent
 
 The owner, 2026-11-16: "I'd like to see the rain effects be improved. This means while sitting idle, cruising, and racing.
 Splashing on the ground, how it pools on the road. I say this, meanwhile we need to start focusing HEAVILY on performance."
 
-State at the hand-over (full note: the session scratchpad's `rain\HANDOVER.md`, cost table `rain\COST.md`):
-- Everything is behind `PSX_RAIN2`, DEFAULT OFF (unset = PC48's rain; `=1` on). Sub-switches (`Rain2.Pools`, `Rings`,
-  `Splashes`, `Wipers`, `Glass`, `Spray`, `Trails`, `Audio`; env `PSX_RAIN2_POOLS` ... ) default on under it. Tiers
-  `PSX_RAIN2_TIER=high|low|mobile`; the editor needs `PSX_PROFILE=PC` to be HIGH.
-- Built: pools by the road's slope + the city's gutter pans, the rain's rings in the wet road's two passes
-  (`Shaders/PSXRain2.cginc`, `PSXSpecBend.cginc`), probed-ground splashes with a cover mask (`Scripts/Rain2Driver.cs`), wipers
-  and look-through drops on the cockpit glass (`PSXCabinGlass.shader`, `CockpitInterior.cs`, `SpeedBlurFeature.cs`), puddle
-  hits + rooster tail (`TireSpray.cs`), mist behind traffic (`Rain2Traffic.cs`), a damp trail (`WetTrail.cs`), procedural
-  rain audio (`Rain2Audio.cs`).
-- Proven: typecheck; the play check (`toolsain2-play-check.ps1`) passed ON (watched once) and OFF (hidden); driver and
-  audio allocate 0 B a frame.
-- NOT proven: the GPU budget. The one measurement (3832x2054, the owner's game running beside it, +-1 ms) read +1.3 ms for
-  the ground and +2.1..2.5 ms in the cockpit against a 1.0 ms target - hence default OFF. The full self-test and `TestRain2`
-  have not run in Unity. The sheets' AFTER frames predate the last film change (27fb3a9b).
-- Next: re-measure on a quiet GPU, re-shoot at head, run the self-tests, then the look (the parked windscreen is far
-  sparser than the owner's reference).
-- Merge: one `Guard(...)` line in `Editor/LifeSimSelfTest.cs` beside other branches' lines; no scene, bake, data or
-  ProjectSettings change; `Scripts/City/` untouched.
+## State
+- Everything is behind `PSX_RAIN2`, DEFAULT OFF (unset = PC48's rain; `=1` on). Sub-switches (public static bools on
+  `Rain2`; env `PSX_RAIN2_POOLS`, `_RINGS`, `_SPLASH`, `_WIPERS`, `_GLASS`, `_SPRAY`, `_TRAILS`, `_AUDIO`) default on under it.
+  Tiers `PSX_RAIN2_TIER=high|low|mobile` (HIGH = PC with REFLECTIONS on; the editor needs `PSX_PROFILE=PC`).
+- Built (round 1-2): pools by the road's slope + the city's gutter pans and rain rings in the wet road's two passes
+  (`Shaders/PSXRain2.cginc`, `PSXSpecBend.cginc`); probed-ground splashes with a cover mask (`Scripts/Rain2Driver.cs`);
+  wipers and look-through drops on the cockpit glass (`PSXCabinGlass.shader`, `CockpitInterior.cs`, `SpeedBlurFeature.cs`);
+  puddle hits + rooster tail (`TireSpray.cs`); mist behind traffic (`Rain2Traffic.cs`); a damp trail (`WetTrail.cs`);
+  procedural rain audio (`Rain2Audio.cs`).
+- Round 3 (this section):
+  - THE PARKED WINDSCREEN is covered: two more bead sizes while parked (6 and 8.5 mm cells x 1.6 on the windscreen, 85-92 %
+    of cells live), each bead a small fisheye on the frame behind it (the scene from five of its radii round it, upside
+    down, brighter in the middle, a dark rim only at the edge, one glint up and to the side), more runners with unbroken
+    trails, and a veil of scattered light on the sheet. `PSXCabinGlass.shader` (`Bead3`, `R2G_FISH`, `R2G_VEIL`).
+  - WIPED ARCS: the blade leaves a bank of water (a film packed with small beads, 22 mm wide) beyond its tip and past the
+    top of its stroke, so the clear arc reads against the wet glass (`R2G_RIDGE_M`).
+  - DOOR MIRRORS carry beads (`PSXCabinGauge.shader` mode 1; each door mirror's material gets `_MirrorMetres` in
+    `DoorMirrors.cs`; the interior mirror and the gauges leave it at zero and are unchanged).
+  - The wipers' standing clock counts time spent in another view (`CockpitInterior.TickWipers`): the play check caught
+    strokes starting after a minute parked in the chase view.
+  - The cost tool (`Editor/Rain2Shots.cs`) now times in PAIRS (A-B / B-A alternating, median of the paired differences, a
+    NULL row per pose for the floor; `PSX_RAIN2_TN`, `PSX_RAIN2_TROWS=whole`); `Rain2Shots.RunWithSelfTest` runs
+    `LifeSimSelfTest.RunRain2` and the stills in one editor start; a door-mirror still.
+  - The play check's driver allocation check allows 8 KB of the shared heap over the whole drive (the editor's meter is
+    the whole heap; one stray 4 KB page from another thread failed it once).
 
-﻿# HANDOFF - THE CAMCORDER, PAUSED AT THE 97 % STOP (agent "camcorder", branch `replay-camcorder` off mountain-nm c0a81147, 2026-11-16 ~16:00; NOT pushed, NOT merged; resumes after 19:00)
+## Cost (3832x2054, RTX 3070, HIGH tier, heavy rain; full table in the scratchpad's `rain\COST.md`)
+WHOLE package, three runs, 1000 render pairs a pose: chase +0.2 ms, road filling the frame +0.3, cockpit parked +0.5,
+cockpit cruising +0.4 (each run's reading -0.1..+0.72; NULL rows up to +0.76). The owner's game was running for all three
+(GPU 99-100 %), so this is good to about +-0.5 ms: under 1.0 ms on the best reading, NOT proven with margin - hence still
+default OFF. Not measured: a fixed register-pressure cost of the bigger shaders (needs a player-build A/B against the
+base exe: perf tour `ab=Rain2.On:0` with `PSX_RAIN2=1`), IL2CPP, Android, the LOW and MOBILE tiers. CPU: driver
+0.12 ms/frame, audio 0.007, spray + trail 0.10 per car; 0 frames over 1 ms.
+
+## Proof
+- `TestRain2`: 21/21 ok (first time it ran in Unity). Full self-test: 68 FAIL vs base 68; one new
+  (`lux_coupe_97: ...on faces that look forward`, a car light-map check on the shared sandbox's car data, not this
+  branch's code) and one gone (`every shell has a body and a wheel mesh`).
+- Play check (free roam, I-77 south, night, heavy rain; hidden runs): run 01:13 (code d0e46766): every check but two
+  passed - the wipers swept after the car had stood in the chase view (fixed: the standing clock now lives in
+  Rain2Driver, 5fcd724a) and one stray 4 KB heap page in the driver's meter (the editor meter is the whole heap; the bound
+  is now 8 KB a drive, aa7d5bd3). Run 01:32 (aa7d5bd3): only the wiper check failed (first cockpit entry; fixed by
+  5fcd724a). Run 02:22 (5fcd724a): PASS, 12/12 (0 wiper strokes while parked, driver 0 B). Counts: 232-247 splashes parked, 128 anchors, 13 wiper strokes in 16 s of cruise, 298-334
+  puddle hits, 3276-3736 trail pieces, 14-15 traffic cars; CPU driver 0.08-0.12 ms/frame, 0-1 frames over 1 ms.
+- Sheets (scratchpad `rain\`): `rain2_sheet_stills.png` (reference | PSX_RAIN2=0 | =1, fresh processes, incl. the parked
+  windscreen at 2x and a door mirror), `rain2_sheet_played.png`.
+
+## Still short of the owner's reference
+- The parked screen is covered now but its beads read warmer and coarser than his (our sodium-lit street vs his white-lit
+  garage); no real blur through the sheet.
+- No wheel RUTS: the road shader knows its width only on the HD road path (`_RoadGutter.y`), not where the lanes are, and
+  the edit-mode stills draw Classic roads.
+- No rear-window wiper; blades are plain dark lines. Rings are subtle from the chase camera; ring / crown sprites simple.
+- Traffic mist is placed at a guessed rear axle; pools do not feed the aquaplane rule; no damp trail after the rain stops.
+
+## Merge
+- `Editor/LifeSimSelfTest.cs`: one `Guard(nameof(TestRain2), TestRain2)` line beside other branches' Guard lines.
+- Shared files edited: `PSXWet.cginc`, `PSXWetSSR.cginc`, `PSXLit.shader`, `PSXLamps.cginc`, `PSXHeadlights.cginc`,
+  `PSXCabinGlass.shader`, `PSXCabinGauge.shader`, `TireSpray.cs`, `WeatherFx.cs`, `WetReflections.cs`,
+  `CockpitInterior.cs`, `DoorMirrors.cs`, `SpeedBlurFeature.cs`, `CarLights.cs`, `RoadSurface.cs`, `Dev/PerfTour.cs`.
+- No scene, bake, data or ProjectSettings change; `Scripts/City/` untouched; two new shader includes, no new shader.
+
+# HANDOFF - THE CAMCORDER, PAUSED AT THE 97 % STOP (agent "camcorder", branch `replay-camcorder` off mountain-nm c0a81147, 2026-11-16 ~16:00; NOT pushed, NOT merged; resumes after 19:00)
 1. STATE: replays look like 1999 camcorder tapes (PSX_CAMCORDER, default ON - proven in three WATCHED PSXRec runs, mountain + Charlotte, day + night, every check ok but one city countdown timeout); tapes save / shelf / VCR / VIDEO STORE sale work (PSX_TAPES, default ON); MONTAGE behind PSX_MONTAGE=1 (default OFF).
 2. Proof so far (scratchpad\camcorder\): camcorder_replay_sheet.png, camcorder_tapes_sheet.png, camcorder_replay_clip.mp4 (8 s, frames only), shots\, shots2\, tapes\ (frames + reports). camcorder_before_after.png is NOT valid yet (the base run died in a lock race).
 3. Self-test in PSXRec: base 65 FAIL vs mine 66; the one extra is "PSX/Camcorder in always-included shaders" because PSXRec's ProjectSettings are stale (my GraphicsSettings.asset adds it; the sandbox also lacks the water round's two lines). TestTapes + TestCamcorder all ok. Saves untouched (load both ways).
