@@ -1283,6 +1283,14 @@ namespace PSXRacing
             float fast = Mathf.InverseLerp(SlideFreeMps, SlideTidyMps, speed);
             tol = Mathf.Lerp(tol, FastSlideTolRad, fast);
             float maxBody = Mathf.Lerp(MaxBodySlipRad, FastBodySlipRad, fast);
+            // ...and with an oncoming car up the road, no power slide from slow at all (PASS WINDOW, aipass): an FD
+            // braked to 22 km/h behind traffic, went to full throttle in first, turned 35 degrees across the road in a
+            // second and met an oncoming van at 12 m/s (CltC2, MEDIUM). Traction first; the slide is for an empty road.
+            if (oncomingNear && PassWindowOn)
+            {
+                tol = Mathf.Min(tol, OncomingSlipTolRad);
+                maxBody = Mathf.Min(maxBody, OncomingBodySlipRad);
+            }
             if (speed > SlideEaseMinMps)
             {
                 float rearSlip = Mathf.Abs(car.rearSlipAngle);
@@ -1457,6 +1465,9 @@ namespace PSXRacing
         /// <summary>Air (m) a pass's run leaves short of a car standing in its line, and the wait (s) before another try
         /// after a pass is given up.</summary>
         const float PassStandAirM = 15f, PassRetryS = 2.5f;
+        /// <summary>Rear slip (rad) past which the throttle eases, and body slip past which it is cut, with an oncoming
+        /// car up the road (FixedUpdate).</summary>
+        const float OncomingSlipTolRad = 0.12f, OncomingBodySlipRad = 0.2f;
         /// <summary>A pass line whose car side comes within this of the centreline (or over it) is over the line.</summary>
         const float OverLineM = 0.2f;
         /// <summary>The line of sight (SightAhead): sampled every SightStepM to SightMaxM, from an eye this high over the
