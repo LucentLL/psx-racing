@@ -388,6 +388,7 @@ namespace PSXRacing
             // lane discipline hangs off TwoWay) - NONE means no cars, not a
             // closed circuit.
             BuildLanes(path.roadWidth, oneWay);
+            if (!oneWay) MapOneWay(def);
 
             // Enough cars for the window at this density, both ways, with a
             // quarter over for the random gaps; none at all for NONE.
@@ -397,6 +398,69 @@ namespace PSXRacing
             poolSize = Level == TrafficLevels.None ? 0
                      : Mathf.Clamp(Mathf.CeilToInt(expected * 1.25f) + 3, PoolMin, poolMax);
             for (int i = 0; i < poolSize; i++) pool.Add(Build(TrafficModels.RaceKey(i)));
+        }
+
+        /// <summary>
+        /// ONE-WAY STREETS UNDER A CITY RACE (aipass 11-17): the strip lays its lanes both ways along the whole route,
+        /// so on a stretch of one-way street the oncoming stream drove the wrong way down it - and a rival's own map
+        /// (its routed road) said one-way there, so it kept no guard against it (CltC2 at MEDIUM: 12 meets in a race).
+        /// Per waypoint of a city race's path, the route's own edge under it (the route's edges in order, nearest);
+        /// no oncoming car is born on a one-way waypoint, and one about to drive onto one turns off out of the
+        /// camera's view (Recycle). PSX_TRAFFIC_ONEWAY=0: both ways everywhere, as before. Null on other venues.
+        /// </summary>
+        bool[] oneWayWp;
+        public int OneWayWaypoints { get; private set; }
+        static readonly bool OneWayOn = System.Environment.GetEnvironmentVariable("PSX_TRAFFIC_ONEWAY") != "0";
+        void MapOneWay(TrackCatalog.TrackDef def)
+        {
+            oneWayWp = null; OneWayWaypoints = 0;
+            if (!OneWayOn || def == null || !def.IsCityRace) return;
+            var map = City.CityMap.Get();
+            var route = map != null ? map.RouteById(def.cityRoute) : null;
+            if (route == null || route.edges == null || route.edges.Length == 0) return;
+            int len = route.edges.Length, n = path.Count;
+            var flags = new bool[n];
+            int k = -1;
+            for (int i = 0; i < n; i++)
+            {
+                Vector3 w = path.GetPoint(i);
+                var p = new Vector2(w.x, w.z);
+                int best = 0; float bestD = float.MaxValue;
+                // the first waypoint against every edge of the route; then the route's edges in order round the last
+                int from = k < 0 ? 0 : k - 1, to = k < 0 ? len - 1 : k + 3;
+                for (int kk = from; kk <= to; kk++)
+                {
+                    int e = route.loop ? ((kk % len) + len) % len : kk;
+                    if (e < 0 || e >= len) continue;
+                    float d = PolylineDist(map.edges[route.edges[e]].pts, p);
+                    if (d < bestD) { bestD = d; best = e; }
+                }
+                k = best;
+                flags[i] = map.edges[route.edges[k]].oneway;
+                if (flags[i]) OneWayWaypoints++;
+            }
+            if (OneWayWaypoints > 0) oneWayWp = flags;
+        }
+        static float PolylineDist(Vector2[] pts, Vector2 p)
+        {
+            float best = float.MaxValue;
+            if (pts == null) return best;
+            for (int j = 0; j + 1 < pts.Length; j++)
+            {
+                Vector2 a = pts[j], ab = pts[j + 1] - a;
+                float t = ab.sqrMagnitude > 1e-6f ? Mathf.Clamp01(Vector2.Dot(p - a, ab) / ab.sqrMagnitude) : 0f;
+                float d = (a + ab * t - p).sqrMagnitude;
+                if (d < best) best = d;
+            }
+            return best;
+        }
+        /// <summary>Is the race path one-way (by the city's map) at this many metres along it?</summary>
+        bool OneWayAt(float s)
+        {
+            if (oneWayWp == null) return false;
+            int i = Mathf.RoundToInt(Wrap(s) / path.spacing);
+            i = path.HasEnds ? Mathf.Clamp(i, 0, oneWayWp.Length - 1) : ((i % oneWayWp.Length) + oneWayWp.Length) % oneWayWp.Length;
+            return oneWayWp[i];
         }
 
         /// <summary>Lane centres as the painter lays them out: US lanes packed
@@ -724,6 +788,8 @@ namespace PSXRacing
         bool TrySpawn(float s, int dir, float lat)
         {
             if (path.HasEnds && (s < 8f || s > total - 8f)) return false;
+            // no oncoming car on a one-way street (MapOneWay)
+            if (dir < 0 && OneWayAt(s)) return false;
             // Never on top of anything: another traffic car in the lane, or a
             // racer (they use the whole road).
             foreach (var c in live)
@@ -811,6 +877,8 @@ namespace PSXRacing
                     ? !outOfWindow && !(Time.time - c.wreckedAt > 60f && d < -40f)
                       && !(Time.time - c.wreckedAt > WreckClearS && !InView(c.go.transform.position))
                     : !outOfWindow;
+                // an oncoming car about to drive onto a one-way street turns off there, out of the camera's view
+                if (keep && !c.wrecked && c.dir < 0 && oneWayWp != null && OneWayAt(c.s - 20f) && !InView(c.go.transform.position)) keep = false;
                 if (keep) continue;
                 c.active = false;
                 c.go.SetActive(false);

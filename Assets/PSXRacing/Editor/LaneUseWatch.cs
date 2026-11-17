@@ -186,7 +186,7 @@ namespace PSXRacing.EditorTools
                                $"near misses {nearMisses}; over the centreline {over:0} s in {stayN} stays, longest {lg:0.0} s ({lgWho}); better-line seconds {open:0}");
             foreach (var s in per) RacePlayCheck.Note("  " + s);
             foreach (var s in missLines) RacePlayCheck.Note("  " + s);
-            RacePlayCheck.Note($"ONE-WAY MEETS (oncoming-stream traffic within 60 m ahead on a road the rival's map calls one-way): {owMeets}, {owSeconds:0} s");
+            RacePlayCheck.Note($"ONE-WAY MEETS (oncoming-stream traffic within 60 m ahead on a road the rival's map calls one-way): {owMeets}, {owSeconds:0} s; the race path's one-way waypoints (no oncoming stream there, PSX_TRAFFIC_ONEWAY): {(TrafficSystem.Instance != null ? TrafficSystem.Instance.OneWayWaypoints : 0)}");
             {
                 var refused = new List<string>();
                 foreach (var kv in AIDriver.PassRefused) refused.Add(kv.Key + " " + kv.Value);
