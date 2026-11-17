@@ -104,8 +104,21 @@ namespace PSXRacing.EditorTools
     public class Rain2PlayCheckRunner : MonoBehaviour
     {
         string pendingShot;
+        // THE WIPERS PARK: no stroke may START once the car has stood for six
+        // seconds (CockpitInterior parks them after five). Counted every frame,
+        // whenever that is - a settling car that creeps restarts the clock.
+        CarController watchCar;
+        float stoodFor;
+        int lastStrokes = -1, strokesWhileParked;
         void LateUpdate()
         {
+            if (watchCar != null)
+            {
+                stoodFor = Mathf.Abs(watchCar.forwardSpeed) > 1.5f ? 0f : stoodFor + Time.deltaTime;
+                int now = CockpitInterior.WiperStrokes;
+                if (lastStrokes >= 0 && now > lastStrokes && stoodFor > 6f) strokesWhileParked += now - lastStrokes;
+                lastStrokes = now;
+            }
             if (pendingShot == null) return;
             string name = pendingShot;
             pendingShot = null;
@@ -212,6 +225,7 @@ namespace PSXRacing.EditorTools
             var heat = car.GetComponent<EngineTemp>();
             if (heat != null) { heat.StartCold(heat.ambientC); heat.TopUp(100f); }
 
+            watchCar = car;
             Rain2.Measure = true;
             Rain2.MeterReset();
             // the meter must be able to SEE an allocation, or its zero means nothing
@@ -243,7 +257,7 @@ namespace PSXRacing.EditorTools
             yield return Shot("idle_cockpit");
             int idleStrokes = CockpitInterior.WiperStrokes - strokes0;
             Rain2PlayCheck.Line($"IDLE: {Stats()}; splashes alive (max) {idleSplash}, anchors {maxAnchors}, covered cells {Rain2Driver.CoveredCells}; " +
-                                $"wiper strokes while parked {idleStrokes}; _PSXRain2 {Shader.GetGlobalVector("_PSXRain2")}");
+                                $"wiper strokes in the idle ten seconds {idleStrokes}; _PSXRain2 {Shader.GetGlobalVector("_PSXRain2")}");
 
             // ---- 2: CRUISING, 45 mph
             stage = "cruise";
@@ -325,7 +339,6 @@ namespace PSXRacing.EditorTools
             {
                 Rain2PlayCheck.Check(idleSplash > 20, "parked in the rain: drops land round the camera", idleSplash);
                 Rain2PlayCheck.Check(maxAnchors > 20, "the ground round the camera was probed", maxAnchors);
-                Rain2PlayCheck.Check(idleStrokes <= 3, "the wipers park when the car stands (the screen beads over)", idleStrokes);
                 Rain2PlayCheck.Check(cruiseStrokes >= 3, "the wipers sweep while it is driven in the rain", cruiseStrokes);
                 Rain2PlayCheck.Check(gains.x > 0.01f || gains.y > 0.01f, "the rain is heard", gains);
                 Rain2PlayCheck.Check(gains.z > 0.01f, "the tyres hiss on the wet road at speed", gains.z);
@@ -344,6 +357,8 @@ namespace PSXRacing.EditorTools
                 Rain2PlayCheck.Check(Rain2Driver.LiveSplashes == 0 && CockpitInterior.WiperStrokes == strokes0 && gains == Vector3.zero,
                                      "PSX_RAIN2=0: no splashes, no wipers, no rain sound (the rain as it was)");
             }
+            Rain2PlayCheck.Check(strokesWhileParked == 0, "the wipers park: no stroke starts once the car has stood six seconds (the screen beads over)",
+                                 strokesWhileParked);
             Rain2.Measure = false;
             Done();
         }
