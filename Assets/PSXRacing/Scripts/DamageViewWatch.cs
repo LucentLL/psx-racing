@@ -14,14 +14,19 @@ namespace PSXRacing
         Renderer body;
         Vector3 centre, size;
         OwnedCar car;
+        CarModelDef def;
+        float stretchZ = 1f;
+        Renderer[] wheels;
+        float[] radii;
         int sig;
         bool running;
 
         public OwnedCar Car => car;
 
-        public void Set(Renderer b, Vector3 c, Vector3 s, OwnedCar oc)
+        public void Set(Renderer b, Vector3 c, Vector3 s, OwnedCar oc, CarModelDef d = null, float stretch = 1f,
+                        Renderer[] w = null, float[] r = null)
         {
-            body = b; centre = c; size = s; car = oc;
+            body = b; centre = c; size = s; car = oc; def = d; stretchZ = stretch; wheels = w; radii = r;
             sig = DamageView.Signature(oc);
             if (!running && Application.isPlaying && isActiveAndEnabled)
             {
@@ -41,7 +46,7 @@ namespace PSXRacing
         {
             if (car == null || body == null) return false;
             if (DamageView.Signature(car) == sig) return false;
-            DamageView.Dress(transform, body, centre, size, car);
+            DamageView.Dress(transform, body, centre, size, car, def, stretchZ, wheels, radii);
             return true;
         }
 

@@ -71,8 +71,10 @@ namespace PSXRacing
 
         // ---- incident kinds
         public const int KHit = 0, KBottom = 1, KRoll = 2, KDrop = 3, KWater = 4;
+        /// <summary>Damage round 2: a wheel's side on a curb or a wall (WheelScuff; its stage is its band).</summary>
+        public const int KWheel = 5;
         public static string KindName(int k) =>
-            k == KBottom ? "bump stop" : k == KRoll ? "roll" : k == KDrop ? "drop" : k == KWater ? "water" : "hit";
+            k == KBottom ? "bump stop" : k == KRoll ? "roll" : k == KDrop ? "drop" : k == KWater ? "water" : k == KWheel ? "wheel" : "hit";
 
         // ---- the pulse
         public const float PulseSeconds = 0.2f, MergeSeconds = 0.6f, MergeMetres = 4f;
@@ -311,6 +313,17 @@ namespace PSXRacing
             o.Clear();
             var d = inc.draws ?? new float[Dice];
             int b = inc.band, z = inc.zone, s = inc.side;
+            if (inc.kind == KWheel)
+            {
+                // damage round 2: that wheel's rash at the stage the strike read (WheelScuff.StageFor)
+                int st = Mathf.Clamp(b, 0, 3);
+                if (st > 0 && inc.corner >= 0 && inc.corner < 4)
+                {
+                    AddRow(o, WheelScuff.IdFor(inc.corner), st, WheelScuff.ValuePct[st], ZCorner, s, inc.corner);
+                    o.paintLoss = WheelScuff.PaintLoss[st];
+                }
+                return;
+            }
             if (inc.kind == KWater)
             {
                 o.flood = true;
@@ -596,6 +609,7 @@ namespace PSXRacing
             resp.Damage = L;
             Current = L;   // fix pass 1: the bench's handle on the drive under way
             DamageLook.Attach(car, L);   // R1a part 2a: the car shows its rows
+            WheelScuff.Attach(car, L);   // damage round 2: its wheels read their curbs
             resp.Ledger = null;
             car.hitSteerPull = 0f;
             if (L.temp != null && L.baseWeep > L.temp.radiatorWeep) L.temp.radiatorWeep = L.baseWeep;
@@ -970,6 +984,27 @@ namespace PSXRacing
             Reresolve(inc);
             if (Acts && inc.outcome.hydrolock && temp != null && !temp.Seized)
                 temp.Seize("went into the water running and stopped dead");
+            return inc;
+        }
+
+        /// <summary>
+        /// Damage round 2: a wheel's side struck a curb, a wall, a barrier, a
+        /// rock (WheelScuff reads the contact; <paramref name="stage"/> 1-3 from
+        /// its closing speed <paramref name="vn"/> and its rub). One incident
+        /// per strike, raised as it worsens; its row is that wheel's rash.
+        /// No pulse: no bags, no FAIL, no injury.
+        /// </summary>
+        public Incident Wheel(int corner, int stage, float vn, string what, float now)
+        {
+            if (corner < 0 || corner > 3 || stage <= 0) return null;
+            var inc = JoinOrOpen(DamageModel.KWheel, DamageModel.ZCorner, corner % 2 == 0 ? -1 : 1, corner, now, false, false, what);
+            inc.tLast = now;
+            if (!string.IsNullOrEmpty(what) && string.IsNullOrEmpty(inc.what)) inc.what = what;
+            if (vn > inc.dv) inc.dv = vn;
+            if (stage <= inc.band) return inc;
+            inc.band = Mathf.Min(stage, 3);
+            DamageModel.Resolve(inc, bumper);
+            ApplyLive();
             return inc;
         }
 

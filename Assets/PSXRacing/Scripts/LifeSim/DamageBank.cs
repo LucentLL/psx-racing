@@ -231,7 +231,7 @@ namespace PSXRacing.LifeSim
             if (r.id == DamageModel.PanelId)
                 return f.zone1 == r.zone && ((DamageRules.CrushOn && r.zone != DamageModel.ZSide) || f.hitSide == r.side);
             if (r.id == DamageModel.BarId) return f.zone1 == r.zone;
-            return true;
+            return true;   // (a wheel's rash: one id per wheel)
         }
 
         /// <summary>
@@ -307,6 +307,13 @@ namespace PSXRacing.LifeSim
             f.hitId = r.hitId;
             if (row.id == DamageModel.GlassId) f.cost = DamageHomes.GlassCost(f.cost, f.stage, row.stage);   // R1c-A: priced by stage
             else if (row.id == DamageModel.PanelId) f.cost = DamageHomes.PanelCost(f.cost, f.stage, row.stage);   // fix pass 1
+            else if (WheelScuff.Is(row.id))
+            {
+                // damage round 2: a wheel's rash - priced by stage, named by wheel, its cause the strike and the place
+                f.cost = WheelScuff.Cost(f.cost, f.stage, row.stage);
+                f.label = WheelScuff.Label(row.corner, row.stage);
+                f.causeNote = WheelScuff.CauseNote(row.corner, r.what);
+            }
             f.stage = row.stage;
             f.mag = row.mag;
             f.corner1 = row.corner + 1;

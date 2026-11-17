@@ -208,6 +208,11 @@ namespace PSXRacing.LifeSim
                 new Sub { key = "tires", label = "TIRES", ids = new[] { "tire_wear" },
                     found = "The tyres are worn to the bars — replace them.",
                     clean = "Tread depth looks fine all round." },
+                // damage round 2: curb rash, a wheel at a time (WheelScuff)
+                new Sub { key = "rims", label = "RIMS",
+                    ids = new[] { "wheel_rash_fl", "wheel_rash_fr", "wheel_rash_rl", "wheel_rash_rr" },
+                    found = "Curb rash: a rim's lip is scraped and its tyre scuffed.",
+                    clean = "The rims are unmarked." },
                 new Sub { key = "pads", label = "BRAKE PADS", wheelOff = true,
                     ids = new[] { "sport_brake_wear" },
                     found = "Pads are down to the backing plates.",
