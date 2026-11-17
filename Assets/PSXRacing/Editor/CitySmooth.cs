@@ -345,9 +345,7 @@ namespace PSXRacing.EditorTools
             if (layouts.TryGetValue(slot, out var lay)) return lay;
             lay = new Layout();
             layouts[slot] = lay;
-            int rel = slot - (int)CityMeshes.Slot.RoadFirst;
-            int prof = rel / CityMeshes.SurfaceCount, surf = rel % CityMeshes.SurfaceCount;
-            if (rel < 0 || prof >= RoadProfiles.ProfileCount) return lay;   // the junction slab: no paint
+            if (!CityMeshes.RoadSlot(slot, out int prof, out int surf) || prof >= RoadProfiles.ProfileCount) return lay;   // the junction slab: no paint
             var pr = RoadProfiles.All[prof];
             lay.key = pr.key; lay.width = pr.Width; lay.painted = true;
             lay.plan = PlanOf(pr);

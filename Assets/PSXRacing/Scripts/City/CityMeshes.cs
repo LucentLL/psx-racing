@@ -411,7 +411,7 @@ namespace PSXRacing.City
             /// <summary>Streets pass 4: the curbs and sidewalks (CityMeshes.Walks),
             /// a submesh of the ground; after the driving surfaces, so no
             /// existing slot moves.</summary>
-            Sidewalk = RoadFirst + RoadClassCount * SurfaceCount,
+            Sidewalk = RoadFirst + (RoadProfiles.BaseCount + 1) * SurfaceCount,
             /// <summary>The bridges pass (2026-10-29): girders, piers, caps,
             /// bearings, abutments, object markers and high masts on the
             /// structure atlas (Art/City/Pack/city_structure.png) - the tile's
@@ -434,11 +434,43 @@ namespace PSXRacing.City
             /// three facade slots nothing has emitted into since the facade atlas:
             /// FacadeBrick, FacadeMid, FacadeTower.) Last, so no slot moves.</summary>
             HousePaint,
-            COUNT,
+            /// <summary>The road-lines round (2026-11-16): the driving surfaces of the profiles added after
+            /// the first twenty (RoadProfiles.BaseCount; the seven-lane street), four surfaces each. Last, so
+            /// no slot moves: a scene or kit built before them draws everything else as it did, and a
+            /// seven-lane road wears the six-lane material until the kit is rebuilt (CityWorld.MatFor).</summary>
+            RoadXFirst,
+            COUNT = RoadXFirst + (RoadProfiles.ProfileCount - RoadProfiles.BaseCount) * SurfaceCount,
         }
 
-        public static Slot SlotOf(int profile, Surface surf) =>
-            (Slot)((int)Slot.RoadFirst + profile * SurfaceCount + (int)surf);
+        /// <summary>A driving surface's slot. The first RoadProfiles.BaseCount profiles and the junction slab
+        /// keep the block every scene was baked with (RoadFirst + row * SurfaceCount + surface, the junction
+        /// the row after them); a later profile's block is at the end of the table.</summary>
+        public static Slot SlotOf(int profile, Surface surf)
+        {
+            if (profile == JunctionProfile) return (Slot)((int)Slot.RoadFirst + RoadProfiles.BaseCount * SurfaceCount + (int)surf);
+            if (profile >= RoadProfiles.BaseCount) return (Slot)((int)Slot.RoadXFirst + (profile - RoadProfiles.BaseCount) * SurfaceCount + (int)surf);
+            return (Slot)((int)Slot.RoadFirst + profile * SurfaceCount + (int)surf);
+        }
+
+        /// <summary>Is this slot a driving surface, and whose (profile, JunctionProfile for the slab) and which surface?</summary>
+        public static bool RoadSlot(int slot, out int profile, out int surf)
+        {
+            profile = -1; surf = 0;
+            int rel = slot - (int)Slot.RoadFirst;
+            if (rel >= 0 && slot < (int)Slot.Sidewalk)
+            {
+                int row = rel / SurfaceCount; surf = rel % SurfaceCount;
+                profile = row == RoadProfiles.BaseCount ? JunctionProfile : row;
+                return true;
+            }
+            int rx = slot - (int)Slot.RoadXFirst;
+            if (rx >= 0 && slot < (int)Slot.COUNT)
+            {
+                profile = RoadProfiles.BaseCount + rx / SurfaceCount; surf = rx % SurfaceCount;
+                return true;
+            }
+            return false;
+        }
 
         /// <summary>
         /// Has this stretch been resurfaced recently? RG2's own _roadAge hash,
@@ -2456,8 +2488,15 @@ namespace PSXRacing.City
         static readonly Slot[] RoadAndStructureSlots = BuildRoadSlotList();
         static Slot[] BuildRoadSlotList()
         {
+            // (the scene-baked block in its own order - the first profiles, the junction slab - then the
+            // later profiles' block, then the concrete)
             var list = new Slot[RoadClassCount * SurfaceCount + 1];
-            for (int i = 0; i < list.Length - 1; i++) list[i] = (Slot)((int)Slot.RoadFirst + i);
+            int q = 0;
+            for (int p = 0; p < RoadProfiles.BaseCount; p++)
+                for (int s = 0; s < SurfaceCount; s++) list[q++] = SlotOf(p, (Surface)s);
+            for (int s = 0; s < SurfaceCount; s++) list[q++] = SlotOf(JunctionProfile, (Surface)s);
+            for (int p = RoadProfiles.BaseCount; p < RoadProfiles.ProfileCount; p++)
+                for (int s = 0; s < SurfaceCount; s++) list[q++] = SlotOf(p, (Surface)s);
             list[list.Length - 1] = Slot.Concrete;
             return list;
         }

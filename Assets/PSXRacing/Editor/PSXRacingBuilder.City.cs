@@ -773,6 +773,9 @@ namespace PSXRacing.EditorTools
 
         static string ProfileKey(int profile) =>
             profile == CityMeshes.JunctionProfile ? "junction" : RoadProfiles.All[profile].key;
+        // (the materials loop above runs p over RoadClassCount = every profile and the junction slab;
+        // CityMeshes.SlotOf puts the first twenty and the slab where every scene has them and a later
+        // profile - the seven-lane street - at the end of the table)
 
         // ------------------------------------------------------------------
         //  Drawn road surfaces. U spans the full paved width, V tiles along.

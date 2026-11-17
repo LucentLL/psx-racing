@@ -570,9 +570,7 @@ namespace PSXRacing.EditorTools
                 var tris = new List<(int a, int b, int c, int prof)>();
                 for (int sm = 0; sm < tm.roads.subMeshCount && sm < tm.roadSlots.Length; sm++)
                 {
-                    int sl = (int)tm.roadSlots[sm] - (int)CityMeshes.Slot.RoadFirst;
-                    if (sl < 0 || tm.roadSlots[sm] >= CityMeshes.Slot.Sidewalk) continue;
-                    int prof = sl / CityMeshes.SurfaceCount;
+                    if (!CityMeshes.RoadSlot((int)tm.roadSlots[sm], out int prof, out _)) continue;
                     var tr = tm.roads.GetTriangles(sm);
                     for (int q = 0; q + 2 < tr.Length; q += 3)
                     {

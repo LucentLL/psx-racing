@@ -425,7 +425,7 @@ namespace PSXRacing.City
             var add = new List<Ease>[map.edges.Length];
             foreach (var e in map.edges) e.lmEase = null;
             // the splits round: the line sets for the current scope (the gate switches it in-process)
-            if (bayEndMap != map || bayEndScope != SplitAxis || CoherenceStale(map)) ApplyBayEnds(map);
+            if (bayEndMap != map || bayEndScope != SplitAxis) ApplyBayEnds(map);
             ClearSplitFrames();
             taggedEdges = new Dictionary<long, List<int>>();
             EasedJoins = 0; EasedDefault = 0; EaseSteps = 0; SplitTapers = 0; HeldJoins = 0; CrossedJoins = 0;

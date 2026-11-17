@@ -71,7 +71,7 @@ namespace PSXRacing.City
             public int auxZones, auxMarks, goreZones, goreHostPieces, goreRampPieces, noGore, exitDrops, exitDropPieces, mouths, mouthsSkipped, mouthsDotted, mouthsDottedOut, mouthsDottedYellow,
                        lsLines, lsEdges, bays, groups, groupsSkipped, noseArrows, noseArrowsRefuge, noseSkipped, noseHatches, noseHatchBars, noseSolid, noseNoRoom, noseWhiteOnly, noseUnsteady, noseNoCentre, noseFlushTip, noseSolidFallback, ysDrawn, ysFallback, noseNonRefuge, arrowsL, arrowsR, yields, yieldsSkipped, yieldsTagged,
                        crosswalks, crosswalkBars, crosswalksSkipped, pocketLines, pocketArrows, pocketZoneLines,
-                       noseBayOpen, noseSplit, noseSplitHatched, noseMeeting;
+                       noseBayOpen, noseSplit, noseSplitHatched, noseMeeting, twltlPairs;
             public float auxM, exitDropM, lsM, buildMs, pocketM; public string partsMs = "";
             /// <summary>Per zone (by id): the gore's P on the host chain and
             /// the ramp travel at N and P (0: no gore).</summary>
@@ -103,6 +103,7 @@ namespace PSXRacing.City
             CrosswalkMarks(map, t);
             float t1 = (float)sw.Elapsed.TotalMilliseconds;
             TurnMarks(map, t);
+            TwltlArrows(map, t);
             PocketMarks(map, t);
             NoseMarks(map, t);
             float t2 = (float)sw.Elapsed.TotalMilliseconds;
@@ -885,9 +886,9 @@ namespace PSXRacing.City
         /// GroupGap (x sy) before it - read in that order by the driver. Laid
         /// only where the lane runs at full width (no taper, aux lane, relay
         /// or shift change) inside the drawn ribbon.</summary>
-        static bool Group(CityMap map, Trims t, CityMap.Edge e, float sRef, bool forward, float laneLat, int turn, float sy, string what)
+        static bool Group(CityMap map, Trims t, CityMap.Edge e, float sRef, bool forward, float laneLat, int turn, float sy, string what, bool withWord = true)
         {
-            float len = (WordH + GroupGap + ArrowH) * sy;
+            float len = (withWord ? WordH + GroupGap + ArrowH : ArrowH) * sy;
             float sLo = forward ? sRef - len : sRef, sHi = forward ? sRef : sRef + len;
             float d0 = t.TrimAt(e, e.a) + 1f, d1 = e.length - t.TrimAt(e, e.b) - 1f;
             if (sLo < d0 || sHi > d1) { MarkStats.groupsSkipped++; return false; }
@@ -905,7 +906,7 @@ namespace PSXRacing.City
             laneLat += shMid;
             glyphLocal.Clear();
             int wordFrom = glyphLocal.Count;
-            Only(glyphLocal);
+            if (withWord) Only(glyphLocal);
             int wordTo = glyphLocal.Count;
             Arrow(glyphLocal, turn);
             var pieces = new List<Vector2[]>(glyphLocal.Count);
@@ -938,6 +939,40 @@ namespace PSXRacing.City
             MarkStats.groups++;
             if (turn < 0) MarkStats.arrowsL++; else MarkStats.arrowsR++;
             return true;
+        }
+
+        // ================================================================
+        //  THE TWO-WAY LEFT-TURN LANE'S ARROWS (the road-lines round, 2026-11-16)
+        // ================================================================
+        // MUTCD 3B.03 (Figure 3B-7): a two-way left-turn lane carries, between its solid + broken yellow
+        // pairs, opposing left-turn lane-use arrows - one for each direction, back to back - at or just
+        // past its start and repeated along it. Laid (PSX_CITY_LINEFIX) on every marked two-way edge whose
+        // centre is a TWLTL: a pair at the middle of a drawn piece of 24 m or more, every TwltlArrowStepM on
+        // a long one, where the centre lane runs at full width (Group's own rule: no taper, relay or shift).
+        public const float TwltlArrowStepM = 80f, TwltlArrowMinM = 24f, TwltlArrowGapM = 2.4f;
+        static void TwltlArrows(CityMap map, Trims t)
+        {
+            if (!LineModel.LineFixOn) return;
+            foreach (var e in map.edges)
+            {
+                if (e.a == e.b || e.oneway || e.link || !e.hasLset || (e.lsFlags & 1) == 0 || e.lsCentre != 2 || CityTier.Of(e) > 2) continue;
+                var pr = RoadProfiles.All[e.profile];
+                float d0 = t.TrimAt(e, e.a) + 1f, d1 = e.length - t.TrimAt(e, e.b) - 1f;
+                float drawn = d1 - d0;
+                if (drawn < TwltlArrowMinM) continue;
+                // the centre lane's centre, m from the plus edge (RoadProfiles.LinesFor)
+                float m = pr.shl + e.lsNB * RoadProfiles.LaneM + 0.5f * RoadProfiles.LaneM;
+                float lat = PlusOf(e) - m;
+                int n = Mathf.Max(1, Mathf.FloorToInt(drawn / TwltlArrowStepM));
+                for (int i = 0; i < n; i++)
+                {
+                    float sMid = d0 + drawn * (i + 0.5f) / n;
+                    // back to back: the a->b arrow ends half the gap before the middle, the b->a arrow half past it
+                    bool a = Group(map, t, e, sMid - 0.5f * TwltlArrowGapM, true, lat, -1, 1f, "TWLTL arrow", false);
+                    bool b = Group(map, t, e, sMid + 0.5f * TwltlArrowGapM, false, lat, -1, 1f, "TWLTL arrow", false);
+                    if (a || b) MarkStats.twltlPairs++;
+                }
+            }
         }
 
         static bool AuxActive(CityMap.Edge e, float s) =>
