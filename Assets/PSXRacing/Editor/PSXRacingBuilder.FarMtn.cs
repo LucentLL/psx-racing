@@ -30,16 +30,20 @@ namespace PSXRacing.EditorTools
     ///     more and the land within 24 m spans 18 m or more. On Lake Lure this
     ///     rule against the 1 m lidar's own cliff cells (scratch farmtn
     ///     demrock.py): precision 0.90, recall 0.99;
-    ///   * past it, to the far forest's reach: the far grid's 60 m slope gives
+    ///   * past it, over the whole far grid: the far grid's 60 m slope gives
     ///     the share of rock the near grid shows at that slope (measured over
     ///     the two grids' overlap on five stages: 5 % at 30-35 degrees, 16 % at
-    ///     35-40, 40 % at 40-45), laid as 12 m cells in clumps;
-    ///   * past the far forest: PSX/Lit paints the same share on the far land
-    ///     (_FarRock, Horizon.cs), fading in from 2.0 to 2.8 km so the two never
-    ///     switch.
+    ///     35-40, 40 % at 40-45), laid as 12 m cells in clumps.
+    /// Both go into ONE ROCK MASK (12 m texels on the near grid's lattice over
+    /// the far grid). Within the far forest's reach its cells are drawn as the
+    /// skin; PSX/Lit paints the far land from the same mask (_FarRockMask; its
+    /// mips are the share where a cell is under a pixel), so when the skin
+    /// dissolves at the detail's edge (~2 km) the land under it shows the same
+    /// faces: nothing switches, nothing changes pattern as you drive.
     /// A stage whose world file carries the lidar's cliff cells (Lake Lure,
-    /// Chimney Rock) keeps those as its rock near the road: they are the better
-    /// data, and the hill the owner liked is exactly them.
+    /// Chimney Rock) keeps those as its rock near the road (its own skin and
+    /// keep-out): they are the better data, and the hill the owner liked is
+    /// exactly them; its mask is those cells, the share past the lidar's reach.
     /// Rock cells take the same keep-out the lidar granite does (StageKeepOut:
     /// no tree, plant or fence) and the same skin, in the stage's own rock:
     /// Hickory Nut Gorge's pale granite gneiss, the Blue Ridge's greyer gneiss
