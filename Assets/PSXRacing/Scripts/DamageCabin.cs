@@ -355,6 +355,8 @@ namespace PSXRacing
             var L = CockpitModel.L;
             var parts = CockpitModel.Parts;
             if (L == null || parts == null) return;
+            // a pooled instance that did not survive (play mode ended under it, its parts destroyed) is dropped
+            while (pool.Count > 0 && !Whole(pool.Peek())) pool.Pop();
             inst = pool.Count > 0 ? pool.Pop() : Make(parts, L);
             if (inst == null) return;
             Live++;
@@ -389,10 +391,13 @@ namespace PSXRacing
                     r.gameObject.SetActive(false);
                     r.transform.SetParent(inst.root != null ? inst.root.transform : null, false);
                 }
-            if (inst.root != null) pool.Push(inst);
+            if (Whole(inst)) pool.Push(inst);
+            else DestroyNow(inst.root);
             inst.layer = -1;
             inst = null;
         }
+
+        static bool Whole(Instance i) => i != null && i.root != null && i.mark != null && i.depth != null && i.cabinFull != null;
 
         static Material HoleMat(string key)
         {
@@ -523,7 +528,9 @@ namespace PSXRacing
                 inst.mark.SetPropertyBlock(mpb);
                 inst.depth.SetPropertyBlock(mpb);
             }
-            uint layers = body.renderingLayerMask;
+            // the body's rendering layers but the speed blur's car mask (the shell already masks the hole;
+            // drawn there unmarked, a cabin poking out of the shell would keep a patch of the world sharp)
+            uint layers = body.renderingLayerMask & ~SpeedBlur.MotionMaskLayers;
             int layer = body.gameObject.layer;
             if (inst.layers != layers || inst.layer != layer)
             {
