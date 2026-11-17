@@ -1082,6 +1082,7 @@ namespace PSXRacing.City
         }
 
         public static int TwinPruned;
+        const float TwinDs = 1f;
         /// <summary>True when at every 20 m from 40 m to the chain's end along A the mapped lane bands (the export's offset in) stand
         /// more than TwinPruneM apart.</summary>
         const float TwinPruneM = 4.5f;
@@ -1184,7 +1185,9 @@ namespace PSXRacing.City
                         bool fwd = e.a == from;
                         mph = Mathf.Max(mph, SpeedMph(e));
                         var keep = e.lmEase; e.lmEase = PreEases(add, e);
-                        int n = Mathf.Max(2, Mathf.CeilToInt(e.length / RefugeDs) + 1);
+                        // (the cost) the push sampled every metre (its 30 m average is smooth at that; RefugeDs 0.25 m
+                        // made the twins most of the line model's time)
+                        int n = Mathf.Max(2, Mathf.CeilToInt(e.length / TwinDs) + 1);
                         float ds = e.length / (n - 1);
                         var nd = new float[n]; var sd = new float[n];
                         for (int k = 0; k < n; k++)
