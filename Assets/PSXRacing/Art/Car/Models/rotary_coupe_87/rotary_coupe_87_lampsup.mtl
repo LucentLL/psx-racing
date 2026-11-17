@@ -1,0 +1,6 @@
+# PSX Racing car model
+newmtl rotary_coupe_87_lampsup
+Ka 1 1 1
+Kd 1 1 1
+illum 1
+map_Kd textures/rotary_coupe_87_bronze_512x256.png
