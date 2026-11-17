@@ -69,6 +69,8 @@ namespace PSXRacing.EditorTools
                 float from = float.Parse(Env("PSX_TM_FROM", "400"), CultureInfo.InvariantCulture), to = float.Parse(Env("PSX_TM_TO", "20"), CultureInfo.InvariantCulture);
                 float step = Mathf.Max(1f, float.Parse(Env("PSX_TM_STEP", "10"), CultureInfo.InvariantCulture));
                 bool pair = Env("PSX_TM_PAIR", "1") == "1";
+                // (PSX_TM_EYEUP: the eye's height over the road - 1.15 m is the driver's; 25 m a vista over the far slopes)
+                float eyeUp = float.Parse(Env("PSX_TM_EYEUP", "1.15"), CultureInfo.InvariantCulture);
                 bool first = true;
                 foreach (var ds in Env("PSX_TM_DRESSES", "0,3").Split(','))
                 {
@@ -83,7 +85,7 @@ namespace PSXRacing.EditorTools
                         for (float d = from + step; d >= to - 0.01f; d -= step)
                         {
                             Vector3 p = At(path, Mathf.Max(2f * TrackCatalog.Spacing, m - d), out Vector3 fwd);
-                            Vector3 eye = p + Vector3.up * 1.15f;
+                            Vector3 eye = p + Vector3.up * eyeUp;
                             var rot = Quaternion.LookRotation((target - eye).normalized);
                             // (the first position is one step back: only the eye the b frame's levels come from)
                             if (d > from + 0.01f) { prevEye = eye; continue; }

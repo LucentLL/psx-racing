@@ -229,6 +229,18 @@ namespace PSXRacing
             var s = System.Environment.GetEnvironmentVariable("PSX_FOREST_LODFADE");
             return s != null && float.TryParse(s, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float f) && f > 0f && f < 1f ? f : -1f;
         }
+        /// <summary>A FAR CARD'S GROWTH WITH DISTANCE (PSX/Lit _PSXFarGrow: x 2.4
+        /// by 1.8 km since 2026-11-09, so a far slope of narrow cards stays a
+        /// closed canopy). A tree that is 2.4 times its size at 1.8 km and its
+        /// own size at 450 m shrinks as it is approached, and the trees it hid
+        /// come out from behind it. PSX_FOREST_FARGROW=1 (or 1.5 ...) sets the
+        /// factor for this process; unset: each card's own.</summary>
+        public static float FarGrowZ = FarGrowEnv();
+        static float FarGrowEnv()
+        {
+            var s = System.Environment.GetEnvironmentVariable("PSX_FOREST_FARGROW");
+            return s != null && float.TryParse(s, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float f) && f >= 1f ? f : -1f;
+        }
         /// <summary>Per species: its far card stands on its mesh's origin (the
         /// card's matrix takes the mesh's translation bit for bit).</summary>
         bool[] sameOrigin;
@@ -633,6 +645,12 @@ namespace PSXRacing
             if (f == Vector4.zero) return m;
             if (faded.TryGetValue((m, f, thin), out var c) && c != null) return c;
             c = new Material(m) { name = m.name + "_fade", enableInstancing = true };
+            // (the far cards' growth with distance as this process asks: PSX_FOREST_FARGROW)
+            if (FarGrowZ >= 1f && m.HasProperty("_PSXFarGrow"))
+            {
+                var fg = m.GetVector("_PSXFarGrow");
+                if (fg.z > 1f) c.SetVector("_PSXFarGrow", new Vector4(fg.x, fg.y, FarGrowZ, fg.w));
+            }
             c.SetVector("_PSXLodFade", f);
             c.SetVector("_PSXLodThin", new Vector4(thin, 0f, 0f, 0f));
             c.EnableKeyword("PSX_LODFADE");
