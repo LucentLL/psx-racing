@@ -1,4 +1,123 @@
-﻿# CHARLOTTE TRACKS, THE FOUNDATION: the pipeline finished and made merge-safe for four lanes (agent "tracksb1", branch charlotte-tracks, 2026-11-16 18:48-20:00; NOT pushed, NOT merged)
+﻿# CHECKPOINT RACES, STAGE 1: no barricades; any road between ordered gates; proven on I-485 WEST (agent "checkpoints", branch `city-checkpoints`, 2026-11-16 22:30 - 11-17 00:45; NOT pushed, NOT merged)
+
+The owner, 2026-11-16 ~21:00: "After seeing them in action, I'm not a fan of the road construction barriers for
+races. Drivers can just go around them. I guess the Midnight Club approach is the way with checkpoints and allow
+players to pathfind". Design: scratchpad `checkpoints\DESIGN_v2.md` (Midnight Club = the race FORMAT only: no art,
+names, UI or cities). Progress log and every report: scratchpad `checkpoints\stage1\` (PROGRESS.md, out\).
+
+Base: `charlotte-tracks-b1` 21e7dec8 (X1, D3, C7) + lane C's f839431b (the hosted-laps fix, cherry-picked as 4539a3ec).
+`git diff charlotte-tracks-b1 -- Assets/PSXRacing/Scripts/City Assets/PSXRacing/Scripts/RoadsideRules.cs
+"Assets/PSXRacing/Resources/charlotte_*"` is EMPTY: no re-bake, no scene pass. Everything is made at runtime.
+
+## What changed
+1. CLOSURES OUT (its own commit f9277794: merge it first, beside batch-1). CityTracksRegistrar keeps only the hosted
+   route swap and the venue's laps; `CityRaceClosures.ForThisRace` returns false (PSX_TRACK_CLOSURES ignored, no
+   switch back); RacePlayCheck asserts "no road closure built"; track-job.ps1 lost its closures mode; Events.cs
+   (ROOKIE CUP, US CUP) and the event page's sanctioned lines no longer promise closed roads, and say nothing about
+   checkpoints (the event venues stay fixed-line until they get files). Delete CityRaceClosures.cs,
+   Editor/CityClosuresCheck.cs and tools/city/tracks/closures.mjs (+metas) once batch-1 has merged.
+2. DATA. `tools/city/tracks/checkpoints.mjs <route> [--write] [--dump f]`, `checkpoints.mjs all --table f`:
+   mandatory lap line / start + finish; every TURNAROUND (a non-freeway road between two ramp runs); every plan
+   APEX (route points 150 m+ apart along, within min(100 m, 0.4 x along) across: an infield or a lot could cut it);
+   then the fewest evenly spaced gates whose legs pass (a) legal metre-shortest >= 0.88 x suggested, (b) suggested
+   cost <= 1.06 x the cost optimum, (c) <= 800 m (1,500 m only with a real alternative), (e) cost optimum's metres
+   <= 1.04 x metre optimum; clean-spot snap +-60 m; wide-gate spans; reachability; freedom report. Shipped ONLY
+   `Resources/CityCheckpoints/i485west.json` (+meta): 15 gates (lap line, 10 splits, the Wilkinson Blvd and Moores
+   Chapel Rd turnarounds, 2 apex gates on the Wilkinson loop ramps; one wide gate over a parallel carriageway),
+   legs 215-770 m, 0 failing legs, freeLegs 0. Plan sheet: scratchpad `checkpoints\stage1\h2_gates_plan.png`.
+3. RUNTIME, `Scripts/Checkpoints/` (outside Scripts/City):
+   - CheckpointFile (load, graph hash, PSX_CP_RACES / PSX_CP_VENUES, card facts);
+   - CityRouter (directed-edge CSR with lib.mjs's legality and cost model; per gate a METRIC field = the ranking
+     ruler and a COST field = GPS and AI, seeded at every span; node potential; Locate with a 4 m height test, 4 m /
+     0.3 s hysteresis, immediate hand-over across a node, off-graph fallback; per-frame slide; Descend);
+   - CheckpointRace (TryBegin after the handoff, before the traffic; the countdown held while the fields build,
+     several gates a frame in a 40 ms budget; static restart cache; the swept, order-only gate test with spans (5 m
+     past each kerb) and a 5 m level test, plus the ARC PASS on the car's own road; the circuit's start crossing;
+     laps by gate 0; finish by the last gate; progress = total - remaining on one ruler; 4 m / 0.4 s tie band; a
+     car held on its own road from 15 m to 25 m off it; RaceFraction / RemainingToFinishM; MISSED (a later gate
+     crossed, or 150 m further than a closest approach within 60 m; clears on the pass or coming back within 50 m);
+     teleports pass nothing; odometer; respawn (an AI on its own road; the player on the graph's better direction,
+     walking BACK up to 30 m, else 10 m past the last gate passed); WRONG WAY = remaining rising against the
+     U-turn-aware direction; the lost-AI watchdog; GPS line; generated chime and buzz; the pass gap);
+   - RoutedPath (BuildPath copy: partial edges, per-waypoint halfL/halfR/oneWayAt/ownLaneOff/edgeAt/sAt/dirAt/
+     junction; BuildPath's corners), AIRoutePlanner (cost optimum to the next gate and >= 900 m on, rebuilt at each
+     gate, respawn, MISSED and the 450 m guard; double buffer on an INACTIVE holder; one rebuild a frame; run-out
+     max(900 m, v^2/4.4 + 150 m)), CheckpointMarkers (warm searchlight beam over the next gate, dim amber over the one
+     after, a glow band across each span, kerb glow posts; PSX/Glow, out of its fog fade by a property block).
+4. HUD / MAP / CARD: lap slot `CHECKPOINT k/15` (circuits of 2+ laps `LAP 1/2  CP k/15`, `FINISH`, `FINISHED`); the
+   cue in the BEST slot `^  CHECKPOINT 4  640 M`; centre banner `CHECKPOINT 3   +1.4` / `LEAD` and `MISSED CHECKPOINT
+   4 - TURN BACK`; minimap GPS line (0.5 s / on leaving it), gates (next = big diamond held on the rim), remaining
+   to the flag; race card gate dots and "15 CHECKPOINTS · ANY ROUTE" (arcade and CITY cards).
+
+## Switches (environment; =0 is the old behaviour)
+PSX_CP_RACES default ON (only venues with a file convert: stage 1 = I485West; =0 every city race fixed-line) ·
+PSX_CP_VENUES (dev list) · PSX_CP_AI_ROUTE, PSX_CP_GPS, PSX_CP_RESPAWN, PSX_CP_ODOMETER ON with the master ·
+PSX_CP_MARKERS default OFF until the owner has seen the beam sheets (=1 shows the beams, bands and posts) ·
+PSX_RACEFRACTION_FIX default OFF (=1: fixed-line loops' fraction without the extra lap; no watched loop race yet).
+
+## Proof (PSXCity, watched editor, real frames; reports in scratchpad `checkpoints\stage1\out\`)
+- CheckpointSelfTest (00:13): ALL PASS. Loads, hash; every leg reachable in metres and cost; C# = node within 1 m on
+  all 15 legs; the ruler falls along the suggested route (924 steps); 15 routed legs, 0 pavement halves under
+  1.5 m. Timings (editor, batch): fields worst 31.9 ms a gate, 343 ms all (design budget 9 / 150 ms: NOT met in the
+  editor; the countdown hold covers it and RESTART uses the cache); routed path build worst 16.5 ms (budget 3 ms;
+  in races the worst rebuild was 8.8 ms).
+- day1 (23:05, 8 cars, NONE): every car through all 15 gates in order, 7 home + 1 planned-mistake DNF, autopilot P2
+  4:11.3, positions = remaining 0 of 668 samples, honest metres 9,269 m. FAILs found and fixed after: a false MISSED
+  + 12 flickers (a corner tangent read a one-way backwards: dirAt), the Charger past the Wilkinson apex span (arc
+  pass, 5 m capture; it went round for 7 min first).
+- night1 (23:36, night rain, 8 cars, NONE): 8 home, every gate in order, 0 MISSED, 0 wrong way, positions ok.
+  FAILs: flicker 69 / falls 42 from one knocked car swapping road/graph every frame (fixed: 15/25 m hysteresis); the
+  beam vanished beyond ~600 m (the glow shader's fog fade; fixed by a property block).
+- light1 (23:50, night rain, LIGHT traffic, 8 cars, forced reset): 6 home, every checkpoint assert OK (0 flicker, 0
+  falls, 0 MISSED, reset 5,994 m before = 5,994 m after: no gain). FAIL "at most one rival retires": 2 (the planned
+  mistake + a pack crash at 27.7 s, the Supra at 133 km/h into the autopilot slowed in traffic).
+- laps2 (00:03, 2 laps via -Laps, 4 cars, NONE, wrong-way test): 30 of 30 gates in order across lap 2, lap times
+  line to line, WRONG WAY shown after 5.6 s driving back, cleared 1.1 s after turning round, 0 flicker, 0 falls,
+  positions ok, odometer 19,027 m for 18,469 m. (The harness's 15 s countdown wait expired - fields took 29 s on
+  a busy machine - so its test ran at the start: fixed, the wait is 60 s and the fields build in a budget.)
+- final (00:25, 8 cars, NONE, markers on): all 8 home, 0 retired, every car through all 15 gates in order, autopilot no
+  MISSED / no WRONG WAY, positions = remaining 0 of 255, odometer 9,268 m. FAIL: the Charger again went past the
+  Wilkinson apex arc without a crossing (MISSED at 82 s, routed back, home 247 s), behind it 1 progress fall + 2
+  flickers. Cause found after: across a join a routed waypoint read the next edge at its first vertex (40 m on);
+  fixed (a59725b2: the join segment lies on the next edge from its node end; the arc pass also counts a car that
+  came onto the gate state over a node). Those two fixes are checked by the batch self-test only, not a watched race.
+- UptownLoop fixed-line regression (no checkpoint file, PSX_CP_RACES on): NOT RUN TO THE END - started 00:32, then
+  a PSXRacing.exe window took the focus (00:43, the owner's or the coordinator's game) and the watched editor sat
+  at frame 289; I did not launch more watched editors over a running game.
+- LifeSimSelfTest (PSXCity, defaults + PSX_CP_RACES): 92 FAIL lines = the batch-1 base's 92 in PSXCity, none naming
+  a checkpoint, a closure or a city track.
+- Race card: scratchpad `out\cards_cp\citymap_I485West.png` (14 gate dots + the lap line).
+- Sheets (scratchpad `checkpoints\stage1\`): `sheet_h2_day.png`, `sheet_h2_night.png`, `sheet_h2_light_laps.png`,
+  `sheet_h2_final.png`, plan `h2_gates_plan.png`. Honest about the look: the beam reads well at night and in rain
+  out to the fog, by day only as a thin streak at 300 m; beyond ~500 m it was cut by the camera's far plane in every
+  run (fixed after the last run: drawn inside the far plane, NOT yet seen); the ground band and posts never showed
+  in a frame (lifted 0.3 m after, not yet seen). Hence PSX_CP_MARKERS stays opt-in.
+- Known lines in every H2 run, as in the tracks round's base: exposure pumping 1.9-2.1, UNDRAWN RAILS 2-30.
+
+## Not done in stage 1 (honest)
+- C1 (DESIGN_v2's second venue, M8): not in charlotte-tracks-b1 when this started; no c1.json shipped.
+- The racing-radius fillets (M7): RoutedPath keeps BuildPath's corners (H2's AI route IS the suggested route, so
+  the AI drive the fixed line's geometry). PSX_CP_FILLET_R not built.
+- -cpDetour and -cpMiss harness modes (H2 has no legal alternative and its gates span the only carriageway); the C#
+  apex settle (checkpoint_apex.json): the plan candidates are taken as gates (conservative).
+- Field and rebuild time budgets are not met in the editor (above). Android unmeasured.
+- The freedom table for the owner (Q7) is offline (node), first pass: C1 0.33, C3 0.29, C4 0.17, C2 0.13, every
+  other candidate and the 3 export routes 0.00 (freeway laps and single-arterial courses: honest, little choice).
+  Scratchpad `checkpoints\stage1\freedom_table.txt`.
+
+## At merge (coordinator)
+- Merge order: f9277794 (closures out) any time; the rest after charlotte-tracks-b1. Shared files touched:
+  RaceManager (Start line, Update branch, FinishCar, RespawnOn refactor + RaiseRespawned, MetersDriven, RaceFraction,
+  RemainingToFinishM, StabilizeOrder hook, repeat respawns by position on routed roads); TrackPath (NonSerialized
+  arrays); AIDriver (TwoWayHere / LaneCentreHere / RoadHalfHere replace every race-wide read, LineOffset per
+  waypoint, AheadOnRoad, no mistakes in junction zones, SetPath); StuckRecovery (wrong way, off track off, fell-below
+  on the graph, floorY); CareerDrive; RaceHUD; HudMinimap; TrafficSystem (PlayerS); RaceReplay (PauseList);
+  RouteMap; ArcadeFrontEnd / CityFrontEnd; RacePlayCheck; Events.cs; LifeHomeScreen.Events.cs; track-job.ps1.
+- New: Scripts/Checkpoints/* (+metas), Editor/CheckpointSelfTest.cs, Editor/CheckpointRaceWatch.cs (+metas),
+  Resources/CityCheckpoints/i485west.json (+meta, folder meta), tools/city/tracks/checkpoints.mjs, cp-job.ps1.
+- No re-bake, no scene pass. A PC build carries it as is (Resources/CityCheckpoints is a Resources folder).
+
+# CHARLOTTE TRACKS, THE FOUNDATION: the pipeline finished and made merge-safe for four lanes (agent "tracksb1", branch charlotte-tracks, 2026-11-16 18:48-20:00; NOT pushed, NOT merged)
 
 Supersedes "STATE AT THE STOP" below (its NEXT steps a-d are done). The owner: "Now that Charlotte roads are more
 accurate, I'd like to start adding race tracks (circuits, sprints, drag [the current drag/sprints are veeery
