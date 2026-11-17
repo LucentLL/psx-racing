@@ -1464,7 +1464,9 @@ namespace PSXRacing
             }
         }
         /// <summary>Seconds of gap a pass must leave to the first thing that would meet it, to start / to go on.</summary>
-        const float PassStartGapS = 2.0f, PassKeepGapS = 0.9f;
+        const float PassStartGapS = 1.6f, PassKeepGapS = 0.9f;
+        /// <summary>An oncoming car this far (m) beyond the sides of the pass's line can move into it, and is met.</summary>
+        const float PassLaneBufM = 1.4f;
         /// <summary>The longest pass (s), the slowest a car pulls out at (m/s) past a car that is moving, and the closing
         /// a pass gains on the car being passed (m/s2).</summary>
         const float PassMaxS = 6.5f, PassMinMps = 7f, PassAccel = 2.0f;
@@ -1474,7 +1476,7 @@ namespace PSXRacing
         const float PassCarLenM = 4.6f, PassReturnAirM = 4f, PassReturnAirS = 0.2f, PassSwingS = 0.8f, PassQueueGapM = 10f, PassQueueGapS = 0.4f;
         /// <summary>Air (m) a pass's run leaves short of a car standing in its line, and the wait (s) before another try
         /// after a pass is given up.</summary>
-        const float PassStandAirM = 15f, PassRetryS = 2.5f;
+        const float PassStandAirM = 15f, PassRetryS = 1.5f;
         /// <summary>Rear slip (rad) past which the throttle eases, and body slip past which it is cut, with an oncoming
         /// car up the road (FixedUpdate).</summary>
         const float OncomingSlipTolRad = 0.12f, OncomingBodySlipRad = 0.2f;
@@ -1649,8 +1651,9 @@ namespace PSXRacing
                     bool otherStream = i < ts.ObstacleDir.Count && ts.ObstacleDir[i] < 0;
                     if (along < -1f && !rb.useGravity)
                     {
-                        // coming: in the pass's line, or anywhere in the other half (it may move over)
-                        if (lat > line + half + MyHalfW + 0.8f) continue;
+                        // coming in the pass's line, or near enough it to move into it (PassLaneBufM); a car in an outer
+                        // oncoming lane of a wide street is not met (it held every pass on North Tryon's four lanes)
+                        if (Mathf.Abs(lat - line) > half + MyHalfW + PassLaneBufM) continue;
                         float w = -along;
                         float mg = (ahead - runM - w * tOcc) / (vAvg + w);
                         if (mg < margin) { margin = mg; why = "oncoming"; }
