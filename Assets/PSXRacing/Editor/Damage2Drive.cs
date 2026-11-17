@@ -49,6 +49,7 @@ namespace PSXRacing.EditorTools
             File.WriteAllText(Path.Combine(Path.GetDirectoryName(Application.dataPath), "PSXRacing_damage2_drive_" + tag + ".txt"), log.ToString());
             Debug.Log(log.ToString());
             LifeSimManager.UseCareerSave();
+            TitleScreen.Skip = false;
             EditorApplication.Exit(code);
         }
 
@@ -68,6 +69,7 @@ namespace PSXRacing.EditorTools
             int s = roam >= 0 ? TrackCatalog.SceneIndex(roam) : -1;
             if (s < 0 || s >= scenes.Length || !File.Exists(scenes[s].path)) { Check(false, "the Charlotte scene is built"); Finish(1); return; }
             LifeSimManager.UseScratchSave("damage2drive");
+            TitleScreen.Skip = true;   // (a watched editor would boot the title on the trip to the menus)
             EditorSceneManager.OpenScene(scenes[s].path);
             RaceHandoff.ClearAll();
             RaceHandoff.FromLifeSim = true;
@@ -201,6 +203,7 @@ namespace PSXRacing.EditorTools
         {
             hold = false;
             steer = 0f;
+            float placed = Time.time;
             car.TeleportTo(at + Vector3.up * 3f, rot);
             world.EnsureRing(at, 1);
             for (int k = 0; k < 6; k++) { car.TeleportTo(at + Vector3.up * 3f, rot); yield return null; }
@@ -211,7 +214,17 @@ namespace PSXRacing.EditorTools
             rb.linearVelocity = Vector3.zero;
             rb.angularVelocity = Vector3.zero;
             for (int k = 0; k < 40; k++) yield return new WaitForFixedUpdate();
+            // the tool set the car down from the air: that fall is the tool's, not the drive's
+            var L = resp != null ? resp.Damage : null;
+            if (L != null && L.incidents.RemoveAll(i => i.kind == DamageModel.KDrop && i.t0 >= placed) > 0)
+            {
+                L.Relive(owned != null ? owned.faults : null, false);
+                DamageLook.Refresh(car);
+                purged++;
+            }
         }
+
+        int purged;
 
         IEnumerator Stop(float seconds)
         {
@@ -355,10 +368,10 @@ namespace PSXRacing.EditorTools
                 yield return new WaitForFixedUpdate();
                 bool struck = scuff != null ? scuff.Strikes > strikes0 : false;
                 if (struck && struckAt < 0f) struckAt = run;
-                if (struckAt >= 0f && run - struckAt > 0.5f) break;
-                if (scuff == null && run > 3.2f) break;
+                if (struckAt >= 0f && run - struckAt > 0.2f) break;
+                if (scuff == null && run > 1.3f) break;
             }
-            steer = -0.35f;
+            steer = -0.7f;   // off the curb again, as a driver would
             for (int i = 0; i < 30; i++) yield return new WaitForFixedUpdate();
             yield return Stop(1.5f);
             var wheelInc = L.incidents.FirstOrDefault(i => i.kind == DamageModel.KWheel);
@@ -449,6 +462,7 @@ namespace PSXRacing.EditorTools
 
             // 4 the drive ends: folded onto the career
             int folded = CrashStopGap.FoldDamage(car);
+            if (purged > 0) Note("the tool's own set-downs were taken out of the ledger " + purged + " time(s) (a DROP the placing made, never the drive)");
             Note("folded " + folded + "; rows " + string.Join(", ", owned.faults.Select(f => f.id + " s" + f.stage + " '" + f.causeNote + "' $" + f.cost + (f.hidden ? " hidden" : ""))));
             var after = DamageLook.Read(owned.faults, null);
             Check(after.panes == look.Now.panes && after.rash == look.Now.rash && after.zones == look.Now.zones && after.lampOut == look.Now.lampOut,

@@ -285,9 +285,9 @@ void PSXCarGlass2(inout float3 albedo, inout float3 N, out float flat, out float
     else
     {
         bool front = n.z > 0.0;
-        // the windscreen stands ahead of the seats and over the cowl, the rear glass behind them
+        // the windscreen stands ahead of the seats, the rear glass behind them
         // (the cowl's own dark panel, a wiper trough, a parcel shelf: no pane)
-        if (front ? (m.z < _PSXGlsF.y + 0.25 || m.y < _PSXGlsF.x + 0.02) : m.z > _PSXGlsF.y - 0.10) return;
+        if (front ? m.z < _PSXGlsF.y + 0.25 : m.z > _PSXGlsF.y - 0.10) return;
         state = front ? _PSXGlsS.x : _PSXGlsS.y;
         imp = front ? _PSXGlsW : _PSXGlsX;
         lam = front ? 1.0 : 0.0;
@@ -403,20 +403,20 @@ void PSXWheelRash(inout float3 albedo, float3 bpos, float3 bnrm, float2 uv, floa
     float streak = GlsN2P(float2(a01 * 32.0, rho * 420.0 + seed * 31.0), 32.0) * 0.65
                  + GlsN2P(float2(a01 * 72.0, rho * 900.0 + seed * 17.0), 72.0) * 0.35;
     float bite = GlsN2P(float2(a01 * 18.0, seed * 53.0), 18.0) * 0.6 + GlsN2P(float2(a01 * 40.0, seed * 29.0 + 7.0), 40.0) * 0.4;
-    float t0 = 0.62 - 0.75 * amt;
+    float t0 = 0.50 - 0.75 * amt;
     float cover = arc * smoothstep(t0, t0 + 0.18, bite);
     if (isTyre < 0.5)
     {
-        // the lip: rubber within 16 mm outside this rim texel
+        // the lip: rubber within 2 cm outside this rim texel
         float2 dqx = dbx.yz, dqy = dby.yz;
         float det = dqx.x * dqy.y - dqy.x * dqx.y;
         if (abs(det) < 1e-11) return;
         float2 ix = float2(dqy.y, -dqy.x) / det, iy = float2(-dqx.y, dqx.x) / det;
         float2 e = bpos.yz / rho;
-        float2 d1 = e * 0.007, d2 = e * 0.016;
+        float2 d1 = e * 0.009, d2 = e * 0.020;
         float t1 = step(0.25, GlsIsGlass(PSX_CAR_TAP(uv + uvx * dot(ix, d1) + uvy * dot(iy, d1), uvx, uvy)));
         float t2 = step(0.25, GlsIsGlass(PSX_CAR_TAP(uv + uvx * dot(ix, d2) + uvy * dot(iy, d2), uvx, uvy)));
-        float lip = max(t1, t2 * lerp(0.35, 0.8, amt));
+        float lip = max(t1, t2 * lerp(0.6, 0.9, amt));
         // scraped to bright metal, the gouges dark between
         float3 metal = lerp(albedo * 0.5, float3(0.93, 0.93, 0.91), smoothstep(0.34, 0.56, streak));
         albedo = lerp(albedo, metal, lip * cover * 0.95);

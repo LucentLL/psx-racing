@@ -829,7 +829,7 @@ Shader "PSX/CarPaint"
                 float3 lit = tex.rgb * lerp(light, float3(1, 1, 1), _Emission);
                 // the cabin through a hole: its own dim light, never the sun on the pane
                 if (glsCave > 0.0)
-                    lit = lerp(lit, tex.rgb * min(light, (amb * 1.6 + (headD + lampD * LAMP_PAINT) * 0.4) * expo), glsCave);
+                    lit = lerp(lit, tex.rgb * (light * 0.45 + amb * (0.9 * expo)), glsCave);
 
                 // THE WORLD IN THE LACQUER: four percent face-on, half at the
                 // silhouette (Schlick), more on the glass, a tenth of it on a

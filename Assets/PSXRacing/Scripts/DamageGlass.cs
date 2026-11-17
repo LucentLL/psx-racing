@@ -83,7 +83,7 @@ namespace PSXRacing
             {
                 // low on the struck side; the crack runs toward the far side
                 float x = side != 0 ? side * 0.5f : Mathf.Lerp(-0.2f, 0.2f, seed);
-                Pane(ref k, 0, Crack, new Vector4(x, 0.16f, seed, x > 0f ? -1f : 1f));
+                Pane(ref k, 0, Crack, new Vector4(x, 0.22f, seed, x > 0f ? -1f : 1f));
                 k.frontGlass = true;
             }
             else if (z == DamageModel.ZRear && stage >= 3)
