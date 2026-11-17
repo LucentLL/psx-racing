@@ -109,6 +109,13 @@ namespace PSXRacing
                 }
                 sb.AppendLine();
             }
+            {
+                var mc = Camera.main;
+                var tt = mc != null ? mc.targetTexture : null;
+                sb.AppendLine($"screen at the end {Screen.width}x{Screen.height}, framebuffer {(tt != null ? tt.width + "x" + tt.height : "none")}, render scale {RenderScalePrefs.Label}; " +
+                              $"switches: forest pre-pass {(MeshForest.DepthPre ? "on" : "off")}, AO driver only {(PerfSwitches.AODriverOnly ? "on" : "off")}, lean output {(PerfSwitches.LeanOutput ? "on" : "off")}, copies on demand {(PerfSwitches.CopiesOnDemand ? "on" : "off")}, ambient shade {AOQualityPrefs.Label}; " +
+                              $"view rates: car reflect {ViewRatePrefs.Label(ViewRatePrefs.View.CarReflections)}, mirrors {ViewRatePrefs.Label(ViewRatePrefs.View.RearMirror)} / {ViewRatePrefs.Label(ViewRatePrefs.View.DriverMirror)} / {ViewRatePrefs.Label(ViewRatePrefs.View.PassengerMirror)}");
+            }
             double sh = 0;
             for (int i = 0; i < frames; i++) sh += cSlot[(int)PerfClock.Slot.SunShadowMaps][i];
             if (frames > 0) sb.AppendLine($"sun shadow maps recorded: {sh / frames:0.00} ms a frame (inside render submit); casters last frame {SunShadows.DrawnLast}, draw calls {SunShadows.DrawCallsLast}");
@@ -773,6 +780,7 @@ namespace PSXRacing
             probeInto = null;
             table.AppendLine($"BASE again: frame {Median(baseEnd[PM_FRAME]):0.00} view call {Median(baseEnd[PM_CALL]):0.00} gpu wait {Median(baseEnd[PM_WAIT]):0.00} (drift {Median(baseEnd[PM_FRAME]) - b0[PM_FRAME]:0.00} ms)");
             table.AppendLine("d = variant minus baseline, mean of the reps' medians (sd across reps); negative = what switching it off saves. gpu wait = render thread + GPU for everything drawn this frame.");
+            if (onscreen) table.AppendLine($"screen at the end {Screen.width}x{Screen.height}" + (Screen.width != ow || Screen.height != oh ? "  *** THE WINDOW CHANGED SIZE DURING THE RUN: discard ***" : ""));
 
             PerfClock.FrameDone = null;
             if (freeze) { Time.timeScale = wasScale; VolumetricClouds.Paused = wasPaused; }

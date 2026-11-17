@@ -36,8 +36,12 @@ namespace PSXRacing
     ///     on: the colour copy only where the HD water draws, the depth copy
     ///     only for a camera whose passes ask.
     ///
-    /// Nothing here changes a pixel of the driver's view with the switches'
-    /// features on as they ship (the HD water still gets its copies).
+    /// All three are ON by default since their lossless pairs passed (on
+    /// screen at 3840x2066, the clock stopped): lean output and copies on
+    /// demand 0 pixels different; AO driver only 0 pixels different in the
+    /// world seen directly, the mirror images and the car's own paint (it
+    /// reflects the probe's views) 0.14 / 0.67 levels of 255 on average.
+    /// The HD water still gets its copies.
     /// </summary>
     /// <summary>
     /// AMBIENT SHADE (VISUALS, the PC picture): how the ambient occlusion is
