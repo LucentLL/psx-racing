@@ -82,6 +82,7 @@ namespace PSXRacing.EditorTools
             var aiCars = new List<CarController>();
             if (def.IsCityRace)
             {
+                CityTracks.Register(map);   // the races of charlotte_tracks.json, by id like the export's own
                 var route = map.RouteById(def.cityRoute);
                 if (route == null) throw new Exception("city route missing from the bake: " + def.cityRoute);
                 Log($"route {route.id}: {route.edges.Length} edges, {route.lengthM:0} m, line at {route.startM:0}, " +
@@ -117,6 +118,9 @@ namespace PSXRacing.EditorTools
             // rebake of every city scene.
             var worldGO = new GameObject("CityWorld");
             var world = worldGO.AddComponent<CityWorld>();
+            // first to wake in every city scene: the races of charlotte_tracks.json into the map, and a
+            // race scene pointed at the one being raced when it has no scene of its own (CityTracksRegistrar)
+            worldGO.AddComponent<CityTracksRegistrar>();
             world.player = player.transform;
             var kit = EnsureCityKit();
             EnsureCityTreeKit();   // ctrees 2026-11-11: the PC profile's mesh trees (deleted on a non-PC pass)

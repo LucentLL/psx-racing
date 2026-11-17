@@ -15,7 +15,7 @@
 //   aisles   OSM parking aisles and service roads in lots (cache/lots_city.json)
 //   venues   the squares the race venues are framed in (RouteGeo.Frame's rule: the route's box,
 //            1.14x its longer side + 60 m, never under 420 m) for every route in
-//            Resources/charlotte_routes.json, the parking decks' squares from
+//            Resources/charlotte_routes.json and CityTracks/*.json, the parking decks' squares from
 //            Resources/TrackMapFrames.txt, and --venues <json> extra squares ([{key, cx, cz, span}]):
 //            the deep levels of the pyramid are drawn only round these, so a new route gets its sharp
 //            tiles from the next run without a list to remember
@@ -25,7 +25,7 @@
 // Run: node tools/city/citymap_prep.mjs --out <file.json> [--project <unity project>] [--venues <extra.json>]
 //      --project reads that project's Resources (default: this checkout); PSX_CITY_CACHE points a
 //      worktree or a sandbox at the main checkout's tools/city/cache. tools/citymap-bake.ps1 runs both steps.
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseCity } from './lib/citydata.mjs';
@@ -106,9 +106,15 @@ if (existsSync(lp)) for (const e of readJson(lp).elements) {
 
 // the venues' squares: the photographed frames of the city venues + any extra (new courses)
 const venues = [];
-// every city route, framed the way RouteGeo.Frame frames its card
-const routesFile = join(RES, 'charlotte_routes.json');
-if (existsSync(routesFile)) for (const r of readJson(routesFile).routes || []) {
+// every city route - the export's (charlotte_routes.json) and the tracks added after it, one file
+// each (Resources/CityTracks/<route id>.json, CityTracks) - framed the way RouteGeo.Frame frames its card
+const cityRoutes = existsSync(join(RES, 'charlotte_routes.json')) ? (readJson(join(RES, 'charlotte_routes.json')).routes || []) : [];
+if (existsSync(join(RES, 'CityTracks')))
+  for (const n of readdirSync(join(RES, 'CityTracks')).filter(n => n.endsWith('.json')).sort()) {
+    const t = readJson(join(RES, 'CityTracks', n));
+    if (t.route) cityRoutes.push(t.route);
+  }
+for (const r of cityRoutes) {
   const p = r.pts || [];
   if (p.length < 4) continue;
   let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
