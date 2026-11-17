@@ -169,6 +169,8 @@ namespace PSXRacing.EditorTools
         /// <summary>A junction's mouth strip and its stop line / crosswalk lie within this of the junction, along
         /// the road: a line ending there, or the pavement edge stepping to the curb return, is the junction's.</summary>
         public const float MouthStripM = 25f;
+        /// <summary>A kink this close to a gore's painted area is the gore's V (its lines meeting), not a bend.</summary>
+        public const double GoreNoseM = 3.0;
     }
 
     public static partial class CityAudit
@@ -238,6 +240,26 @@ namespace PSXRacing.EditorTools
                 if (q.edge == notEdge || Mathf.Abs(q.y - y) > 0.6f) continue;
                 if (LgInTri(px, pz, q.x0, q.z0, q.x1, q.z1, q.x2, q.z2) || LgInTri(px, pz, q.x0, q.z0, q.x2, q.z2, q.x3, q.z3)) return true;
             }
+            return false;
+        }
+        /// <summary>Is a gore's painted area (its polygons, edge -2) within r of a point at about this height?</summary>
+        static bool LgNearGore(double x, double z, float y, double r)
+        {
+            int cx0 = (int)Math.Floor((x - r) / LgPolyCell), cx1 = (int)Math.Floor((x + r) / LgPolyCell), cz0 = (int)Math.Floor((z - r) / LgPolyCell), cz1 = (int)Math.Floor((z + r) / LgPolyCell);
+            for (int cx = cx0; cx <= cx1; cx++)
+                for (int cz = cz0; cz <= cz1; cz++)
+                {
+                    if (!lgPolyGrid.TryGetValue(((long)cx << 32) ^ (uint)cz, out var l)) continue;
+                    foreach (int id in l)
+                    {
+                        var q = lgPolys[id];
+                        if (q.edge != -2 || Mathf.Abs(q.y - y) > 1f) continue;
+                        float mnx = Mathf.Min(Mathf.Min(q.x0, q.x1), Mathf.Min(q.x2, q.x3)), mxx = Mathf.Max(Mathf.Max(q.x0, q.x1), Mathf.Max(q.x2, q.x3));
+                        float mnz = Mathf.Min(Mathf.Min(q.z0, q.z1), Mathf.Min(q.z2, q.z3)), mxz = Mathf.Max(Mathf.Max(q.z0, q.z1), Mathf.Max(q.z2, q.z3));
+                        double dx = Math.Max(0, Math.Max(mnx - x, x - mxx)), dz = Math.Max(0, Math.Max(mnz - z, z - mxz));
+                        if (dx * dx + dz * dz <= r * r) return true;
+                    }
+                }
             return false;
         }
         sealed class LgFan { public int node; public double cx, cz; public float cy; public double[] x, z; public float[] y; public ulong mouths; }
@@ -355,7 +377,7 @@ namespace PSXRacing.EditorTools
         static readonly List<LgStrand> lgStrands = new List<LgStrand>();
         static List<int>[] lgByEdge;
         static readonly List<LgFail> lgFails = new List<LgFail>();
-        static int lgTapNotes, lgQuads, lgPaintQuads, lgGlyphQuads, lgDoubleSpans, lgTiles, lgSeamSpans, lgMarks, lgSolidLane, lgKinkFacets, lgEndsTypeChange, lgEndsEdgeLine, lgCtlEqual, lgKinkCorners, lgStepCorners, lgMouthPassed, lgTerminalPassed, lgJointRetyped, lgGradeFacets, lgSharpJoins, lgEndsAtJunction;
+        static int lgTapNotes, lgQuads, lgPaintQuads, lgGlyphQuads, lgDoubleSpans, lgTiles, lgSeamSpans, lgMarks, lgSolidLane, lgKinkFacets, lgEndsTypeChange, lgEndsEdgeLine, lgCtlEqual, lgKinkCorners, lgStepCorners, lgMouthPassed, lgTerminalPassed, lgJointRetyped, lgGradeFacets, lgSharpJoins, lgEndsAtJunction, lgKinkGore;
         static double lgStretchedM, lgStripeM; static int lgStripeQuads, lgChannelChains;
         static CityMap lgMap; static CityMeshes.Trims lgTrims;
         static readonly CultureInfo LgInv = CultureInfo.InvariantCulture;
@@ -1022,6 +1044,9 @@ namespace PSXRacing.EditorTools
                     int jn = LgEndNode(e, r[i].s, LineGateRules.KinkCornerM);
                     if (jn >= 0 && map.nodeEdges[jn].Count != 2) { lgKinkCorners++; continue; }
                 }
+                // a gore's nose: a lane or edge line meeting the gore's own line at its V (second sample set: every
+                // kink of 6 deg and more on a freeway was one) - the gore's lines meet there, nothing bends
+                if (LgNearGore(r[i].x, r[i].z, e.YAt(r[i].s), LineGateRules.GoreNoseM)) { lgKinkGore++; continue; }
                 // the local maximum
                 bool peak = true;
                 for (int q = Math.Max(4, i - 3); q <= Math.Min(n - 5, i + 3) && peak; q++)
@@ -1389,7 +1414,7 @@ namespace PSXRacing.EditorTools
             lgMap = map;
             lgPieces = new List<LgPiece>[map.edges.Length]; lgSpans = new List<LgSpan>[map.edges.Length]; lgByEdge = new List<int>[map.edges.Length];
             lgGhosts.Clear(); lgFans.Clear(); lgStrands.Clear(); lgFails.Clear();
-            lgTapNotes = lgQuads = lgPaintQuads = lgGlyphQuads = lgDoubleSpans = lgTiles = lgSeamSpans = lgMarks = lgSolidLane = lgUntappedTris = lgKinkFacets = lgEndsTypeChange = lgEndsEdgeLine = lgCtlEqual = lgKinkCorners = lgStepCorners = lgMouthPassed = lgTerminalPassed = lgJointRetyped = lgGradeFacets = lgSharpJoins = lgEndsAtJunction = 0; lgStretchedM = 0; lgStripeM = 0; lgStripeQuads = 0; lgChannelChains = 0;
+            lgTapNotes = lgQuads = lgPaintQuads = lgGlyphQuads = lgDoubleSpans = lgTiles = lgSeamSpans = lgMarks = lgSolidLane = lgUntappedTris = lgKinkFacets = lgEndsTypeChange = lgEndsEdgeLine = lgCtlEqual = lgKinkCorners = lgStepCorners = lgMouthPassed = lgTerminalPassed = lgJointRetyped = lgGradeFacets = lgSharpJoins = lgEndsAtJunction = lgKinkGore = 0; lgStretchedM = 0; lgStripeM = 0; lgStripeQuads = 0; lgChannelChains = 0;
             lgPolys.Clear(); lgPolyGrid.Clear(); lgFanTap = null; lgBarV.Clear(); lgCurbV.Clear();
             var t = CityMeshes.ComputeTrims(map);
             lgTrims = t;
@@ -1805,7 +1830,7 @@ namespace PSXRacing.EditorTools
             Line($"  not judged for shape: {lgChannelChains} channelizing lines (solid white where the road's own layout has no line: a gore's side, a turning roadway's edge)");
             Line($"  read: {lgPolys.Count} pavement polygons ({lgUntappedTris} triangles of other emitters), {lgSeamSpans} span sides are seams with other pavement, {lgMarks} short marks, {lgSolidLane} solid lane / channelizing lines cut from the edge-line column; {lgSharpJoins} candidate joins refused for meeting at more than 45 deg (a gore's V tip)");
             Line($"  SURFACE census: {lgStretchedM:0} m of ribbon with a pavement strip stretched or squeezed past 1.25x; {lgStripeQuads} thin strips ({lgStripeM:0} m: the gap inside a double line, the strip beside a curb) drawn from a whole lane band - not failed; {lgDoubleSpans} spans drawn twice");
-            Line($"  passed by rule: {lgKinkFacets} curve facets (a deflection over 4 m chords gone over 8 / 16 m chords: a curve drawn as a polyline, or a facet within 2.5 cm of its curve); {lgGradeFacets} grade breaks gone over 20 / 40 m chords (a vertical curve drawn in facets); {lgTerminalPassed} pavement-edge moves at freeway ramp terminals within the AASHTO terminal taper ({LineGateRules.TerminalRate:0}:1); {lgKinkCorners} kinks and {lgStepCorners} pavement-edge steps at junction corners (15 m from the drawn end at a node of 1 or 3+ arms: the mouth strip and its curb return); {lgEndsTypeChange} line ends inside an edge and {lgJointRetyped} at a joint where another line of another pattern continues it (MUTCD 2009 3B.04 / 3A.06: a pattern change); {lgEndsAtJunction} line ends within 25 m of a junction (the stop line or crosswalk: MUTCD 2009 3B.16 / 3B.18); {lgEndsEdgeLine} edge-line ends inside an edge (MUTCD 2009 3B.06 / 3B.07: edge lines may stop at curbs, driveways, openings); {lgCtlEqual} side roads with no control meeting a road of their own class (MUTCD 2009 2B.04: the basic right-of-way rule); {lgMouthPassed} road mouths whose nearest solid line is the far side's, a centre yellow (a left turn) or a split's own yellow");
+            Line($"  passed by rule: {lgKinkFacets} curve facets (a deflection over 4 m chords gone over 8 / 16 m chords: a curve drawn as a polyline, or a facet within 2.5 cm of its curve); {lgGradeFacets} grade breaks gone over 20 / 40 m chords (a vertical curve drawn in facets); {lgTerminalPassed} pavement-edge moves at freeway ramp terminals within the AASHTO terminal taper ({LineGateRules.TerminalRate:0}:1); {lgKinkCorners} kinks ({lgKinkGore} more at a gore's nose) and {lgStepCorners} pavement-edge steps at junction corners (15 m from the drawn end at a node of 1 or 3+ arms: the mouth strip and its curb return); {lgEndsTypeChange} line ends inside an edge and {lgJointRetyped} at a joint where another line of another pattern continues it (MUTCD 2009 3B.04 / 3A.06: a pattern change); {lgEndsAtJunction} line ends within 25 m of a junction (the stop line or crosswalk: MUTCD 2009 3B.16 / 3B.18); {lgEndsEdgeLine} edge-line ends inside an edge (MUTCD 2009 3B.06 / 3B.07: edge lines may stop at curbs, driveways, openings); {lgCtlEqual} side roads with no control meeting a road of their own class (MUTCD 2009 2B.04: the basic right-of-way rule); {lgMouthPassed} road mouths whose nearest solid line is the far side's, a centre yellow (a left turn) or a split's own yellow");
         }
     }
 }
