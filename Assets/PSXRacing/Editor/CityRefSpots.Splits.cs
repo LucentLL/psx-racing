@@ -101,7 +101,7 @@ namespace PSXRacing.EditorTools
                             PSXScreenshotTool.ShotAs(cam, $"splits/{tag}_{ps.id}_{cond}", cp, cr);
                             if (cond == "night_rain") WeatherFx.PreviewClear();
                             shots++;
-                            log.Append($"{ps.id}\t{cond}\tcar ({pos.x:0.0},{pos.y:0.00},{pos.z:0.0}) hdg {ps.hdg:0.0}\tcam ({cp.x:0.0},{cp.y:0.00},{cp.z:0.0}) vfov {vfov:0.0}\te{(ei)}\tlens rain {System.Environment.GetEnvironmentVariable("PSX_LENS_RAIN") ?? "off"}\n");
+                            log.Append($"{ps.id}\t{cond}\tcar ({pos.x:0.0},{pos.y:0.00},{pos.z:0.0}) hdg {ps.hdg:0.0}\tcam ({cp.x:0.00},{cp.y:0.00},{cp.z:0.00}) vfov {vfov:0.00} rot ({cr.eulerAngles.x:0.00},{cr.eulerAngles.y:0.00},{cr.eulerAngles.z:0.00})\te{(ei)}\tlens rain {System.Environment.GetEnvironmentVariable("PSX_LENS_RAIN") ?? "off"}\n");
                         }
                     }
                 // (the road-lines round) PSX_SPLITS_POSETOPS = "ahead:height|ahead:height": for every pose, noon frames
