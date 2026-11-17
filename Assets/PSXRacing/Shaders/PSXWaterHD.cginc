@@ -669,6 +669,9 @@ fixed4 fragHD(v2f_hd i) : SV_Target
     // broken by the lace - lace where the current works the bank, never a
     // ribbon down it
     shoreFoam = lerp(shoreFoam, min(shoreFoam, 0.35) * smoothstep(0.45, 0.8, laceMix), moving);
+    // still water (a lake): a shore foams only in a blow - no surf line on a
+    // calm reservoir (the sea and running water as they were)
+    shoreFoam *= lerp(saturate((wspd - 4.0) / 4.0), 1.0, max(seaK, moving));
     float foamWant = max(max(max(shoreFoam, white), cap * cap), surf) * _WaterLook.z;
     // close up the foam is the lace; further out the lace is under a pixel
     // and its mips average it toward grey, so it becomes the even band it
