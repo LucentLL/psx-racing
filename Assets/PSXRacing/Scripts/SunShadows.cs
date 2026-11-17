@@ -386,6 +386,8 @@ namespace PSXRacing
         /// none sampled while set - what the sun's and the sky's maps cost.</summary>
         public static bool ForceOff;
         static bool forcedOff;
+        /// <summary>Measuring only (the perf tour's probe): the sun's map at this many texels a side (0 = the platform's).</summary>
+        public static int ResOverride;
 
         static void OnBeginCamera(ScriptableRenderContext ctx, Camera cam)
         {
@@ -598,7 +600,7 @@ namespace PSXRacing
             small = touch != null && touch.Visible;
             if (small != wasSmall) skyStale = true;
             // THE PC PROFILE: a 360 m square at 4096 - twice the reach, twice as sharp
-            Fit(ref map, small ? ResolutionTouch : PlatformProfile.PCShadows ? PlatformProfile.ShadowRes : Resolution, "PSXSunShadowMap");
+            Fit(ref map, ResOverride > 0 ? ResOverride : small ? ResolutionTouch : PlatformProfile.PCShadows ? PlatformProfile.ShadowRes : Resolution, "PSXSunShadowMap");
             if (Fit(ref skyMap, small ? SkyResolutionTouch : PlatformProfile.PCShadows ? PlatformProfile.SkyShadowRes : SkyResolution, "PSXSkyShadeMap")) skyStale = true;
             return true;
         }
