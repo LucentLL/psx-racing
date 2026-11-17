@@ -106,8 +106,8 @@ try {
 
     # ---- the metas Unity minted for new files, back to the worktree (commit them)
     foreach ($d in @("Assets\PSXRacing\Scripts\Checkpoints", "Assets\PSXRacing\Editor") + $dataDirs) {
-        $flt = if ($d -like "*ditor") { "Checkpoint*.meta" } else { "*.meta" }
-        foreach ($m in @(Get-ChildItem "$Sandbox$d" -Filter $flt -ErrorAction SilentlyContinue)) {
+        $flt = if ($d -like "*\Editor") { "Checkpoint*.meta" } else { "*.meta" }
+        foreach ($m in @(Get-ChildItem "$Sandbox\$d" -Filter $flt -ErrorAction SilentlyContinue)) {
             if (-not (Test-Path "$wt\$d\$($m.Name)") -and (Test-Path ("$wt\$d\" + $m.Name.Substring(0, $m.Name.Length - 5)))) {
                 Copy-Item $m.FullName "$wt\$d\$($m.Name)"; Write-Host "meta back: $d\$($m.Name)"
             }
