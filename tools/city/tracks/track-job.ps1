@@ -23,7 +23,10 @@ param(
     [Parameter(Mandatory = $true)][string]$Sandbox,
     [Parameter(Mandatory = $true)][ValidateSet("closures", "race", "cards", "eye", "scenes")][string]$Mode,
     [string]$Venue = "", [int]$Seconds = 420, [int]$MaxMinutes = 0, [string]$Spots = "", [string]$Label = "track",
-    [string]$Out = ""
+    [string]$Out = "",
+    # ONLY to re-run a race whose watched editor stopped on Unity's "Revert All Window Layouts" dialog
+    # (never press Continue there): the same race, hidden. Play tests are watched otherwise (owner's rule).
+    [switch]$NoWatch
 )
 $ErrorActionPreference = "Stop"
 $wt = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..")).Path
@@ -102,8 +105,9 @@ try {
         if (-not $Venue) { Write-Host "race: -Venue <id> (CltD1, I485WestRev ...)"; $code = 2; return }
         # a SANCTIONED event: its closures stand (a play check carries no event, =1 builds them for every city race)
         $env:PSX_TRACK_CLOSURES = "1"
-        $env:PSX_WATCH = "1"
+        $env:PSX_WATCH = if ($NoWatch) { "0" } else { "1" }
         $a = @("-ExecutionPolicy", "Bypass", "-File", "$wt\tools\race-play-check.ps1", "-Venue", $Venue, "-Seconds", "$Seconds", "-Finish", "-Traffic", "NONE")
+        if ($NoWatch) { $a += "-NoWatch" }
         if ($MaxMinutes -gt 0) { $a += @("-MaxMinutes", "$MaxMinutes") }
         & powershell @a 2>&1 | Out-Null
         $rep = "$Sandbox\PSXRacing_race_play_check.txt"

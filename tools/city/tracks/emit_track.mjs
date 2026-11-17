@@ -24,7 +24,7 @@
 // shutM before its end (a sprint). The game refuses a file routed on another graph (CityTracks.Register).
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { city, chainPoly, WT, toX, toZ } from './lib.mjs';
+import { city, chainPoly, routeVia, WT, toX, toZ } from './lib.mjs';
 import { CANDS } from './cands.mjs';
 import { tracksDir, readTracks, venueIdsOf } from './trackfiles.mjs';
 
@@ -54,6 +54,31 @@ const chain = cand.chain.map(([ei, dir]) => ({ ei, dir: dir < 0 ? -1 : 1 }));
 const fail = m => { console.error('FAIL ' + cid + ': ' + m); process.exit(1); };
 const from = c => c.dir === 1 ? C.edges[c.ei].a : C.edges[c.ei].b, to = c => c.dir === 1 ? C.edges[c.ei].b : C.edges[c.ei].a;
 for (const c of chain) if (!C.edges[c.ei]) fail('edge ' + c.ei + ' is not in this city');
+// a piece shorter than the sheet's 5 m sampling can be missing from its chain (S1: 2.6 m of Providence Road):
+// put back the one or two edges (25 m at most) that join the gap, the legal way round; any other gap fails below
+{
+  const at = new Map();
+  for (const e of C.edges) for (const n of [e.a, e.b]) { if (!at.has(n)) at.set(n, []); at.get(n).push(e); }
+  const steps = n => (at.get(n) || []).flatMap(e => [
+    ...(e.a === n ? [{ ei: e.index, dir: 1, to: e.b }] : []),
+    ...(e.b === n && !e.oneway ? [{ ei: e.index, dir: -1, to: e.a }] : [])]);
+  const join = (a, b) => {
+    for (const s1 of steps(a)) if (s1.to === b) return [s1];
+    for (const s1 of steps(a)) for (const s2 of steps(s1.to)) if (s2.to === b) return [s1, s2];
+    return null;
+  };
+  const end = c => c.dir === 1 ? C.edges[c.ei].b : C.edges[c.ei].a, beg = c => c.dir === 1 ? C.edges[c.ei].a : C.edges[c.ei].b;
+  for (let i = 1; i <= chain.length; i++) {
+    if (i === chain.length && !loop) break;
+    const prev = chain[i - 1], next = chain[i % chain.length];
+    if (end(prev) === beg(next)) continue;
+    const fix = join(end(prev), beg(next));
+    if (!fix || fix.reduce((a, q) => a + C.edges[q.ei].length, 0) > 25) continue;
+    chain.splice(i, 0, ...fix.map(q => ({ ei: q.ei, dir: q.dir })));
+    console.log(`${cid}: the chain's gap after edge ${prev.ei} joined by ${fix.map(q => q.ei + ' (' + C.edges[q.ei].length.toFixed(1) + ' m)').join(', ')}`);
+    i += fix.length;
+  }
+}
 for (let i = 1; i < chain.length; i++) if (to(chain[i - 1]) !== from(chain[i])) fail('the chain breaks at ' + i);
 if (loop && to(chain[chain.length - 1]) !== from(chain[0])) fail('the loop does not close');
 for (const c of chain) { const e = C.edges[c.ei]; if (e.oneway && c.dir !== 1) fail('edge ' + c.ei + ' (' + (e.name || 'ramp') + ') is driven against its one-way direction'); }
@@ -65,8 +90,18 @@ let s0 = 0;
 if (Math.abs(lengthM - cand.lengthM) > Math.max(5, cand.lengthM * 0.01)) {
   const cut = (CANDS.find(c => c.id === cid) || {}).cut;
   if (loop || !cut || cut.from == null) fail(`the chain is ${lengthM.toFixed(0)} m, the sheet says ${cand.lengthM} m, and it has no cut point`);
-  if (typeof cut.from === 'number') s0 = cut.from;
-  else {
+  if (typeof cut.from === 'number') {
+    // metres along the course's whole route (the export's own for a cut of one, else routed again from the
+    // sheet's waypoints, as analyze.mjs did): less the route's length before the chain's first edge
+    const def = CANDS.find(c => c.id === cid);
+    let full;
+    if (def.route) { const rt = (C.routes || []).find(x => x.id === def.route); full = rt.edges.map((ei, k) => ({ ei, dir: rt.dirs[k] < 0 ? -1 : 1 })); }
+    else full = routeVia(def.via.map(f => f()), { loop, fwy: !!def.fwy, ...(def.opts || {}) });
+    const k = full.findIndex(c => c.ei === chain[0].ei && c.dir === chain[0].dir);
+    if (k < 0) fail('the chain of the sheet does not start on its route');
+    let before = 0; for (let i = 0; i < k; i++) before += C.edges[full[i].ei].length;
+    s0 = Math.max(0, cut.from - before);
+  } else {
     const px = toX(cut.from.lon), pz = toZ(cut.from.lat);
     let best = 1e9, acc = 0;
     for (let i = 1; i < poly.length; i++) {
@@ -76,7 +111,8 @@ if (Math.abs(lengthM - cand.lengthM) > Math.max(5, cand.lengthM * 0.01)) {
       if (d < best) { best = d; s0 = acc + L * t; }
       acc += L;
     }
-    if (best > 30) fail(`the cut point is ${best.toFixed(0)} m off the chain`);
+    // the sheet's point is the ROUTE's nearest to it (analyze.mjs), not necessarily on it
+    if (best > 150) fail(`the cut point is ${best.toFixed(0)} m off the chain`);
     s0 = Math.max(0, s0 + (cut.from.d || 0));
   }
   if (s0 + cand.lengthM > lengthM + 5) fail(`the course (${cand.lengthM} m from ${s0.toFixed(0)} m) runs past its chain (${lengthM.toFixed(0)} m)`);
@@ -131,6 +167,15 @@ for (const t of readTracks(WT)) {
 if (existsSync(file) && !flag('force') && !flag('dry')) fail(file + ' exists (--force to write it again)');
 
 const km = x => (x / 1000).toFixed(1);
+// the posted limit: the start line road's, or (unknown there) the one most of the course is posted at, or 56 km/h
+const speedOf = () => {
+  if (lineEdge.speed) return Math.round(lineEdge.speed);
+  const w = new Map();
+  for (const c of chain) { const e = C.edges[c.ei]; if (e.speed) w.set(e.speed, (w.get(e.speed) || 0) + e.length); }
+  let best = 0, bw = 0;
+  for (const [sp, l] of w) if (l > bw) { bw = l; best = sp; }
+  return Math.round(best || 56);
+};
 const laps = +(opt('laps', loop ? Math.max(1, Math.min(4, Math.floor(14200 / lengthM))) : 1));
 const name = opt('name', cand.name);
 if (name.length > 30) fail(`the name "${name}" is ${name.length} characters, the menu fits 30: --name "SHORTER"`);
@@ -148,7 +193,7 @@ const venue = {
   id: venueId, name, blurb, label,
   host: opt('host', loop ? 'UptownLoop' : 'TryonSprint'),
   roadWidth: +lineEdge.profile.width.toFixed(1),
-  speedLimitKmh: +(opt('limit', Math.round(lineEdge.speed || 0))),
+  speedLimitKmh: +(opt('limit', speedOf())),
   laps, oneWay, reverse, noDelivery: 1,
   reverseName: reverse ? opt('rname', (name.length <= 27 ? name + ' II' : name)) : '',
   reverseLabel: reverse ? opt('rlabel', label) : '',
@@ -156,7 +201,7 @@ const venue = {
 };
 const route = {
   id: routeId, name: cand.name, loop: loop ? 1 : 0, oneway: oneWay,
-  roadWidth: venue.roadWidth, speed: lineEdge.speed || 0,
+  roadWidth: venue.roadWidth, speed: lineEdge.speed || venue.speedLimitKmh,
   lengthM: +lengthM.toFixed(1), startM: +startM.toFixed(1), finishM: +finishM.toFixed(1), pts,
   edges: chain.map(c => c.ei), dirs: chain.map(c => c.dir),
 };
