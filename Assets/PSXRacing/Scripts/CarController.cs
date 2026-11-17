@@ -688,16 +688,28 @@ namespace PSXRacing
         // when resting in place at the start of a race. This means tires don't
         // actually grip the roads."
         //
-        // They did not, below a walk. The lateral force is a SLIP model:
-        // slip = atan2(vLat, max(|vLong|, slipEpsilon)), force = C x slip, and
-        // then faded by |contact speed| / 0.6 so the solver does not buzz at a
-        // standstill. Both halves are proportional to the sideways speed, so
-        // together the force goes as vLat squared and is ZERO at rest: a car
-        // on a bank creeps down it at whatever speed makes that force equal
-        // gravity's share - sqrt(0.18 x bank / 11), 4 cm/s on a 10% bank, 80
-        // cm in 20 s. Only a car the parking hold had latched (lever, a
-        // buried pedal, half a second dead still) was held, and the hold gave
-        // way the instant a pedal or a nudge moved it.
+        // They did not, below a walk. Measured (Editor/GridGripCheck.cs,
+        // GripSim.cs), three ways:
+        //  1. THE PARKED CAR TURNED. The parking hold (TireForces) shared the
+        //     car's weight EVENLY over the four tyres and anchored only the
+        //     centre of mass. On a bank that is a couple about the CG on any
+        //     car that is not 50:50 front to rear, which only the hold's
+        //     velocity damper resisted: a steady yaw. On the Lake Lure grid
+        //     (a 10% bank) every car turned 22 degrees in 20 s of the
+        //     countdown, its corners moving 84 cm, while the centre stayed put;
+        //     40 degrees on Chimney Rock's 14% bend. That is "cars slide on
+        //     banked roads, even resting in place at the start of a race".
+        //  2. NO GRIP AT REST. The lateral force is a SLIP model: slip =
+        //     atan2(vLat, max(|vLong|, slipEpsilon)), force = C x slip, then
+        //     faded by |contact speed| / 0.6 so the solver does not buzz.
+        //     Both halves go with the sideways speed, so the force goes as its
+        //     square and is ZERO at rest: until the hold latched (and while a
+        //     car dropped onto its grid settled) the tyres held nothing.
+        //  3. THE CRAWL CHATTERED. Between about 0.15 and 0.9 m/s the slip
+        //     model is past its explicit stability limit (see StaticGripGone):
+        //     sideways speed flipped sign every other tick (lateral jerk ~1500
+        //     m/s^3 pulling away from the grid) and a car rolling slowly down
+        //     a banked grade walked 1-2.5 m sideways per 10 m.
         //
         // A real tyre at rest is a spring, not a damper: the tread in the
         // contact patch is stuck to the road and DEFLECTS (a few mm) until it
@@ -4048,8 +4060,8 @@ namespace PSXRacing
                 // a car that is not 50:50 front to rear was pushed round by a
                 // couple the anchor cannot see: 2F x (a - b) about the CG, a
                 // few hundred N.m, balanced only by the hold's velocity damper
-                // at a steady yaw of 0.02-0.03 rad/s - the RX-7 on the Lake Lure
-                // grid turned about 25 degrees in 20 s while its centre stayed
+                // at a steady yaw of about 0.02 rad/s - every car on the Lake
+                // Lure grid turned 22 degrees in 20 s while its centre stayed
                 // put. Four anchored patches cannot turn.
                 float vPlaneW = Mathf.Sqrt(vLong * vLong + vLat * vLat);
                 float staticW = StaticGripOn ? StaticGripWeight(vPlaneW) : 0f;
