@@ -106,10 +106,10 @@ sampler2D _CameraOpaqueTexture;        // URP's copy of the frame after the sky 
 #define HD_SPEC_MAX        5.0
 #define HD_RAIN_FADE_M     45.0     // rings beyond this are under a pixel...
 #define HD_RAIN_POCK       0.16     //   ...where the drops' pocks are a pale sheen (share toward the sky's grey)
-#define HD_RAIN_ROUGH      0.38     // the rain's roughness, at every distance
+#define HD_RAIN_ROUGH      0.25     // the rain's roughness, at every distance
 #define HD_RAIN_MIRROR     0.40     // the share of the mirror a downpour takes away (the rest is broken up: HD_RAIN_WOBBLE)
 #define HD_RAIN_WOBBLE     2.5      // a downpour breaks the mirror up this many times more (rings, rougher ripples)
-#define HD_RAIN_GREY       0.22     // how far a downpour greys the water toward the sky
+#define HD_RAIN_GREY       0.10     // how far a downpour greys the water toward the sky (near; more with the pocks far out)
 #define HD_SSR_STEPS       24       // (half beyond HD_SSR_FAR_STEPS_M)
 #define HD_SSR_FAR_STEPS_M 300.0
 #define HD_SSR_REFINE      5
@@ -546,7 +546,10 @@ fixed4 fragHD(v2f_hd i) : SV_Target
     // specular AA, capped); white water; and the rain, at every distance
     float3 dNx = ddx(N), dNy = ddy(N);
     float aaVar = lostVar + min(0.25 * (dot(dNx, dNx) + dot(dNy, dNy)) * HD_GEO_AA, HD_GEO_AA_MAX);
-    float rough = saturate(length(rip) * 2.2 + white + 2.2 * sqrt(aaVar) + rainK * HD_RAIN_ROUGH);
+    // (the slopes drawn and the slopes averaged away add as variances, not
+    // as a sum of their sizes: summed, a grazing river saturated to rough 1,
+    // a mirror blurred to grey - the pale sheet at Bat Cave)
+    float rough = saturate(sqrt(dot(rip, rip) + aaVar) * 2.2 + white + rainK * HD_RAIN_ROUGH);
 
     // ---- light ----
     float expo = PSXExposureGain();
