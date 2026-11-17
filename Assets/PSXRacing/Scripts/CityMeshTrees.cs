@@ -258,6 +258,15 @@ namespace PSXRacing.City
         /// the cards are baked at their mesh trees' size (a city tile re-bake; a stage scene pass with the B cards
         /// sized from their mesh variant): PSX_TREE_MATCH_CARDS=1 turns them on.</summary>
         public static bool CardAtlas = System.Environment.GetEnvironmentVariable("PSX_TREE_MATCH_CARDS") == "1";
+        /// <summary>Tools: the cards' kit atlas on or off now (CardAtlas for this component's life).</summary>
+        public void SetCardAtlas(bool on)
+        {
+            MatchCards(false);
+            bool keep = CardAtlas;
+            CardAtlas = on;
+            if (on) MatchCards(true);
+            CardAtlas = keep;
+        }
         /// <summary>The cards' light normal (PSX/Lit _PSXCrownCard): a share of the direction to the eye, and up.</summary>
         public static Vector2 CardLight = new Vector2(ReadF("PSX_TM_CARDN", 0.32f), ReadF("PSX_TM_CARDUP", 0.4f));
         /// <summary>The tile cards' albedo gain over the kit atlas: MEASURED (cardsA, 2026-11-17: Charlotte arterial from

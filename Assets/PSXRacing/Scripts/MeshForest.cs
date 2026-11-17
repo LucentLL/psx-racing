@@ -614,9 +614,11 @@ namespace PSXRacing
         /// detail fade from 1980 m), so past the 2.2 km far range no B card is drawn in the view at all; the land's
         /// far canopy is the forest there. PSX_TM_RING_M.</summary>
         public static float StageRingM = EnvM("PSX_TM_RING_M", 0f);
-        /// <summary>...and a city pool's (the live tiles: 9 x 9 of 256 m, corners at 1.63 km; CityFar's own far
-        /// trees beyond). PSX_TM_CITYRING_M.</summary>
-        public static float CityRingM = EnvM("PSX_TM_CITYRING_M", 2000f);
+        /// <summary>...and a city pool's. 0 (the default): as it is - the city camera's far plane is the live ring's
+        /// edge (CityWorld.RingFarM: 1012 m on the PC's baked 9 x 9 ring), so no tile card past the 1.2 km far range
+        /// is ever drawn in the view; the woods past the plane are CityFar's cards (the skyline's squeeze).
+        /// PSX_TM_CITYRING_M.</summary>
+        public static float CityRingM = EnvM("PSX_TM_CITYRING_M", 0f);
         /// <summary>THE MIRRORS: a chunk out of the view's cone this near (m, its nearest point) puts its trees'
         /// far cards in the other cameras' list (the mirrors, the paint's reflection faces) and hides its cards;
         /// past it the cards stand, as before. PSX_TM_OTHER_M.</summary>
@@ -646,6 +648,16 @@ namespace PSXRacing
         readonly System.Collections.Generic.Dictionary<Material, Material> bCardCopy = new System.Collections.Generic.Dictionary<Material, Material>();
         int bCardDress = -1;
         public bool BCardsMatched => bCardDress >= 0;
+
+        /// <summary>Tools (two forests of one scene share the far forest's B renderers): this forest's B cards put
+        /// back in the dress's own material; the next dress applied matches them again.</summary>
+        public void RestoreBCards()
+        {
+            if (bCardR == null) return;
+            for (int i = 0; i < bCardR.Length; i++)
+                if (bCardR[i] != null) bCardR[i].sharedMaterial = SeasonDress.Substitute(bCardBase[i]);
+            bCardDress = -1;
+        }
 
         void MatchBCards(int di)
         {

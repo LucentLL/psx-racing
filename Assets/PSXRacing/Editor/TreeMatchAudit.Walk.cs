@@ -486,6 +486,77 @@ namespace PSXRacing.EditorTools
             return () => { MeshForest.StageRingM = r; MeshForest.CityRingM = c; MeshForest.OtherRangeM = o; MeshForest.NewFarLevels = nf; };
         }
 
+        /// <summary>The switches for one side of an A/B (set before that forest's Init; put back by the caller):
+        ///   match - A the packs' far sheets, B the tree match (cards as before: the merged default of ba49c506);
+        ///   full  - A the packs' far sheets, B the tree match with PSX_TREE_MATCH_CARDS (this branch);
+        ///   ring  - A the tree match, B with PSX_TREE_MATCH_CARDS;
+        ///   atlas - both with PSX_TREE_MATCH_CARDS, A with no tree out of the cone in the other cameras' list
+        ///           (OtherRangeM 0: the cards in the kit's atlas alone), B with them (PSX_TM_OTHER_M).
+        /// <paramref name="control"/>: B is A.</summary>
+        internal static void AbSet(string kind, int side, bool control, float otherKnob)
+        {
+            int m = control ? 0 : side;
+            MeshForest.OtherRangeM = otherKnob;
+            switch (kind)
+            {
+                case "full": MeshForest.TreeMatch = m == 1; MeshForest.MatchCardsOn = m == 1; break;
+                case "ring": MeshForest.TreeMatch = true; MeshForest.MatchCardsOn = m == 1; break;
+                case "atlas": MeshForest.TreeMatch = true; MeshForest.MatchCardsOn = true; if (m == 0) MeshForest.OtherRangeM = 0f; break;
+                default: MeshForest.TreeMatch = m == 1; MeshForest.MatchCardsOn = false; break;
+            }
+        }
+
+        /// <summary>THE OTHER CAMERA'S COST, A against B: the camera (a mirror, a reflection face) rendered into its own
+        /// target after each forward cull, ABBA, at each "W x H x FOV" of PSX_TM_MIRRORS (default the cockpit's rear-view
+        /// mirror 256x64x30, a door mirror 192x64x30 and one reflection face 512x512x90), the frame waited for.</summary>
+        internal static string MirrorCost(Camera rear, System.Func<int, MeshForest> mode, System.Action<MeshForest> forward, Texture2D px, int rounds)
+        {
+            var sb = new StringBuilder();
+            float keepFov = rear.fieldOfView, keepAspect = rear.aspect;
+            // (PSX_TM_MIRRORFOL=1, the default: the Foliage layer alone - the forest's draws and the cards - so the
+            // editor's ~38 ms of everything else in a camera's render does not bury the difference)
+            int keepMask = rear.cullingMask;
+            bool fol = Env("PSX_TM_MIRRORFOL", "1") == "1";
+            if (fol) rear.cullingMask = 1 << 10;
+            foreach (var spec in Env("PSX_TM_MIRRORS", "256x64x30,192x64x30,512x512x90").Split(','))
+            {
+                var q = spec.Split('x');
+                if (q.Length != 3 || !int.TryParse(q[0], out int w) || !int.TryParse(q[1], out int h) || !float.TryParse(q[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float fov)) continue;
+                var rt = new RenderTexture(w, h, 24, RenderTextureFormat.ARGB32);
+                var ms = new[] { new List<double>(), new List<double>() };
+                rear.targetTexture = rt; rear.fieldOfView = fov; rear.aspect = w / (float)h;
+                try
+                {
+                    for (int k = 0; k < rounds * 2; k++)
+                    {
+                        int m = (k + k / 2) & 1;
+                        var f = mode(m);
+                        for (int i = 0; i < 3; i++) { forward(f); f.DrawOtherNow(rear); rear.Render(); }
+                        double t = 0;
+                        const int N = 24;
+                        for (int i = 0; i < N; i++)
+                        {
+                            forward(f); f.DrawOtherNow(rear);
+                            var sw = System.Diagnostics.Stopwatch.StartNew();
+                            rear.Render();
+                            RenderTexture.active = rt; px.ReadPixels(new Rect(0, 0, 1, 1), 0, 0); px.Apply(); RenderTexture.active = null;
+                            t += sw.Elapsed.TotalMilliseconds;
+                        }
+                        ms[m].Add(t / N);
+                    }
+                }
+                finally { rear.targetTexture = null; rear.fieldOfView = keepFov; rear.aspect = keepAspect; Object.DestroyImmediate(rt); }
+                var pd = new List<double>();
+                for (int p = 0; p < rounds && p < ms[0].Count && p < ms[1].Count; p++) pd.Add(ms[1][p] - ms[0][p]);
+                pd.Sort();
+                double pmed = pd.Count == 0 ? 0 : pd.Count % 2 == 1 ? pd[pd.Count / 2] : 0.5 * (pd[pd.Count / 2 - 1] + pd[pd.Count / 2]);
+                var a = new List<double>(ms[0]); a.Sort(); var b = new List<double>(ms[1]); b.Sort();
+                sb.Append($"    the other camera's render {w} x {h}, {fov:0} deg{(fol ? " [FOLIAGE LAYER ONLY]" : "")} ({rounds} rounds x 24, ABBA): A {a[a.Count / 2]:0.000} ms, B {b[b.Count / 2]:0.000} ms, paired median {(pmed >= 0 ? "+" : "")}{pmed:0.000} ms [{string.Join(" ", pd.ConvertAll(x => x.ToString("0.00", CultureInfo.InvariantCulture)))}]\n");
+            }
+            rear.cullingMask = keepMask;
+            return sb.ToString();
+        }
+
         static Dictionary<int, long[]> ParseTally(string s)
         {
             var o = new Dictionary<int, long[]>();
@@ -554,19 +625,15 @@ namespace PSXRacing.EditorTools
                 var forestB = copy.GetComponent<MeshForest>();
                 // (PSX_TM_CONTROL=1: B is the copy WITHOUT the match - the method's own bias, A against A)
                 bool control = Env("PSX_TM_CONTROL", "0") == "1";
-                // (PSX_TM_AB=ring: both forests with the tree match, A without and B with the far ring and the mirrors
-                // in the trees' own far cards - MeshForest.MatchCardsOn - the tree-cost round's A/B)
-                // (PSX_TM_AB=full: A the packs' far sheets and the old cards, B the tree match with the ring - this branch's
-                // default against PC49's forest)
+                // (PSX_TM_AB = match | full | ring | atlas: AbSet)
                 string abMode = Env("PSX_TM_AB", "match");
-                bool ringAB = abMode == "ring", fullAB = abMode == "full";
                 bool keepCards = MeshForest.MatchCardsOn;
-                MeshForest.TreeMatch = ringAB; MeshForest.MatchCardsOn = false; forest.DrawNow(cam, true);
-                MeshForest.TreeMatch = ringAB || !control; MeshForest.MatchCardsOn = (ringAB || fullAB) && !control; forestB.DrawNow(cam, true);
-                MeshForest.TreeMatch = keepMatch; MeshForest.MatchCardsOn = keepCards;
-                log.Append(ringAB || fullAB
-                    ? $"[{abMode}] forest A ({forest.MatchCount} match species, cards as before: far range {forest.farRange:0} m): ring {forest.RingOn}; forest B ({forestB.MatchCount} match species, {(control ? "CONTROL" : "the far ring and mirrors in the trees' own far cards")}: far range {forestB.farRange:0} m): ring {forestB.RingOn}; dress {Seasons.DressNames[dress]}\n"
-                    : $"forest A (packs' far sheets): {forest.MatchCount} match species; forest B ({(control ? "CONTROL: the copy, no match" : "tree match")}): {forestB.MatchCount} match species; dress {Seasons.DressNames[dress]}\n");
+                float otherKnob = MeshForest.OtherRangeM;
+                AbSet(abMode, 0, control, otherKnob); forest.DrawNow(cam, true);
+                AbSet(abMode, 1, control, otherKnob); forestB.DrawNow(cam, true);
+                MeshForest.TreeMatch = keepMatch; MeshForest.MatchCardsOn = keepCards; MeshForest.OtherRangeM = otherKnob;
+                log.Append($"[{abMode}{(control ? ", CONTROL" : "")}] forest A: {forest.MatchCount} match species, cards matched {forest.RingOn}, far range {forest.farRange:0} m; " +
+                           $"forest B: {forestB.MatchCount} match species, cards matched {forestB.RingOn}, far range {forestB.farRange:0} m; other cameras' trees to {otherKnob:0} m; dress {Seasons.DressNames[dress]}\n");
                 // (PSX_TM_NOFAR=1: neither forest draws its far level - the mesh levels' share of the difference alone)
                 if (Env("PSX_TM_NOFAR", "0") == "1")
                 {
@@ -581,6 +648,8 @@ namespace PSXRacing.EditorTools
                     // (the cards the two forests share - the far forest's B chunks stand outside the forest's own
                     // object - as THIS forest's chunk pass wants them: the other one may have left them otherwise)
                     var mf = m == 1 ? forestB : forest;
+                    // (and in the material THIS forest gives them: the other may have matched them to the kit's atlas)
+                    forest.RestoreBCards(); forestB.RestoreBCards();
                     mf.CardsNow();
                     return mf;
                 }
@@ -637,7 +706,7 @@ namespace PSXRacing.EditorTools
             bool keepDyn = SkyModePrefs.Dynamic, keepMatch = MeshForest.TreeMatch, keepCards = MeshForest.MatchCardsOn;
             var restoreKnobs = RunKnobs();
             GameObject copy = null, rearGo = null;
-            RenderTexture fwdRt = null, rearRt = null;
+            RenderTexture fwdRt = null;
             try
             {
                 int ti = TrackCatalog.IndexOf(id);
@@ -668,13 +737,15 @@ namespace PSXRacing.EditorTools
                 copy = Object.Instantiate(forest.gameObject, forest.transform.parent);
                 copy.name = forest.gameObject.name + " (ring copy)";
                 var forestB = copy.GetComponent<MeshForest>();
-                MeshForest.TreeMatch = true;
-                MeshForest.MatchCardsOn = false; forest.DrawNow(cam, true);
-                MeshForest.MatchCardsOn = true; forestB.DrawNow(cam, true);
-                MeshForest.TreeMatch = keepMatch; MeshForest.MatchCardsOn = keepCards;
+                // (PSX_TM_AB = ring (default here) | atlas | full: AbSet)
+                string abMode = Env("PSX_TM_AB", "ring");
+                float otherKnob = MeshForest.OtherRangeM;
+                AbSet(abMode, 0, false, otherKnob); forest.DrawNow(cam, true);
+                AbSet(abMode, 1, false, otherKnob); forestB.DrawNow(cam, true);
+                MeshForest.TreeMatch = keepMatch; MeshForest.MatchCardsOn = keepCards; MeshForest.OtherRangeM = otherKnob;
                 forest.gameObject.layer = FoliageL; copy.layer = FoliageL;
-                log.Append($"forest A (cards as before): {forest.MatchCount} match species, ring {forest.RingOn}, far range {forest.farRange:0} m; " +
-                           $"forest B: ring {forestB.RingOn} (other cameras' trees to {MeshForest.OtherRangeM:0} m out of the cone), far range {forestB.farRange:0} m\n");
+                log.Append($"[{abMode}] forest A: {forest.MatchCount} match species, cards matched {forest.RingOn}, far range {forest.farRange:0} m; " +
+                           $"forest B: {forestB.MatchCount} match species, cards matched {forestB.RingOn} (other cameras' trees to {otherKnob:0} m out of the cone), far range {forestB.farRange:0} m\n");
                 MeshForest Mode(int m)
                 {
                     copy.SetActive(m == 1);
@@ -682,6 +753,8 @@ namespace PSXRacing.EditorTools
                     // (the cards the two forests share - the far forest's B chunks stand outside the forest's own
                     // object - as THIS forest's chunk pass wants them: the other one may have left them otherwise)
                     var mf = m == 1 ? forestB : forest;
+                    // (and in the material THIS forest gives them: the other may have matched them to the kit's atlas)
+                    forest.RestoreBCards(); forestB.RestoreBCards();
                     mf.CardsNow();
                     return mf;
                 }
@@ -694,7 +767,6 @@ namespace PSXRacing.EditorTools
                 rear.aspect = 16f / 9f;
                 if (StageCulling.LayerDistances != null) rear.layerCullDistances = StageCulling.LayerDistances;
                 fwdRt = new RenderTexture(320, 180, 24, RenderTextureFormat.ARGB32);
-                rearRt = new RenderTexture(1280, 720, 24, RenderTextureFormat.ARGB32);
                 var keepTarget = cam.targetTexture;
                 var px = new Texture2D(1, 1, TextureFormat.RGBA32, false);
                 void Forward(MeshForest f) { f.DrawNow(cam, true); cam.targetTexture = fwdRt; cam.Render(); cam.targetTexture = keepTarget; }
@@ -735,34 +807,8 @@ namespace PSXRacing.EditorTools
                         log.Append($"  {id} {ms.Trim()} m {dn} mirror TRUTH (the forest turned round): {stat[2].txt}\n");
                         for (int m = 0; m < 2; m++)
                             log.Append($"    {(m == 0 ? "A" : "B")} against the truth: cover {stat[m].c / Mathf.Max(1e-5f, stat[2].c):0.00} x -> {TwoWays(stat[m].c, stat[m].h, stat[m].s, stat[m].l, stat[2].c, stat[2].h, stat[2].s, stat[2].l)}\n");
-                        // THE MIRROR'S COST: its own render (1280 x 720) after each forward cull, ABBA
-                        var msA = new List<double>(); var msB = new List<double>();
-                        rear.targetTexture = rearRt;
-                        try
-                        {
-                            for (int k = 0; k < rounds * 2; k++)
-                            {
-                                int m = (k + k / 2) & 1;
-                                var f = Mode(m);
-                                for (int i = 0; i < 3; i++) { Forward(f); f.DrawOtherNow(rear); rear.Render(); }
-                                double t = 0;
-                                const int N = 24;
-                                for (int i = 0; i < N; i++)
-                                {
-                                    Forward(f); f.DrawOtherNow(rear);
-                                    var sw = System.Diagnostics.Stopwatch.StartNew();
-                                    rear.Render();
-                                    RenderTexture.active = rearRt; px.ReadPixels(new Rect(0, 0, 1, 1), 0, 0); px.Apply(); RenderTexture.active = null;
-                                    t += sw.Elapsed.TotalMilliseconds;
-                                }
-                                (m == 0 ? msA : msB).Add(t / N);
-                            }
-                        }
-                        finally { rear.targetTexture = null; }
-                        msA.Sort(); msB.Sort();
-                        double medA = msA[msA.Count / 2], medB = msB[msB.Count / 2];
-                        log.Append($"    the mirror's render (1280 x 720, {rounds} rounds x 24, ABBA): A {medA:0.00} ms [{string.Join(" ", msA.ConvertAll(x => x.ToString("0.00", CultureInfo.InvariantCulture)))}], " +
-                                   $"B {medB:0.00} ms [{string.Join(" ", msB.ConvertAll(x => x.ToString("0.00", CultureInfo.InvariantCulture)))}], {(medB - medA >= 0 ? "+" : "")}{medB - medA:0.00} ms\n");
+                        // THE MIRROR'S COST: its own render after each forward cull, ABBA, at each size and lens asked
+                        log.Append(MirrorCost(rear, Mode, Forward, px, rounds));
                     }
                 }
                 Object.DestroyImmediate(px);
@@ -775,7 +821,6 @@ namespace PSXRacing.EditorTools
                 if (copy != null) Object.DestroyImmediate(copy);
                 if (rearGo != null) Object.DestroyImmediate(rearGo);
                 if (fwdRt != null) Object.DestroyImmediate(fwdRt);
-                if (rearRt != null) Object.DestroyImmediate(rearRt);
                 MeshForest.TreeMatch = keepMatch; MeshForest.MatchCardsOn = keepCards; restoreKnobs();
                 MeshForest.LodEyeOn = false; MeshForest.MeshTreesOn = true;
                 Seasons.Forced = null; Seasons.Invalidate();
