@@ -154,7 +154,7 @@ namespace PSXRacing.City
         static void ClearSplitFrames()
         {
             splitFrameEdge.Clear(); splitFrameEdge2.Clear(); SplitFrames.Clear(); SplitSkipped.Clear(); splitNoseNodes.Clear(); splitNodeDir.Clear(); SplitNoseTable.Clear();
-            tightTwinEdges.Clear(); tightTwinNodes.Clear(); TightTwinLog.Clear(); TightTwinPairs = 0; TightTwinEdgeCount = 0; TightTwinM = 0f; TwinOwnBlends = 0; TwinOuterLanes = 0; twinOuterEdges.Clear();
+            tightTwinEdges.Clear(); tightTwinNodes.Clear(); TightTwinLog.Clear(); TightTwinPairs = 0; TightTwinEdgeCount = 0; TightTwinM = 0f; TwinPruned = 0; TwinOwnBlends = 0; TwinOuterLanes = 0; twinOuterEdges.Clear();
             SplitProfiled = 0; SplitUEases = 0; PhaseCLonger = 0; PhaseCCurving = 0; PhaseCJunctionCap = 0; PhaseCDevCap = 0; PhaseCSteepEnd = 0; PhaseCEndShortened = 0;
         }
         public static SplitFrame SplitFrameOf(int edge) => splitFrameEdge.Count > 0 && splitFrameEdge.TryGetValue(edge, out var f) ? f : null;
@@ -1081,6 +1081,51 @@ namespace PSXRacing.City
             return true;
         }
 
+        public static int TwinPruned;
+        /// <summary>True when at every 20 m from 40 m to the chain's end along A the mapped lane bands (the export's offset in) stand
+        /// more than TwinPruneM apart.</summary>
+        const float TwinPruneM = 4.5f;
+        static bool TwinClear(CityMap map, List<int> chA, List<int> chB, int node, float len)
+        {
+            int checks = 0;
+            for (float d = TightPastFanM; d <= Mathf.Min(420f, len - 2f); d += 20f)
+            {
+                if (!ChainPointBand(map, chA, node, d, out var pa, out float ha)) return false;
+                // B's nearest sample, coarse: walk B every 4 m
+                float best = float.MaxValue, hb = 0f;
+                for (float e = Mathf.Max(0f, d - 40f); e <= d + 40f; e += 4f)
+                {
+                    if (!ChainPointBand(map, chB, node, e, out var pb, out float h)) break;
+                    float dd = (pa - pb).sqrMagnitude;
+                    if (dd < best) { best = dd; hb = h; }
+                }
+                if (best == float.MaxValue) return false;
+                if (Mathf.Sqrt(best) - ha - hb <= TwinPruneM) return false;
+                checks++;
+            }
+            return checks > 0;
+        }
+        static bool ChainPointBand(CityMap map, List<int> chain, int node, float d, out Vector2 p, out float half)
+        {
+            p = default; half = 0f;
+            int from = node; float d0 = 0f;
+            foreach (int ei in chain)
+            {
+                var e = map.edges[ei];
+                bool fwd = e.a == from;
+                if (d <= d0 + e.length)
+                {
+                    float s = fwd ? d - d0 : e.length - (d - d0);
+                    var t = e.TangentAt(s); var nl2 = new Vector2(-t.y, t.x);
+                    half = 0.5f * (e.width - e.shl - e.shr);
+                    p = e.PointAt(s) + nl2 * e.lmOff;
+                    return true;
+                }
+                d0 += e.length; from = fwd ? e.b : e.a;
+            }
+            return false;
+        }
+
         static void BuildTightTwins(CityMap map, List<Ease>[] add, System.Func<CityMap.Edge, int, int> partner, Dictionary<int, Split> splitAt, HashSet<int> splitNodes, HashSet<long> refugeEnds)
         {
             var chA = new List<int>(16); var chB = new List<int>(16);
@@ -1097,6 +1142,9 @@ namespace PSXRacing.City
                 // the pair made already from its other end: this node's split is a tight twin's too
                 if (tightTwinEdges.Contains(sp.a) && tightTwinEdges.Contains(sp.b)) { tightTwinNodes.Add(sp.node); continue; }
                 if (tightTwinEdges.Contains(sp.a) || tightTwinEdges.Contains(sp.b)) continue;
+                // (the cost) a pair whose mapped lane bands stand well clear past the fan is no twin: skip it before the
+                // sampled lines (the eases made so far move a carriageway a lane at most)
+                if (TwinClear(map, chA, chB, sp.node, Mathf.Min(lenA, lenB))) { TwinPruned++; continue; }
                 var LA = TwinLine(map, add, chA, sp.node, 1f); var LB = TwinLine(map, add, chB, sp.node, 1f);
                 // tight past the mapped fan: the shortfall's run from TightPastFanM on (half the pair on a short one)
                 float past = Mathf.Min(TightPastFanM, 0.5f * Mathf.Min(lenA, lenB)), run = 0f, worst = 0f, runAll = 0f;
