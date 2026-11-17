@@ -17,7 +17,7 @@
 # new files copied back to the worktree (commit them); our own lock released, whatever happened.
 param(
     [Parameter(Mandatory = $true)][string]$Sandbox,
-    [Parameter(Mandatory = $true)][ValidateSet("cpselftest", "race")][string]$Mode,
+    [Parameter(Mandatory = $true)][ValidateSet("cpselftest", "race", "cards", "lifeselftest")][string]$Mode,
     [string]$Venue = "I485West", [int]$Seconds = 900, [int]$MaxMinutes = 0, [string]$Hour = "morning",
     [string]$Weather = "", [string]$Traffic = "NONE", [int]$Field = 8, [int]$Laps = 0, [string]$CpRaces = "1",
     [string]$CpTest = "", [switch]$Shots, [string]$Label = "cp", [string]$Out = "", [string]$Extra = "",
@@ -78,6 +78,35 @@ try {
         Select-String -Path $log -Pattern "error CS" -ErrorAction SilentlyContinue | Select-Object -First 8 | ForEach-Object { $_.Line }
         if (Test-Path $rep) { Copy-Item $rep "$Out\cp_selftest.txt" -Force; Get-Content $rep }
         else { Write-Host "NO REPORT"; Get-Content $log -Tail 25; $code = 1 }
+    }
+    elseif ($Mode -eq "cards") {
+        # the race cards (CityMapPreview: every city venue's card over the whole-city map), checkpoint mode on
+        $env:PSX_CP_RACES = $CpRaces
+        $shots = "$Sandbox\Screenshots"
+        Get-ChildItem $shots -Filter "citymap_*.png" -ErrorAction SilentlyContinue | Remove-Item -Force
+        $log = "$Sandbox\cp_cards.log"
+        $ok = Invoke-UnityJob -Log $log -MaxMinutes $mm -UnityArgs @("-quit", "-batchmode", "-projectPath", $Sandbox,
+            "-executeMethod", "PSXRacing.EditorTools.CityMapPreview.Capture", "-logFile", $log, "-accept-apiupdate")
+        Select-String -Path $log -Pattern "error CS|Exception" -ErrorAction SilentlyContinue | Select-Object -First 6 | ForEach-Object { $_.Line }
+        New-Item -ItemType Directory -Force "$Out\cards_$Label" | Out-Null
+        Get-ChildItem $shots -Filter "citymap_*.png" -ErrorAction SilentlyContinue | Copy-Item -Destination "$Out\cards_$Label" -Force
+        Write-Host ("cards: " + (Get-ChildItem "$Out\cards_$Label" -Filter "citymap_*.png").Count + " pictures in $Out\cards_$Label")
+    }
+    elseif ($Mode -eq "lifeselftest") {
+        # the LifeSim self-test (batch), on the code's defaults plus -CpRaces
+        $env:PSX_CP_RACES = $CpRaces
+        $rep = "$Sandbox\PSXRacing_selftest_log.txt"
+        Remove-Item $rep -ErrorAction SilentlyContinue
+        $log = "$Sandbox\cp_lifeselftest.log"
+        $ok = Invoke-UnityJob -Log $log -MaxMinutes ([Math]::Max($mm, 30)) -UnityArgs @("-quit", "-batchmode", "-nographics", "-projectPath", $Sandbox,
+            "-executeMethod", "PSXRacing.EditorTools.LifeSimSelfTest.Run", "-logFile", $log, "-accept-apiupdate")
+        if (Test-Path $rep) {
+            Copy-Item $rep "$Out\lifeselftest_$Label.txt" -Force
+            $fails = @(Select-String -Path $rep -Pattern "^\s*FAIL" | ForEach-Object { $_.Line.Trim() })
+            Write-Host ("life self-test: " + $fails.Count + " FAIL lines; " + ((Get-Content $rep -Tail 1) + ""))
+            $fails | Select-Object -First 30 | ForEach-Object { "  " + $_ }
+        }
+        else { Write-Host "NO REPORT"; Get-Content $log -Tail 20; $code = 1 }
     }
     elseif ($Mode -eq "race") {
         $env:PSX_CP_RACES = $CpRaces
