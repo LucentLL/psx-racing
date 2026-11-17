@@ -82,7 +82,7 @@ namespace PSXRacing
         public static bool ForceClassic
         {
             get => forceClassic;
-            set { if (forceClassic == value) return; forceClassic = value; Refresh(); }
+            set { if (forceClassic == value) return; forceClassic = value; Refresh(false); }
         }
 
         static int seaScene = int.MinValue;
@@ -178,11 +178,11 @@ namespace PSXRacing
 
         /// <summary>The WATER row changed: the keyword, the queues and the
         /// copies follow at once (no restart).</summary>
-        public static void Refresh()
+        public static void Refresh(bool say = true)
         {
             RestoreQueues();
             ApplyKeyword();
-            Debug.Log("[WaterLook] water " + (On ? "HD" : "CLASSIC") + " (VISUALS > WATER)");
+            if (say) Debug.Log("[WaterLook] water " + (On ? "HD" : "CLASSIC") + " (VISUALS > WATER)");
         }
 
         // ---- is there water in this camera's view? ----
