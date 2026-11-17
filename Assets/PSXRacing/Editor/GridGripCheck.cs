@@ -98,6 +98,15 @@ namespace PSXRacing.EditorTools
             RaceHandoff.CarSpecId = cars[b].id;
             RaceHandoff.OpponentSpecIds = cars[b + 1].id + ";" + cars[b + 2].id + ";" + cars[b + 3].id;
             RaceHandoff.OpponentSkills = "1.0;0.95;0.9";
+            // PSX_GRIP_LAPONLY=1: the at-speed telemetry alone, SOLO from a
+            // ROLLING start (60 km/h): no grid, no launch, no rivals to tangle
+            // with - the cleanest before/after of the handling at speed, since
+            // nothing in it ever goes below the static grip's 2 m/s.
+            if (System.Environment.GetEnvironmentVariable("PSX_GRIP_LAPONLY") == "1")
+            {
+                RaceHandoff.Solo = true;
+                RaceHandoff.RollingStartKmh = 60f;
+            }
             string pick = System.Environment.GetEnvironmentVariable("PSX_GRIP_CARS");
             if (!string.IsNullOrEmpty(pick))
             {
@@ -278,6 +287,15 @@ namespace PSXRacing.EditorTools
                 GridGripCheck.Line($"    {Role(c),-6} {c.name}  {c.massKg:0} kg");
             var stuck = rm.playerCar.GetComponent<StuckRecovery>();
             if (stuck != null) stuck.enabled = false;
+            if (System.Environment.GetEnvironmentVariable("PSX_GRIP_LAPONLY") == "1")
+            {
+                float lapOnly = 120f;
+                float.TryParse(System.Environment.GetEnvironmentVariable("PSX_GRIP_LAP") ?? "120", NumberStyles.Float, Inv, out lapOnly);
+                if (lapOnly <= 0f) lapOnly = 120f;
+                yield return Lap(cars, lapOnly, rolling: true);
+                Finish();
+                yield break;
+            }
 
             // PSX_GRIP_SHOTS=1 (a run WITH graphics): a frame strip of the
             // game's own hold, from overhead, at four moments of the watch.
@@ -585,10 +603,10 @@ namespace PSXRacing.EditorTools
         /// <summary>The race goes live with the player on autopilot; the
         /// player's telemetry for <paramref name="seconds"/> after the green.
         /// </summary>
-        IEnumerator Lap(List<CarController> cars, float seconds)
+        IEnumerator Lap(List<CarController> cars, float seconds, bool rolling = false)
         {
             GameMode(cars);
-            foreach (var c in cars) c.TeleportTo(gridPos[c], gridRot[c]);
+            if (!rolling) foreach (var c in cars) c.TeleportTo(gridPos[c], gridRot[c]);
             Time.timeScale = 2f;
             var me = rm.playerCar;
             var input = me.GetComponent<PlayerCarInput>();
