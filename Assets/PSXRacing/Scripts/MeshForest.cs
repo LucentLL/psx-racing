@@ -620,7 +620,7 @@ namespace PSXRacing
         /// (226A), 2.1 k -> 11.5 k (Charlotte); the mirror's own render at 256 x 64, 192 x 64 and a 512 x 512
         /// reflection face, A/B in one process: -0.04 .. +0.18 ms (stage), -0.57 .. +0.39 ms (city), inside the
         /// editor's noise. "0": the retro billboards and the old cards in the mirrors, as before.</summary>
-        public static bool MatchCardsOn = System.Environment.GetEnvironmentVariable("PSX_TREE_MATCH_CARDS") != "0";
+        public static bool MatchCardsOn = System.Environment.GetEnvironmentVariable("PSX_TREE_MATCH_CARDS") == "1";
         /// <summary>THE FAR RING on a stage: its far cards drawn to this distance (m) when <see cref="RingOn"/>, in
         /// place of the B cards past the far range. 0 (the default): the far range as it is - on the PC profile the
         /// stage camera ends every layer but the land at the far ground's edge (StageCulling: 2240 m on NC 226A, the

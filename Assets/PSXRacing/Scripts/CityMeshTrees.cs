@@ -263,7 +263,7 @@ namespace PSXRacing.City
         // left in cards - CityFar's far woods past the plane, a tile before its fit - wears the kit's own trees, so
         // the far woods are bare in winter. MEASURED in the mirror (Charlotte arterial, cards / the trees' own far
         // cards): cover 0.94 winter, 0.97 fall.
-        public static bool CardAtlas = System.Environment.GetEnvironmentVariable("PSX_TREE_MATCH_CARDS") != "0";
+        public static bool CardAtlas = System.Environment.GetEnvironmentVariable("PSX_TREE_MATCH_CARDS") == "1";
         /// <summary>Tools: the cards' kit atlas on or off now (CardAtlas for this component's life).</summary>
         public void SetCardAtlas(bool on)
         {
