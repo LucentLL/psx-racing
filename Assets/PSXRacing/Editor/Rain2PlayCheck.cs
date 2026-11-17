@@ -242,6 +242,21 @@ namespace PSXRacing.EditorTools
             ChaseCamera.PreviewView(ChaseCamera.View.Chase);
             for (float t = 0f; t < 4f; t += Time.unscaledDeltaTime) { Frame(); top = Mathf.Max(top, car.speedKmh); yield return null; }
             yield return Shot("cruise_chase");
+            // a wheel into standing water, from the chase camera: the frame after the next puddle hit
+            // (PSX_RAIN2=0 has no pools to hit: its frame is taken when the wait runs out)
+            {
+                var sp = car.GetComponent<TireSpray>();
+                int h0 = sp != null ? sp.PoolHits : 0;
+                for (float t = 0f; t < 6f; t += Time.unscaledDeltaTime)
+                {
+                    Frame();
+                    if (sp == null) sp = car.GetComponent<TireSpray>();
+                    if (sp != null && sp.PoolHits > h0 && t > 1f) break;
+                    yield return null;
+                }
+                for (int i = 0; i < 4; i++) yield return null;
+                yield return Shot("puddle_chase");
+            }
             int cruiseStrokes = CockpitInterior.WiperStrokes - strokesC0;
             Rain2PlayCheck.Line($"CRUISE: {Stats()}; top {top / 1.609f:0} mph; wiper strokes {cruiseStrokes} in 16 s; splashes alive now {Rain2Driver.LiveSplashes}");
 
