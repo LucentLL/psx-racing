@@ -117,6 +117,8 @@ namespace PSXRacing
         /// <summary>For the harness: a car went over a node onto a road its gate's route does not take (a route
         /// choice: the ruler steps there by the choice's extra metres, DESIGN_v2 2.3).</summary>
         public static event System.Action<CarController> RouteChoice;
+        /// <summary>A rival's re-plan mid-leg (a re-route): its remaining distance is now its new road's.</summary>
+        public static void NoteReplan(CarController car) => RouteChoice?.Invoke(car);
 
         // ------------------------------------------------------------------ bootstrap
         /// <summary>

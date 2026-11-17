@@ -120,6 +120,7 @@ namespace PSXRacing
         public void OnMissed() { race.Request(this); }
 
         float offSince = -1f, lastReroute = -99f, staleAt = -1f;
+        bool replanNote;
         void Update()
         {
             if (race == null || RaceReplay.Playing) return;
@@ -137,6 +138,7 @@ namespace PSXRacing
                         if (stale) staleAt = cp.lastAdvanceTime;
                         lastReroute = Time.time; offSince = -1f; Reroutes++;
                         Debug.Log($"[Checkpoints] {cp.car.name}: re-route ({(stale ? "no progress for 10 s" : "20 m off its road")})");
+                        replanNote = true;
                         race.Request(this);
                         return;
                     }
@@ -254,6 +256,7 @@ namespace PSXRacing
             planLegEnd.Clear(); planLegEnd.AddRange(nextLegEnd);
             planHint = 0;
             Path = into;
+            if (replanNote) { replanNote = false; CheckpointRace.NoteReplan(car); }
             ai.SetPath(into);
             cp.pathHint = -1;
             Rebuilds++;
