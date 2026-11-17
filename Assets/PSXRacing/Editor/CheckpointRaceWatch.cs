@@ -361,7 +361,14 @@ namespace PSXRacing.EditorTools
             { int before = taken.Count; Take("5_turn_" + (g.name ?? "").Replace(' ', '_')); if (taken.Count > before) turnShots++; }
             if (!p.finished && rm.State == RaceManager.RaceState.Racing && cp.RaceFraction(rm.playerCar) > 0.5f) Take("6_minimap_half");
             // the glow band and the kerb posts, close: 25-45 m before a gate, after the third
-            if (!p.finished && c.passedTotal >= 3 && ahead && c.remainingGate > 25f && c.remainingGate < 45f) Take("8_band_close");
+            if (!p.finished && c.passedTotal >= 3 && ahead && c.remainingGate > 25f && c.remainingGate < 45f && !taken.Contains("8_band_close"))
+            {
+                Take("8_band_close");
+                var cam = Camera.main;
+                var mk = GameObject.Find("CPMarkNext");
+                RacePlayCheck.Note($"  BAND FRAME: car {rm.playerCar.transform.position}, gate {c.next} centre {g.centre}, marker root {(mk != null ? mk.transform.position.ToString() : "none")} active {(mk != null && mk.activeInHierarchy)}, " +
+                                   $"Camera.main {(cam != null ? cam.name + " at " + cam.transform.position + " far " + cam.farClipPlane.ToString("0") : "none")}");
+            }
             if (p.finished && finishedAt < 0f) finishedAt = Time.time;
             if (finishedAt > 0f && Time.time - finishedAt > 2.5f) Take("7_finish");
         }

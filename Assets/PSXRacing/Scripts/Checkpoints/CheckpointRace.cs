@@ -330,11 +330,15 @@ namespace PSXRacing
             // at the Wilkinson apex). Any direction on a two-way span, as the line test.
             bool ArcPassed(int k, bool anchorOnly)
             {
-                if (curSt < 0 || curSt != c.prevSt || curT - c.prevT > 30f) return false;
+                if (curSt < 0 || c.prevSt < 0) return false;
+                float pT = c.prevT;
+                // just over a node onto the gate's state: it came in at the state's start
+                if (curSt != c.prevSt) { if (R.eNode[c.prevSt] != R.sNode[curSt]) return false; pT = 0f; }
+                if (curT - pT > 30f) return false;
                 float g = met[k].seedG[curSt];
                 if (g < 0f) return false;
                 if (anchorOnly && curSt != gates[k].anchorSt) return false;
-                return c.prevT < g - 0.01f && curT >= g;
+                return pT < g - 0.01f && curT >= g;
             }
 
             // ---- the gates crossed this frame
