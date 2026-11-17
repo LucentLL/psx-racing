@@ -678,7 +678,12 @@ namespace PSXRacing.EditorTools
                 if (oa >= 0 && ob >= 0 && !map.edges[oa].bridge && !map.edges[ob].bridge)
                 {
                     int la = map.edges[oa].lanes, lb = map.edges[ob].lanes;
-                    if (e.lanes < Mathf.Min(la, lb) || e.lanes > Mathf.Max(la, lb))
+                    // a twin deck (one carriageway of a road that is two-way either side) carries one direction:
+                    // compared with half the two-way road's lanes (checked on the sampled frames: Albemarle Road,
+                    // University City Boulevard - two decks of 2 for a road of 4)
+                    float lo = Mathf.Min(la, lb), hi = Mathf.Max(la, lb);
+                    if (e.oneway && !map.edges[oa].oneway && !map.edges[ob].oneway) { lo = Mathf.Floor(lo / 2f); hi = Mathf.Ceil(hi / 2f); }
+                    if (e.lanes < lo || e.lanes > hi)
                     {
                         var p = e.PointAt(sm);
                         lgFails.Add(new LgFail { cls = "BRIDGE", sub = "lane count changes on the structure only", edge = ei, s = 0f, s1 = e.length, x = p.x, z = p.y, measure = e.lanes, limit = Mathf.Min(la, lb), unit = "lanes",
