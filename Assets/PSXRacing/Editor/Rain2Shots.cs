@@ -412,8 +412,11 @@ namespace PSXRacing.EditorTools
             var wipeId = Shader.PropertyToID("_CabinWipe");
             var glassId = Shader.PropertyToID("_CabinRain2");
 
+            // PSX_RAIN2_TROWS=whole: only the floor and the whole package (a long run of them)
+            bool wholeOnly = Env("PSX_RAIN2_TROWS", "all") == "whole";
             void Row(string what, System.Action<bool> set)
             {
+                if (wholeOnly && !what.StartsWith("WHOLE") && !what.StartsWith("NULL")) return;
                 var (off, on, cost, q25, q75) = Alternate(cam, tw, th, n, set);
                 Line($"  {what}: off {off:0.00}  on {on:0.00}  cost {cost:+0.00;-0.00} (paired median; quartiles {q25:+0.00;-0.00} .. {q75:+0.00;-0.00})");
             }
