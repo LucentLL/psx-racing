@@ -18,6 +18,8 @@ namespace PSXRacing
     {
         /// <summary>The route a sanctioned event closes this race (set in Awake, built in Start).</summary>
         string closeRoute;
+        /// <summary>The hosted course whose rivals' lines are held to its narrowest road (Start).</summary>
+        string fitRoute;
 
         void Awake()
         {
@@ -45,6 +47,16 @@ namespace PSXRacing
                     path.finishIndex = venue.FinishIndex;
                     path.dragLabel = venue.dragLabel ?? "";
                 }
+                // A hosted LOOP races its own laps: the host scene's RaceManager was built with the host's
+                // (UptownLoop: 1), so a 3-lap track raced one lap while its menu, blurb and fuel gate said 3.
+                // PSX_CITY_TRACK_LAPS=0: the host's laps, as before.
+                if (venue.loop && System.Environment.GetEnvironmentVariable("PSX_CITY_TRACK_LAPS") != "0")
+                {
+                    var rm = Object.FindAnyObjectByType<RaceManager>(FindObjectsInactive.Include);
+                    if (rm != null) rm.totalLaps = Mathf.Max(1, venue.laps);
+                }
+                // PSX_CITY_TRACK_SPREAD=0: every rival keeps its built line, as before (FitSpread)
+                if (System.Environment.GetEnvironmentVariable("PSX_CITY_TRACK_SPREAD") != "0") fitRoute = venue.cityRoute;
             }
             // A SANCTIONED event's course is closed like a parade route (owner, 15:10): every road that
             // meets it shut clear of the race line. Not in a street race, not in free roam.
@@ -55,11 +67,46 @@ namespace PSXRacing
         /// of the lanes the race actually drives (the TrackPath), not only of the map's pavement.</summary>
         void Start()
         {
-            if (string.IsNullOrEmpty(closeRoute)) return;
             var map = CityMap.Get();
             if (map == null) return;
+            if (!string.IsNullOrEmpty(fitRoute)) FitSpread(map, map.RouteById(fitRoute));
+            if (string.IsNullOrEmpty(closeRoute)) return;
             var path = Object.FindAnyObjectByType<TrackPath>(FindObjectsInactive.Include);
             CityRaceClosures.Build(map, map.RouteById(closeRoute), transform, path);
         }
+
+        /// <summary>
+        /// THE FIELD'S SPREAD ON A ONE-LANE ROAD. On a one-way venue each rival drives its own line, a fixed
+        /// offset off the race line (PSXRacingBuilder.CarSetups: up to 1.6 m). A hosted course can use a road
+        /// narrower than that: H3's Remount Road bridge over I-77 is a 4.3 m one-lane carriageway, and its
+        /// Skyline, 1.6 m left of the line, put its wheels into the bridge barrier at 100 km/h. Every offset
+        /// is held to what the course's narrowest road (15 m or longer) holds. A course whose roads all hold
+        /// the spread (I485West's 6.1 m ramps, every street circuit) is unchanged.
+        /// </summary>
+        static void FitSpread(CityMap map, CityMap.Route route)
+        {
+            if (route == null || route.edges == null || map.edges == null) return;
+            float narrow = float.MaxValue;
+            string where = "";
+            foreach (int ei in route.edges)
+            {
+                if (ei < 0 || ei >= map.edges.Length) continue;
+                var e = map.edges[ei];
+                if (e.length >= 15f && e.width > 0f && e.width < narrow) { narrow = e.width; where = e.name ?? "a ramp"; }
+            }
+            if (narrow == float.MaxValue) return;
+            float max = Mathf.Max(0f, narrow * 0.5f - SpreadCarHalfM - SpreadAirM);
+            int held = 0;
+            foreach (var ai in Object.FindObjectsByType<AIDriver>(FindObjectsInactive.Include))
+            {
+                float was = ai.lateralOffset;
+                ai.lateralOffset = Mathf.Clamp(was, -max, max);
+                if (ai.lateralOffset != was && ai.gameObject.activeInHierarchy) held++;
+            }
+            if (held > 0)
+                Debug.Log("[CityTracks] " + route.id + ": " + held + " rivals' lines held to +-" + max.ToString("0.0") +
+                          " m (the narrowest road " + narrow.ToString("0.0") + " m: " + where + ")");
+        }
+        const float SpreadCarHalfM = 1.0f, SpreadAirM = 0.15f;
     }
 }
