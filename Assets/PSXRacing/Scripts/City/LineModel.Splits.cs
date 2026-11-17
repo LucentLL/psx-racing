@@ -231,28 +231,52 @@ namespace PSXRacing.City
                 }
                 foreach (int i in run) done.Add(i);
                 if (bad || nbr.Count == 0) continue;
-                if (nbr.Count == 2 && (nbr[0].nF != nbr[1].nF || nbr[0].nB != nbr[1].nB)) continue;
-                int NF = nbr[0].nF, NB = nbr[0].nB;
-                if (NF + NB != X.lsNF + X.lsNB || (NF == X.lsNF && NB == X.lsNB)) continue;
+                // THROUGH lanes (an inner left bay is the centre's, not a through lane): the borrower is the run
+                // on which the direction OPPOSITE its turn lane has one through lane fewer than on its neighbours
+                // (the same lane total). Two back-to-back bays (3 + 2 / 2 + 3 on five lanes) keep 2 + 2 through
+                // lanes and are not this; nor is the piece beside a borrower (its opposing through lanes are whole).
                 int fw = X.lsTurnOnly & 0xFF, bw = (X.lsTurnOnly >> 8) & 0xFF;
-                // the direction with the extra lane here, and its turn-only lane (the inner bay first, else the outer one)
-                bool extraF = X.lsNF == NF + 1 && X.lsNB == NB - 1, extraB = X.lsNB == NB + 1 && X.lsNF == NF - 1;
-                if (!extraF && !extraB) continue;
+                if (fw == 0 && (X.lsFlags & 2) != 0 && X.lsNF >= 2) fw = 1;      // (a bay TAPR flags without a turn:lanes bit: the inner lane)
+                if (bw == 0 && (X.lsFlags & 4) != 0 && X.lsNB >= 2) bw = 1;
+                int Thru(int n, int bits) => n - ((bits & 1) != 0 && n >= 2 ? 1 : 0);
+                bool found = false, extraF = false, inner = false;
+                for (int dsel = 0; dsel < 2 && !found; dsel++)
+                {
+                    bool dF = dsel == 0;
+                    int nD = dF ? X.lsNF : X.lsNB, nO = dF ? X.lsNB : X.lsNF, bitsD = dF ? fw : bw, bitsO = dF ? bw : fw;
+                    bool inn = (bitsD & 1) != 0 && nD >= 2, outr = nD >= 2 && (bitsD & (1 << (nD - 1))) != 0;
+                    if (!inn && !outr) continue;
+                    bool all = true;
+                    foreach (var N in nbr)
+                    {
+                        int nbD = dF ? N.nF : N.nB, nbO = dF ? N.nB : N.nF;
+                        int tD = dF ? N.to & 0xFF : (N.to >> 8) & 0xFF, tO = dF ? (N.to >> 8) & 0xFF : N.to & 0xFF;
+                        if (nbD + nbO != nD + nO) { all = false; break; }
+                        // the opposing direction: one through lane fewer here than on the neighbour
+                        if (Thru(nO, bitsO) != Thru(nbO, tO) - 1) { all = false; break; }
+                        // this direction: its through lanes as the neighbour's (an inner bay), or one more with the outer turn lane
+                        if (inn ? Thru(nD, bitsD) != Thru(nbD, tD) : nD - 1 != nbD) { all = false; break; }
+                    }
+                    if (!all) continue;
+                    // one neighbour only (the corridor ends on the other side): an inner bay alone qualifies
+                    if (nbr.Count < 2 && !inn) continue;
+                    found = true; extraF = dF; inner = inn;
+                }
+                if (!found) continue;
+                int NF = extraF ? X.lsNF - 1 : X.lsNF + 1, NB = extraF ? X.lsNB + 1 : X.lsNB - 1;
                 int bits = extraF ? fw : bw, nd2 = extraF ? X.lsNF : X.lsNB;
-                // (a bay TAPR flags without a turn:lanes bit is the inner lane too)
-                if (bits == 0 && (X.lsFlags & (extraF ? 2 : 4)) != 0) bits = 1;
-                bool inner = (bits & 1) != 0, outer = (bits & (1 << (nd2 - 1))) != 0;
-                if (!inner && !outer) continue;
                 float need = 2f * MergeTaperM(X) + 30f;
                 CoherenceFound++;
-                if (len >= need) { if (CoherenceLog.Count < 400) CoherenceLog.Add($"e{X.index} '{X.name}' {X.lsNF}+{X.lsNB} between {NF}+{NB}: {len:0} m is room for a lane drop and add ({need:0} m): left as tagged"); continue; }
+                if (len >= need) { if (CoherenceLog.Count < 400) CoherenceLog.Add($"e{X.index} '{X.name}' {X.lsNF}+{X.lsNB} ({len:0} m): room for a lane drop and a lane add ({need:0} m): left as tagged"); continue; }
                 int nb = inner ? bits >> 1 : bits & ~(1 << (nd2 - 1));
                 int ob = (extraF ? bw : fw) << 1;                    // the returned lane is the other direction's inner (through) lane
                 ushort toNew = (ushort)(extraF ? ((nb & 0xFF) | ((ob & 0xFF) << 8)) : ((ob & 0xFF) | ((nb & 0xFF) << 8)));
                 var names = new System.Text.StringBuilder();
                 foreach (int i in run) names.Append((names.Length > 0 ? "+" : "") + "e" + i);
+                var nbs = new System.Text.StringBuilder();
+                foreach (var N in nbr) nbs.Append((nbs.Length > 0 ? " and " : "") + $"e{N.e} {N.nF}+{N.nB}");
                 plan.Add((run, sense, (byte)NF, (byte)NB, toNew,
-                    $"{names} '{X.name}' {X.lsNF}+{X.lsNB} ({len:0} m, {(inner ? "an inner turn bay" : "an outer turn lane")} {(extraF ? "a->b" : "b->a")}) between {NF}+{NB} on a {RoadProfiles.All[X.profile].lanes}-lane profile: the turn lane takes an opposing through lane -> {NF}+{NB}, the turn lane not drawn"));
+                    $"{names} '{X.name}' {X.lsNF}+{X.lsNB} ({len:0} m, {(inner ? "an inner turn bay" : "an outer turn lane")} {(extraF ? "a->b" : "b->a")}) between {nbs} on a {RoadProfiles.All[X.profile].lanes}-lane profile: the turn lane takes an opposing through lane -> {NF}+{NB}, the turn lane not drawn"));
             }
             foreach (var p in plan)
             {
