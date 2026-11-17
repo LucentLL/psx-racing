@@ -45,7 +45,7 @@ namespace PSXRacing
         }
 
         /// <summary>PSXLitNoise.</summary>
-        static float Noise(float px, float py)
+        internal static float Noise(float px, float py)
         {
             float cx = Mathf.Floor(px), cy = Mathf.Floor(py);
             float fx = px - cx, fy = py - cy;
@@ -55,7 +55,7 @@ namespace PSXRacing
             return ab + (de - ab) * sy;
         }
 
-        static float SmoothStep01(float lo, float hi, float x)
+        internal static float SmoothStep01(float lo, float hi, float x)
         {
             float t = Mathf.Clamp01((x - lo) / (hi - lo));
             return t * t * (3f - 2f * t);

@@ -456,13 +456,17 @@ namespace PSXRacing
                 // ... and the impostor's, in the same space, as large as PSX/Lit's _PSXFarGrow ever draws it
                 if (HasLod(v, 3))
                 {
-                    float g = 1f;
+                    float g = 1f, footOff = 0f;
                     if (vr.impostorDress != null)
                         foreach (var im in vr.impostorDress)
+                        {
                             if (im != null && im.HasProperty("_PSXFarGrow")) g = Mathf.Max(g, im.GetVector("_PSXFarGrow").z);
+                            // (a match card grows about its tree's foot, not its origin: the sphere that much wider)
+                            if (im != null && im.HasProperty("_PSXGrowFoot")) footOff = Mathf.Max(footOff, ((Vector3)im.GetVector("_PSXGrowFoot")).magnitude);
+                        }
                     var ib = vr.lods[3].bounds;
                     Vector3 ic = ib.center * ((1f + g) * 0.5f);
-                    float ir = ib.extents.magnitude * g + ib.center.magnitude * (g - 1f) * 0.5f;
+                    float ir = ib.extents.magnitude * g + ib.center.magnitude * (g - 1f) * 0.5f + footOff * (g - 1f);
                     var fix = impFix[v];
                     float fs = Mathf.Max(fix.GetColumn(0).magnitude, Mathf.Max(fix.GetColumn(1).magnitude, fix.GetColumn(2).magnitude));
                     Vector3 oc = fix.MultiplyPoint3x4(ic);
@@ -598,7 +602,7 @@ namespace PSXRacing
                 var vr = variants[v];
                 if (vr.lods.Length > 3 && vr.lods[3] != null)
                 {
-                    var mi = m * impFix[v];
+                    var mi = FarMatrix(m, v);   // (a match card: on its mesh's origin to the bit)
                     rows[at++] = new Vector4(mi.m00, mi.m01, mi.m02, mi.m03);
                     rows[at++] = new Vector4(mi.m10, mi.m11, mi.m12, mi.m13);
                     rows[at++] = new Vector4(mi.m20, mi.m21, mi.m22, mi.m23);

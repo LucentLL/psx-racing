@@ -138,8 +138,10 @@ namespace PSXRacing.EditorTools
             Guard(nameof(TestLaneLadder), TestLaneLadder);
             Guard(nameof(TestParkwayLoops), TestParkwayLoops);
             Guard(nameof(TestReplay), TestReplay);
+            Guard(nameof(TestWaterB), TestWaterB);   // water part B: LifeSimSelfTest.WaterB.cs
             Guard(nameof(TestTapes), TestTapes);   // camcorder tapes: LifeSimSelfTest.Tapes.cs
             Guard(nameof(TestCamcorder), TestCamcorder);   // the camcorder: LifeSimSelfTest.Camcorder.cs
+            Guard(nameof(TestRain2), TestRain2);   // rain 2: LifeSimSelfTest.Rain2.cs
             Guard(nameof(TestRaceMap), TestRaceMap);
             Guard(nameof(TestTimeOfDay), TestTimeOfDay);
             Guard(nameof(TestCameraViews), TestCameraViews);
@@ -181,6 +183,7 @@ namespace PSXRacing.EditorTools
             RunFix1Tests();   // fix pass 1 (concussion, the live bench, panel by stage): LifeSimSelfTest.Fix1.cs
             RunDamageViewTests();   // damageview: every view of a career car shows its condition: LifeSimSelfTest.DamageView.cs
             RunDamage2Tests();   // damage round 2: the panes that break, the wheels' curb rash: LifeSimSelfTest.Damage2.cs
+            RunDamage3Tests();   // damage round 3: the cockpit through a shattered pane, no wavy lines: LifeSimSelfTest.Damage3.cs
             // R0b stop the leaks (LifeSimSelfTest.LeaksR0b.cs). LAST: its page
             // renders build the home screen in edit mode, and nothing after
             // them should inherit what that leaves behind.
@@ -2857,6 +2860,7 @@ namespace PSXRacing.EditorTools
             TestDeliverySlotCost();
             TestPizzaCargo();
             TestParkedCarHolds();
+            TestStaticGrip();
             TestVertexSnapOff();
             TestRoadsideRules();
             TestKerbBuild();

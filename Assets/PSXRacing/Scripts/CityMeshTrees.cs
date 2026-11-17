@@ -199,6 +199,7 @@ namespace PSXRacing.City
             for (int r = 0; r < nr; r++) byRole[r] = lists[r].ToArray();
             Setup3();
             MakeForest(FirstSlots);
+            MatchCards(true);
             string tp = System.Environment.GetEnvironmentVariable("PSX_CT_TRACE");
             if (string.IsNullOrEmpty(tp) && PerfTour.Active)
             {
@@ -231,9 +232,79 @@ namespace PSXRacing.City
 
         void OnDestroy()
         {
+            MatchCards(false);
             if (forest != null) { if (Application.isPlaying) Destroy(forest.gameObject); else DestroyImmediate(forest.gameObject); }
             if (Instance == this) Instance = null;
             WriteTrace();
+        }
+
+        // ---- TREE MATCH: the CARDS in the kit's own trees (2026-11-16) ----
+        // The tiles' card meshes (shown past the far range, outside the view's cone and
+        // until a tile's fit is done) and CityFar's far trees and woods' tint all take
+        // the city kit's tree material of the day (CityTrees.MaterialFor). While the
+        // mesh trees draw, that material is a copy wearing the tree kit's own card
+        // atlas for the dress (CityTreeKit.cardAtlas: the same sixteen cells, the kit's
+        // trees in that dress) - so the cards are bare where the meshes are bare and
+        // the colours the meshes are. Done here, not in Scripts/City (a change there is
+        // a 40-minute tile re-bake): the kit's list entries are swapped for the copies
+        // while this component lives, and put back when it goes.
+        /// <summary>PSX_TREE_MATCH_CARDS=1: the tiles' cards wear the kit's own trees. DEFAULT OFF (the retro atlas):
+        /// MEASURED 2026-11-17 (CityRefSpots.RunTreeCards / TreeMatchAudit.RunStageCards, the trees alone, same eye,
+        /// before = PSX_TREE_MATCH=0): the kit's own trees on the cards match the meshes' colour and leaf state, but
+        /// the CARD MESHES are the old plantings' - 1/1.3 (Charlotte's tiles) and 1/1.6 (a stage's B cards) of their
+        /// mesh trees' height - and the kit's trees are narrower than the retro billboards' round crowns: the cards'
+        /// cover fell to 0.3-0.4 of the mesh trees' in winter and 0.4-0.7 in fall (the retro cards: 0.9-1.1). A
+        /// sparse far ring and sparse trees in the mirrors, where the owner has asked for full slopes. So OFF until
+        /// the cards are baked at their mesh trees' size (a city tile re-bake; a stage scene pass with the B cards
+        /// sized from their mesh variant): PSX_TREE_MATCH_CARDS=1 turns them on.</summary>
+        public static bool CardAtlas = System.Environment.GetEnvironmentVariable("PSX_TREE_MATCH_CARDS") == "1";
+        /// <summary>The cards' light normal (PSX/Lit _PSXCrownCard): a share of the direction to the eye, and up.</summary>
+        public static Vector2 CardLight = new Vector2(ReadF("PSX_TM_CARDN", 0.32f), ReadF("PSX_TM_CARDUP", 0.4f));
+        /// <summary>The tile cards' albedo gain over the kit atlas: MEASURED (cardsA, 2026-11-17: Charlotte arterial from
+        /// 60 m, the foliage's mean luma, mesh trees / cards: 0.78 in winter, 0.75 in fall).</summary>
+        public static float CardGain = ReadF("PSX_TM_CARDGAIN", 0.77f);
+        Material[] cardWas, cardMine;
+        public bool CardsMatched => cardMine != null;
+
+        void MatchCards(bool on)
+        {
+            var ck = CityKit.Get();
+            if (!on)
+            {
+                bool had = cardMine != null;
+                if (cardWas != null && ck != null && ck.trees != null)
+                    for (int d = 0; d < cardWas.Length && d < ck.trees.Length; d++)
+                        if (cardMine != null && ck.trees[d] == cardMine[d]) ck.trees[d] = cardWas[d];
+                if (cardMine != null)
+                    foreach (var m in cardMine) if (m != null) { if (Application.isPlaying) Destroy(m); else DestroyImmediate(m); }
+                cardWas = cardMine = null;
+                if (had && world != null) world.Redress();
+                return;
+            }
+            if (!MeshForest.TreeMatch || !CardAtlas || forest == null || ck == null || ck.trees == null || kit.cardAtlas == null) return;
+            cardWas = (Material[])ck.trees.Clone();
+            cardMine = new Material[ck.trees.Length];
+            int n = 0;
+            for (int d = 0; d < ck.trees.Length && d < kit.cardAtlas.Length; d++)
+            {
+                if (ck.trees[d] == null || kit.cardAtlas[d] == null) continue;
+                var m = new Material(ck.trees[d]) { name = ck.trees[d].name + " (tree match)", hideFlags = HideFlags.DontSave };
+                m.mainTexture = kit.cardAtlas[d];
+                // (the gain on the colour only: the alpha is the cut's - a Color x float scaled it too and thinned the cards)
+                var c0 = ck.trees[d].color;
+                m.color = new Color(c0.r * CardGain, c0.g * CardGain, c0.b * CardGain, c0.a);
+                m.SetVector("_PSXCrownCard", new Vector4(CardLight.x, CardLight.y, 0f, 0f));
+                PSXTexDecode.Stamp(m);
+                cardMine[d] = m;
+                ck.trees[d] = m;
+                n++;
+            }
+            if (n == 0) { cardWas = cardMine = null; return; }
+            // (the tiles stood up before this component started - the first ring, whose StandTreesNow
+            // brought it to life - took the kit's material as it was then: put the copies on them too.
+            // The pooled forest holds each tile's cards hidden or shown every frame, as before.)
+            if (world != null) world.Redress();
+            Debug.Log($"[CityMeshTrees] tree match: the city's tree cards wear the kit's own trees in {n} dresses (PSX_TREE_MATCH_CARDS=0: the retro atlas)");
         }
 
         void OnApplicationQuit() => WriteTrace();

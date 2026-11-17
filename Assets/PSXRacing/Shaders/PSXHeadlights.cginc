@@ -70,6 +70,7 @@
 // on the garage floor.
 #ifndef PSX_HEADLIGHTS_INCLUDED
 #define PSX_HEADLIGHTS_INCLUDED
+#include "PSXSpecBend.cginc"
 
 #define PSX_MAX_HEADLIGHTS 8
 
@@ -268,7 +269,7 @@ void PSXHeadlightsCore(float3 wpos, float3 N, float3 V, float power, float specO
             {
                 float3 hv = l + V;
                 float3 H = hv * rsqrt(max(dot(hv, hv), 1e-6));
-                nh = pow(max(saturate(dot(N, H)), 1e-4), power);
+                nh = pow(max(saturate(dot(N + _PSXSpecBend, H)), 1e-4), power);   // (+ the water's own tilt: RAIN 2's rings, PSXSpecBend.cginc)
             }
             float reach = 1.0 - saturate(dist / (range * 1.6));
             reach *= reach;

@@ -161,6 +161,9 @@ namespace PSXRacing
                 s.mat = new Material(shader) { name = "DoorMirror_" + go.name, hideFlags = HideFlags.HideAndDontSave };
                 s.mat.SetFloat("_Mode", 1f);
                 s.mat.SetFloat("_FlipU", 0f);
+                // RAIN 2: the glass's size, for its beads (PSX/CabinGauge; the
+                // uv spans the glass's full width and height, GlassMesh)
+                s.mat.SetVector("_MirrorMetres", new Vector4(2f * g.across.magnitude, 2f * g.up.magnitude, 0f, 0f));
                 s.rend.sharedMaterial = s.mat;
                 list.Add(s);
             }

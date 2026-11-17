@@ -321,7 +321,9 @@ namespace PSXRacing.LifeSim
 
         void BuildRig()
         {
-            rt = new RenderTexture(width, height, 16, RenderTextureFormat.Default)
+            // 24 bits: a depth buffer WITH a stencil, which the cockpit seen
+            // through a broken pane needs (DamageCabin; PSX_DMG_CABIN=0: 16 as before)
+            rt = new RenderTexture(width, height, DamageCabin.On ? 24 : 16, RenderTextureFormat.Default)
             {
                 name = "CarViewerRT",
                 filterMode = FilterMode.Point,

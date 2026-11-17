@@ -141,6 +141,9 @@ namespace PSXRacing
         /// from them: a drop takes RainHeight / RainSpeed seconds to fall to
         /// eye level.</summary>
         const float RainHeight = 13f, RainSpeed = 15f;
+        /// <summary>The rain's drops a second in a downpour (Build), and what the emitter is set to now.</summary>
+        const float RainRate = 2400f;
+        float rainRateNow = RainRate;
         /// <summary>Cap on the rain slab's speed lead (m), and the one-frame
         /// camera speed (m/s) above which a move is a CUT (respawn, replay
         /// camera switch, scene teleport) rather than motion.</summary>
@@ -182,6 +185,19 @@ namespace PSXRacing
                 {
                     sprayPoll = SprayPollSeconds;
                     AttachSpray();
+                }
+                // RAIN 2: the shower follows the rain's own intensity - a
+                // downpour is the density it always was, light rain about half
+                // of it (and half its particles). PSX_RAIN2=0: always the full rate.
+                if (ps != null)
+                {
+                    float want = Rain2.On ? RainRate * Mathf.Lerp(0.5f, 1f, Mathf.InverseLerp(0.55f, 1f, Rain2.RainNow)) : RainRate;
+                    if (Mathf.Abs(want - rainRateNow) > 20f)
+                    {
+                        var em = ps.emission;
+                        em.rateOverTime = want;
+                        rainRateNow = want;
+                    }
                 }
             }
 
@@ -348,8 +364,13 @@ namespace PSXRacing
         /// is built on the first frame a car actually sprays).</summary>
         static void AttachSpray()
         {
+            bool trails = Rain2.On && Rain2.Trails;
             foreach (var car in FindObjectsByType<CarController>(FindObjectsInactive.Exclude))
+            {
                 if (!car.TryGetComponent<TireSpray>(out _)) car.gameObject.AddComponent<TireSpray>();
+                // RAIN 2: and the damp strip behind each tyre
+                if (trails && !car.TryGetComponent<WetTrail>(out _)) car.gameObject.AddComponent<WetTrail>();
+            }
         }
 
         void Build()

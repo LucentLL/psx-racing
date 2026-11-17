@@ -310,6 +310,8 @@ namespace PSXRacing.EditorTools
         IEnumerator Pictures(string when, DamageLook look)
         {
             // outside, in front of the nose and beside the tail; the chase camera; the seat
+            var dcab = car.GetComponent<DamageCabin>();   // damage round 3: the cockpit model through a hole
+            Note($"{when}: the cockpit through a hole: {(dcab != null && dcab.HasCabin ? "drawn (" + DamageCabin.Live + " live, " + DamageCabin.Built + " built)" : dcab != null && dcab.Holed ? "holed, not built" : "no hole")}");
             ShotAt("front_" + when, new Vector3(-1.9f, 1.45f, 4.6f), new Vector3(0f, 0.85f, 0.6f));
             ShotAt("rear_" + when, new Vector3(2.2f, 1.5f, -5.4f), new Vector3(0f, 0.8f, -0.4f));
             ShotAt("wheel_far_" + when, new Vector3(4.2f, 1.2f, 4.6f), new Vector3(0.6f, 0.4f, 0.9f));

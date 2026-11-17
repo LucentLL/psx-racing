@@ -27,7 +27,7 @@ namespace PSXRacing.EditorTools
     /// PSX_WATERSHOT_TIME_LINES (default 1440).
     /// -executeMethod PSXRacing.EditorTools.WaterShots.Run
     /// </summary>
-    public static class WaterShots
+    public static partial class WaterShots
     {
         /// <summary>The editor's tools render through the same per-camera push
         /// as the game: hook it on every domain reload.</summary>
@@ -68,6 +68,12 @@ namespace PSXRacing.EditorTools
                         else if (set == "test") TestSite();
                         else if (set == "timing") Timing();
                         else if (set == "ripplecheck") RippleCheck();
+                        // part B (WaterShots.PartB.cs)
+                        else if (set == "lure") Lure();
+                        else if (set == "drive") DriveCharlotte();
+                        else if (set == "seastrip") SeaStrip();
+                        else if (set == "rivertest") RiverHeadings();
+                        else if (set == "compile") CompileCheck();
                     }
                     catch (System.Exception e) { Debug.LogError("[WaterShot] " + set + ": " + e); }
                 }
@@ -77,6 +83,7 @@ namespace PSXRacing.EditorTools
                 RaceHandoff.WeatherOverride = oldWeather;
                 PSXQuality.Current = keepPixels;
                 WaterLook.ForceTier = -1; WaterLook.ForceCamera = null; WaterLook.ForceWind = null; WaterLook.ForceRain = -1f;
+                shotTier = 2;
                 WetReflections.PreviewSet(null, -1);
                 WaterLook.Invalidate();
                 // no material asset keeps the HD queue after an edit-mode run
@@ -323,6 +330,21 @@ namespace PSXRacing.EditorTools
                         world.EnsureRing(eye, world.ring);
                         Shoot(cam, name + "_" + hour.ToLower(), eye, look, pitch);
                     }
+                    // part B: a motion strip of the same noon pose (the static test in time:
+                    // a crawl shows as 1-px change between frames 0.5 s apart)
+                    if (System.Environment.GetEnvironmentVariable("PSX_WATERSHOT_STRIPS") == "1")
+                    {
+                        SetHour("NOON", false, sun, globals);
+                        Strip(cam, name + "_motion", eye, Quaternion.LookRotation(look) * Quaternion.Euler(-pitch, 0f, 0f), cam.fieldOfView, WaterRenderers().ToArray());
+                    }
+                    // part B, item 13: the same noon frame at tiers 0 and 1 (a phone or a
+                    // mirror; a PC with REFLECTIONS off)
+                    if (System.Environment.GetEnvironmentVariable("PSX_WATERSHOT_TIERS") == "1")
+                    {
+                        SetHour("NOON", false, sun, globals);
+                        for (int tier = 0; tier <= 1; tier++) { shotTier = tier; Shoot(cam, name + "_noon_tier" + tier, eye, look, pitch); }
+                        shotTier = 2;
+                    }
                 }
                 if (lake != null && NearRoad(map, lake, false, out Vector3 le, out Vector3 ll, out _))
                 {
@@ -561,7 +583,7 @@ namespace PSXRacing.EditorTools
         {
             var rot = Quaternion.LookRotation(flatDir) * Quaternion.Euler(-pitchDeg, 0f, 0f);
             cam.transform.SetPositionAndRotation(eye, rot);
-            WaterLook.ForceCamera = cam; WaterLook.ForceTier = 2;
+            WaterLook.ForceCamera = cam; WaterLook.ForceTier = shotTier;
             WetReflections.PreviewSet(cam, 1);
             var tex = Render(cam, width, lines);
             File.WriteAllBytes(Path.Combine(dir, name + "_" + tag + ".png"), tex.EncodeToPNG());
@@ -612,7 +634,7 @@ namespace PSXRacing.EditorTools
             // the OFF-identity test's clock: the test sandbox's shaders read
             // _PSXTestTime instead of _Time (freeze_time.py); one fixed instant
             if (System.Environment.GetEnvironmentVariable("PSX_WATERSHOT_FREEZE") == "1")
-                Shader.SetGlobalVector("_PSXTestTime", new Vector4(37.25f / 20f, 37.25f, 74.5f, 111.75f));
+                Shader.SetGlobalVector("_PSXTestTime", new Vector4(testTime / 20f, testTime, testTime * 2f, testTime * 3f));
             PSXTexDecode.StampAll();
             RenderPipeline.SubmitRenderRequest(cam, request);
         }

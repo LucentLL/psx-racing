@@ -164,6 +164,9 @@ namespace PSXRacing
                 // a camera drawing straight into its target cannot offer.
                 requiresIntermediateTexture = true,
             };
+            // (OnValidate calls Create again: the old pass's copies go first -
+            // part B, item 16, m4)
+            waterDepthPass?.Release();
             waterDepthPass = new WaterDepthPass
             {
                 // After the opaques and the sky, before the transparents -
@@ -181,6 +184,11 @@ namespace PSXRacing
             AddLens(renderer, cam);
             AddGlare(renderer, cam);
             AddWaterDepth(renderer, cam);
+            // (RAIN 2: the cockpit's glass reads the wet pass's frame copy
+            // through its drops - PSX/CabinGlass, _PSXSSRLive. Cleared here for
+            // every camera and raised by the pass itself, so a camera without
+            // the pass never reads a copy that is not this frame's.)
+            Shader.SetGlobalFloat(WetPass.LiveId, 0f);
             if (WetReflections.WantedFor(cam)) renderer.EnqueuePass(wetPass);
             AddCamcorder(renderer, cam);
         }
@@ -204,18 +212,23 @@ namespace PSXRacing
         /// the HD tiers (<see cref="WaterLook.DepthCopyFor"/>).</summary>
         void AddWaterDepth(ScriptableRenderer renderer, Camera cam)
         {
-            if (!WaterLook.DepthCopyFor(cam)) return;
+            // no water in this camera's view (or the HD water off): no copy,
+            // and a copy texture nobody has drawn for a while is let go
+            // (part B, item 14: it ran every frame in the garage and the home)
+            if (!WaterLook.DepthCopyFor(cam)) { waterDepthPass?.ReleaseIdle(); return; }
             if (waterCopyMaterial == null)
             {
                 var sh = Shader.Find(WaterLook.DepthCopyShader);
-                // No copy shader in this build: no copy (the water falls back).
-                if (sh == null || !sh.isSupported) return;
+                // No copy shader in this build: no copy, and from now on no
+                // camera claims one (its water draws the cheap tier: item 16, m6)
+                if (sh == null || !sh.isSupported) { WaterLook.CopyReady = false; return; }
                 waterCopyMaterial = CoreUtils.CreateEngineMaterial(sh);
             }
             int pass = waterCopyMaterial.FindPass(WaterLook.DepthCopyPass);
-            if (pass < 0) return;
+            if (pass < 0) { WaterLook.CopyReady = false; return; }
             waterDepthPass.material = waterCopyMaterial;
             waterDepthPass.passIndex = pass;
+            waterDepthPass.camera = cam;
             renderer.EnqueuePass(waterDepthPass);
             WaterLook.DepthCopies++;
         }
@@ -391,7 +404,13 @@ namespace PSXRacing
         {
             public Material material;
             public int passIndex;
-            RTHandle copy;
+            /// <summary>The camera this enqueue is for: each camera keeps its
+            /// own copy (part B, item 16, m4: the editor's Scene and Game views
+            /// of different sizes reallocated one copy every frame).</summary>
+            public Camera camera;
+            readonly Dictionary<Camera, (RTHandle rt, int frame)> copies = new Dictionary<Camera, (RTHandle, int)>();
+            readonly List<Camera> drop = new List<Camera>();
+            const int IdleFrames = 300;
             static readonly int SrcId = Shader.PropertyToID("_PSXWaterDepthSrc");
             static readonly int DstId = Shader.PropertyToID("_PSXWaterDepth");
 
@@ -405,24 +424,39 @@ namespace PSXRacing
 
             public void Release()
             {
-                copy?.Release();
-                copy = null;
+                foreach (var kv in copies) kv.Value.rt?.Release();
+                copies.Clear();
+            }
+
+            /// <summary>Every copy no camera has drawn for IdleFrames frames.</summary>
+            public void ReleaseIdle()
+            {
+                if (copies.Count == 0) return;
+                int now = Time.frameCount;
+                drop.Clear();
+                foreach (var kv in copies) if (now - kv.Value.frame > IdleFrames) drop.Add(kv.Key);
+                foreach (var k in drop) { copies[k].rt?.Release(); copies.Remove(k); }
             }
 
             public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
             {
                 var resources = frameData.Get<UniversalResourceData>();
-                if (resources.isActiveTargetBackBuffer || material == null) return;
+                if (resources.isActiveTargetBackBuffer || material == null || camera == null) return;
                 var depth = resources.activeDepthTexture;
                 if (!depth.IsValid()) return;
                 var cd = renderGraph.GetTextureDesc(resources.activeColorTexture);
                 int w = Mathf.Max(cd.width, 1), h = Mathf.Max(cd.height, 1);
+                var key = camera;
+                copies.TryGetValue(key, out var entry);
+                var copy = entry.rt;
                 if (copy == null || copy.rt == null || copy.rt.width != w || copy.rt.height != h)
                 {
                     copy?.Release();
                     copy = RTHandles.Alloc(w, h, colorFormat: GraphicsFormat.R32_SFloat, filterMode: FilterMode.Point,
                                            wrapMode: TextureWrapMode.Clamp, name: "_PSXWaterDepth");
                 }
+                copies[key] = (copy, Time.frameCount);
+                ReleaseIdle();
                 var dst = renderGraph.ImportTexture(copy);
                 using (var builder = renderGraph.AddRasterRenderPass<CopyData>("PSX Water Depth", out var data))
                 {
@@ -464,6 +498,7 @@ namespace PSXRacing
             static readonly int ColourId = Shader.PropertyToID("_PSXSSRColour");
             static readonly int DepthId = Shader.PropertyToID("_PSXSSRDepth");
             static readonly int ParamsId = Shader.PropertyToID("_PSXSSRParams");
+            public static readonly int LiveId = Shader.PropertyToID("_PSXSSRLive");
 
             class WetData
             {
@@ -471,6 +506,7 @@ namespace PSXRacing
                 public TextureHandle depth;
                 public RendererListHandle wet;
                 public Vector4 prms;
+                public float live;
             }
 
             public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
@@ -510,11 +546,20 @@ namespace PSXRacing
                     builder.UseTexture(depth);
                     builder.SetRenderAttachment(colour, 0, AccessFlags.ReadWrite);
                     builder.AllowGlobalStateModification(true);
+                    // RAIN 2: the copy stays alive (and bound as _PSXSSRColour)
+                    // for the transparents after this pass - the cockpit's
+                    // glass looks through its drops at it. Only with the
+                    // glass's own switch: without it the copy's lifetime is
+                    // exactly what it was.
+                    bool keep = Rain2.On && Rain2.Glass;
+                    if (keep) builder.SetGlobalTextureAfterPass(copy, ColourId);
+                    data.live = keep ? 1f : 0f;
                     builder.SetRenderFunc(static (WetData d, RasterGraphContext ctx) =>
                     {
                         ctx.cmd.SetGlobalTexture(ColourId, d.copy);
                         ctx.cmd.SetGlobalTexture(DepthId, d.depth);
                         ctx.cmd.SetGlobalVector(ParamsId, d.prms);
+                        ctx.cmd.SetGlobalFloat(LiveId, d.live);
                         ctx.cmd.DrawRendererList(d.wet);
                     });
                 }

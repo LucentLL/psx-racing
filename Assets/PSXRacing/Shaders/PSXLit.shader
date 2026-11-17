@@ -137,6 +137,14 @@ Shader "PSX/Lit"
         // narrow tree card under a pixel wide vanishes in its own alpha test,
         // and the far slopes read bare (owner 2026-11-09)
         [HideInInspector] _PSXFarGrow ("Far grow", Vector) = (0,0,1,0)
+        // ... about this point of the card (object space): the tree's FOOT, where
+        // the card's own origin is the mesh's (TREE MATCH: a far card shares its
+        // mesh's origin, so both draw the same per-tree colour). 0 = the origin.
+        [HideInInspector] _PSXGrowFoot ("Grow foot", Vector) = (0,0,0,0)
+        // x > 0: a tree's far card, lit as its crown (the vertex light's normal is
+        // x times the direction to the eye from the tree, plus y straight up);
+        // z = n > 0 (PSX_LODFADE): the card turns to the eye, its sheet n views in a row
+        [HideInInspector] _PSXCrownCard ("Crown card", Vector) = (0,0,0,0)
         // The mountain forest's leaves (MeshForest): saturation and brightness
         // of the texel before the light - 1, 1 everywhere else.
         [HideInInspector] _LeafVivid ("Leaf vivid", Vector) = (1,1,0,0)
@@ -458,6 +466,8 @@ Shader "PSX/Lit"
             float4 _PSXLodFade;
             float4 _PSXLodThin;
             float4 _PSXFarGrow;
+            float4 _PSXGrowFoot;
+            float4 _PSXCrownCard;
             // the pop measure's LOD eye (MeshForest.LodEyeOn, a global): w > 0.5 =
             // the forest's levels and rings as seen from xyz, not from the camera
             float4 _PSXLodEye;
@@ -1438,7 +1448,7 @@ Shader "PSX/Lit"
             #ifdef PSX_LODFADE
                 // the INSTANCE's distance (its origin), not the pixel's: a level
                 // hands over for the whole tree at once (MeshForest buckets by it)
-                float2 lodD : TEXCOORD10;   // x: the instance's distance, y: its own 0..1
+                float4 lodD : TEXCOORD10;   // x: the instance's distance, y: its own 0..1; z, w: a far card's other view's u and its share
             #endif
             };
 
@@ -1451,12 +1461,52 @@ Shader "PSX/Lit"
                     float3 it = float3(unity_ObjectToWorld._m03, unity_ObjectToWorld._m13, unity_ObjectToWorld._m23);
                     float3 p3 = frac(it * 0.1031);
                     p3 += dot(p3, p3.yzx + 33.33);
-                    o.lodD = float2(length(it - (_PSXLodEye.w > 0.5 ? _PSXLodEye.xyz : _WorldSpaceCameraPos)), frac((p3.x + p3.y) * p3.z));
+                    o.lodD = float4(length(it - (_PSXLodEye.w > 0.5 ? _PSXLodEye.xyz : _WorldSpaceCameraPos)), frac((p3.x + p3.y) * p3.z), 0.0, 0.0);
+                    // TREE MATCH: a tree's FAR CARD TURNS TO THE EYE about the tree's
+                    // own upright (_PSXCrownCard.z = n > 0), wearing the nearest of the
+                    // 2n pictures taken round its mesh (n over the half turn, in a row
+                    // on its sheet; the other half are those mirrored: a tree seen from
+                    // behind is its own outline flipped). A cross of two fixed cards
+                    // showed a crown 0.79 of its width from 30 degrees off a card and
+                    // 0.71 from 45 - the outline changed at the hand-over.
+                    if (_PSXCrownCard.z > 0.5)
+                    {
+                        float3 ccFoot = _PSXGrowFoot.xyz;
+                        float3 ccEye = mul(unity_WorldToObject, float4(_WorldSpaceCameraPos, 1.0)).xyz - ccFoot;
+                        float ccTh = atan2(-ccEye.x, -ccEye.z);
+                        float ccN = _PSXCrownCard.z;
+                        float ccF = ccTh / (3.14159265 / ccN);
+                        // (VIEW FADE, _PSXCrownCard.w = b > 0: the two views either side of the
+                        // eye's bearing - the one at or before it, ccK, and the next, ccK2 - and
+                        // within b of a view step of the half-way bearing between them the next
+                        // one takes a 2 x 2 pixel screen-door share of the card, 0 to all of it
+                        // across the band, ALWAYS by the same pixels for the same pair, so no
+                        // pixel flips back and forth; outside the band the nearer view whole.
+                        // b = 0: the nearer view whole, switched at the half-way bearing - an
+                        // eye passing a far tree saw its leaves and outline jump every 45 degrees.)
+                        float ccK = floor(ccF);
+                        float ccT = ccF - ccK;
+                        float ccK2 = ccK + 1.0;
+                        float ccW = _PSXCrownCard.w > 0.0 ? saturate((ccT - (0.5 - _PSXCrownCard.w)) / (2.0 * _PSXCrownCard.w)) : step(0.5, ccT);
+                        ccK -= 2.0 * ccN * floor(ccK / (2.0 * ccN));
+                        bool ccMir = ccK > ccN - 0.5;
+                        if (ccMir) ccK -= ccN;
+                        ccK2 -= 2.0 * ccN * floor(ccK2 / (2.0 * ccN));
+                        bool ccMir2 = ccK2 > ccN - 0.5;
+                        if (ccMir2) ccK2 -= ccN;
+                        float3 ccP = v.vertex.xyz - ccFoot;
+                        float ccS, ccC;
+                        sincos(ccTh, ccS, ccC);
+                        v.vertex.xyz = ccFoot + float3(ccC * ccP.x, ccP.y, -ccS * ccP.x);
+                        float ccU = v.uv.x;
+                        v.uv.x = (ccMir ? 1.0 / ccN - ccU : ccU) + ccK / ccN;
+                        o.lodD.zw = float2((ccMir2 ? 1.0 / ccN - ccU : ccU) + ccK2 / ccN, ccW);
+                    }
                     // A THINNED plant at its draw limit SHRINKS to nothing about
                     // its own origin rather than dissolving in a screen-door
                     // dither (owner: "a speckled dotted effect" in game).
                     if (_PSXFarGrow.z > 1.0 && _PSXFarGrow.y > _PSXFarGrow.x)
-                        v.vertex.xyz *= lerp(1.0, _PSXFarGrow.z, saturate((o.lodD.x - _PSXFarGrow.x) / (_PSXFarGrow.y - _PSXFarGrow.x)));
+                        v.vertex.xyz = _PSXGrowFoot.xyz + (v.vertex.xyz - _PSXGrowFoot.xyz) * lerp(1.0, _PSXFarGrow.z, saturate((o.lodD.x - _PSXFarGrow.x) / (_PSXFarGrow.y - _PSXFarGrow.x)));
                     if (_PSXLodThin.x > 0.0 && _PSXLodFade.w > _PSXLodFade.z)
                     {
                         float lv = o.lodD.x / lerp(_PSXLodThin.x, 1.0, o.lodD.y);
@@ -1605,6 +1655,18 @@ Shader "PSX/Lit"
                 // four corners agree. Only when culling is off; a closed mesh
                 // never shows its back.
                 if (_Cull < 0.5 && dot(n, _WorldSpaceCameraPos - wpos) < 0.0) n = -n;
+                // TREE MATCH: a tree's far CARD is lit as its CROWN is, not as a flat
+                // board. A crown shows the eye leaves facing every way in the half
+                // of space turned toward it: the mean of those normals is half the
+                // direction to the eye (0.64 of it for a bare tree's limbs, turned
+                // round their own axes). Both cards of the cross, at every vertex,
+                // take that - so the card answers the sun as its mesh does from
+                // any side at any hour (a flat board with its own normal measured
+                // 1.6 to 1.8 times its mesh at noon, and darker than it at dusk).
+                // (from the vertex itself: a far card is small in the view, so its
+                // corners agree - and a tile's merged card mesh has no origin of its own)
+                if (_PSXCrownCard.x > 0.0)
+                    n = normalize(_WorldSpaceCameraPos - wpos) * _PSXCrownCard.x + float3(0.0, _PSXCrownCard.y, 0.0);
                 float ndl = saturate(dot(n, normalize(_PSXLightDir.xyz)));
                 // Hemispheric: the sky's colour from above, the plain ambient
                 // from the side and below. A cheap per-vertex lerp, and the
@@ -1765,6 +1827,17 @@ Shader "PSX/Lit"
                 float2 uv = i.uvw.xy / i.uvw.z;
             #ifdef PSX_ATLAS
                 uv = i.atlas.xy + frac(uv) * i.atlas.zw;
+            #endif
+            #ifdef PSX_LODFADE
+                // TREE MATCH VIEW FADE: a 2 x 2 pixel screen-door share of the far
+                // card wears its next view (whole pixel quads, so the texture's mip
+                // is taken within one view); all of it past the band
+                if (i.lodD.w > 0.0)
+                {
+                    float2 vpx = floor(i.pos.xy * 0.5);
+                    float vdith = frac(52.9829189 * frac(dot(vpx, float2(0.06711056, 0.00583715)) + 0.37));
+                    if (i.lodD.w > 0.999 || vdith < i.lodD.w) uv.x = i.lodD.z * _MainTex_ST.x + _MainTex_ST.z;
+                }
             #endif
                 // Where the facade texture repeats, for the lit windows below.
                 // Taken HERE, before the clip and outside every branch: a
@@ -2328,7 +2401,10 @@ Shader "PSX/Lit"
                     if (outF > 0.001) clip(outF > 0.999 ? -1.0 : dith - outF);
                 }
                 // THE FLICKER FINDER: the draw's ID, alpha its distance (2 km = 1)
-                if (_PSXIdOn > 0.5) return fixed4(_PSXIdCol.rgb, saturate(length(i.wpos - _WorldSpaceCameraPos) / 2000.0));
+                // (_PSXIdOn 2: THE TREE MATCH BAKE - Editor/PSXRacingBuilder.TreeMatch.cs - reads a tree's own
+                // surface colour off its mesh for its far card: the albedo as worked out above, halved to
+                // keep a leaf brightened past 1 inside the 8 bits; never set in the game)
+                if (_PSXIdOn > 0.5) return _PSXIdOn > 1.5 ? fixed4(tex.rgb * 0.5, 1.0) : fixed4(_PSXIdCol.rgb, saturate(length(i.wpos - _WorldSpaceCameraPos) / 2000.0));
                 // the skyline's depth-only draws (2, 3): nothing to shade
                 if (_SkylinePass > 1.5) return fixed4(0, 0, 0, 0);
 
@@ -2502,6 +2578,11 @@ Shader "PSX/Lit"
                 // pixel of a draw, so the spec branch inside is uniform and a
                 // dry surface (every one in daylight) never pays for it.
                 float wetMat = _Wet * _PSXWetness;
+                // RAIN 2 (PSXRain2.cginc): where the water stands here and the
+                // rings the rain throws on it - found once, before the lamp
+                // tables (their glints read the water's tilt) and PSXWetAmount.
+                // A uniform branch: off, nothing below it is evaluated.
+                if (_PSXRain2.x > 0.5) PSXRain2At(wetMat, i.wpos, N, eyeDist, uv);
                 float specOn = (wetMat > WET_MIN || _Shore > 0.5) ? 1.0 : 0.0;
                 float3 headD, headS, lampD, lampS;
                 PSXHeadlightsBoth(i.wpos, N, V, WET_HEAD_POW, specOn, headD, headS);
@@ -2772,7 +2853,10 @@ Shader "PSX/Lit"
                 // the second fog lerp.
                 if (w > 0.0)
                 {
-                    float3 R = reflect(-V, N);
+                    // (RAIN 2: the sky in the water bends with the rings)
+                    float3 Nw = N;
+                    if (_PSXRain2.x > 0.5) Nw = PSXRain2Normal(N);
+                    float3 R = reflect(-V, Nw);
                     float fres = PSXWetFresnel(N, V);
                     // The sky in the water is the sky (adapted, not exposed);
                     // the lamps' and beams' streaks are their light (exposed).

@@ -72,6 +72,10 @@ float PSXLitNoise(float2 p)
 // fog/ambient/light uniforms it reads, and after the band above.
 #include "PSXSkyReflect.cginc"
 
+// RAIN 2: where the water STANDS and the rings the rain throws on it
+// (PSXRain2.cginc; nothing of it is evaluated unless _PSXRain2 says so).
+#include "PSXRain2.cginc"
+
 // THE WET ROAD, one: how wet THIS pixel is - only if it looks up, more
 // in the puddles. wetMat is the material's _Wet times the hour's
 // _PSXWetness. 0 on a dry pixel; above 0 (never below WET_MIN x
@@ -266,15 +270,28 @@ float3 PSXRoadCoverAlbedo(float3 albedo, float wetMask, float3 N, float3 wpos, f
 float PSXWetAmount(float wetMat, float3 N, float3 wpos, float eyeDist)
 {
     float w = wetMat * saturate(N.y * WET_UP_GAIN - WET_UP_BIAS);
+    // RAIN 2: the hour's water on this face before the drying patches thin it,
+    // and what snow or slush leaves open (a pool outlives its patch, not its cover)
+    float w0 = w, open2 = 1.0;
     if (w > WET_MIN && _PSXWetPatchOn > 0.5)
     {
         // wetMat is _Wet x _PSXWetness, and _PSXWetness is the larger of the
         // two below: rescale to THIS spot's share.
         float g = max(_PSXWetDamp, PSXLocalShare(_PSXWetWater, PSXWetPatch(wpos.xz)));
         w *= g / max(_PSXWetness, 1e-4);
-        w *= 1.0 - PSXRoadCoverAt(N, wpos);
+        open2 = 1.0 - PSXRoadCoverAt(N, wpos);
+        w *= open2;
     }
-    if (w > WET_MIN)
+    if (_PSXRain2.x > 0.5 && _PSXRain2.z > 0.001)
+    {
+        // RAIN 2 (PSXRain2.cginc; the caller ran PSXRain2At): a film where the
+        // patches say water, a full mirror where it stands - in place of the
+        // soft noise below, which stays the damp clear night's and every
+        // scene's that never set _PSXRain2.
+        w = max(w * R2_FILM, w0 * open2 * PSXR2Pool);
+        if (w <= WET_MIN) w = 0.0;
+    }
+    else if (w > WET_MIN)
     {
         float2 p = wpos.xz * PUDDLE_SCALE;
         float n = PSXLitNoise(p) * 0.65 + PSXLitNoise(p * 2.03 + 17.17) * 0.35;

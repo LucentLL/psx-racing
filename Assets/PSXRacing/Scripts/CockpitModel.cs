@@ -318,6 +318,75 @@ namespace PSXRacing
             }
         }
 
+        /// <summary>The geometry file's bytes (a copy), or null while the
+        /// model is not <see cref="Ready"/> - for the reduced copies the
+        /// broken-glass cabin draws at a distance (DamageCabin, CockpitLod).</summary>
+        public static byte[] GeoBytes()
+        {
+            if (!Ready) return null;
+            var ta = Asset<TextAsset>(GeoName);
+            return ta != null ? ta.bytes : null;
+        }
+
+        /// <summary>One part's raw arrays, as the file holds them.</summary>
+        public sealed class RawPart
+        {
+            public string name;
+            public Vector3[] pos, nrm;
+            public Vector2[] uv;
+            public Color32[] col;
+            public string[] mats;
+            public int[][] subs;
+        }
+
+        /// <summary>The named parts of the geometry file as plain arrays (no
+        /// Unity objects: safe off the main thread).</summary>
+        public static Dictionary<string, RawPart> ReadRaw(byte[] bytes, ICollection<string> names)
+        {
+            var into = new Dictionary<string, RawPart>();
+            using (var r = new BinaryReader(new MemoryStream(bytes), System.Text.Encoding.ASCII))
+            {
+                if (new string(r.ReadChars(4)) != "PSXC" || r.ReadInt32() != 1) throw new IOException("not a v1 PSXC file");
+                int n = r.ReadInt32();
+                for (int p = 0; p < n; p++)
+                {
+                    string name = Str(r);
+                    int nv = r.ReadInt32(), ns = r.ReadInt32();
+                    Vector3 pmin = V3(r), pspan = V3(r);
+                    Vector2 umin = new Vector2(r.ReadSingle(), r.ReadSingle()), uspan = new Vector2(r.ReadSingle(), r.ReadSingle());
+                    bool want = names.Contains(name);
+                    var rp = want ? new RawPart { name = name, pos = new Vector3[nv], nrm = new Vector3[nv], uv = new Vector2[nv],
+                                                  col = new Color32[nv], mats = new string[ns], subs = new int[ns][] } : null;
+                    const float Q = 1f / 65535f;
+                    if (want)
+                    {
+                        for (int i = 0; i < nv; i++)
+                            rp.pos[i] = new Vector3(pmin.x + r.ReadUInt16() * Q * pspan.x, pmin.y + r.ReadUInt16() * Q * pspan.y, pmin.z + r.ReadUInt16() * Q * pspan.z);
+                        for (int i = 0; i < nv; i++)
+                            rp.nrm[i] = new Vector3(r.ReadSByte(), r.ReadSByte(), r.ReadSByte()).normalized;
+                        for (int i = 0; i < nv; i++)
+                            rp.uv[i] = new Vector2(umin.x + r.ReadUInt16() * Q * uspan.x, umin.y + r.ReadUInt16() * Q * uspan.y);
+                        for (int i = 0; i < nv; i++)
+                            rp.col[i] = new Color32(r.ReadByte(), r.ReadByte(), r.ReadByte(), r.ReadByte());
+                    }
+                    else r.BaseStream.Seek(nv * (6 + 3 + 4 + 4), SeekOrigin.Current);
+                    for (int s = 0; s < ns; s++)
+                    {
+                        string mat = Str(r);
+                        int ni = r.ReadInt32();
+                        if (!want) { r.BaseStream.Seek(ni * (nv > 65535 ? 4 : 2), SeekOrigin.Current); continue; }
+                        var idx = new int[ni];
+                        if (nv > 65535) for (int i = 0; i < ni; i++) idx[i] = (int)r.ReadUInt32();
+                        else for (int i = 0; i < ni; i++) idx[i] = r.ReadUInt16();
+                        rp.mats[s] = mat;
+                        rp.subs[s] = idx;
+                    }
+                    if (want) into[name] = rp;
+                }
+            }
+            return into;
+        }
+
         static string Str(BinaryReader r) => new string(r.ReadChars(r.ReadByte()));
         static Vector3 V3(BinaryReader r) => new Vector3(r.ReadSingle(), r.ReadSingle(), r.ReadSingle());
 

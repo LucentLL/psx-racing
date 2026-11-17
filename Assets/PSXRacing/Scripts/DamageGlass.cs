@@ -136,11 +136,60 @@ namespace PSXRacing
             return new Vector4(belt, cowl - 1.10f, roof, 0f);
         }
 
+        static readonly int DarkId = Shader.PropertyToID("_PSXGlsDark"), ThinId = Shader.PropertyToID("_PSXGlsThin"),
+            LinesId = Shader.PropertyToID("_PSXDmgLines");
+
+        /// <summary>
+        /// Damage round 3 (owner, 11-17: "The wavy lines when glass breaks also
+        /// appear on the car body. I don't like them, but otherwise the
+        /// deformation and cracked glass looks decent"): the body's two dark
+        /// noise contours - the "cracked cover" lines on every face the hit met
+        /// and the creases' dark line - are no longer drawn; the folds stay in
+        /// the reflections and the light, the dents in the skin, the scrapes.
+        /// PSX_DMG_NOWAVY=0: round 2's lines.
+        /// </summary>
+        public static bool NoWavyOn = System.Environment.GetEnvironmentVariable("PSX_DMG_NOWAVY") != "0";
+
+        /// <summary>
+        /// Damage round 3 ("dark trim above the belt line is read as glass and
+        /// cracks"; round 2's sheet: a white sliver by the door mirror on crazed
+        /// glass). The glass test is the sheet's dark colourless texels, and a
+        /// thin dark line drawn on the paint - a mirror sail's outline, a
+        /// pillar's trim line - passes it. Now a pixel with paint 3.5 cm away on
+        /// two opposite sides (a strip under 7 cm across; a pane's own edge has
+        /// paint on one side only) is not a pane. PSX_DMG_THINTRIM=0: round 2's
+        /// test. (A door-mirror box rule was tried first and dropped: a raked
+        /// FD or EG door glass runs ahead of its mirror, and that glass stayed whole.)
+        /// </summary>
+        public static bool ThinTrimOn = System.Environment.GetEnvironmentVariable("PSX_DMG_THINTRIM") != "0";
+
+        /// <summary>PSX_DMG_SEATGLASS=0: round 2's cockpit, where only the windscreen breaks.</summary>
+        public static bool SeatGlassOn = System.Environment.GetEnvironmentVariable("PSX_DMG_SEATGLASS") != "0";
+
+        /// <summary>
+        /// Damage round 3: one of the cockpit's own panes (PSX/CabinGlass
+        /// _PSXBreak) from the shell's - x the state (0.5 crazed, 1 shattered),
+        /// y the seed, z / w where it was struck as a share of the pane (u
+        /// rearward on the door glass, toward the car's left on the rear).
+        /// </summary>
+        public static Vector4 CockpitPane(float state, Vector4 hit, bool rear)
+        {
+            if (!On || !SeatGlassOn || state < 0.1f) return Vector4.zero;
+            float u = rear ? 0.5f - hit.x * 0.3f : 0.5f - hit.x * 0.33f;
+            return new Vector4(state >= 0.75f ? Shattered : Crazed, hit.z, Mathf.Clamp(u, 0.15f, 0.85f), Mathf.Clamp(hit.y, 0.15f, 0.85f));
+        }
+
         /// <summary>The panes into one renderer's block (DamageLook.WriteBlock).</summary>
         public static void Write(MaterialPropertyBlock b, DamageLook.Look now, bool on, Vector3 half, Vector4 cabin)
         {
             bool glass = on && On;
             b.SetFloat(OnId, glass ? 1f : 0f);
+            // round 3: a hole shows the dark cabin, the cockpit model drawn into it (DamageCabin)
+            Shader.SetGlobalFloat(DarkId, DamageCabin.On ? 1f : 0f);
+            // round 3: no wavy contour lines on the body (PSXCarDamage.cginc _PSXDmgLines)
+            Shader.SetGlobalFloat(LinesId, NoWavyOn ? 0f : 1f);
+            // round 3: a thin dark strip in a pane is trim, not glass (PSXCarGlass.cginc _PSXGlsThin)
+            Shader.SetGlobalFloat(ThinId, ThinTrimOn ? 1f : 0f);
             if (!glass) return;
             float belt = cabin.x, seatZ = cabin.y, roof = cabin.z, gh = Mathf.Max(0.2f, roof - belt - 0.05f);
             b.SetVector(SId, now.panes);

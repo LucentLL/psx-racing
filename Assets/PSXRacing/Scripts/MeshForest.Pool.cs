@@ -121,7 +121,7 @@ namespace PSXRacing
                 rows[k * 3] = new Vector4(m.m00, m.m01, m.m02, m.m03);
                 rows[k * 3 + 1] = new Vector4(m.m10, m.m11, m.m12, m.m13);
                 rows[k * 3 + 2] = new Vector4(m.m20, m.m21, m.m22, m.m23);
-                var mi = m * impFix[v];
+                var mi = FarMatrix(m, v);   // (a match card: on its mesh's origin to the bit)
                 irows[k * 3] = new Vector4(mi.m00, mi.m01, mi.m02, mi.m03);
                 irows[k * 3 + 1] = new Vector4(mi.m10, mi.m11, mi.m12, mi.m13);
                 irows[k * 3 + 2] = new Vector4(mi.m20, mi.m21, mi.m22, mi.m23);

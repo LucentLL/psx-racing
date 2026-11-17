@@ -15,6 +15,14 @@
 
 float _PSXDmgOn;
 float _PSXGlsOn;   // damage round 2 (PSXCarGlass.cginc): 1 = the panes and the lenses break there, not here
+// DAMAGE ROUND 3 (owner, 11-17: "The wavy lines when glass breaks also appear on the car body. I don't
+// like them, but otherwise the deformation and cracked glass looks decent"). The wavy lines were two
+// noise CONTOURS drawn dark on the paint: the "cracked cover" (iso-line 0.5 of a 6.5/m noise, on every
+// face that met the hit - a door, a wing, not only a plastic cover) and the creases' dark line (the
+// same noise's zero of the fold, 5 cm of it). Both are pictures of lines on the body, not of a bent
+// panel. Global (DamageGlass.Write): 1 = round 2's lines (PSX_DMG_NOWAVY=0); 0 (unset) = none - the
+// folds stay in the reflections and the light (the normal, the vertex dents), the scrapes stay.
+float _PSXDmgLines;
 float4 _PSXDmgA, _PSXDmgB, _PSXDmgF, _PSXDmgR, _PSXDmgU, _PSXDmgC, _PSXLampOut;
 
 float DmgHash(float3 p)
@@ -132,10 +140,13 @@ float PSXCarDamage(inout float3 albedo, inout float3 N, out float matte, float3 
     float3 primer = lerp(float3(0.50, 0.50, 0.48), float3(0.72, 0.72, 0.70), DmgNoise(bpos * 37.0 + seed));
     albedo = lerp(albedo, primer, scrape * 0.85);
     matte = scrape;
-    // CRACKS: thin dark lines on the faces that met it (a cracked cover)
-    float r0 = DmgNoise(bpos * 6.5 + seed * 3.1);
-    float crack1 = 1.0 - smoothstep(0.0, 0.022, abs(r0 - 0.5));
-    albedo *= 1.0 - crack1 * hitFace * saturate(a * 3.0) * 0.5 * (1.0 - glassM);
+    // CRACKS: thin dark lines on the faces that met it (a cracked cover) - round 2 only (_PSXDmgLines)
+    if (_PSXDmgLines > 0.5)
+    {
+        float r0 = DmgNoise(bpos * 6.5 + seed * 3.1);
+        float crack1 = 1.0 - smoothstep(0.0, 0.022, abs(r0 - 0.5));
+        albedo *= 1.0 - crack1 * hitFace * saturate(a * 3.0) * 0.5 * (1.0 - glassM);
+    }
     // DENTS AND CRUMPLE: ridged folds that run ACROSS the crush (an accordioned bonnet, a
     // creased door), sharper and closer as it worsens; the reflections show them
     float dent = max(saturate(a * 1.5 - 0.3), saturate(roof * 1.5 - 0.45));
@@ -153,7 +164,8 @@ float PSXCarDamage(inout float3 albedo, inout float3 N, out float matte, float3 
         float3 gB = _PSXDmgR.xyz * g.x + _PSXDmgU.xyz * g.y + _PSXDmgF.xyz * g.z;
         float3 gW = mul((float3x3)unity_ObjectToWorld, gB / axisL);
         N = normalize(N - gW * (dent * 0.5));
-        albedo *= 1.0 - (1.0 - smoothstep(0.0, 0.05, n0)) * dent * 0.35 * (1.0 - glassM);
+        // (the crease's dark line: round 2 only, _PSXDmgLines; the fold itself is the normal above)
+        albedo *= 1.0 - (1.0 - smoothstep(0.0, 0.05, n0)) * dent * 0.35 * (1.0 - glassM) * _PSXDmgLines;
         matte = max(matte, dent * 0.35);
     }
     // CRACKED GLASS: a web of pale lines across the windows of a struck roof

@@ -358,8 +358,641 @@ CITY NUMBERS (CityAudit.RunSplits; 1,941 carriageway ends at 971 SPLT nodes; J1'
   their fat grass lens; through lanes OSM tags as turn bays no longer vanish at a driveway; lane-change tapers are
   longer. Many spots still bulge or kink where the road has no room or curves (listed above) - not ready to be the
   default.
+﻿# HANDOFF - TREE SEASON: a tree looks the same at every distance (agent "treeseason": Fable 11-16 night, then Opus 5.5 11-17; branch `tree-season` off mountain-nm 742315cd + merge of 1527e2b1; NOT pushed, NOT merged)
 
-﻿# HANDOFF - THE PERF ROUND (agent "perf", branch `perf-1116` off mountain-nm 742315cd, 2026-11-16 22:10 to 11-17; NOT pushed, NOT merged)
+Owner, 11-16 ~22:00, after PC47/PC48: "Tree pop-in is egregious. It is very distracting to see trees full of leaves (or
+different color trees in Fall) pop-in as you approach and then the tree is leafless (or different colors trees overtake
+one another in Fall orange, red, green." ... "Drive around Charlotte in Winter and a mountain track in Fall".
+
+## What was found (file:line on 1527e2b1)
+1. WINTER, a leafy far card over a bare mesh: past the 240 m mesh range every tree is its "far card", and the far
+   cards were the packs' SUMMER pictures darkened (PSXRacingBuilder.CityTreeKit.cs 186-189 Meadow poplars, 261-264 Big
+   Oak; PSXRacingBuilder.MeshTrees.cs 346-348 the stages' tulip poplar). City: 55 of 58 species failed LEAF.
+2. WINTER beeches: orange leaf speckle over grey twigs (MeshTrees.cs 820-856 BareImpostorPath: the removed leaf texels
+   keep their orange under alpha 0 and the mips bleed it back).
+3. Big Oak's far card a solid grey box 43 m wide (CityTreeKit.cs 254-264: the keyed billboard draws opaque).
+4. Street forms' far cards the wrong height (12.7 v 8.2 m: CityTreeKit2.cs ReworkMesh's impostor cut).
+5. 8 city species had NO far level and ended at the mesh range (MeshForest.Init: m = Min(m, meshRange)).
+6. FALL / SUMMER: far cards more saturated and brighter than their meshes (pack sheets + CTImpostorGain 1.3,
+   CityTreeKit2.cs 149; a flat card's light normal, MeshTrees.cs 374, 1.6-1.8 x its mesh at noon); a cross of two cards
+   is 0.71-0.79 of the crown's width from a diagonal. Every tree changed colour and outline at the hand-over.
+7. The stages' old "B" cards (what the MIRRORS show behind the car, and the forest past 2.2 km) wear the retro
+   billboard pack: in winter they read as dark brown leafy crowns over a bare grey forest (PSXRacingBuilder.Stage.cs
+   8306/8347, Season.cs 105 DressAtlasPath). They are also 1/1.6 of their mesh trees' height (Stage.cs 8238
+   MeshTreeHeightScale 1.6 v AddTreeQuads(h)): NOT fixed (needs a stage scene pass, below).
+8. Charlotte's tile cards (past 1.2 km, outside the view's cone, before a tile is fitted) and CityFar's far trees wear
+   the same retro atlas (City/CityTrees.cs 937 MaterialFor). Tiles stood up before CityMeshTrees started kept it even
+   with the kit's atlas on (CityWorld.cs 1291 takes the material when the tile stands).
+9. NEW with the turning far card (round 1): it showed the nearest of its views, so its whole picture switched every
+   45 degrees of bearing: 87-91 % of its pixels changed between bearings 1.5 degrees apart, against the LOW mesh's own
+   20 % (the audit's sweep, cal1).
+10. Mesh levels against each other in winter (LOD0-LOD1, LOD1-LOD2): the packs' coarser levels drop twigs (class 7 of
+   round 1): a pop inside the mesh levels, not a season mismatch. NOT touched.
+11. A far card grows to 2.4 x by 1.8 km (_PSXFarGrow, MeshTrees.cs 728): trees shrink as they are approached and the
+   ones behind come out. Knob PSX_FOREST_FARGROW=1; default unchanged (it was the owner's "barren far slopes" fix).
+12. Stage cliff meshes (cliff_base / cliff_piece) have no far level: MeshForest.Init caps them at the mesh range, so
+   rock faces dissolve at 240 m. Not trees; for a later round.
+13. The October "no hardwoods" bug on Little Switzerland does not reproduce on PC48/PC49's scene (forest draws in edit
+   and play mode). RunStageCards logs the plants listed per dress and fails on 0.
+14. TOOLING TRAP (mine, fixed): one chain of jobs = one PowerShell process, and job.ps1 left each job's env vars set,
+   so a later job inherited an earlier one's switches. Every result below is from jobs run after the fix.
+
+15. The packs' far card of the tulip poplar (city Columnar + every stage) drew its billboard sheet's FOUR views side by
+   side on one card: four thin poplars where one stands (MeshTrees.cs 503 AddBillboardImpostor, aspect 8.7/23.2).
+   Gone with the match cards.
+16. Charlotte's pine stand-ins (03/05_Poplar_skan_pine and their r3 forms) are green poplar meshes: in winter they read
+   as leafy broadleaf trees, near and far alike (no hand-over mismatch; a species question for a later round).
+
+## What changed (branch tree-season; switches, defaults)
+- PSX_TREE_MATCH (default ON; 0 = the packs' far sheets, as PC49): every tree's far card is a picture of its own LOW
+  mesh in each dress (Editor PSXRacingBuilder.TreeMatch.cs; made inside EnsureCityTreeKit / LoadMeshTreeKit, or in place
+  by TreeMatchBuild.CityMatchOnly / PatchStages), on the mesh's own origin (same per-tree fall colour and shade), turned
+  to the eye (4 views = 8 bearings), lit as a crown (PSX/Lit _PSXCrownCard). City species with no far level get one.
+- Each card's albedo gain MEASURED against its own mesh (Editor/TreeMatchGains.txt, 204 cards, 0.79-1.19; the winter
+  twig cards were 10-17 % dark, the poplars' leaf cards 26 % bright).
+- VIEW FADE (PSX_TM_VIEWFADE at bake, default 0.16 of a view step; 0 = the switch): between two views the next one
+  dithers in by 2 x 2 pixel quads, the same pixels for the same pair (PSX/Lit, inside PSX_LODFADE).
+- PSX_TREE_MATCH_CARDS=1 (default OFF = the retro billboards, as PC49): Charlotte's tile / CityFar cards
+  (CityTreeKit.cardAtlas, round 1) and now a STAGE's B cards and crowns (MeshForest.matchCardAtlas, cut by
+  TMStageCardAtlas from the stage kit's match sheets, each broadleaf cell the kit tree whose fall dress is that cell's
+  colour) wear the kit's own trees in the dress. Gains measured: city x0.77 (PSX_TM_CARDGAIN), stage x0.65
+  (PSX_TM_BCARDGAIN). OFF because the cards' cover measured 0.3-0.7 of the mesh trees' (below). CityMeshTrees redresses
+  the tiles that stood before it started (CityWorld.Redress) when it is on.
+- Tools (Editor only): TreeMatchAudit (+ the bearing sweep PSX_TM_SWEEP, rock faces / fences skipped), RunStageCards
+  measured on the Foliage layer, RunStageWalk for several stages in one process, RunTreeMatchCost / RunStageMatchCost.
+- Unchanged: LOD distances and bands (PSX_FOREST_LODFADE stays OFF), the far grow (PSX_FOREST_FARGROW unset), the mesh
+  levels, the far canopy.
+
+## Proof (scratch `C:\Users\mcgee\AppData\Local\Temp\claude\be91fcb74e64226b\40ca151a-c5be-4aaa-9ea2-b8dd0e7c98a9\scratchpad\treeseason\`)
+- ONE TABLE, ONE MEASURE: `sheets\TM_TABLE_before_after.txt` (TreeMatchAudit at the head; before = PSX_TREE_MATCH=0 in a
+  fresh process; city + all 9 mountain stages; city and Blue Ridge every dress and hand-over, the other 8 stages the far
+  hand-over in winter / summer / fall). The far hand-over (mesh -> far card): 533 species-pairs, failing 533 -> 105.
+  By reason: LEAF 267 -> 0, NOFAR 40 -> 0, SAT 217 -> 2, VALUE 483 -> 6, HUE 9 -> 2, SIZE 483 -> 95, GONE 0 -> 2.
+  Stages: summer and fall 0 left on all 9; winter 1 (beech_tree_08 at one bearing: width 5.1 v 3.8 m). The mesh levels
+  (LOD0-1-2) are unchanged (the packs' own; winter SIZE 20-21 city species, class 10).
+- PICTURES of the classes, before | after: `sheets\tm_city_winter_before_after.png`, `tm_city_fall_before_after.png`,
+  `tm_stage_before_after.png` (LOW mesh | far card at the 240 m hand-over, the same eye; labels in each cell).
+- VIEW FADE (the audit's bearing sweep, the tree's picture from bearings 1.5 deg apart): the far card's largest change
+  per step 91 % -> 11 % (city median), 87 % -> 10 % (stages), worst species 140 % -> 22 %; the LOW mesh's own 20 %.
+- APPROACH STRIPS 400 -> 20 m, before | after, fresh processes: `sheets\strip_charlotte_before_after.png`,
+  `strip_226a_before_after.png`, `strip_ls_lure_before_after.png`. THE POP MEASURE (16 px blocks whose light changes
+  > 3 % when the levels step 10 m, RunTreeFeet's): Charlotte arterial winter 968 -> 548, fall 638 -> 495, W Trade
+  winter 16 -> 1, fall 34 -> 34; Little Switzerland winter 115 -> 73, fall 23 -> 19; NC 226A winter 97 -> 104, fall
+  27 -> 21; Blue Ridge winter 34 -> 44, fall 10 -> 9; Lake Lure winter 35 -> 36, fall 18 -> 19. Charlotte 1656 -> 1078
+  (-35 %), the four stages 359 -> 325 (-9 %; their far trees sit behind the corridor's near ones).
+- THE PLAY DRIVES, after, WATCHED once each (owner's game closed; main told before each): NC 226A 15 Oct (02:28) and
+  Charlotte / Independence sprint 15 Jan (02:47); `sheets\drives_before_after.png` = before (11-16) | after frames.
+- THE CARDS (Charlotte's tiles past 1.2 km, a stage's B cards past 2.2 km and in the mirrors) v the mesh trees, same eye:
+  `sheets\cards_before_after.png`. With the kit's own trees on them the colour and leaf state match (226A fall: all
+  limits pass; Charlotte winter luma 0.272 v 0.271), but the cover falls to 0.3-0.7 of the mesh trees' (retro 0.9-1.1):
+  the card meshes are 1/1.3 and 1/1.6 of their mesh trees. So PSX_TREE_MATCH_CARDS is OFF by default.
+
+## Cost (editor, 1920 x 1080, render + read-back, ABBA x 4, one process; `cost\`)
+- Charlotte arterial, fall: driver's eye +0.83 ms (32.6 -> 33.4), 60 m up +0.26 ms; plants drawn +19 % (the 8 city
+  species that had no far level now stand to 1.2 km), triangles 0.44 -> 0.45 M, draws 198 -> 205.
+- NC 226A 7900 m, fall: driver's eye +1.82 ms (48.2 -> 50.0), vista 25 m up +4.01 ms (48.1 -> 52.2, all four rounds
+  apart); plants drawn 42.8 k -> 51.9 k (+20 %), triangles 5.81 -> 6.04 M (far level 0.151 -> 0.170 M), draws 266 -> 266.
+  The +20 % plants on a stage is NOT explained (no species gains a far level there): suspect the turning card's cull
+  sphere (InitGpu, the impostor sphere: the whole turn's circle x the far grow + the foot offset) passing more far
+  instances; for perf to confirm in the player. Editor ms are noisy (spreads in the file).
+- Memory: city 186 sheets 8.4 M texels, stage 21 sheets 1.1 M texels (DXT5 + mips, ~12 MB in all); 5 + 5 card atlases
+  512 px. FOR_PERF.md lists every line touched.
+
+## Self-test
+LifeSimSelfTest in PSXLab, hidden, fresh processes: this branch 64 FAIL, mountain-nm 1527e2b1 64 FAIL, NEW 0, GONE 0.
+(Run at 6d1cb3cb; 24851285 after it only turned the cards' default off.)
+
+## Not done / not verified
+- The cards beyond the mesh forest (Charlotte's tiles past 1.2 km and CityFar to 2.2 km; a stage's B cards past 2.2 km)
+  and in the MIRRORS are still the retro billboards (PSX_TREE_MATCH_CARDS=1 puts the kit's trees on them, measured
+  sparse). The fix is in the bakes: Charlotte's tile cards (City/CityTrees.cs 771 CardWidth/h, a 40-minute tile
+  re-bake) and a stage's B cards (PSXRacingBuilder.Stage.cs 8306 AddTreeQuads(.., h, ..): give them the mesh variant's
+  height and that species' cell) sized as their mesh trees, then PSX_TREE_MATCH_CARDS on.
+- SIZE at the far hand-over: 95 species-pairs left, nearly all city saplings, snags and street forms a few pixels wide
+  in winter (twigs at the outline; a sapling's trunk under one pixel wide dropped by the mesh, dotted on the card) and
+  the 15-degree view step (beech_tree_08 at one bearing). 8 views a sheet would halve the step (2 x the sheets).
+- 2 city street beeches in fall: the card more saturated than the mesh (sat 0.61 v 0.87): not traced.
+- The mesh levels' own winter twig drop (LOD0-1-2, 20-21 city species) and the far grow (class 11) are untouched.
+- The audit's "control" column does not work (turning the eye about the plant kept it centred): not used anywhere.
+- The stage cost's +20 % plants drawn is not explained (above). The wide stage bands (PSX_FOREST_LODFADE=0.6) were not
+  walked (dropped for sandbox time).
+- Coast stages (Emerald Isle, Atlantic Beach bridge, Langston bridge): no mesh forest, nothing to match.
+
+## What the coordinator must do at merge / for a PC build
+- Merge `tree-season` (no conflicts with mountain-nm 1527e2b1; merged in at 95eaf2a4). Shared-file edits:
+  `Scripts/MeshForest.cs` (Variant.matchLod/matchDress/matchPre + WithMatch/HasMatch; matchCardAtlas; the statics
+  TreeMatch, StageBandShare, FarGrowZ, MatchCardsOn; Init's match swap; FarMatrix; MatchBCards called at the head of
+  DressMaterials; OnDestroy frees the copies; Faded's far-grow knob), `MeshForest.Gpu.cs` (InitGpu's impostor sphere,
+  BakeGpu's impostor rows: perf's GpuDressChanged / GpuFrame untouched), `MeshForest.Pool.cs` (PoolFill's impostor
+  rows), `CityMeshTrees.cs` (MatchCards, Redress, CardGain), `CityTreeKit.cs` (cardAtlas), `Shaders/PSXLit.shader`
+  (inside PSX_LODFADE: the turning card + view fade, lodD float4, a uv swap before every clip; the crown-card light;
+  _PSXIdOn 2 albedo out; _PSXGrowFoot), Editor `PSXRacingBuilder.CityTreeKit.cs` / `.MeshTrees.cs` (the bake hooks),
+  `.Stage.cs` (one line: mfc.matchCardAtlas). New Editor files with metas, and `Editor/TreeMatchGains.txt` (+ meta).
+- THE CARDS ARE DATA: the PC scene pass makes them with this code (EnsureCityTreeKit, LoadMeshTreeKit); without a
+  scene pass: `-executeMethod PSXRacing.EditorTools.TreeMatchBuild.CityMatchOnly` after the city kit is built (3.5 min)
+  and `...TreeMatchBuild.PatchStages` (every stage scene with a mesh forest, in place, ~9 min, no rebuild). PSXLab holds
+  them now (city 02:04, the 9 stages 02:20, from 7893a673's bake code = the head's). A kit rebuilt with mountain-nm's
+  code loses them: run CityMatchOnly again. NO city tile re-bake.
+- Generated, not in git (as other bakes): Assets/StoreAssets/Gen/TreeMatch/*.png, Materials/TM_*.mat,
+  Generated/TM_*.asset.
+- The PSXLab sandbox ends with mountain-nm 1527e2b1's Scripts/Editor/Shaders (the base self-test synced them).
+
+## What the owner will notice
+A tree no longer changes as you drive up to it: in winter the far trees are bare like the near ones (no dark leafy
+crowns, no orange speckle, no grey box), in fall each far tree keeps the colour it has up close, and the far poplar
+is one tree, not four. Far trees also stop flickering their shape as you pass them. Past about 1.2 km in the city and
+2.2 km on the mountains, and in the mirrors, the trees are still the old billboards until those cards are re-baked.
+
+
+# HANDOFF - DAMAGE ROUND 3: the cockpit model through a broken pane, no wavy lines on the body (agent "damage3", branch `damage-cabin` off mountain-nm 457beadd, 2026-11-17 01:00-04:45; NOT pushed, NOT merged)
+
+The owner, 11-17 ~01:25, on round 2's "left glass shattered" cell: "I'm not a fan of the low-poly blocky interior when windows are broken. If shown, the cockpit model should be used." Then (via the coordinator): "The wavy lines when glass breaks also appear on the car body. I don't like them, but otherwise the deformation and cracked glass looks decent." He liked the rest of round 2 (chip / crack / web, crazed and shattered side glass, wheel curb rash).
+
+## What I found
+- THE BOXES in his crop were round 2's own: `Shaders/PSXCarGlass.cginc` `GlsCabin` ray-cast grey boxes (seat backs, restraints, a dash) inside the paint shader, not the shell's mesh.
+- THE COCKPIT MODEL is `CockpitModel` (the owner's v08: one 55,169-triangle "cabin" part in six materials, a 7,402-triangle wheel, four cluster faces, a mirror, four glass panes; PSX/Cabin) fitted per shell by `CockpitInterior.FitFor` + `Fit3` (dash on the cowl, header 1.5 cm under the roof, side glass inside the shell's). It is drawn only for the driver's camera, inside a shell cut at the windscreen (CabinClip). It has no LOD.
+- Drawn from outside as it is, the cockpit pokes through some shells (its roof over a fastback's, its floor under a sill): only a stencil gate keeps it inside the hole on every shell.
+- THE WAVY LINES are not glass at all: `Shaders/PSXCarDamage.cginc` drew two NOISE CONTOURS dark on the paint - "CRACKS" (the 0.5 iso-line of a 6.5/m noise, on every face the hit met: a door, a wing, not only a plastic cover) and the creases' dark line (the zero of the fold's noise, 5 cm wide). A side hit stage 2-3 (the hit that crazes or shatters the side glass) draws both on the door - so "when glass breaks". Present since R1a part 2a (11-13), in round 2's before frames too.
+- Round 2's leftovers: the cockpit's own side and rear panes (PSX/CabinGlass) had no break. The white sliver by the door mirror is a THIN dark outline drawn on the paint (the mirror sail's edge, paint on both sides): it passes the glass test (dark, colourless) and the frame test (`dEst`, paint 3.5 cm away on some sides only), so it was crazed white.
+
+## What I changed (switches: 0 = the round-2 picture)
+- NEW `Scripts/DamageCabin.cs` (`PSX_DMG_CABIN`, default ON): a car with a SHATTERED side or rear pane (crazed is not a hole) gets the cockpit model, fitted exactly as the cockpit view fits it. Two companion renderers of the holed body on copies of its PSX/CarPaint material, after every shell: render queue 2001 marks the hole's own pixels in the stencil (bit 64; the paint's own hole test, so the jagged edge is round 2's), 2002 pushes the depth there 3 m back along each sightline; the cabin's materials (PSX/Cabin copies, queue 2003) pass only on the mark. Wherever the cabin leaves a gap, the paint's own DARK cabin shows (round 2's hole without its boxes). Lit as a room under its roof (sun x0.4) and fogged as the paint round it.
+  - Lazily built: only for a car with a hole, only when a camera that can draw it is within 40 m (PC; 20 m Android), at most 8 cabins (PC; 4 Android), the nearest first; one instance per car from a POOL, released 3 s after the last camera leaves. Within 8 m (PC; 5 m Android) the full mesh; past it `CockpitLod`: the same mesh vertex-clustered at 3 cm on a worker thread (cabin 55,169 -> 25,900 triangles, wheel 7,402 -> 1,093; built once in ~50 ms off the main thread). Past the reach: no instance, no draw, the dark cabin. No shadows, no glass, no arms (from outside they end at a shoulder with no body). A camera whose target has no stencil never draws it. The car's own cockpit view up: the copy stands down. Rides the leaning body (CockpitInterior's Ride).
+  - Callers: `DamageLook.Push` (the driven car, incl. replays) and `DamageView.Dress` (turntable, showroom, MY CARS, garage bays, lots).
+- `Shaders/PSXCarPaint.shader` (shared): property-driven render state (`_PSXStRef/_PSXStRead/_PSXStWrite/_PSXStComp/_PSXStPass`, `_PSXZWrite`, `_PSXZTest`, `_PSXColorMask`; defaults = today's state) and `_PSXHoleMode` (1 mark, 2 pushed depth: one uniform branch in vert and frag).
+- `Shaders/PSXCabin.shader` (shared): a property-driven stencil test (default Always) and cull (default Back), `_PSXCabOut` (seen from outside: sun x0.4, both faces lit as fronts, the paint's fog). The cockpit view's materials keep the defaults.
+- `Shaders/PSXCarGlass.cginc`: `_PSXGlsDark` (global: holes show the dark cabin, no boxes); `_PSXGlsThin` (global, `PSX_DMG_THINTRIM`): a pixel with paint 3.5 cm away on two OPPOSITE sides of the frame test's ring is a thin strip (under 7 cm), not a pane - a pane's own edge has paint on one side only. (A door-mirror box rule was tried first and dropped: on the FD and the EG the door glass runs ahead of the mirror, and that glass stayed whole in the hole.) NEW `Shaders/PSXGlassBreak.cginc`: the hash / noise / crack-line / cell / crazed functions moved out of PSXCarGlass.cginc unchanged, shared with the cockpit glass.
+- `Shaders/PSXCarDamage.cginc` (`PSX_DMG_NOWAVY`, default ON): the two contour lines gated by a global `_PSXDmgLines` (0 = none). The folds stay in the reflections and the light (the normal), the dents in the skin (the vertex push), the scrapes as they were.
+- `Shaders/PSXCabinGlass.shader` + `CockpitInterior.SetPaneBreaks` + `DamageLook.CockpitPanes` + `DamageGlass.CockpitPane` (`PSX_DMG_SEATGLASS`, default ON): from the seat the side and rear glass now crazes (a white mosaic, the strike's hole) or shatters (gone but for jagged remnants in the frame, more low in the channel; no rain on it), on the car side it stands on (an RHD cabin's "door_l" is the car's right).
+- `Scripts/DamageGlass.cs` (CockpitPane, the switches and the globals), `DamageLook.cs` (WriteBlock takes the def (unused now, kept for the next pane rule); `BlockVersion`; Push -> DamageCabin; CockpitPanes), `DamageView.cs` (the def; -> DamageCabin), `CockpitModel.cs` (`GeoBytes`, `ReadRaw`), `CockpitInterior.cs` (`SetPaneBreaks`, `PaneBreak`), `LifeSim/CarViewer.cs` (the turntable's target 24-bit depth = with a stencil; 16 with PSX_DMG_CABIN=0).
+- Editor: NEW `Damage3Shots.cs` (the pictures and the cost probe), NEW `LifeSimSelfTest.Damage3.cs` (+ one line in LifeSimSelfTest.RunAll; `RunDamage3` runs the round's pins alone).
+
+## Proof
+Sheets (every pair: LEFT round 2 = PSX_DMG_CABIN=0 PSX_DMG_NOWAVY=0 PSX_DMG_THINTRIM=0 PSX_DMG_SEATGLASS=0, RIGHT this round; fresh processes, the same rows and cameras), all under `C:\Users\mcgee\AppData\Local\Temp\claude\be91fcb74e64226b\40ca151a-c5be-4aaa-9ea2-b8dd0e7c98a9\scratchpad\damage3\out\`:
+- `damage3_cabin_hd_final.png` + `damage3_lines_hd_final.png` (HD tier, the FINAL code, the EG and the FD, PSXRec) and `damage3_cabin_classic.png` + `damage3_lines_classic.png` (Classic tier, the final code, all shells, PSXRec Android). `damage3_cabin_hd.png` + `damage3_lines_hd.png` (HD tier, PSXPerf, all five shells incl. the '67 pony coupe) are one fix older (a4214902): there a door-mirror box rule kept a rectangle of FD / EG door glass ahead of the mirror whole in the close-ups - replaced since by the thin-strip rule (PSXPerf was held by another agent for the re-run). Contents: per shell - the owner's view on the car menu's stage, the turntable rig at 2.7 m and 1.4 m (sills, roof, pillars) and the rear three-quarter; BeechGap - chase, beside the door, a replay's trackside camera, the seat looking at the shattered glass - day for every shell, dusk and rain for the EG and the FD; the lot with eight holed cars and the cost frames; the hidden Charlotte curb drive (play mode, day and night); MY CARS.
+- The lines sheets: the EG at all seven of round 2's glass severities (door and wing, nose quarter, chase distance; on the road at day and dusk), the FD / pony coupe at the crumpled door and the crushed roof.
+- Shells: EG Civic, FD RX-7 (rx7_fd_93), '67 pony coupe (HD; PSXRec has no such shell - the classic sheet shows gto_66, a 60s muscle coupe), sedan_98 and jdm_pickup (traffic shells: no catalog car drives them, so venue and lot only).
+- Fit: `cabin BUILT, fit3 True` on every shell, the same fit as the cockpit view's (self-test: eye and scales to 1e-4).
+- PLAY MODE: round 2's Charlotte curb drive, re-run HIDDEN on this code (PSXRec, real PhysX): "the cockpit through a hole: drawn (1 live, 1 built)" at both picture sets; frames `out\drive_cab_drive_cab3\`; ALL HOLD.
+- Self-test (PSXRec, the full LifeSim suite): base 457beadd 63 FAIL lines / 4,871 ok; this branch 63 FAIL lines / 4,898 ok (27 new checks hold). The same 63 failure lines (sandbox data: deck scenes, lamp maps, release budget). `RunDamage3` alone: 27/27 ok.
+- COST (`Damage3Shots` part D, run twice; the seller's lot, eight holed cars on screen from above, and beside one hole; 1920 x 1080 HD tier, PC profile = all eight get a cabin; editor wall clock per frame with read-back, medians of 150 interleaved frames; other agents' editors were running on the same machine). RESULT: no path is measurable at this resolution - the medians of the five states (cockpits drawn / dark cabin / round 2's boxes / wheel rash only / mint) lie within 1 ms of each other down the aisle and swing +-2-5 ms beside a hole, both ways. The second run (PSXRec, 03:33, final code):
+  - COST, aisle (8 holed cars, 8 cabins at most, the lot, 1920x1080, editor wall clock per frame incl. read-back, median of 150):
+  - cabin  26.86 ms (p10 23.96, p90 39.53)
+  - dark   26.97 ms (p10 23.98, p90 41.40)
+  - boxes  26.88 ms (p10 24.10, p90 47.90)
+  - rash   27.87 ms (p10 24.47, p90 47.48)
+  - mint   27.85 ms (p10 23.98, p90 41.73)
+  - cabin - dark  = -0.11 ms (the cockpit models)
+  - dark  - mint  = -0.88 ms (the glass path, holes dark)
+  - boxes - mint  = -0.97 ms (round 2's glass path, the boxes)
+  - rash  - mint  = +0.02 ms (wheel rash at stage 3 on all 32 wheels)
+  - COST, close (8 holed cars, 8 cabins at most, the lot, 1920x1080, editor wall clock per frame incl. read-back, median of 150):
+  - cabin  39.35 ms (p10 28.94, p90 54.34)
+  - dark   41.42 ms (p10 28.19, p90 57.35)
+  - boxes  39.96 ms (p10 29.67, p90 57.29)
+  - rash   38.17 ms (p10 27.81, p90 54.79)
+  - mint   43.85 ms (p10 28.29, p90 64.63)
+  - cabin - dark  = -2.07 ms (the cockpit models)
+  - dark  - mint  = -2.44 ms (the glass path, holes dark)
+  - boxes - mint  = -3.89 ms (round 2's glass path, the boxes)
+  - rash  - mint  = -5.68 ms (wheel rash at stage 3 on all 32 wheels)
+  - CPU: DamageCabin.ForCamera with 8 holed cars: 1.4 us a camera
+- Geometry: a cabin is 55,169 + 7,402 triangles near (within 8 m), 25,900 + 1,093 reduced, plus two draws of the body for the mark and the depth; draw calls per holed car 6 (cabin) + 2 (wheel) + 1 (faces) + 2 = 11. CPU: `DamageCabin.ForCamera` 1.4-2.3 us a camera for eight holed cars; nothing at all for a car without a hole (the component disables itself).
+
+## Not done / not verified
+- No device check on Android; no build. The Classic-tier frames are from the PSXRec editor (Android target), its PlatformProfile = Android: reach 20 m, full mesh within 5 m, at most 4 cabins.
+- The driver's arms are not drawn through the hole (they end at a shoulder with no body; the cockpit draws no torso). The wheel stays straight (it does not follow the steering from outside).
+- Crazed glass (not a hole) shows no cabin, as before. Only shattered side and rear panes open; the windscreen never does (laminated).
+- Night at BeechGap in edit mode is black and Charlotte's city does not stream in edit mode: the venue's third light is DUSK; the night proof is the play-mode Charlotte drive (rear glass, chase and outside).
+- Through the hole, wherever the cockpit model leaves a gap (behind its far window, round its roof on a fastback), the paint's dark cabin shows: a dark room with the far glass as dimmed daylight - not the real world behind the car.
+- The cabin's light from outside is an approximation (sun x0.4 under the roof, the sky's ambient in full, no car shadow map for parked cars). The owner's cockpit is a black interior: at the turntable's size it reads dark.
+- On low-resolution sheets (the pickup, gto_66) the remnants in the frame follow the texel staircase (round 2's look, unchanged).
+- The cost numbers are editor wall-clock with read-back on a machine running other editors; no GPU timer, no in-game frame-time run.
+- The thin-strip rule does not tell a B-pillar divider from glass when glass is on both sides of it: the divider keeps thin white remnants either side (they read as glass stuck in the channel).
+
+## Merge notes
+- Shared-file edits: `PSXCarPaint.shader` (Properties: 9 hidden; Pass: ZWrite/ZTest/ColorMask/Stencil lines; vert: the push; frag: two early returns), `PSXCabin.shader` (Properties, Stencil block, `_PSXCabOut` lines), `PSXCabinGlass.shader` (`_PSXBreak` block before the rain), `PSXCarDamage.cginc` (two gated lines + the global), `PSXCarGlass.cginc` (functions moved to PSXGlassBreak.cginc; dark cabin; the thin-strip return in the ring loop), `DamageLook.cs`, `DamageView.cs`, `DamageGlass.cs`, `CockpitInterior.cs`, `CockpitModel.cs`, `LifeSim/CarViewer.cs` (one line), `Editor/LifeSimSelfTest.cs` (one line), `Editor/Damage2Drive.cs` (one Note line in Pictures).
+- New files with their .meta (fixed GUIDs): `Scripts/DamageCabin.cs` (1e4af8a4...), `Shaders/PSXGlassBreak.cginc` (24a1102d...), `Editor/Damage3Shots.cs` (9167df5b...), `Editor/LifeSimSelfTest.Damage3.cs` (2655173c...).
+- No new shader (PSX/CarPaint and PSX/Cabin are already in Always Included), no scene pass, no re-bake, no Resources, no save change. Render queues 2001-2003 were unused.
+- Uses the stencil bit 64 (no other project shader uses the stencil; URP Forward / Forward+, no deferred).
+
+# HANDOFF - DAMAGE ROUND 2: glass that reads as broken, wheel curb rash (agent "damage2", branch `damage-glass-wheels` off mountain-nm 742315cd = the PC48 code, 2026-11-16/17; merged at 457beadd - this section was written by damage2 and put here by damage3, which carried round 2's last steps)
+
+The owner on PC48 (verbatim): "I like the damage system, but the broken glass effect is very poor and does not communicate the damage to me. I'd also like to see scuffing for wheels (hitting curbs, etc)". His screenshot: a red EG Civic on the car menu's stage, the windscreen and side glass black panels covered in white squiggles. Sandbox PSXPerf (Windows target). Player-only: nothing under `Scripts/City`, no re-bake, no Resources or data files, no save version.
+
+## What I found
+- THE SQUIGGLES: `Shaders/PSXCarDamage.cginc` "CRACKED GLASS" (the last block of `PSXCarDamage`) drew ONE pattern - the iso-lines of two value noises (`1 - smoothstep(0, 0.035, |noise - 0.5|)`), i.e. contour lines - over every dark colourless texel above 22-48 % of the body's height, driven only by the car's `roof_glass` row (`DamageLook.Look.roof`). No pane, no strike point, no severity: the same contours on the windscreen, the side glass, the pillars' black trim and the cowl. The glass under it is the paint shader's dark mirror, which on the stage reflects a dark room: black panes with squiggles.
+- There is no glass submesh and no pane data: the paint shader finds glass as the sheet's dark colourless texels (`PSXCarPaint.shader` frag, "Glass and black trim"). Glass rows exist only for ROOF incidents (`DamageModel.Resolve` case ZRoof: `roof_glass` 1 / 2 / 3); a front, side or rear hit wrote panel, bar and lamp rows and never touched the glass.
+- WHEELS: nothing read a wheel's side. The wheels are downward rays (`CarController` wheel contacts); the body box meets walls; a curb is 15 cm of ground the ray climbs. And the city's curb COLLIDER is not the drawn curb: it is chamfered (`CityMeshes.Curbs2.cs`: 11 cm up over 22 cm out, measured in the drive as "0 0 0 0 6 11 14 15 15 15" cm every 10 cm) so a car can climb it - a side ray never finds a steep face.
+
+## What I changed
+Switches (both default ON): `PSX_DMG_GLASS2=0` = PC48's glass (the contour web), `PSX_DMG_WHEELS=0` = no strike read and no rash shown.
+- NEW `Shaders/PSXCarGlass.cginc` (included by `PSXCarPaint.shader` after PSXCarDamage.cginc; needs `PSX_CAR_TAP`, defined there for both texture tiers): `PSXCarGlass2` - the panes told apart by the way they face and where they stand in the cabin (windscreen ahead of the seats, rear glass behind them, left / right by the normal; nothing under the belt, no mirror housing):
+  - windscreen, laminated: a stone chip (pit, cone ring, five short legs); a crack running from it; a spider web (15 radial cracks, some running on, broken rings, fine legs, crushed white at the strike; each shard's normal tilted and the web dished in, so the reflections break up). Lines never thinner than a pixel (fainter instead), so they hold at the chase camera.
+  - side and rear glass, tempered: crazed (white cubes close up, their mean at a distance, coarser cracks, runs out of the strike, a small hole where it was struck); shattered (a hole: jagged crazed remnants hang from the sill and the head of the frame, and the CABIN shows through - two front seats with head restraints, the rear seat's back, the dash, the roof lining, the far side's glass - ray-cast boxes with real parallax, lit by the day that comes in, never by the sun on the pane).
+  - a broken lamp's lens: shards with cracks between, some gone (the model's lamp map; `DamageView` now binds it in the views when a lamp is out).
+  - `PSXWheelRash` (a wheel's renderer only): the rim's lip (bright texels with rubber within 2 cm outside them) scraped to bright metal with dark gouges, the sidewall rubbed pale on its shoulder, in streaks that run round the wheel, over an arc that grows with the stage (57 degrees, 150 degrees, all round); stage 3 adds the cut.
+- `Shaders/PSXCarPaint.shader` (shared): the include and `PSX_CAR_TAP`; in `frag` - the screen derivatives of bpos and uv taken once, the two calls, `glass *= 1 - glsFlat`, the cabin's light on `lit`, and `k / refl / hi` scaled by `1 - glsFlat` before `col`. `Shaders/PSXCarDamage.cginc`: `_PSXGlsOn` declared; the old web gated off when it is 1.
+- NEW `Scripts/DamageGlass.cs`: WHICH PANE, HOW, WHERE, from the rows (nothing new saved): a front hit that crumpled the nose (panel stage 3) cracks the windscreen low on the struck side, a web with the bar pushed back (bumper_bar 2+); a dented door crazes that side's glass, a crumpled one shatters it; a crumpled tail crazes the rear glass, shattered with its bar pushed back; `roof_glass` 1 = a chip under 4.5 m/s else a crack, 2 = a web + every tempered pane crazed, 3 = every tempered pane shattered. The strike is seeded by the incident's hitId (the same crack in the drive and every view). Also the cockpit's windscreen break (`CockpitTexture`: thin pale lines, under 6 % of its square drawn).
+- NEW `Scripts/WheelScuff.cs`: the rules (pure, tested) and the reader on the career car. A KERB = ground 12-40 cm over the wheel's own within 40 cm of its sidewall (rays down beside each grounded wheel); a STRIKE = the ground under the sidewall itself has begun to rise (the drawn curb's face is in the tyre) and the kerb faces within 60 degrees of square to the axle. Not a strike: a low or rolled kerb (under 12 cm: racing kerbs, the city's 10 cm rolled curb) and a kerb met nose-on (the tread climbs it). Its stage from the press on the wheel's side (closing speed square to the face x how square it stands to the axle: 0.10 / 0.9 / 2.2 m/s) and the rub along it (0.3 / 2.5 / 6 m). Also the body's side on a wall, barrier, rock or another car at a wheel (collision contacts within a tyre's radius of an axle, at wheel height; 1 / 3 / 6 m/s). One row per wheel: `wheel_rash_fl / _fr / _rl / _rr` (raised, never doubled), cause "impact", note "front-right rim: curb, West Trade Street" (`CityWorld.StreetNameAt`, else the venue's name).
+- `Scripts/DamageModel.cs` (shared): `KWheel = 5`, `KindName`, `Resolve` (a KWheel incident = that wheel's row + a small paint loss), `DamageLedger.Wheel(corner, stage, vn, what, now)`, `Arm` attaches `WheelScuff`. `Scripts/CarController.cs` (shared): `public int SuspensionMask` (one getter).
+- `Scripts/DamageLook.cs` (shared): `Look` gains the panes, their strikes, the wheels' rash; `Read` folds them (`DamageGlass.Fold / Bars`); `Push` writes the cabin frame and each wheel's rash; `WriteBlock` gains an optional `cabin`; `PlaceBreak` (the cockpit's chip / crack / web where it was struck) replaces `PlaceCrack` when GLASS2 is on. `Scripts/DamageView.cs`, `DamageViewWatch.cs`, `LifeSim/CarViewer.cs`, `OnFoot/CarShell.cs`: the views pass the model's def and their wheels (so every view shows the panes and the rash, and a repair shows at once).
+- `Scripts/LifeSim/DamageBank.cs` (Stamp: a wheel row's price by stage, its label, its cause note), `FaultCatalog.cs` (four hit rows, $110 flat: $70 / $110 / $240 by stage, a day at the shop), `FaultView.cs` (class Chassis), `Inspection.cs` (a RIMS line under WHEELS), `DamageHomes.cs` (value -0.4 / -1 / -2 % per wheel; the debug text).
+- Editor: `LifeSimSelfTest.Damage2.cs` (+ one line in `LifeSimSelfTest.cs` RunAll), `Damage2Shots.cs` (the stills), `Damage2Drive.cs` (the Charlotte drive).
+
+## Proof
+- Sheet: `C:\Users\mcgee\AppData\Local\Temp\claude\be91fcb74e64226b\40ca151a-c5be-4aaa-9ea2-b8dd0e7c98a9\scratchpad\damage2\out\damage2_sheet.png` (2450 x 6982): the owner's view at every severity, close-ups, wheel rash at three stages close and at chase distance, the Charlotte drive (day and night; outside, chase, cockpit), the Classic tier. Every pair before | after, fresh processes (PSXPerf, Windows).
+- The drive (real PhysX, nothing planted): ten degrees into West Trade Street's curb at 25 km/h -> front-right pressed in 1.46 m/s, rubbed 0.69 m, stage 2; nose-in 7.9 m/s (web low, both lamps); back-in 6.9 m/s (rear glass shattered). ALL HOLD.
+- Self-test (PSXPerf): base 742315cd 71 FAIL lines / 4,843 ok; this branch 69 / 4,881. New failures 0; 36 new checks hold.
+- MY CARS after the drive (shot by damage3 on 11-17 from the merged round-2 code, PSXRec): `C:\Users\mcgee\AppData\Local\Temp\claude\be91fcb74e64226b\40ca151a-c5be-4aaa-9ea2-b8dd0e7c98a9\scratchpad\damage3\out\menus_after_menus_after\` against `menus_before_menus_before\` (ALL HOLD): the web and the broken lamps show in MY CARS and on the car menu's stage.
+
+## Not done / not verified
+- Since done by damage round 3 (the section above): the cockpit's side and rear glass, the dark trim by a door mirror, a rain frame, the frame-time measure, MY CARS.
+- No Android device check. Dark wheels get the sidewall scuff only; inner-side strikes are not read; repairing one wheel's row clears that wheel only, through the existing repair order (no wheel refinish service). The lamp shards are small; stage-1 rash is hard to see at chase distance.
+
+## Merge notes
+- Shared-file edits: `PSXCarPaint.shader` (the include block after PSXCarDamage.cginc; five small edits in `frag`), `PSXCarDamage.cginc` (two lines), `DamageLook.cs`, `DamageView.cs`, `DamageViewWatch.cs`, `DamageModel.cs`, `CarController.cs` (one getter), `LifeSim/CarViewer.cs`, `OnFoot/CarShell.cs`, `LifeSim/DamageBank.cs`, `FaultCatalog.cs`, `FaultView.cs`, `Inspection.cs`, `DamageHomes.cs`, `Editor/LifeSimSelfTest.cs` (one line). New files carry their .meta (fixed GUIDs): DamageGlass.cs, WheelScuff.cs, PSXCarGlass.cginc, the three Editor files.
+- No scene pass, no re-bake, no Resources, no save version (a wheel row is an ordinary CarFault: id, stage, corner1, cause, causeNote; old saves load; a save with wheel rows opened by an OLDER build keeps the rows as unknown ids - the same as any hit row added since v26).
+- The paint shader gained a branch for damaged glass and for scuffed wheels only: a car never hit takes neither (`_PSXDmgOn` / `_PSXWheelRash.x` are 0).
+
+# HANDOFF - WATER PART B: the HD water fixed and ON by default on PC (agent "water", branch `water-hd-b`, 2026-11-17 00:45-04:10; NOT pushed, NOT merged)
+
+The owner, 11-17 ~01:00: "Why hasn't the upgraded bodies of water been implemented? You showed me screenshots of it days ago"
+(PC49, Bat Cave in heavy rain, the old flat grey water). Then, after trying `PSXRacing_WaterHD.cmd` on Lake Lure: "it looked
+good. The main issue was the current/tide/waves were moving very fast for a lake. It looked like an ocean."
+Why it was off: the review (`scratchpad\water\REVIEW_SYN.json`) merged it dark (Part A) for F01 (static), F03 (city bank foam
+rim), F06 (no rain on it) and the rest of Part B; Part B was queued and never started. Branch off mountain-nm 1527e2b1, merged
+mountain-nm 749e05de (the perf round) in. Sandbox PSXLab (atomic lock, shared with treeseason). Scratch `scratchpad\water\`
+(PROGRESS_B.md, jobB.ps1, water_player.ps1, measure.py, sheets\, runs\).
+
+## What I found (file:line on 749e05de unless said)
+1. LAKE MOTION. Lake Lure's materials ARE the Lake preset, `_OceanWaves 0` (no sea leak). The speed was the shader: each ripple
+   octave slid rigidly downwind at the phase speed of its waves (PSXWaterHD.cginc HDOctave `uv.x -= drift*t`: 1.48 m/s on the
+   lake's 7 m tile), the gust patches crossed at half the wind (4.5 m/s wind: 2.3 m/s), and every lake carried the sea's 7.5 m
+   vertex ripple train at 3.4 m/s (vertHD's Gerstner). Measured: the PC49 HD lake changed 18.7 levels a second; its "river"
+   slid with the wind, not down the river.
+2. F01 static: the march's per-pixel jitter (cginc:251) plus a hard thickness cut; the wobble and the march normal read the
+   full-detail ripples (single-pixel variation sampled the mirrored world pixel by pixel); no roughness for what the mips average.
+3. F02 edge bars: tEnd from the frame's side planes (cginc:245-250) and a side fade toward the sky.
+4. Rain: a roughness cut-off on the march (Part A's early-out idea, kept by me at first) and summing roughness terms linearly
+   drove rough to 1 on a grazing river: its mirror became the bright overcast horizon - in the measuring player the Bat Cave
+   river in rain was exactly the owner's "flat grey sheet" with HD ON. The old water there is a white sheet with a foam rim.
+5. The HD variant of PSX/Water fails Vulkan compilation ("top-level params outside of cbuffers") - round 1 (749e05de) too, so
+   the next APK cut from mountain-nm would have logged a shader error. GLES3, D3D compile clean.
+6. `WaterLook.ActiveHere` was true in every scene without a sea (garage, home, dry stages): keyword on, depth copy every frame.
+   perf's copies-on-demand keyed the opaque copy on that same scene-level flag.
+7. From the driver's seat the water is mostly hidden: Lake Wylie behind Wilkinson Blvd's wall (0-1% of the view), the bridge
+   parapet (3% driver, 8% chase); Lake Lure is seen from US 64/74A mainly at the marina / downtown (8%); the Rocky Broad 1-3%.
+
+## What changed (all behind PSX_WATER_HD; =0 is the old water exactly; 21 commits, head = see the hand-back)
+- DEFAULT ON ON PC: `WaterLook.On` = `PSX_WATER_HD` if set, else VISUALS > WATER (HD / CLASSIC, `WaterPrefs`, PlayerPrefs
+  `psx.waterhd`, default HD when `PlatformProfile.PC`); phones and WebGL never (row not offered). Live switch, no restart.
+  `PSX_WATER_HD_SEA` (the coast stages' sea) unchanged, OFF. Classic/Retro picture modes keep whatever the row says (owner's call).
+- Lake motion: still water reads the sheet twice, +-0.45 rad off the wind, each creeping at 0.22 x phase speed (half that in a
+  light air), equal weight: the ripples work in place; gusts cross at 0.18 x wind; no vertex train on lakes/city. Rivers: flow
+  x1.5 (the bake's reach means 0.15-1.95 m/s -> surface speed; Manning gives 1.5-2.7 m/s in the gorge), a small wind creep. The
+  sea's motion is byte-for-byte the old formula (seaK). Lake shore foam only above 4 m/s wind.
+- F01: no jitter; crossings weighed by the gap in front of the ray (fade, not cut; a partial first hit blends with the next);
+  Toksvig roughness from the sheet's measured mip spectrum + capped screen-space normal variance, in quadrature; octave 3 drawn
+  to 40 m, gone by 60 m; the march normal and the wobble from octave A two mips softer (+2 fetches); spec power widens with it.
+- F02: march ends only at the top/bottom; x clamped to the edge column; no side fade.
+- Rain: roughness +0.25, 40% of the mirror taken and the rest broken up (wobble x3.5), rough water mirrors its banks BLURRED
+  (4 taps) instead of the sky, misses read the car's panorama (CarReflections' `_PSXEnvPano`, as the paint does) instead of the
+  bare sky, greying toward the sky's grey (10% near, +16% far), rain rings wider and pocked both ways (bright on dark water, dark
+  on sky-bright water), no sun/moon glint under overcast or rain (the sky's clear share in `_PSXWaterWind.w`).
+- City foam gain 0 (F03). Rivers: white water only above 0.35 of the mesh's b and none at the banks (in the vertex shader: no
+  scene pass); bank foam on running water capped at 0.35 and broken by the lace. River preset: flow roughness 0.25/m/s, less
+  absorption, amber-green scatter. Lake: vertex depth replaces the frame's bed where the lidar's drawdown floor is >1 m shallower.
+- Presets applied at runtime by material name (`WaterPresets`, *RiverWater / *LakeWater / CityWater; the builders use the
+  same numbers): a retune needs no scene pass. `PSX_WATER_PRESETS=0` = the materials as built (tools).
+- Cost/waste: copies only for a camera with HD water in its frustum (`WaterLook.WaterInView`, cached per camera per frame);
+  depth-copy RT per camera, released after 300 idle frames, old pass released on OnValidate; the HD variant warmed once
+  (`[WaterLook] warmed ...`); half the march steps beyond 300 m; no march looking steeply down (fresnel < 0.05).
+- `WaterVariantStrip` (Editor): the HD variant is left out of every non-Windows build (Vulkan error; phones never draw it).
+- Refraction and wobble offsets turned into screen axes (item 16); the weather memo keys on the weather itself (Forced, sky and
+  road overrides); `CopyReady` (no copy shader = no tier claim); CityFlickerFinder exempts PSX/Water from the 2500-queue rule;
+  `tools/water/make_ripples.py` committed. Gust field from three readings (190 / 442 / 1180 m) off the sea.
+- Self-test `TestWaterB` (6 checks), WaterShots part B sets (lure, drive, seastrip, rivertest, compile, strips, tiers, debug).
+
+## Proof (PSXLab, PC profile, fresh processes, same poses, frozen clock; scratch `scratchpad\water\`)
+Sheets: `sheets\B_lakelure.png` (Bat Cave chase in heavy rain first; old | PC49 HD | part B | 1:1; video frame where one
+exists), `sheets\B_charlotte_drive.png`, `sheets\B_motion.png`, `sheets\B_static.png`.
+- Motion (frames 1.0 s apart, water pixels): Lake Lure 18.7 -> 8.1 levels/s, no coherent slide (phase correlation peak at 0);
+  Lake Wylie 21.2 -> 10.5 per 0.5 s; the Bat Cave river now shifts 9 px/s DOWNSTREAM (PC49: 8 px/s the wrong way, with the
+  wind); the Bogue sea identical (12.6 = 12.6 levels/s; 214 px/s swell).
+- Static, reviewer's grain2.py at 1080: Lake Wylie water 81.7 (round 1) -> 41.5 (old water 3.5, rest of frame 11.3), and of
+  it only 4.2 is single-pixel (37.3 survives a 2x2 box: the mirrored dithered trees) against 34.4 in round 1; Sugar Creek
+  72.5 -> 24.0 (rest 21.2); test lake 8.2 -> 3.0; river mouth 28.5 -> 9.0; staged river 21.4 -> 12.7 (rest 12.7). At 1440 lines: Lake Wylie 42.4 (38.1 after the 2x2 box; rest 9.8), Sugar Creek 25.0 (rest 17.9), test lake 3.5, mouth 12.4 (rest 15.7).
+- Edge bars: staged lake noon edges 1.00 / 1.00 of the interior (round 1 1.58 / 1.46); sunset 1.10 / 1.01; calm 1.03 / 0.90.
+- Rain (staged lake): water mean 65 -> 94 (sky 94); brightest water 104 < brightest sky 126 (round 1: 131 > 126); the 8-px
+  block std RISES 1.4 -> 3.0 (the gate wanted a 30% fall): the dry lake is now a smooth mirror and rain adds pocks.
+- Night: Lake Wylie water peak / median 16.7x (old 5.1x); headlights on in every night cell.
+- Rim: no foam in the city (gain 0); the Catawba waterline band reads 1.26 x the open water (round 1 1.28) - it is the mirrored
+  sunlit grass bank, no pale line in the 1:1 crop; Sugar Creek 0.68.
+- Tiers 0 and 1, the rear-mirror view (tier 0): no magenta, murky water. GLES3 and D3D compile clean; Vulkan fails (stripped).
+- COST (measuring player PSXRelease\_water, 3832x2054 offscreen probe, in-process A/B HD vs `WaterLook.ForceClassic`, perf's
+  copies-on-demand ON, 7-10 other Unity editors running): main-view render-thread+GPU HD minus classic: Lake Lure marina noon
+  +0.15 (sd 0.25) / +0.40 (sd 0.49) ms; Lake Wylie bridge noon +1.03 (sd 0.38, an earlier build) / +0.11 (sd 0.29); Bat Cave
+  rain -0.11 / +0.31 (sd 0.44) / +0.48 (sd 0.66); Wylie night rain +0.06 (sd 0.77). Frame-time deltas are inside the noise
+  (sd 1.3-4 ms). Worst case, editor synthetic, 45% of a 3652x2054 frame water: tier 0 0.86, tier 1 0.99, tier 2 2.83 ms
+  (round 1 measured 1.26 ms at 1440p = ~2.6 ms at this size; the old water ~1.0). Watched drive (Lake Lure 9.0 km to Bat
+  Cave, rain, 2560x1440 window, 60 fps cap): 56 fps avg, p99 32.5 ms, GPU 12.8 ms.
+- Self-test (PSXLab, no PSX_WATER_HD, no PC profile): FAILED (64) twice, the same 64 checks each time, all of them also failing in perf's run of 749e05de-era code (66, a superset); the 6 new water checks ok.
+
+## What still looks wrong / not done
+- Bat Cave in rain from the chase camera: the river reads light-to-mid grey, now textured with pocks and darker than PC49 (white
+  sheet + foam rim), but still a grey strip: at that grazing angle it mirrors the overcast sky, and the banks it would mirror are
+  off the top of the frame (the car's panorama stands in, blurred). Lake Lure itself mirrors its ridge; the gorge river at noon
+  mirrors its banks.
+- From the driver's seat Lake Wylie is behind a wall / parapet; the city cells are mostly chase views. No lamp streak across the
+  water in the night cells: no street lamp stands across the water at these poses (the analytic streak code is unchanged).
+- Item 13 phone frame: not done (phones stay off; the variant is stripped from APKs). Item 15: the per-material split and the
+  Bogue sound vs ocean split not done (the coast scene gate stays). Item 17: CityFar's ring water (Scripts/City, a re-bake) not
+  touched or measured; gust grid checked from 30 m (wylie_gusts_high: no grid seen). Item 19 (the HD sea) not done. HitchProbe
+  drive not run (the warm-up is in). The review's rain block-std gate fails by design (above).
+- Cost numbers are noisy (shared machine); the in-process A/B is the honest number.
+
+## For the coordinator at merge
+- No scene pass, no city re-bake (nothing under Scripts/City), no data files. GraphicsSettings unchanged. CityWater.mat is
+  re-dressed by the next BuildCityScenesOnly (and the presets are applied at runtime anyway).
+- Shared files: `PerfSwitches.cs` (copies-on-demand now `WaterLook.CopiesWanted(cam)` + `WaterLook.CopiesOnDemand`; already in
+  this branch on top of 749e05de); `SpeedBlurFeature.cs` (Create, AddWaterDepth, WaterDepthPass only - rain-1116 edits
+  AddRenderPasses / WetPass: separate hunks); `SettingsCatalog.cs` (the WATER row after REFLECTIONS); `CityFlickerFinder.cs`
+  (one line); `LifeSimSelfTest.cs` (one Guard line).
+- New files with committed metas: `Editor/WaterShots.PartB.cs`, `Editor/WaterVariantStrip.cs`, `Editor/LifeSimSelfTest.WaterB.cs`.
+- `tools/PSXRacing_WaterHD.cmd` is no longer needed (HD is the default); `PSX_WATER_HD=0` gives the old water.
+- `PSXRelease\_water` (8.8 GB) is my measuring player: recycle it after the merge.
+
+## What the owner will notice
+Lake Lure and Charlotte's lakes and rivers mirror their ridges, trees and bridges in dark green-brown water instead of a
+blue-white sheet; the lake is calm, its ripples rise and fade in place, the river runs downstream. In rain the water goes grey,
+rougher and pocked, with no glints; the Bat Cave river in rain is still a lighter grey strip from the chase camera.
+
+# HANDOFF - THE LINE GATE (agents "linegate" then its Opus 5.5 successor, branch `city-linegate` off mountain-nm 742315cd, 2026-11-16/17; NOT pushed, NOT merged)
+
+The owner, PC48, North Tryon Street: "I still see a lot of areas around Charlotte where the road and/or road lines do not make
+sense, are not accurate, and would never pass DOT requirements ... these issues cannot get through the quality gate audits."
+
+## THE RULE (also in Docs\CHARLOTTE.md, "The line gate")
+`tools\city-linegate.ps1` is part of every Charlotte merge and build. A branch may not raise any class above
+`tools\city\baseline\linegate_baseline.json` (the tool exits 1; 2 when the run fails). The build note quotes its totals line.
+A class is closed only at 0; no "known, ignore" list. No Charlotte race track ships on a road that fails. Re-record the
+baseline (`-WriteBaseline`) only in a commit that brought a class DOWN, or that changed a rule with its proof.
+
+## The baseline (full4: drawing code 742315cd, gate 416dd3b7 (+ b7f92df4: hairpins, after the run), graph b2aa3453, 10,626 road tiles, 23 min in PSXRoadA)
+| class | failing places | T1 freeways + primary | T2 minor | T3 neighbourhood |
+|---|---:|---:|---:|---:|
+| SHIFT | 2,703 | 1,326 | 1,361 | 16 |
+| SJOG | 2,851 | 1,408 | 1,429 | 14 |
+| KINK | 3,231 | 1,662 | 968 | 601 |
+| WIDTH | 630 | 313 | 316 | 1 |
+| CONT | 1,725 | 793 | 922 | 10 |
+| SURFACE | 261 | 260 | 1 | 0 |
+| JUNCTION | 657 | 102 | 407 | 148 |
+| MEDIAN | 76 | 9 | 45 | 22 |
+| STEP | 9,684 | 2,240 | 4,162 | 3,282 |
+| BARRIER | 1,622 | 379 | 1,193 | 50 |
+| BRIDGE | 12 | 9 | 3 | 0 |
+| **ALL** | **23,452** | | | |
+
+The totals line the tool prints (quote it in every build note):
+
+    LINE GATE full4 graph b2aa3453: SHIFT 2703 SJOG 2851 KINK 3231 WIDTH 630 CONT 1725 SURFACE 261 JUNCTION 657 MEDIAN 76 STEP 9684 BARRIER 1622 BRIDGE 12 | ALL 23452 failing places
+
+## What was found
+1. The old line gate never gated: `Editor/SmoothRules.cs:215` `ReportOnly = true` since 2026-09-29, `CitySmooth.RunFull`
+   exits 0; its offline twin lists 368,982 runs on today's data and exits 0; it judges the builder against its own plan.
+   The city audit's line reports are boxed to Uptown (`CityAudit.Hooks.cs:82`) and judge colour / meaning, not rate.
+2. The owner's spot (x 2470 z 8201, e15599 / e9470 / e15598 / e15597 / e15596, 45 mph) is caught: the relay
+   (`Scripts/City/LineModel.cs:1774` NeedsRelay, `:578` Relay) moves the centre line 2.9 m in 40 m and 3.2 m back in 57 m
+   (needs 131 / 144 m); a lane line ends at a joint (a 6.2-6.9 m lane). Real road: 3 + TWLTL + 3, straight (splits2).
+3. CORRECTION of the first note: the "dark stripes" are NOT the stretched road texture. The HD road base
+   (`HDSrc/TexHD/city_road_base_*`), its normal / AO / roughness maps and the paint masks' grain channel are flat (column and
+   row means within 1/255 over 64 bins); stretching an even texture draws nothing. Likely tyre marks (`Scripts/SkidMarks.cs`,
+   every sliding car): settled by splits2's fresh PC-look frame of the spot (no stripes). SURFACE "stretched" is census
+   only (`PSX_LG_STRETCHFAIL=1` fails it again).
+4. One-cause classes: the junction slab's 12 mm lip, 5,801 places from ONE constant (`CityMeshes.cs:10791` FanProudM = 0.012; NCDOT 610-12 allows 3.2 mm; also tracks S1); parapets / rails on the edge line 1,622; grade breaks 3,883; the line model's relays and short tapers (SJOG / SHIFT / WIDTH / CONT: scratchpad\linegate\WORKLIST_FOR_SPLITS2.md ranks them)
+
+## False positives: checked on frames, fixed (all in the census line "passed by rule:" of city_linegate.txt)
+Each rule below was proven on sampled editor frames (sheets in Review\Charlotte_Line_Gate_2026-11-16\samples*_<CLASS>.jpg);
+the recorded run passed by them:
+- 109125 curve facets (a deflection over 4 m chords gone over 8 / 16 m chords: a curve drawn as a polyline, or a facet within 2.5 cm of its curve)
+- 1632 sharp kinks, S-jogs or line shifts (10 deg, 45 deg, steeper than 1:1.5) within 60 m of a ramp's diverge / merge (its gore's V read through hidden paint)
+- 521 more over another road's pavement (recorded as SURFACE: two roads' pavement drawn over each other)
+- 15627 grade breaks gone over 20 / 40 m chords (a vertical curve drawn in facets)
+- 1550 pavement-edge moves at freeway ramp terminals within the AASHTO terminal taper (25:1)
+- 18434 kinks (2490 more at a gore's nose) and 3453 pavement-edge steps at junction corners (15 m from the drawn end at a node of 1 or 3+ arms: the mouth strip and its curb return)
+- 638 line ends inside an edge and 532 at a joint where another line of another pattern continues it (MUTCD 2009 3B.04 / 3A.06: a pattern change)
+- 1175 line ends within 25 m of a junction (the stop line or crosswalk: MUTCD 2009 3B.16 / 3B.18)
+- 3699 edge-line ends inside an edge (MUTCD 2009 3B.06 / 3B.07: edge lines may stop at curbs, driveways, openings)
+- 1503 side roads with no control meeting a road of their own class (MUTCD 2009 2B.04: the basic right-of-way rule)
+- 523 road mouths whose nearest solid line is the far side's, a centre yellow (a left turn) or a split's own yellow
+- not failed at all (census only): stretched pavement texture (`PSX_LG_STRETCHFAIL=1`); stop-line placement read from the
+  signal plan, not the mesh (`PSX_LG_STOPLINE=1`)
+- rule changes besides: KINK must hold over 8 / 16 m chords; grade breaks over 20 / 40 m; WIDTH: under 1.8 m is a
+  buffer, a solid line near the curb a shoulder, two edge lines no lane; JUNCTION mouth: the nearest line within 3 m,
+  not a centre line; doubled lines: parallel for 20 m; BRIDGE: a twin deck counts half the lanes; line ends join
+  only within 45 deg
+
+## What I changed (new files only; an audit: no drawing code, no switch)
+- `Assets/PSXRacing/Editor/CityAudit.LineGate.cs`, `.LineGate2.cs` (`CityAudit.RunLineGate`), `.LineGateShots.cs`
+  (`CityAudit.RunLineGateShots`: plan / driver's eye / UV-grid editor frames; `PSX_LG_NOBLD=1` no buildings), .meta files.
+- `tools\city-linegate.ps1` (the gate; the baseline records the drawing commit), `tools\city\baseline\linegate_baseline.json`,
+  `tools\city\linegate_report.py`, `_tracks.py`, `_worklist.py`, `_samples.py` (`--nfor`, `--uv`, stratified by kind).
+- `Docs\CHARLOTTE.md`: "The line gate" section appended (the rule, what it reads and judges, the baseline table).
+- Gate env: PSX_LG_BOX, _NAME, _TAG, _SPOT, _PLANS, _PLAN_AT, _FOOD, _SHOTS, _NOBLD (frames), _STRETCHFAIL and _STOPLINE (=1
+  fail the two kinds that are census only).
+
+## Proof
+- Runs (PSXRoadA, WebGL, all whole-city unless said): full1 (first run, before the fixes: 46,175 places), full2 (after the
+  first false-positive fixes: 27,393), full4 (the baseline, through `tools\city-linegate.ps1 -WriteBaseline`: the tool's first
+  end-to-end run), full3 (the first tool run; superseded after its worst frames showed ramp-overlap readings), box runs b1 (I-485 gores) / b2 (a spot dump at one gore). Outputs: scratchpad\linegate\out\<tag>_*.
+- The tool's exit codes: `scratchpad\linegate\tooltest.ps1` (no Unity) on the recorded run: write 0, same run 0, one class
+  +1 place exit 1 ("LINE GATE FAILED: 1 class(es) raised: KINK n -> n+1"), classes lowered 0 (CLOSED shown), box run 0 (not
+  compared), no baseline 1, no run file 2: 7 of 7.
+- False-positive sheets (real editor plan frames, 64 x 36 m, every cell labelled with what the gate said):
+  `Review\Charlotte_Line_Gate_2026-11-16\samples_<CLASS>.jpg` (312 places of full1) and `samples2_<CLASS>.jpg` (222 of
+  full2, stratified by kind); scratchpad\linegate\report\s1\m_*.png close-ups (gore hooks, stop lines, curbs, steps).
+- The owner's spot: `Review\Charlotte_Line_Gate_2026-11-16\owner_spot.png` (plan + driver's eye, same code as PC48).
+- The worst 60: `Review\Charlotte_Line_Gate_2026-11-16\worst_01..06.png`; the heat map
+  `Charlotte_Line_Gate_2026-11-16.png`; the note `Charlotte_Line_Gate_2026-11-16.md`, every failure in `.csv`.
+
+## Not done / not verified
+- Street-level comparison of the sampled places (the gate proves the drawn road against the standard, not against the
+  real street); (the stripes are settled: tyre marks).
+- The older Unity audits were not re-run at the spot (read in code: none measures a line's sideways rate; the smoothness
+  gate's offline twin was run: 368,982 runs, exit 0).
+- Not judged: turn-lane storage, median nose shape / island width, crosswalk / arrow / stop-line placement (the stop-line
+  check read the signal plan, not the mesh: off, PSX_LG_STOPLINE=1), paint under another ribbon (counted only).
+- AASHTO Green Book 9.7.2 (bay tapers) and 10.9.6 (ramp terminal 25:1) are from memory, not re-read; NCDOT's RDM PDF was
+  not readable as text (FDOT / TxDOT tables used, read 2026-11-16).
+- MEDIAN, BARRIER, BRIDGE, STEP fan lips and grade breaks were confirmed on frames as drawn faults by the measure; whether a
+  bridge's real parapet also stands on its edge line was not checked against imagery.
+
+## At merge
+- New files only, plus one section appended at the end of `Docs\CHARLOTTE.md` and this HANDOFF section. No scene pass,
+  no re-bake, no data file. The Editor .meta files are committed (minted in PSXRoadA).
+- After merging anything that touches Scripts/City or the city data: run `tools\city-linegate.ps1` (about 27 min in a WebGL
+  sandbox); exit 1 = a class rose: the branch does not merge until it is back at or under the baseline.
+- splits2's branch (charlotte-splits2) adds RoadProfiles.Tw7 and moves lines: after it merges, run the gate and re-record
+  the baseline in that merge commit if every class went down or held.
+
+# HANDOFF - THE GRIP ROUND (agent "grip", branch `tyre-grip` off mountain-nm 749e05de = PC50, 2026-11-17 01:30-03:40; NOT pushed, NOT merged)
+
+Owner, 11-17 ~01:30: "I noticed that cars slide on banked roads. Even when resting in place at the start of a race. This
+means tires don't actually grip the roads." Scratch: `scratchpad\grip\` (PROGRESS.md, drift_table.txt, sheet_*.png,
+grip_sheet_before_after.png, every run's report). Sandbox PSXRec (Android), all runs hidden batch.
+
+## What I found (base = PSX_STATIC_GRIP=0, which is the 749e05de code path exactly)
+1. **Parked cars TURNED on a bank.** The parking hold (CarController.TireForces, base lines 3683 / 3921-3925 / 3999-4003)
+   shares the car's weight EVENLY over the four tyres (`parkShareKg = massKg / groundedAll`) and anchors only the centre of
+   mass (`parkOff`, 3686-3692). On a bank that is a couple about the CG on any car that is not 50:50 front to rear (the RX-7
+   stands 65:35 on its springs), resisted only by the hold's velocity damper: a steady yaw of ~0.02 rad/s. In the game's own
+   pre-race hold every car on the Lake Lure grid (8-10% bank) turned 22 deg in 20 s, its corners moving 84 cm, with the centre
+   within 4 mm; Gillespie Gap grid 17.5 deg / 66 cm; NC 226A 3.5-6.6 deg; 40 deg / 1.5 m at Chimney Rock's 14% bend. This is
+   what the owner saw: the cars visibly swing round on the grid (sheets below). The CG-only measure the old ParkedCarSim
+   used could not see it.
+2. **No lateral force at rest.** The slip model (TireCurve 2229; slip = atan2(vLat, max(|vLong|, 0.3)) at 3745; then
+   `fLat *= Clamp01(|contactVel| / 0.6)` at 3975) goes as vLat^2 near zero: nothing holds a car that is not latched by the hold
+   (the hold needs |v| <= 0.3 AND a pedal/lever or 0.5 s still, 3644-3666). So a car dropped onto its grid slid 2-6 cm while it
+   settled (up to 18 cm on the steep spots).
+3. **The crawl band chattered.** The slip model's sideways stiffness per m/s is C / v, applied explicitly: 11 g dt / v of the
+   tyre's own mass per tick = 1.8 / v at 60 Hz, past the stability limit below ~0.9 m/s. Sideways speed flipped sign every
+   other tick: lateral jerk 1400-1575 m/s^3 pulling away from every grid, and a car rolling slowly down a banked grade walked
+   0.5-2.5 m sideways per 10 m (at the Lake Lure spot the four tyres gave 11.7 kN against the 1.6 kN gravity asked).
+4. Not the causes: the pre-race hold (PlayerCarInput.cs:280-284 brake 0.3 + lever; AIDriver.cs:1076-1099 brake 0.4) freezes
+   both axes through the hold; there are no WheelColliders (raycast wheels); the banked road is on the road layer (circle
+   1.27-1.37 x Fz at rest).
+5. Tyre numbers at rest, base, Lake Lure grid RX-7 parked: Fz 2030-4350 N, circle 2840-5470 N, lateral 242 / 373 N (equal
+   per axle: the even split) = 1230 N against gravity's 1232 N across the car, at slip -5.0 / +4.7 deg, contact 0.027-0.032 m/s
+   (the turning). After: each tyre carries its own load (221-442 N on the 60:40 sim car at 10%), slip 0.000, contact 0.0000.
+
+## What I changed (all behind PSX_STATIC_GRIP, default ON; =0 is the old code path bit for bit)
+- `Scripts/CarController.cs`: a contact-patch (brush) model per tyre at rest and at a crawl. `patchLat[i]` = the patch's
+  sideways deflection, integrated from the contact's sideways speed and relaxed over a 0.30 m relaxation length as the wheel
+  rolls; force = (C / 0.30) x deflection + a 0.9-critical damper on the deflection RATE, clamped to the friction circle (a
+  clamped patch slides). C is the slip model's own cornering stiffness, so in steady rolling the patch gives exactly
+  C x tan(slip): the slip model's linear branch. Blended into the slip model by contact speed 0.5 -> 2.0 m/s (smoothstep);
+  above 2 m/s nothing new runs (the patch only tracks the slip model's force so slowing down hands back seamlessly).
+  `patchLong[i]`: braked wheels (pedal quarter, lever on the rear) hold fore-aft through the same patch; PARKED = every wheel
+  held to its circle through the patches, so the hold's even-split overrides are skipped with the switch on. Patches cleared in
+  the air, on TeleportTo and while kinematic. New public statics: StaticGripOn, StaticGripWeight, PatchForce.
+- Tools: `Editor/GripSim.cs` (menu PSX Racing/Grip Sim: 60:40 car on planes 2-12% bank x 0/8/15% grade, 5 rest cases, launch,
+  crawl, 20 m/s crossfall straight, 40 m banked ring, cost timing), `Editor/GridGripCheck.cs` + `tools/grid-grip-check.ps1`
+  (real grids with the countdown held; yaw and body-corner drift; the route's most banked spot; launch; PSX_GRIP_SHOTS strip;
+  PSX_GRIP_LAPONLY solo rolling-start telemetry), `Editor/LifeSimSelfTest.Grip.cs` (TestStaticGrip, after TestParkedCarHolds).
+
+## Proof
+- Sheets (real editor frames, overhead, the game's own pre-race hold, switch off and on in fresh processes, t = 0/5/10/15/20 s):
+  `scratchpad\grip\grip_sheet_before_after.png` (all four), `sheet_LakeLure_grid.png`, `sheet_GillespieGap_grid.png`,
+  `sheet_LakeLure_spot.png`, `sheet_ChimneyRock_spot.png` (the spots are STAGED: the player stood in its lane at the route's
+  most banked place). Before: the cars swing round; after: they do not move.
+- Drift table (20 s at rest, worst car, body corner / yaw), `scratchpad\grip\drift_table.txt`:
+  game's hold, grids: Lake Lure 84 cm / 22.3 deg -> 1.2 mm / 0.00; Gillespie 66 cm / 17.6 -> 0.6 mm; NC 226A 24 cm / 6.3 ->
+  0.6 mm; Chimney 18 cm / 4.9 -> 0.2 mm; Blue Ridge 17 cm / 4.4 -> 0.7 mm; Uptown (flat) 1.4 -> 0.8 mm. Brake and lever:
+  the same, player and AI. Spots (3.7-14% bank): 35 cm-1.5 m / 9-40 deg -> <= 0.8 mm / 0.00. Settle from touchdown in the hold:
+  9-58 mm -> 0.3-5.7 mm. Every held case, every car: under 2 mm and 0.00 deg (target < 1 cm).
+  No pedals (neutral, no brake) on a GRADE still rolls ~10 m in 20 s, as a real car in neutral does (engine braking holds it
+  near 0.5 m/s); but it now rolls straight: sideways 0.5-2.5 m -> 3-127 mm (the true slip-angle creep), yaw 3-18 -> <= 0.23 deg.
+  On grids with no grade it holds (<= 3 mm; Uptown's 1.6% rolls 8-11 mm before the half-second latch, as before).
+- Hand-over (GridGripCheck launch at 0.35 throttle from the lever): lateral jerk 1420-1575 -> 0-3 m/s^3, sideways in 1.5 s
+  0.02-0.17 m -> 0.000-0.028 m; full throttle at the spots 1270-1360 -> 3-33 m/s^3. GripSim 10% bank: jerk 800-870 -> 0-14,
+  sideways-speed sign flips 46-114 -> 0, crawl across 0.35 m -> 0.03 m.
+- At speed (unchanged): solo rolling-start laps, 120 s each, Lake Lure / Gillespie / Chimney: distance 3220 / 4252 / 2568 m,
+  top 43.1 / 54.6 / 32.6 m/s, peak lateral 2.409 / 1.612 / 1.472 g and every slip-angle percentile IDENTICAL off and on (splits
+  within 0.02 s). HandlingPlayCheck A-H: same figures (brake 98.2 / 96.3 m; stops end 0.02 s sooner - the last crawl to rest;
+  lane change identical); the Viper "H keyboard corrections" FAIL is in both (pre-existing). GripSim: crossfall 2.5% / 8% at
+  20 m/s hands-off drifts -0.54 / -1.10 m per 120 m in both; the 8% banked ring holds 20.08 m/s vs 18.67 flat in both
+  (+7.6%: the bank helps, as it did). Full races with AI from a standing grid differ run to run (the launch and AI contact).
+- Self-test (LifeSimSelfTest.Run, PSXRec, fresh processes): 63 FAIL off and 63 on, the same set (fail_diff: 0 new, 0 gone);
+  the new "static grip" section passes 8/8 and the parked-car section still passes.
+- Cost: per-wheel arithmetic only (one exp, two square roots). Timed in the editor JIT: 125 ns per patch; worst case
+  (8 cars x 4 wheels x 2 patches, every tick) 8 us per 60 Hz tick. It runs only below 2 m/s of contact speed; above
+  that it is one divide and a clamp per wheel. No allocation, no new physics queries, no draw cost.
+
+## Not done / not verified
+- The crossfall pull at speed is unchanged and measurable: hands-off at 20 m/s a 2.5% crown takes the car 0.5 m downhill in
+  120 m (heading -0.3 deg). That is the slip model (the nose-heavy car's front needs more slip), as a real car does without
+  cross-caster; changing it would change the handling at speed, so it is left and reported.
+- Full-throttle launch on a 10% bank still kicks the tail down (yaw 1 rad/s in the sim): the driven rears' circle is spent on
+  wheelspin, which is physical and the same off and on.
+- Not run: ParkedPlayCheck (the town left-car walk test), the PC look turn on PSXPerf (no visual change), a watched showing.
+- The FFB self-aligning torque reads latForce: at a crawl on a bank it now carries the bank load (it already did while parked).
+
+## Merge notes
+- Code only: CarController.cs (fields block after ParkHoldSpin; TireForces: the in-air reset, the kinematic clear, the
+  fore-aft static block before the PARKED hold, the lateral static block after the 0.6 fade, both parkHold overrides now
+  `&& !StaticGripOn`; TeleportTo clears the patches), LifeSimSelfTest.cs (one call), new Editor files + metas, tools ps1.
+- No data, no scene passes, no re-bakes.
+
+# RAIN 2 (branch rain-1116 from 742315cd; 2026-11-16/17; agents "rain" and its successor) - code at 0b824e42; round 3 by the successor agent
+
+The owner, 2026-11-16: "I'd like to see the rain effects be improved. This means while sitting idle, cruising, and racing.
+Splashing on the ground, how it pools on the road. I say this, meanwhile we need to start focusing HEAVILY on performance."
+
+## State
+- Everything is behind `PSX_RAIN2`, DEFAULT OFF (unset = PC48's rain; `=1` on). Sub-switches (public static bools on
+  `Rain2`; env `PSX_RAIN2_POOLS`, `_RINGS`, `_SPLASH`, `_WIPERS`, `_GLASS`, `_SPRAY`, `_TRAILS`, `_AUDIO`) default on under it.
+  Tiers `PSX_RAIN2_TIER=high|low|mobile` (HIGH = PC with REFLECTIONS on; the editor needs `PSX_PROFILE=PC`).
+- Built (round 1-2): pools by the road's slope + the city's gutter pans and rain rings in the wet road's two passes
+  (`Shaders/PSXRain2.cginc`, `PSXSpecBend.cginc`); probed-ground splashes with a cover mask (`Scripts/Rain2Driver.cs`);
+  wipers and look-through drops on the cockpit glass (`PSXCabinGlass.shader`, `CockpitInterior.cs`, `SpeedBlurFeature.cs`);
+  puddle hits + rooster tail (`TireSpray.cs`); mist behind traffic (`Rain2Traffic.cs`); a damp trail (`WetTrail.cs`);
+  procedural rain audio (`Rain2Audio.cs`).
+- Round 3 (this section):
+  - THE PARKED WINDSCREEN is covered: two more bead sizes while parked (6 and 8.5 mm cells x 1.6 on the windscreen, 85-92 %
+    of cells live), each bead a small fisheye on the frame behind it (the scene from five of its radii round it, upside
+    down, brighter in the middle, a dark rim only at the edge, one glint up and to the side), more runners with unbroken
+    trails, and a veil of scattered light on the sheet. `PSXCabinGlass.shader` (`Bead3`, `R2G_FISH`, `R2G_VEIL`).
+  - WIPED ARCS: the blade leaves a bank of water (a film packed with small beads, 22 mm wide) beyond its tip and past the
+    top of its stroke, so the clear arc reads against the wet glass (`R2G_RIDGE_M`).
+  - DOOR MIRRORS carry beads (`PSXCabinGauge.shader` mode 1; each door mirror's material gets `_MirrorMetres` in
+    `DoorMirrors.cs`; the interior mirror and the gauges leave it at zero and are unchanged).
+  - The wipers' standing clock counts time spent in another view (`CockpitInterior.TickWipers`): the play check caught
+    strokes starting after a minute parked in the chase view.
+  - The cost tool (`Editor/Rain2Shots.cs`) now times in PAIRS (A-B / B-A alternating, median of the paired differences, a
+    NULL row per pose for the floor; `PSX_RAIN2_TN`, `PSX_RAIN2_TROWS=whole`); `Rain2Shots.RunWithSelfTest` runs
+    `LifeSimSelfTest.RunRain2` and the stills in one editor start; a door-mirror still.
+  - The play check's driver allocation check allows 8 KB of the shared heap over the whole drive (the editor's meter is
+    the whole heap; one stray 4 KB page from another thread failed it once).
+
+## Cost (3832x2054, RTX 3070, HIGH tier, heavy rain; full table in the scratchpad's `rain\COST.md`)
+WHOLE package, three runs, 1000 render pairs a pose: chase +0.2 ms, road filling the frame +0.3, cockpit parked +0.5,
+cockpit cruising +0.4 (each run's reading -0.1..+0.72; NULL rows up to +0.76). The owner's game was running for all three
+(GPU 99-100 %), so this is good to about +-0.5 ms: under 1.0 ms on the best reading, NOT proven with margin - hence still
+default OFF. Not measured: a fixed register-pressure cost of the bigger shaders (needs a player-build A/B against the
+base exe: perf tour `ab=Rain2.On:0` with `PSX_RAIN2=1`), IL2CPP, Android, the LOW and MOBILE tiers. CPU: driver
+0.12 ms/frame, audio 0.007, spray + trail 0.10 per car; 0 frames over 1 ms.
+
+## Proof
+- `TestRain2`: 21/21 ok (first time it ran in Unity). Full self-test: 68 FAIL vs base 68; one new
+  (`lux_coupe_97: ...on faces that look forward`, a car light-map check on the shared sandbox's car data, not this
+  branch's code) and one gone (`every shell has a body and a wheel mesh`).
+- Play check (free roam, I-77 south, night, heavy rain; hidden runs): run 01:13 (code d0e46766): every check but two
+  passed - the wipers swept after the car had stood in the chase view (fixed: the standing clock now lives in
+  Rain2Driver, 5fcd724a) and one stray 4 KB heap page in the driver's meter (the editor meter is the whole heap; the bound
+  is now 8 KB a drive, aa7d5bd3). Run 01:32 (aa7d5bd3): only the wiper check failed (first cockpit entry; fixed by
+  5fcd724a). Run 02:22 (5fcd724a): PASS, 12/12 (0 wiper strokes while parked, driver 0 B). Counts: 232-247 splashes parked, 128 anchors, 13 wiper strokes in 16 s of cruise, 298-334
+  puddle hits, 3276-3736 trail pieces, 14-15 traffic cars; CPU driver 0.08-0.12 ms/frame, 0-1 frames over 1 ms.
+- Sheets (scratchpad `rain\`): `rain2_sheet_stills.png` (reference | PSX_RAIN2=0 | =1, fresh processes, incl. the parked
+  windscreen at 2x and a door mirror), `rain2_sheet_played.png`.
+
+## Still short of the owner's reference
+- The parked screen is covered now but its beads read warmer and coarser than his (our sodium-lit street vs his white-lit
+  garage); no real blur through the sheet.
+- No wheel RUTS: the road shader knows its width only on the HD road path (`_RoadGutter.y`), not where the lanes are, and
+  the edit-mode stills draw Classic roads.
+- No rear-window wiper; blades are plain dark lines. Rings are subtle from the chase camera; ring / crown sprites simple.
+- Traffic mist is placed at a guessed rear axle; pools do not feed the aquaplane rule; no damp trail after the rain stops.
+
+## Merge
+- `Editor/LifeSimSelfTest.cs`: one `Guard(nameof(TestRain2), TestRain2)` line beside other branches' Guard lines.
+- Shared files edited: `PSXWet.cginc`, `PSXWetSSR.cginc`, `PSXLit.shader`, `PSXLamps.cginc`, `PSXHeadlights.cginc`,
+  `PSXCabinGlass.shader`, `PSXCabinGauge.shader`, `TireSpray.cs`, `WeatherFx.cs`, `WetReflections.cs`,
+  `CockpitInterior.cs`, `DoorMirrors.cs`, `SpeedBlurFeature.cs`, `CarLights.cs`, `RoadSurface.cs`, `Dev/PerfTour.cs`.
+- No scene, bake, data or ProjectSettings change; `Scripts/City/` untouched; two new shader includes, no new shader.
+
+# HANDOFF - THE PERF ROUND (agent "perf", branch `perf-1116` off mountain-nm 742315cd, 2026-11-16 22:10 to 11-17; NOT pushed, NOT merged)
 
 Owner, 11-16 ~22:00: "we need to start focusing HEAVILY on performance." His PC: i7-10700K, RTX 3070, 3832x2054 at 144 Hz;
 PC48's mountain stages ran 40-49 fps. Target 60 minimum, 144 the goal. Scratch: `scratchpad\perf\` (OWNER_TABLE.md = the one-page
