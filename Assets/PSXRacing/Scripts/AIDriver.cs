@@ -60,6 +60,52 @@ namespace PSXRacing
 
         /// <summary>Take the car off the race and roll it to a stop down the
         /// road. Called by <see cref="RaceManager"/> when this car finishes.</summary>
+        // ---------------------------------------------------------------- CHECKPOINT RACES (DESIGN_v2 4.2)
+        // A routed per-car road (Checkpoints/RoutedPath) carries its lane facts PER WAYPOINT. Every read of the
+        // race-wide TrafficSystem.TwoWay / RaceLanesCentre / path.roadWidth goes through these three, which give the
+        // race-wide answer exactly as before on any other path (fixed-line races are unchanged).
+        bool TwoWayHere(TrafficSystem ts) => path != null && path.Routed ? !path.oneWayAt[path.Wrap(nearestIdx)] : ts != null && ts.TwoWay;
+        float LaneCentreHere(TrafficSystem ts) => path != null && path.Routed ? path.ownLaneOff[path.Wrap(nearestIdx)] : ts != null ? ts.RaceLanesCentre : 0f;
+        /// <summary>The pavement either side of the line (side +1 right), symmetric (the narrower) when asked with 0.</summary>
+        float RoadHalfHere(int side = 0)
+        {
+            if (path == null) return 6f;
+            if (!path.Routed) return path.roadWidth * 0.5f;
+            int i = path.Wrap(nearestIdx);
+            return side > 0 ? path.halfR[i] : side < 0 ? path.halfL[i] : Mathf.Min(path.halfL[i], path.halfR[i]);
+        }
+        bool InJunctionZone => path != null && path.Routed && path.junction[path.Wrap(nearestIdx)];
+        /// <summary>A traffic obstacle's metres along THIS car's road: on a routed road, projected onto it (a local
+        /// search round the car), with a lateral and a height gate so a car on a parallel street or a deck is not on
+        /// it (1e6 = not on this road); on any other path the traffic's own path metres, as before.</summary>
+        float AheadOnRoad(TrafficSystem ts, int i, float myS)
+        {
+            if (path != null && path.Routed)
+            {
+                var rb = ts.Obstacles[i];
+                if (rb == null) return 1e6f;
+                Vector3 pos = rb.position;
+                int oi = path.NearestIndex(pos, nearestIdx, 60);
+                Vector3 wp = path.GetPoint(oi), tan = path.GetTangent(oi), d = pos - wp;
+                if (Mathf.Abs(d.y) > 4f) return 1e6f;
+                float lat = Vector3.Dot(d, Vector3.Cross(Vector3.up, tan).normalized);
+                if (lat > path.halfR[oi] + 2f || lat < -path.halfL[oi] - 2f) return 1e6f;
+                return oi * path.spacing + Vector3.Dot(d, tan) - myS;
+            }
+            return ts.ObstacleS[i] - myS;
+        }
+        /// <summary>A checkpoint race swaps this car onto a fresh routed road (AIRoutePlanner): the index and the
+        /// index-keyed state start again on it.</summary>
+        public void SetPath(TrackPath p)
+        {
+            if (p == null) return;
+            path = p;
+            ReseedPath();
+            crawlIdx = nearestIdx; crawlTimer = 0f;
+            laneInt = 0f;
+            openLine = 0f;
+        }
+
         public void ShutDown()
         {
             driving = false;
@@ -95,7 +141,7 @@ namespace PSXRacing
             // deck) straightens a tight corner, and a nearer point dragged
             // the deck racers onto the inside kerb of its tightest turn.
             var tsLook = TrafficSystem.Instance;
-            if (tsLook != null && tsLook.TwoWay && path.curvatures != null && path.curvatures.Length == path.Count)
+            if (tsLook != null && TwoWayHere(tsLook) && path.curvatures != null && path.curvatures.Length == path.Count)
             {
                 float kNear = path.MaxCurvatureAhead(nearestIdx, Mathf.CeilToInt(lookDist / path.spacing) + 1);
                 if (kNear > 1e-4f) lookDist = Mathf.Min(lookDist, Mathf.Max(LookMinM, LookPerRadius / kNear));
@@ -111,7 +157,7 @@ namespace PSXRacing
             // inside is the shoulder, which the edge already holds).
             float cutBack = 0f;
             var ts = TrafficSystem.Instance;
-            if (ts != null && ts.TwoWay)
+            if (ts != null && TwoWayHere(ts))
             {
                 float turn = Vector3.SignedAngle(path.GetTangent(nearestIdx), path.GetTangent(lookIdx), Vector3.up) * Mathf.Deg2Rad;
                 // Only for the circuits' steering law below: pure pursuit, which
@@ -129,7 +175,7 @@ namespace PSXRacing
             // near the mark, so a pass's own swing across the lane never winds
             // it up.
             float trim = 0f, laneErr = 0f;
-            if (ts != null && ts.TwoWay)
+            if (ts != null && TwoWayHere(ts))
             {
                 Vector3 pr = Vector3.Cross(Vector3.up, path.GetTangent(nearestIdx)).normalized;
                 float err = laneErr = lineOffset + avoidBias - Vector3.Dot(transform.position - path.GetPoint(nearestIdx), pr);
@@ -150,7 +196,7 @@ namespace PSXRacing
 
             Vector3 local = transform.InverseTransformPoint(target);
             float steerCmd;
-            if (ts != null && ts.TwoWay && PurePursuit)
+            if (ts != null && TwoWayHere(ts) && PurePursuit)
             {
                 // PURE PURSUIT: the wheel angle that arcs the car through the
                 // aim point, atan(2 wb sin(a) / L), in units of the lock this
@@ -175,7 +221,7 @@ namespace PSXRacing
             // line at 150-170 km/h on a gentle bend, onto the median (Uptown
             // Loop: three spins a race). Damping the drift and the yaw does not
             // move the line; it holds the car on it.
-            bool twoWayRoad = ts != null && ts.TwoWay;
+            bool twoWayRoad = ts != null && TwoWayHere(ts);
             if ((twoWayRoad && speed > 5f) || speed > FastDampMps)
             {
                 var rb = car.Body;
@@ -407,7 +453,8 @@ namespace PSXRacing
                 float ahead;
                 if (alongRoad)
                 {
-                    ahead = ts.ObstacleS[i] - myS;
+                    ahead = AheadOnRoad(ts, i, myS);
+                    if (ahead > 1e5f) continue;
                     if (!path.HasEnds)
                     {
                         if (ahead > total * 0.5f) ahead -= total;
@@ -463,7 +510,7 @@ namespace PSXRacing
                 if (rb == null || rb.useGravity || i >= ts.ObstacleDir.Count || ts.ObstacleDir[i] >= 0) continue;
                 float theirs = new Vector2(rb.linearVelocity.x, rb.linearVelocity.z).magnitude;
                 if (theirs < 1f) continue;
-                float ahead = ts.ObstacleS[i] - myS;
+                float ahead = AheadOnRoad(ts, i, myS);
                 if (!path.HasEnds) { if (ahead > total * 0.5f) ahead -= total; else if (ahead < -total * 0.5f) ahead += total; }
                 if (ahead > -3f && ahead < (mine + theirs) * seconds) return true;
             }
@@ -554,7 +601,7 @@ namespace PSXRacing
                 // is out of the race whether it hits a tree or not.
                 Vector3 rr = Vector3.Cross(Vector3.up, path.GetTangent(nearestIdx)).normalized;
                 float offLat = Mathf.Abs(Vector3.Dot(transform.position - path.GetPoint(nearestIdx), rr));
-                bool offRoad = offLat > path.roadWidth * 0.5f + MistakeOffRoadM && speed > 15f;
+                bool offRoad = offLat > RoadHalfHere() + MistakeOffRoadM && speed > 15f;
                 if ((responder.DamageScore - mistakeDamage0 >= MistakeRetireDamage || offRoad) && !Retired)
                 {
                     mistakeAt = -1f;
@@ -564,6 +611,8 @@ namespace PSXRacing
                 return MakingMistake;
             }
             if (mistakeAt < 0f || rm.RaceFraction(car) < mistakeAt) return false;
+            // never into a city junction's 90-degree corner (a routed road's junction zone): that is a wall
+            if (InJunctionZone) return false;
             if (speed - cornerSafeSpeed < MistakeMinShedMps || speed < 15f) return false;
             // Until the car is AT the corner and a little past: from the start of a
             // 200 m braking zone at 140 km/h, 3.5 s ran out before the bend
@@ -603,6 +652,16 @@ namespace PSXRacing
         float LineOffset()
         {
             var ts = TrafficSystem.Instance;
+            if (path != null && path.Routed)
+            {
+                // a routed road: per waypoint. One-way: the grid's offset as on the fixed line, clamped to the
+                // pavement; two-way: its own side (keep right, as the race traffic's lanes). Nothing in a junction.
+                int i = path.Wrap(nearestIdx);
+                float fade = path.junction[i] ? 0f : 1f;
+                if (path.oneWayAt[i])
+                    return Mathf.Clamp(lateralOffset * fade, -path.halfL[i] + 1.6f, path.halfR[i] - 1.6f);
+                return path.ownLaneOff[i] + (Mathf.Clamp(lateralOffset * 0.3f, -0.5f, 0.5f) + openLine) * fade;
+            }
             if (ts == null || !ts.TwoWay) return lateralOffset;
             return ts.RaceLanesCentre + Mathf.Clamp(lateralOffset * 0.3f, -0.5f, 0.5f) + openLine;
         }
@@ -625,7 +684,7 @@ namespace PSXRacing
             float want = 0f;
             var ts = TrafficSystem.Instance;
             var curv = path.curvatures;
-            if (ts != null && ts.TwoWay && curv != null && curv.Length == path.Count && !OncomingAhead(ts, OncomingGuardM))
+            if (ts != null && TwoWayHere(ts) && curv != null && curv.Length == path.Count && !OncomingAhead(ts, OncomingGuardM))
             {
                 int n = Mathf.CeilToInt(OpenLookM / path.spacing);
                 float kMax = 0f; int at = 0;
@@ -636,7 +695,7 @@ namespace PSXRacing
                 }
                 if (kMax > 1f / OpenMaxRadiusM &&
                     Vector3.SignedAngle(path.GetTangent(at - 2), path.GetTangent(at + 2), Vector3.up) > 0f)
-                    want = -2f * ts.RaceLanesCentre * Mathf.InverseLerp(1f / OpenMaxRadiusM, 1f / OpenFullRadiusM, kMax);
+                    want = -2f * LaneCentreHere(ts) * Mathf.InverseLerp(1f / OpenMaxRadiusM, 1f / OpenFullRadiusM, kMax);
             }
             openLine = Mathf.MoveTowards(openLine, want, OpenSlewMps * dt);
         }
@@ -647,7 +706,7 @@ namespace PSXRacing
             get
             {
                 var ts = TrafficSystem.Instance;
-                return ts != null && ts.TwoWay ? LineOffset() : 0f;
+                return ts != null && TwoWayHere(ts) ? LineOffset() : 0f;
             }
         }
 
@@ -809,7 +868,7 @@ namespace PSXRacing
             {
                 var rb = ts.Obstacles[i];
                 if (rb == null) continue;
-                float ahead = ts.ObstacleS[i] - myS;
+                float ahead = AheadOnRoad(ts, i, myS);
                 if (!path.HasEnds)
                 {
                     if (ahead > total * 0.5f) ahead -= total;
@@ -889,7 +948,7 @@ namespace PSXRacing
             // the car straightens a tight corner: deck runs went round theirs
             // at 1.5-2x it, clean, and held to it they crawled.
             var tsYaw = TrafficSystem.Instance;
-            float yawShare = limitShare * (tsYaw != null && tsYaw.TwoWay ? 1f : FreeLineYawMult);
+            float yawShare = limitShare * (tsYaw != null && TwoWayHere(tsYaw) ? 1f : FreeLineYawMult);
             yawShareNow = yawShare;
             float along0 = Vector3.Dot(transform.position - path.GetPoint(nearestIdx), t0);
             float latNow = Vector3.Dot(transform.position - path.GetPoint(nearestIdx), Vector3.Cross(Vector3.up, t0).normalized);
@@ -1089,7 +1148,7 @@ namespace PSXRacing
                 // in its lane past the flag (Gillespie Gap's last bend).
                 if (Retired || ShuttingDown)
                     avoidBias = Mathf.MoveTowards(avoidBias,
-                        path.roadWidth * 0.5f + RetiredVergeM - lineOffset, 2.5f * dt);
+                        RoadHalfHere(1) + RetiredVergeM - lineOffset, 2.5f * dt);
                 car.steerInput = coasting ? SteerToLine(rolling) : 0f;
                 car.throttleInput = 0f;
                 // Never into reverse on the brake it is held on.
@@ -1186,7 +1245,7 @@ namespace PSXRacing
             // of centimetres a second), hence the speed floor - the ease once
             // held a rival pulling away up Chimney Rock's 8% switchbacks.
             var tsNow = TrafficSystem.Instance;
-            bool oncomingNear = tsNow != null && tsNow.TwoWay && OncomingAhead(tsNow, SlideOncomingM);
+            bool oncomingNear = tsNow != null && TwoWayHere(tsNow) && OncomingAhead(tsNow, SlideOncomingM);
             float tol = oncomingNear ? Mathf.Min(slideTol, GripSlideTolRad) : slideTol;
             // ...and the faster, the tidier: a slide is for a hairpin's exit,
             // not for 120 km/h between city walls (UptownLoop, the first runs:
@@ -1410,7 +1469,7 @@ namespace PSXRacing
             // head-on at 38.6 m/s.
             float leftLimit = float.NegativeInfinity;
             var twoWay = TrafficSystem.Instance;
-            if (twoWay != null && twoWay.TwoWay && OncomingAhead(twoWay, OncomingGuardM))
+            if (twoWay != null && TwoWayHere(twoWay) && OncomingAhead(twoWay, OncomingGuardM))
                 // ...and with one about to be MET, well into its own lane: held
                 // at 1.0 m the racer still lagged its mark by half a metre and
                 // met cars with 2.0-2.2 m between centres - every head-on in
@@ -1517,7 +1576,7 @@ namespace PSXRacing
             // to the edge on an ordinary line; onto the paved verge only on
             // the right and only to pass (usedVerge, the clamp at the end).
             float myHalf = MyHalfW;
-            float roadHalfW = path.roadWidth * 0.5f;
+            float roadHalfW = RoadHalfHere();
             float tarmacEdge = Mathf.Max(0.5f, roadHalfW - myHalf - EdgeAirM);
             float vergeEdge = HasVerge ? Mathf.Max(tarmacEdge, roadHalfW + VergeSideM - myHalf) : tarmacEdge;
             bool usedVerge = false;
@@ -1527,7 +1586,7 @@ namespace PSXRacing
             {
                 Vector3 myRight = Vector3.Cross(Vector3.up, path.GetTangent(nearestIdx)).normalized;
                 float myLat = Vector3.Dot(transform.position - path.GetPoint(nearestIdx), myRight);
-                float edge = Mathf.Max(0.5f, path.roadWidth * 0.5f - EdgeMarginM);
+                float edge = Mathf.Max(0.5f, RoadHalfHere() - EdgeMarginM);
                 float mySpeed = car.forwardSpeed;
                 obs.Clear();
                 bool roadS = traffic != null && traffic.ObstacleS.Count == nTraffic;
@@ -1542,7 +1601,7 @@ namespace PSXRacing
                     // far side of a switchback stood "in the pass line" here.
                     if (i < nTraffic && roadS)
                     {
-                        float ds = traffic.ObstacleS[i] - myS;
+                        float ds = AheadOnRoad(traffic, i, myS);
                         if (!path.HasEnds)
                         {
                             float tot = path.TotalLength;
@@ -1820,7 +1879,7 @@ namespace PSXRacing
             // 132 km/h came back across onto it). Level with a car, the line
             // may not come nearer to it than the clearance.
             bool alongsideHold = false;
-            float roadHalf = path.roadWidth * 0.5f;
+            float roadHalf = RoadHalfHere();
             if (obs.Count > 0)
             {
                 Vector3 rr = Vector3.Cross(Vector3.up, path.GetTangent(nearestIdx)).normalized;

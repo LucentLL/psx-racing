@@ -103,6 +103,11 @@ namespace PSXRacing
         const float DriftWearMinSpeed = 4f;
 
         void Awake() => Instance = this;
+
+        /// <summary>A CITY CHECKPOINT RACE (owner 2026-11-16: no barricades; any road between ordered gates), or null:
+        /// the fixed-line race exactly as before. Set in Start (Checkpoints/CheckpointRace.TryBegin).</summary>
+        CheckpointRace checkpoints;
+        public CheckpointRace Checkpoints => checkpoints;
         /// <summary>The time trial just finished set this deck's best.</summary>
         public bool DeckNewBest { get; private set; }
 
@@ -131,6 +136,10 @@ namespace PSXRacing
                 sprintFinishIndex = Mathf.Clamp(path.sprintFinish, SprintFinishMinIndex, path.Count - SprintFinishEndMargin);
             if (RaceHandoff.Delivery && path != null && !path.HasEnds)
                 sprintFinishIndex = SprintFinishIndexFor(path.Count, RaceHandoff.DeliveryDropFraction);
+
+            // A CITY CHECKPOINT RACE when the venue's route has a checkpoint file (PSX_CP_RACES): after the handoff
+            // (a reverse twin is turned round), before the traffic. Null = the fixed-line race as before.
+            checkpoints = CheckpointRace.TryBegin(this);
 
             // Moving traffic, races and deliveries alike, on the final path
             // (the reverse twin has been turned round by now). It waits for
@@ -247,6 +256,8 @@ namespace PSXRacing
             {
                 if (p.finished || p.retired) continue;
                 p.raceTime += Time.deltaTime;
+                // A checkpoint race: its own gates, laps, finish and ruler (progress = total - remaining)
+                if (checkpoints != null) { checkpoints.Step(p); continue; }
 
                 int prev = p.nearestIdx;
                 p.nearestIdx = path.NearestIndex(p.car.transform.position, prev);
@@ -378,6 +389,9 @@ namespace PSXRacing
         }
         const float GateRiseM = 2.5f;
 
+        /// <summary>The checkpoint race's finish (its gates, not this path's index).</summary>
+        internal void FinishCar(CarProgress p) => OnCarFinished(p);
+
         void OnCarFinished(CarProgress p)
         {
             if (p.car == playerCar)
@@ -436,6 +450,9 @@ namespace PSXRacing
                     ? path.finishIndex * path.spacing
                     : Sprint ? sprintFinishIndex * path.spacing
                              : totalLaps * path.TotalLength;
+                // A checkpoint race: what was actually driven (any road), not the suggested route (PSX_CP_ODOMETER)
+                if (checkpoints != null && CheckpointFile.On("PSX_CP_ODOMETER"))
+                    RaceHandoff.MetersDriven = checkpoints.Odometer(playerCar);
                 RaceHandoff.DriftSeconds = playerDriftSeconds;
                 // DamageScore, HardHits, the bump stops and (R0a) the located
                 // hardest hit and what was rolled at it - one writer for both exits.
@@ -526,6 +543,8 @@ namespace PSXRacing
             sortBuffer.Clear();
             foreach (var p in progressMap.Values) sortBuffer.Add(p);
             sortBuffer.Sort(ByProgress);
+            // a checkpoint race holds two cars within 4 m in their order unless the swap lasts 0.4 s
+            if (checkpoints != null) checkpoints.StabilizeOrder(sortBuffer);
             for (int i = 0; i < sortBuffer.Count; i++) positionCache[sortBuffer[i].car] = i + 1;
         }
 
@@ -632,12 +651,22 @@ namespace PSXRacing
         {
             var p = GetProgress(car);
             if (p == null || path == null) return 0f;
+            if (checkpoints != null) return checkpoints.RaceFraction(car);
+            // PSX_RACEFRACTION_FIX=1: a fixed-line LOOP counts the lap the grid starts behind (progress is a lap
+            // ahead after the first crossing), so mistakes and the retire grace fired a lap early (lane B)
+            if (!path.HasEnds && !Sprint && RaceFractionFix)
+            {
+                float t2 = totalLaps * path.TotalLength;
+                return t2 > 1f ? Mathf.Clamp01((p.progress - path.TotalLength) / t2) : 0f;
+            }
             float total = path.HasEnds ? (path.finishIndex > 0 ? path.finishIndex : path.Count) * path.spacing
                         : Sprint ? sprintFinishIndex * path.spacing
                         : totalLaps * path.TotalLength;
             return total > 1f ? Mathf.Clamp01(p.progress / total) : 0f;
         }
         public CarController LastRetired { get; private set; }
+        /// <summary>PSX_RACEFRACTION_FIX: default OFF until a watched loop race shows the mistakes at their share.</summary>
+        static readonly bool RaceFractionFix = System.Environment.GetEnvironmentVariable("PSX_RACEFRACTION_FIX") == "1";
 
         public CarProgress GetProgress(CarController car) =>
             progressMap.TryGetValue(car, out var p) ? p : null;
@@ -658,6 +687,7 @@ namespace PSXRacing
         public float RemainingToFinishM(CarProgress p)
         {
             if (p == null || path == null) return -1f;
+            if (checkpoints != null) return checkpoints.RemainingToFinish(p.car);
             if (path.HasEnds)
                 return path.finishIndex > 0 ? path.finishIndex * path.spacing - p.progress : -1f;
             if (Sprint)
@@ -695,11 +725,26 @@ namespace PSXRacing
             return false;
         }
 
+        /// <summary>For CheckpointRace's own respawns: the harness hears of every one.</summary>
+        internal void RaiseRespawned(CarController car, int step, float lat) => Respawned?.Invoke(car, step, lat);
+
         public void RespawnCar(CarController car)
         {
             if (car == null || path == null || path.Count == 0) return;
+            // A checkpoint race: the car's own road (an AI) or the graph under it (the player)
+            if (checkpoints != null && checkpoints.HandlesRespawn) { checkpoints.Respawn(car); return; }
             int start = path.NearestIndex(car.transform.position,
-                progressMap.TryGetValue(car, out var p) ? p.nearestIdx : -1);
+                progressMap.TryGetValue(car, out var p0) ? p0.nearestIdx : -1);
+            RespawnOn(car, path, start);
+        }
+
+        /// <summary>The forward walk for a clear station (RespawnCar's), on any path: the race's, or in a checkpoint
+        /// race an AI's own routed road.</summary>
+        internal void RespawnOn(CarController car, TrackPath path, int start)
+        {
+            if (car == null || path == null || path.Count == 0) return;
+            progressMap.TryGetValue(car, out var p);
+            bool own = path == this.path;
 
             // Roughly 60 m of line at 4 m stations, then give up and take the
             // nearest one anyway: a car left where it is would be worse than a
@@ -740,12 +785,12 @@ namespace PSXRacing
                     // the far side of the line would otherwise owe a first
                     // crossing it can no longer make — and a sprint, which
                     // finishes only after that crossing, could never end.
-                    if (!path.HasEnds && raw >= n && !p.crossedStartOnce)
+                    if (own && checkpoints == null && !path.HasEnds && raw >= n && !p.crossedStartOnce)
                     {
                         p.crossedStartOnce = true;
                         p.lapStartTime = Time.time;
                     }
-                    p.nearestIdx = idx;
+                    if (own) p.nearestIdx = idx;
                 }
                 Respawned?.Invoke(car, step, lat);
                 return;
@@ -756,7 +801,7 @@ namespace PSXRacing
             // six metres up would take the first surface under that: a deck
             // crossing overhead, or the hillside over a tunnel.
             car.ResetTo(path.GetPoint(start), path.GetRotation(start), seated: true);
-            if (p != null) p.nearestIdx = start;
+            if (p != null && own) p.nearestIdx = start;
             Respawned?.Invoke(car, -1, lat);
         }
     }
