@@ -582,7 +582,8 @@ namespace PSXRacing
                     // the direction the plan drives this edge (RoutedPath's own; a corner waypoint's tangent can
                     // point anywhere, and a one-way read backwards was an unreachable gate: the Infinity frames)
                     int dir = path.dirAt != null ? path.dirAt[i] : 1;
-                    float s = Mathf.Clamp(path.sAt[i] + dir * Vector3.Dot(pos - wp, tan), 0f, ed.length);
+                    float sRaw = path.sAt[i] + dir * Vector3.Dot(pos - wp, tan);
+                    float s = Mathf.Clamp(sRaw, 0f, ed.length);
                     int st = e * 2 + (dir == 1 ? 0 : 1);
                     c.loc.valid = true; c.loc.offGraph = false; c.loc.edge = e; c.loc.s = s; c.loc.dir = dir; c.loc.dist = off;
                     c.rDir = dir; c.rEdge = e;
@@ -590,9 +591,14 @@ namespace PSXRacing
                     // ITS OWN ROAD'S METRES to the gate (a varied leg is ranked by what it drives); off its plan, the
                     // field's route from where it is
                     float tt = dir == 1 ? s : ed.length - s;
+                    // the metres past either end of the edge its waypoint maps to (a join's last raw segment belongs to the
+                    // NEXT edge, so a car a few metres short of the node already reads that edge's start: a 4 m step at
+                    // every join, beside a rival in the 4 m tie band - the AI flickers of Tryon)
+                    float tRaw = dir == 1 ? sRaw : ed.length - sRaw;
+                    float beyond = Mathf.Clamp(tRaw < 0f ? -tRaw : tRaw > ed.length ? -(tRaw - ed.length) : 0f, -8f, 8f);
                     float own = pl.RemainingOnPlan(st, tt, c.next);
                     if (float.IsInfinity(own)) own = R.RouteFrom(F, st, tt);
-                    return own + Mathf.Max(0f, off - OffRoadFreeM);
+                    return Mathf.Max(0f, own + beyond) + Mathf.Max(0f, off - OffRoadFreeM);
                 }
             }
             // the player (and a rival far off its road): the sticky locate at 10 Hz (staggered), a slide in between
@@ -602,7 +608,18 @@ namespace PSXRacing
                 R.Locate(pos, vel, car.transform.forward, ref c.loc, Time.time, PreferEdge(c, F, pos));
                 c.nextLocate = Time.time + 0.1f + Random.Range(0f, 0.02f);
             }
-            else R.Slide(pos, vel, car.transform.forward, ref c.loc);
+            else
+            {
+                R.Slide(pos, vel, car.transform.forward, ref c.loc);
+                // at the end of its edge the slide holds s while the car runs on: the full locate NOW, not up to 0.1 s
+                // later (a 5 m freeze then a drop at every node, beside a rival in the 4 m tie band: the flickers of
+                // C7 and Tryon)
+                if (c.loc.valid && !c.loc.offGraph && (c.loc.s <= 0.3f || c.loc.s >= map.edges[c.loc.edge].length - 0.3f))
+                {
+                    R.Locate(pos, vel, car.transform.forward, ref c.loc, Time.time, PreferEdge(c, F, pos));
+                    c.nextLocate = Time.time + 0.1f;
+                }
+            }
             // the held direction belongs to an edge: a new edge chooses afresh (by the cost, as the GPS does)
             // THE RULER'S DIRECTION ON A TWO-WAY STREET is the way the car is going (cpfix 11-17, after the detour
             // race of 02:27: chosen by the cost it flipped back and forth on Todd Rd, where the freeway profile prices a
