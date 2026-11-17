@@ -1902,6 +1902,12 @@ namespace PSXRacing
                             }
                         }
                     }
+                    else if (bo.held)
+                    {
+                        // A rival it is only HELD behind (not closing): no line round it now, so it stays where it is
+                        // and keeps the racers' own rule (the lift by closing above). The follow rule's full lift at a
+                        // freeway pace braked the pack and the car behind ran into it (UptownLoop, 11-17: 31 m/s).
+                    }
                     else
                     {
                         // Nowhere to go: follow it.
