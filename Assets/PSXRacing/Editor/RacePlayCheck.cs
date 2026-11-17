@@ -305,6 +305,9 @@ namespace PSXRacing.EditorTools
             while (true)
             {
                 foreach (var c in Camera.allCameras) if (c != null) c.enabled = false;
+                // the cars' reflection probes render on their own (SubmitRenderRequest): with no device each one logged
+                // "RenderTexture.Create failed" and a stack every frame, 0.9 GB of raceplay.log a race (aipass 11-17)
+                foreach (var cr in Object.FindObjectsByType<CarReflections>()) if (cr != null) cr.enabled = false;
                 yield return new WaitForSecondsRealtime(0.5f);
             }
         }
