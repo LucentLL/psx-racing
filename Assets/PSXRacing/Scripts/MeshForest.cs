@@ -121,6 +121,15 @@ namespace PSXRacing
         [System.NonSerialized] public bool pooled;
         /// <summary>Where the dress comes from (null: SeasonDress.AppliedDress).</summary>
         [System.NonSerialized] public System.Func<int> dressSource;
+        /// <summary>THIS forest's hand-over bands as a share of each level's
+        /// distance (&lt;= 0: the fixed band0/1/2). Set before the component wakes
+        /// (CreatePool); the perf tour's bandshare= still wins. The tree pop
+        /// round of 2026-11-16 (Providence Rd walk, 300 -> 20 m): PopFix pushed
+        /// the city's levels out to 102/140/240 m (HIGH 124/210/360) but left
+        /// the bands at 12/16/20 m (18/24/30), so every switch dissolved in a
+        /// few metres and read as a pop; the bands at their widest cut the
+        /// walk's visible pop 35 % on LOW, 49 % on MEDIUM and 82 % on HIGH.</summary>
+        [System.NonSerialized] public float bandShare = -1f;
 
         public static bool MeshTreesOn = true;
         /// <summary>A/B (perf tour ab=MeshForest.PopFix:0 = the forest as PC26
@@ -196,7 +205,7 @@ namespace PSXRacing
             }
             // the pop measure's knobs (perf tour lodmul=a,b,c&bandshare=s): each level's distance x, bands as a share
             lod0To *= TourLodMul.x; lod1To *= TourLodMul.y; meshRange *= TourLodMul.z;
-            float share = TourBandShare;
+            float share = TourBandShare > 0f ? TourBandShare : bandShare;
             if (share > 0f)
             {
                 // a hand-over band as a share of its distance, not a fixed few metres
@@ -248,7 +257,7 @@ namespace PSXRacing
             bool gpu = GpuDriven && InitGpu();
             if (!gpu && !pooled) EnsureLegacy();
             Debug.Log($"[MeshForest] {inst.Length} plants in {chunks.Length} chunks, {variants.Length} variants; " +
-                      $"LOD {lod0To}/{lod1To}/{meshRange} m, impostors to {farRange} m; F8 = A/B; " +
+                      $"LOD {lod0To}/{lod1To}/{meshRange} m (hand-over bands {band0:0}/{band1:0}/{band2:0} m), impostors to {farRange} m; F8 = A/B; " +
                       (gpu ? GpuDescribe() : "CPU lists (RenderMeshInstanced)") + ".");
         }
 

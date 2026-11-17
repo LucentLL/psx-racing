@@ -603,6 +603,17 @@ namespace PSXRacing
         {
             var rp = RaceReplay.Instance;
             if (rp == null) return;
+            // THE CAMCORDER (2026-11-16): the tape's own OSD (CamcorderOSD) is
+            // the whole readout - a bystander's tape has no lap counter on it.
+            if (rp.Mode == RaceReplay.CamMode.Camcorder || Camcorder.Vcr)
+            {
+                Set(lapText, ""); Set(timeText, ""); lastTimeCentis = int.MinValue;
+                Set(lastLapText, ""); Set(posText, "");
+                Set(centerText, rp.Paused && !Camcorder.Vcr ? "PAUSED" : "");
+                Set(replayText, ""); Set(replayCarText, "");
+                Set(camText, Time.unscaledTime - rp.ModeChangedAt < CamFlashSeconds ? RaceReplay.CamNames[(int)rp.Mode] : "");
+                return;
+            }
             var f = rp.FocusFrame;
             bool ends = rm.path != null && rm.path.HasEnds;
             Set(lapText, ends ? rm.path.dragLabel : "LAP " + Mathf.Max(1, (int)f.lap) + "/" + rm.totalLaps);
@@ -632,10 +643,11 @@ namespace PSXRacing
         static string ReplayOffer(bool touch)
         {
             var rp = RaceReplay.Instance;
-            if (rp == null || !rp.Available) return "";
-            if (touch) return "\nTAP REPLAY TO WATCH IT BACK";
-            return UnityEngine.InputSystem.Gamepad.current != null
-                ? "\nX / SQUARE FOR REPLAY" : "\nV FOR REPLAY";
+            // ...and SAVE TO TAPE under it (TapeOffer, 2026-11-16).
+            if (rp == null || !rp.Available) return TapeOffer.OfferLine(touch);
+            if (touch) return "\nTAP REPLAY TO WATCH IT BACK" + TapeOffer.OfferLine(touch);
+            return (UnityEngine.InputSystem.Gamepad.current != null
+                ? "\nX / SQUARE FOR REPLAY" : "\nV FOR REPLAY") + TapeOffer.OfferLine(touch);
         }
 
         void Awake()

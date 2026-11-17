@@ -204,6 +204,305 @@ CITY NUMBERS (CityAudit.RunSplits; 1,941 carriageway ends at 971 SPLT nodes; J1'
   default.
 
 
+# HANDOFF - THE CAMCORDER, PAUSED AT THE 97 % STOP (agent "camcorder", branch `replay-camcorder` off mountain-nm c0a81147, 2026-11-16 ~16:00; NOT pushed, NOT merged; resumes after 19:00)
+1. STATE: replays look like 1999 camcorder tapes (PSX_CAMCORDER, default ON - proven in three WATCHED PSXRec runs, mountain + Charlotte, day + night, every check ok but one city countdown timeout); tapes save / shelf / VCR / VIDEO STORE sale work (PSX_TAPES, default ON); MONTAGE behind PSX_MONTAGE=1 (default OFF).
+2. Proof so far (scratchpad\camcorder\): camcorder_replay_sheet.png, camcorder_tapes_sheet.png, camcorder_replay_clip.mp4 (8 s, frames only), shots\, shots2\, tapes\ (frames + reports). camcorder_before_after.png is NOT valid yet (the base run died in a lock race).
+3. Self-test in PSXRec: base 65 FAIL vs mine 66; the one extra is "PSX/Camcorder in always-included shaders" because PSXRec's ProjectSettings are stale (my GraphicsSettings.asset adds it; the sandbox also lacks the water round's two lines). TestTapes + TestCamcorder all ok. Saves untouched (load both ways).
+4. Fixed after the first tape check, NOT yet re-run: the deck's scan mute (AudioFader.Mute) and TapeCheck skipping the title (a watched editor booted the title on the first trip home).
+5. Round 3 (director: no ride on the grid / near cars, operators added on the way, dash + A-pillar in the ride, smaller smear) was mid-run at the stop: Uptown Loop noon passed; its job finishes on its own and releases PSXRec's lock; no further job starts.
+6. NEXT: re-run tools\tape-check.ps1 -SkipPages (watched), tools\camcorder-shots.ps1 -Base -Plan "GillespieGap:Noon,UptownLoop:Noon" for the honest before, one self-test with the GraphicsSettings copied in (camcorder-shots -Extra "ProjectSettings\GraphicsSettings.asset").
+7. NEXT: rebuild the sheets (scratchpad\camcorder\build_sheets.py, CITY=shots3) and write the full hand-back (drafts: scratchpad\camcorder\handoff_*.md).
+8. MERGE NOTES: shared edits in SpeedBlurFeature.cs, SpeedBlur.cs, RaceHUD.cs, RaceManager.cs, LifeHomeScreen.cs, LifeSimSelfTest.cs, AudioFader.cs, RaceReplay.cs; ProjectSettings/GraphicsSettings.asset MUST ship (without it a player has no camcorder picture - it stands down, never pink).
+9. SANDBOX NOTES: tools\unity-wait.ps1 defaults to -buildTarget WebGL (pin PSX_BUILD_TARGET=Android on PSXRec); AGENT_LOCK is check-then-write (a race at 15:24 - camcorder-shots.ps1 now re-checks after taking it).
+10. Not done: Android device run, overpass operators (none found yet), crowd sound, a blocky OSD font.
+
+# HANDOFF - TREE POP ROUND (agent "trees4", branch `city-treepop` off mountain-nm c0a81147, 2026-11-16; NOT pushed, NOT merged)
+
+Owner since 11-11: tree pop-in "on every forest setting". Round 5 found the NM city trees' pop at their MESH LOD
+switches (MEDIUM 102 / 140 m, HIGH 124 / 210 m), not at the far card.
+
+## What I found
+- PopFix (11-11) pushed the city pool's levels out (kit 55/140/240 m x FOREST DETAIL x PopLodMul = LOW 77/109/203,
+  MEDIUM 102/140/240, HIGH 124/210/360 m) but left the dithered hand-over bands at MeshForest's fixed 12/16/20 m
+  x detail scale (LOW 8/10/13, MEDIUM 12/16/20, HIGH 18/24/30 m). A crown that switches at 102 m therefore dissolves
+  into the next level within 12 m, about half a second at 85 km/h, and reads as a pop. In the red-overlay frames the
+  pop is WHOLE crowns changing in one step.
+- Screening (PSXRec, fresh process each, bands as a share of each level's distance, PSX_LODBAND):
+  Providence Rd visible pop MEDIUM 768 -> 625 (share 0.35) -> 395 (0.6); HIGH 317 -> 137 -> 58. At 0.6 every band
+  sits at its clamp (no plant ever draws three levels at once), so 0.6 means "the bands at their widest": a larger
+  share changes nothing.
+- The Android target does not skew this. The editor's quality level reads 'PC' (logged in every run), the city kit
+  is PC content forced on (PSX_PC_CONTENT=1), the LOD distances come from FOREST DETAIL rather than the quality
+  level, and the base counts match round 5's on PSXPerf (Win64): MEDIUM 768 v 784, HIGH 317 v 309.
+
+## What I changed (switch PSX_CT_LODFADE, default ON; 0 = the fixed bands as before)
+- CityMeshTrees.cs: `LodFade` / `LodFadeShare` (0.6; PSX_CT_LODFADE=0.35 etc. picks another share). MakeForest
+  passes the share to the pool.
+- MeshForest.Pool.cs: CreatePool takes `bandShare` (optional, default -1 = as before).
+- MeshForest.cs: per-forest `bandShare` ([NonSerialized], -1 = fixed bands), applied where the perf tour's
+  `bandshare=` already worked (that knob still wins). The startup log line now names the bands.
+- The mountain stages' MeshForest is untouched (bandShare stays -1 there).
+- Editor/CityRefSpots.TreeFeet.cs: logs the switch, adds PSX_FEET_LEVELS (default 1,2) and PSX_FEET_COSTAB=1 (the
+  frame-cost A/B in one process, ABBA, 4 builds each).
+- No file under Scripts/City, no re-bake, no shader or scene change, no new file. Same trees in the same places,
+  same switch distances.
+
+## Proof (PSXRec, fresh process each; scratch = C:\Users\mcgee\AppData\Local\Temp\claude\be91fcb74e64226b\40ca151a-c5be-4aaa-9ea2-b8dd0e7c98a9\scratchpad\trees4\pop\)
+The walk is round 5's RunTreeFeet: 300 -> 20 m toward the place at driver height in 10 m steps, summer noon. Each
+step is shot with the game's LOD choice (a) and with the choice of 10 m earlier (b). Visible pop = 16 px blocks whose
+light changes > 3%; churn = pixels with any channel > 22. Before = PSX_CT_LODFADE=0 (tag lfoff); after = the default
+(tag lfon). MEDIUM and HIGH repeat the screening's counts exactly (the renders are deterministic).
+
+|                                      | LOW                  | MEDIUM              | HIGH                |
+|--------------------------------------|----------------------|---------------------|---------------------|
+| bands before -> after (m)            | 8/10/13 -> 46/29/84  | 12/16/20 -> 61/34/90 | 18/24/30 -> 74/78/135 |
+| Providence Rd visible pop            | 1622 -> 1056 (-35%)  | 768 -> 395 (-49%)   | 317 -> 58 (-82%)    |
+| Providence worst 10 m step           | 117 -> 64            | 52 -> 26            | 23 -> 7             |
+| West Trade visible pop               | 28 -> 77             | 7 -> 11             | 1 -> 1              |
+| churn (single px) Providence         | +19%                 | +49%                | +68%                |
+| isolated px in a still, Prov / WT    | +8% / +2%            | +7% / +1%           | +5% / +1%           |
+| tris at the cost eye                 | 0.32 -> 0.37 M       | 0.53 -> 0.59 M      | 1.21 -> 1.35 M      |
+| frame ms, ABBA medians (editor 1080p) | 19.54 -> 18.44      | 28.04 -> 27.12      | 34.33 -> 36.65      |
+| MIDDLE 0.35: bands (m)               | 27/29/71             | 36/34/84            | 43/74/126           |
+| MIDDLE 0.35: Providence visible pop  | 1486 (-8%)           | 625 (-19%)          | 137 (-57%)          |
+| MIDDLE 0.35: West Trade visible pop  | 29                   | 3                   | 1                   |
+| MIDDLE 0.35: isolated px, Prov / WT  | +5% / +0%            | +3% / +0%           | +2% / +0%           |
+| MIDDLE 0.35: tris; ABBA frame ms     | 0.35 M; -0.2 ms      | 0.58 M; +0.6 ms     | 1.32 M; -0.2 ms     |
+
+- Frames: before, whole crowns jump in one step (clusters of yellow blocks over a tree). After, scattered single
+  blocks on crowns that are mid-dissolve, and no whole-crown jumps. Without the overlay the two runs look the same
+  (TreePop_look.png). At 2x zoom a crown inside a band shows a mix of the two levels' leaves.
+- THE PRICE: West Trade's sparse open-crown street trees stand against the sky, and on them the long dissolve shows as
+  dotted crown edges for longer (TreePop_WestTrade_dotted_edge_LOW_300m.png: frames a and b, before | after). That is
+  West Trade LOW's 28 -> 77 (a few trees on the left, at 300, 240-220 and 160 m). The owner has called screen-door
+  dither "a speckled dotted effect" before (the shader comment on thinned plants), so if he sees dotted crowns, the
+  middle setting is PSX_CT_LODFADE=0.35 and OFF is PSX_CT_LODFADE=0.
+- THE MIDDLE SETTING (its own fresh run, tag lf35): almost all of the difference from 0.6 sits in the nearest
+  hand-over, which is 27/36/43 m wide at 0.35 against 46/61/74 m at 0.6 (the other two bands are nearly the same).
+  At 0.35 West Trade does not rise (28 -> 29), but the Providence cut is only -8 / -19 / -57%. My default stays 0.6:
+  the owner's complaint is the pop, and Providence still carries 14x West Trade's pop afterwards. If the dotted
+  edges bother him, 0.35 is the fallback.
+- IN MOTION, the dither does not crawl visibly (tags mfoff / mfon, RunTreeFeet with PSX_FEET_MOTION=0.4, fresh process
+  each). The same walk adds a third shot per step 0.4 m further on with the game's own levels, which is one frame at
+  86 km/h and 60 FPS. Over the upper 60% of the frame, one frame of driving changes Providence by -1.3 / -0.6 / -0.1%
+  pixels and +0.3 / -0.1 / +0.1% blocks with the fade v the fixed bands (LOW / MEDIUM / HIGH), and West Trade within
+  0.1%. Moving leaves already change those pixels from frame to frame, so the screen-door pattern sliding over a
+  crown mid-dissolve adds nothing measurable. (Both runs' a/b pop counts equal lfoff / lfon to the pixel: the
+  renders are deterministic.) TreePop_motion.csv.
+- Frame cost: none measurable. The ABBA medians move -1.1 / -0.9 / +2.3 ms, inside the spread between builds of the
+  same mode (MEDIUM 25-31 ms; HIGH had one 100+ ms hiccup in each mode). Draws are unchanged (209 / 211 / 213).
+  Triangles rise +16 / +11 / +12%: inside a band a plant draws both levels, and the lower levels are cheap. The
+  forest casts no shadows (SunShadows' card stand-ins) and needs no new buffers.
+- Files: TreePop_sheet.png (summary, charts for both places at all three levels, red-overlay frames for Providence
+  MEDIUM and HIGH at 280/200/130/60 m, before | after), TreePop_look.png, TreePop_approach_MEDIUM.gif / _HIGH.gif,
+  TreePop_pop.csv, TreePop35_sheet.png / TreePop35_pop.csv (before v 0.35), ctreefeet_lfoff_log.txt,
+  ctreefeet_lfon_log.txt, ctreefeet_lf35_log.txt, ctreefeet_mfoff_log.txt, ctreefeet_mfon_log.txt,
+  TreePop_motion.csv. Copies are in the art workspace's
+  Charlotte_Trees\Review\Claude_2026-11-16\TreePop_*.
+- My runs were batch approach captures (edit mode), not watched play tests.
+
+## Mountain stages (checked, not changed)
+- The stage forests are their own MeshForest (a scene component, not pooled). The PC scenes serialize lod0To 65,
+  lod1To 140, meshRange 240 and bands 12/16/20 m (BlueRidge.unity on PSXLab 14:20 and PSXPerf 13:46), not
+  50/120/230. With the FOREST DETAIL scale (0.65/1/1.5) and PopLodMul, the levels come to LOW 91/109/203 m,
+  MEDIUM 120/140/240 m and HIGH 146/210/360 m, with bands of LOW 8/10/13, MEDIUM 12/16/20 and HIGH 18/24/30 m: the
+  same narrow hand-overs the city had. At share 0.6 they would be LOW 55/17/84, MEDIUM 72/18/90 and HIGH 88/57/135 m.
+  MEDIUM's middle level covers only 20 m there (120 -> 140 m), so its second hand-over cannot widen past 18 m.
+- I did NOT measure the stages. PSXRec has no PC stage scene (it is an Android sandbox: none of its 22 scenes carry a
+  MeshForest), and PSXPerf and PSXLab were taken. The 11-11 lag-pair round on NC 226A recorded "wider dither bands
+  did not help" there, with a different measure (a 6 m lag along the stage path). So the stages keep their fixed
+  bands, and the switch is city-only.
+- To check on a stage with the PC exe (no code needed, the knobs exist): run the perf tour on NC 226A / Blue Ridge
+  with the lag pair, once plain and once with `bandshare=0.6`, at forest=1 and forest=2. If the gain holds there, the
+  stage default is one line (bandShare on the stage forest, e.g. from a PSX_FOREST_LODFADE switch).
+
+## For PC47 / the merge
+- Branch city-treepop = mountain-nm c0a81147 + 74bbf999 (the pop knobs in RunTreeFeet) + 3a3949d9 (THE SWITCH)
+  + 65286e02 (RunTreeFeet's motion pair) + HANDOFF commits. It touches 4 code files (Scripts/CityMeshTrees.cs,
+  Scripts/MeshForest.cs, Scripts/MeshForest.Pool.cs, Editor/CityRefSpots.TreeFeet.cs) and HANDOFF.md, and adds no
+  file (no .meta). Typecheck OK.
+- PC47 needs no kit rebuild and no re-bake: the switch is read at runtime when the city's tree pool is made.
+- To confirm in a player log: "[MeshForest] 61440 plants ... LOD 101.75/140/240 m (hand-over bands 61/34/90 m)" on
+  MEDIUM (12/16/20 = the switch is off).
+- A/B in one exe: env PSX_CT_LODFADE=0, or the perf tour's `ab=CityMeshTrees.LodFade:0`.
+
+# HANDOFF - CHARLOTTE TRACKS: THE CANDIDATES, THE FREEWAY LAPS AND THE WHOLE-CITY TRACK PREVIEW (agent "tracks", branch `charlotte-tracks` from mountain-nm 3920fdde, 2026-11-16; NOT pushed, NOT merged)
+
+The owner, 11-16:
+- On race tracks: "Now that Charlotte roads are more accurate, I'd like to start adding race tracks (circuits, sprints,
+  drag [the current drag/sprints are veeery long])". Need for Speed Underground 2 was the reference for event types and
+  lengths only.
+- At 13:20, on the preview: "a picture of the entire city, the track drawn over it, then zoomed in to fit the track on
+  screen for track preview before race".
+- At 14:00: "more circuits use highway on/off ramps like the example I drew in red".
+
+## Phase 1: the candidate sheet (sent 13:47; freeway laps added 14:04)
+- In the art workspace: `Charlotte_Track_Candidates_2026-11-16.md` and `.png`.
+- The courses, 31 in all, on the shipped graph b2aa3453, plus one coast drag:
+  - 10 circuits, C1-C10, one for each district the brief named. Laps are 3.1-5.4 km, raced 2-4 laps and kept under
+    the 14.2 km tank line.
+  - 7 freeway-and-ramp laps, H1-H7. H1 is the owner's loop exactly: up I-485 to Moores Chapel, through the I-85
+    cloverleaf, east to Little Rock. It NEEDS THE DECK FIX at the airport ramps: the turnaround crosses the junction
+    cluster under the decks, where the bridges audit has UNDER-STEP 3-8 cm and UNDER-KINK to 8 % on e269, e289, e9744
+    and e13462. H2-H7 are drivable now. H2 is the closest clean version of his loop.
+  - 6 sprints, S1-S6, of 2.0-4.5 km.
+  - 4 cuts, X1-X4: today's Tryon and Independence sprints in halves of 2.7-3.7 km.
+  - 4 drags, D1-D4: two 1/4 miles and two 1/2 miles, each road 11.6 m or wider for four abreast.
+  - D5: Langston Bridge cut from 1,408 m to 804 m, finishing just over the crest.
+- The checks on every course:
+  - routed edge by edge, one-way streets the legal way, no junction turn over 120 degrees;
+  - 0 hits on HANDOFF's "keep race routes off" list (the four ramp-junction decks, the 8 single joints, the owner's
+    Beatties Ford spots), except H1;
+  - 0 hits on the bridges audit's worst lists;
+  - a grid straight of 90 m or more with two lanes in the race direction (S5 is a two-lane street: closed road only);
+  - heights from RPRF, lanes and widths from the game's road profiles.
+- Tools are in `tools/city/tracks/` (see its README). The chains are in `tools/city/tracks/candidates_2026-11-16.json`.
+
+## Phase 2: the whole-city track preview
+What changed:
+- NEW `Scripts/CityMapTiles.cs` (+meta). One map of the whole city as a 512 px tile pyramid in
+  `StreamingAssets/CityMap/<level>/<tx>_<ty>.png`, listed in `Resources/charlotte_citymap.txt`:
+  - levels 0-4 cover the city, 53 km square, 6.5 m/px at level 4;
+  - levels 5-8, down to 0.4 m/px, cover only the venues: every route in `charlotte_routes.json` and the parking decks.
+  - Drawn by `tools/city/citymap_prep.mjs` and `tools/city/citymap_tiles.py` from the shipped graph and WATR, the
+    canopy (charlotte_canopy.bytes), and the OSM landuse, rail, buildings and lots already in the city cache.
+- `Scripts/RouteMap.cs` (shared):
+  - Build: a city venue (IsCityRace: the routes and the deck runs) draws its card on that map at the level as sharp as
+    the card is big. The map, the grid and the route sit in one "Zoom" square.
+  - The card flies in from the whole city over about 1.35 s (RouteMapZoom, appended to the file): log-space zoom, the
+    route sliding to the middle, each whole-city level laid where it is sharp (`CityMapTiles.PlaceFlight`). It plays
+    once per venue and card size a minute, and never outside play mode.
+  - New helper `Layer()`. `RouteMapGraphic.drawGrid` and `drawRoute` let the grid and the route be separate layers.
+  - New overload `Build(parent, def, pts, ...)` for courses that are not venues yet.
+  - Stages and the MAIN edition are unchanged.
+- Switches: `PSX_TRACKMAP_CITY=0` gives today's per-venue pictures. `PSX_TRACKMAP_ZOOM=0` turns off the fly-in.
+- NEW `Editor/CityMapPreview.cs` (+meta). `-executeMethod PSXRacing.EditorTools.CityMapPreview.Capture` shoots:
+  - the card at the race card's size (560) and the pre-race size (236) for UptownLoop, TryonSprint, IndependenceSprint
+    and a deck run;
+  - any course in the file PSX_CITYMAP_CANDS names;
+  - fly-in strips, posed by hand.
+- Why tiles and not drawing the graph at runtime: the menu must never parse the 8 MB city. The map also has 120k
+  buildings, the canopy and the rail, which are cheap to draw once offline and expensive as UI meshes. The route stays
+  vector over the map, sharp at any size.
+- No Scripts/City change and no charlotte_*.bytes change, so the city tile bake is not stale.
+
+## Merge notes
+- The tiles and the index are a BUILD PRODUCT, gitignored. In the build sandbox, after the sync and before the player
+  build, run `powershell -ExecutionPolicy Bypass -File tools\citymap-bake.ps1 -Project <sandbox>`.
+  - It needs Node, Python 3 with PIL and numpy, and the main checkout's `tools\city\cache` (landuse, railways,
+    buildings, lots).
+  - It takes about 1 minute and writes 640 tiles, about 17 MB.
+  - A build without it shows today's pictures.
+- MAIN parks `charlotte_citymap.txt` by its charlotte_ rule. StreamingAssets/CityMap is not parked (17 MB in a MAIN-only
+  build if the bake ran there).
+- Shared file: `Scripts/RouteMap.cs` (see above).
+
+# HANDOFF - LINNCOVE ROUND: the far mountains and the Linn Cove granite (agent "linncove", branch `mountain-linncove` off mountain-nm e26dc1f4, 2026-11-16; NOT pushed, NOT merged)
+
+Owner, 2026-11-16 morning, on the title postcard: "It would be nice to find a solution to the barren mountains in the
+distance on mountain maps", and "would also be nice to add some of the iconic rock face to the track and the title
+shot angle" (two photographs of the viaduct in peak fall colour).
+
+## What was found
+- The land past the forest's reach (the stage horizon: far ring, tier 0 at 60 m, apron at 480 m) wore ONE flat canopy
+  colour a dress (Editor/PSXRacingBuilder.Horizon.cs HorizonCanopy) times the Meadow hill map's luminance laid 6 km a
+  tile (Shaders/PSXLit.shader _HorizonMacro): no crown grain, no colour mosaic, no shading but the 60 m facets'. Fall's
+  colour is (0.326, 0.226, 0.054) linear, a khaki tan: PC46's own title frame shows the valley's hills as smooth
+  brown ground.
+- The DEM is bare earth: past 2.2 km every ridge meets the sky as smooth 60 m facets (the apron's 480 m cells make a
+  ridge 20 km off a polygon of 1.5-degree facets).
+- The 2018 lidar (1 m bare earth, cached by the road bake) shows the Linn Cove boulder field plainly: hundreds of
+  blocks 2-30 m across, densest uphill of the deck between 4480 and 4820 m, several under the deck (the biggest 28 x
+  22 m, 8 m proud, at 4652 m, 16 m off the line). 6 of the 9 1 m tiles round the viaduct are cached; the 3 missing are
+  the field's far NW and E corners (not under the deck, not in the title frame). Nothing was downloaded.
+- PSXPerf's TagManager had no "Horizon" layer (its settings predate the stage horizon): a stage built there had no far
+  land at all. The round's job script copies the repo's ProjectSettings/TagManager.asset in before building.
+- Lake Lure builds no stage horizon at all (BuildStageHorizon returns for a stage with water): its far land is
+  untouched by this round.
+
+## What changed (branch mountain-linncove)
+- PSX/Lit THE FAR CANOPY (_HorizonCrowns, Shaders/PSXLit.shader): past 300-1800 m the far land is crowns 9-15 m
+  across in world space, each its own colour from the dress's palette, lit as a dome by the sun, dark gaps between;
+  stands blend warm to cool over 90-280 m; spruce-fir share rises from 10 % at 1450 m to 85 % at 1750 m ASL; grey
+  rock where the 60 m slope passes 37 degrees; where a crown is under a third of a pixel the field is its smooth mean
+  (no shimmer). Procedural (no tile to repeat).
+- Editor/PSXRacingBuilder.Horizon.cs: the palettes (CanopyBroad/CanopyConiferRaw/CanopyGapCol, from the
+  NatureManufacture leaf sheets' measured means, levelled so the land keeps the 11-09 HorizonCanopy brightness);
+  SetFarCanopy on every dress of the far land; the apron built twice (480 m as before, 240 m = the wide grid's own
+  cells); BuildHorizonFringe (upright crown cards on every crest; built only with PSX_RIDGEFRINGE=1).
+- Scripts/FarCanopySwitch.cs (new): shows the 240 m apron with the canopy, the 480 m one without.
+- THE LINN COVE GRANITE: tools/roads/linncove_rocks.mjs (offline lidar read, residual over a 7 m gaussian, merged piles
+  split) -> Art/BRP/brp_rocks.json (439 blocks); Editor/PSXRacingBuilder.LandmarkRocks.cs places the 236 blocks of
+  the viaduct's window +-90 m, within 230 m of the road, as 499 NatureManufacture forest stones turned grey (_LeafVivid
+  0.28 / 4.2), each at its block's own footprint, length, height and axis, seated on the drawn ground, tilted half to
+  the slope; a block over 9 m is 2-4 stones along its axis. Nothing within a lane's reach (6 m past the tarmac plus
+  the stone's radius) of an at-grade road; under the deck at least 4.5 m below the road surface; nothing through a
+  deck, pier, joint, wall, rail or cut (OverlapBox). Plain renderers per 128 m cell (20 draws), a mesh collider of the
+  same stones named "Boulder" on the Solid layer; the forest keeps 2.5 m off each block (StageKeepOut).
+  Scripts/LandmarkRocks.cs (new): PSX_LINNCOVE_ROCKS=0 switches the root (and colliders) off at load.
+- Blue distance v2 (TimeOfDay.cs, PSX/Lit _PSXAerial): with LookChoices.AerialDepth (F9 / PSX_AERIAL=1, still OFF)
+  the air's own law 1 - exp(-(d - 1.8 km) / 26 km), at most 0.75, toward the sky's blue: about a quarter at 10 km, a
+  half at 20. Replaces the old linear ramp (a tenth at 10 km) in the same switch.
+- Scripts/TitleScreen.cs Begin (ONE line, shared file): PlaceCamera runs inside `using (new LandmarkRocks.Hidden(true))`
+  so the postcard search finds the same views[0] with the granite as without (checked: identical).
+- Editor/PSXRacingBuilder.StageRiver.cs StageKeepOut (ONE line, shared): LandmarkKeepOut first (only the stage whose
+  far DEM the rocks were built against).
+- Editor/PSXRacingBuilder.cs BuildTrack (ONE line, shared): BuildLandmarkRocks after BuildStageWorld, before the forest.
+- Editor/LinnCoveShots.cs (new tool): title postcard (views[0] by the rule, or PSX_LC_EYE/LOOK), Linn Cove views, road
+  views, editor frame timing, the PC pass's own scene build for a venue list with the plant and lane audits.
+
+## Switches (all env, read at load; =0 at the SCENE BUILD makes the base exactly)
+- PSX_FARCANOPY (default ON): 0 = the land exactly as it was (old shading, the 480 m apron, no fringe).
+- PSX_LINNCOVE_ROCKS (default ON): 0 = no rocks or colliders (a scene built with it =0 also has no forest clearing).
+- PSX_RIDGEFRINGE (default OFF): 1 = the ridges' crown fringe (needs a scene built with =1).
+- PSX_AERIAL / F9 (default OFF, the owner's A/B): the blue distance v2.
+
+## The intro agent's October bug (LittleSwitzerland, PSX_INTRO_DAY=288: no hardwoods, not even trunks) - NOT FOUND
+- Not general to the fall dress: this round's fall frames (BlueRidge title and Linn Cove views, NC 226A road and vista;
+  edit mode, SeasonDress.Apply(3), MeshForest.DrawNow on the GPU path) all draw the mesh hardwoods.
+- MeshForest reads only the dress index (DressNow -> SeasonDress.AppliedDress, clamped 0-4), never the day.
+  DressMaterials keeps every variant's bark (vr.mats) in every dress and swaps only the leaf submesh and the impostor,
+  and GpuDressChanged skips a command only when its material is null - so a per-dress MATERIAL cause cannot also take
+  the trunks. Losing trunks too means the chunks were taken over (cards hidden, SetCards) and the GPU draws came out
+  empty: look at the command states (MeshForest.Gpu.cs ~712: 0 no material / 1 drawn / 2 no chunk reached) and the
+  "[MeshForest] ... GPU lists" line in the October run against January's, and at AppliedDress in that run.
+- Init order checked: MeshForest.Awake -> Init -> InitGpu (gpuReady, lastDress -2), SeasonDress.Awake -> Apply, then
+  LateUpdate -> FrameStart sets the dress's commands - no stale-dress path found.
+
+## Proof (PSXPerf, real editor frames through the game's dither, PC profile; scratch
+`C:\Users\mcgee\AppData\Local\Temp\claude\be91fcb74e64226b\40ca151a-c5be-4aaa-9ea2-b8dd0e7c98a9\scratchpad\linncove\`)
+- BEFORE (title, Linn Cove) = the base code e26dc1f4 itself, its BlueRidge built in PSXPerf with PC content and shot in
+  a fresh process; AFTER = this branch, fresh process. Title pose = PC46's own log (eye (-431.12, 132.55, 53.44), look
+  (-490.77, 103.39, -188.24), FOV 42); the rule finds the same views[0] in both scenes, with and without the granite in
+  the rays. NC 226A: BEFORE = this branch's scene with PSX_FARCANOPY=0 PSX_LINNCOVE_ROCKS=0 in a fresh process.
+- sheet_title.png (fall afternoon = PC46's light, fall sunset, fall fog, summer, winter; third column = the blue
+  distance v2 A/B), sheet_linncove.png (deck, chase, below, wide), sheet_road_SwissNC226A.png (noon/dusk, chase and
+  vista, blue distance A/B), sheet_title_keepout.png (the forest round the blocks, see below).
+- THE AFTER FRAMES of those sheets come from the build with a 0.85 r + 1 m clearing (shots/after4, with the clump
+  grain). That build failed the plant gate by ONE fern 0.25 m into a stone at 4480 m, so the committed clearing is the
+  2.5 m one, whose build passed: its title frame is shots/after2 (palette re-applied, no clump grain) and
+  sheet_title_keepout.png puts the two side by side. A 1.5 m fit could not be checked: another agent took PSXPerf.
+- Gates, BlueRidge (committed 2.5 m build / base): plants through solids 0 / 0 (125,220 / 125,672 plants within reach);
+  lane obstacle audit CLEAR / CLEAR (the stones' colliders are concave: "see the sweep"; placement keeps them 6 m past
+  the tarmac plus their radius, and 4.5 m under the deck). views[0] identical.
+- Frame cost (editor, 1920x1080, render + 1 px read; other editors were sharing the GPU): base scene at the title
+  37.4-40.2 ms; this branch 35.4-36.4 ms, canopy on vs off in one process -0.6 ms (title) and +1.2 ms (NC 226A
+  vista); a noisier run +2.2 ms. Added geometry: the 240 m apron 150,673 verts (the 480 m one hidden), the rocks
+  212,745 tris in 20 draws (BlueRidge only); ridge fringe 0 (off). The on-screen PerfTour was not run.
+
+## What still looks wrong
+- At the title's distance a crown is under a pixel: the far hills read as an olive-orange mottle with clump grain, not
+  as treetops, and the skyline is still the DEM's smooth line (the fringe that was to break it read as dark combs).
+  Without the blue distance the far ridges keep their full colour to 90 km; with it (A/B column) they read as the Blue
+  Ridge's layered blue ridges. PROPOSAL: AerialDepth ON by default on a clear day (the owner decides from the sheet).
+- The big blocks are forest stones scaled up to 9 m: close up (linn_below) their texture is soft and their shape
+  generic. From the title only a few grey shapes show at the top right. The committed 2.5 m clearing thins the title's
+  foreground trees round the viaduct's start and leaves Grandfather's flank darker (sheet_title_keepout.png); a fit
+  per plant against the stones' own colliders would keep the trees (next round).
+- Mt Mitchell and Chimney Rock road views were not shot (time); their far land changes the same way as NC 226A's.
+
+---
+
 # HANDOFF - NEW GAME INTRO (agent "intro", branch `newgame-intro` off mountain-nm e26dc1f4, 2026-11-16; NOT pushed, NOT merged)
 
 Owner, 2026-11-16: "When starting a new game, the screen should be black (like you're in a long tunnel), after you
