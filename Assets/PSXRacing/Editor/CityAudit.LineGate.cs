@@ -171,6 +171,10 @@ namespace PSXRacing.EditorTools
         public const float MouthStripM = 25f;
         /// <summary>A kink this close to a gore's painted area is the gore's V (its lines meeting), not a bend.</summary>
         public const double GoreNoseM = 3.0;
+        /// <summary>A ramp's gore lies within this of its diverge / merge node: a line's sharp turn (a kink of 10 deg
+        /// or more, an S-jog swinging 45 deg or more) there is the gore's V being read, not a bend (all 9 + 6
+        /// sampled ones, 2026-11-17).</summary>
+        public const float GoreReachM = 60f;
     }
 
     public static partial class CityAudit
@@ -242,6 +246,32 @@ namespace PSXRacing.EditorTools
             }
             return false;
         }
+        /// <summary>Is a ramp's diverge or merge (a node where a link meets a road that is not one) within reach of
+        /// arc s of edge ei, along the road through its joints? Its gore lies there.</summary>
+        static bool LgNearRampNode(CityMap map, int ei, float s, float reach)
+        {
+            var e0 = map.edges[ei];
+            for (int side = 0; side < 2; side++)
+            {
+                var e = e0; float left = reach - (side == 0 ? s : e0.length - s);
+                int node = side == 0 ? e0.a : e0.b;
+                for (int hop = 0; hop < 6 && left >= 0f; hop++)
+                {
+                    var arms = map.nodeEdges[node];
+                    bool link = false, road = false;
+                    foreach (int o in arms) { if (map.edges[o].link) link = true; else road = true; }
+                    if (link && (road || arms.Count >= 3)) return true;
+                    if (arms.Count != 2) break;
+                    int next = arms[0] == e.index ? arms[1] : arms[0];
+                    if (next == e.index) break;
+                    e = map.edges[next];
+                    left -= e.length;
+                    node = e.a == node ? e.b : e.a;
+                }
+            }
+            return false;
+        }
+
         /// <summary>Does another road's ribbon (a span polygon of another edge) cover this point at about this height?</summary>
         static bool LgUnderOther(double x, double z, float y, int ei)
         {
@@ -1065,7 +1095,7 @@ namespace PSXRacing.EditorTools
                 // a sharp turn of a line lying on another road's ribbon (a ramp's pavement over the host's paint at a
                 // diverge or merge): not a bend anyone sees as one (the box run at I-485: every 20-70 deg "kink" and
                 // 85 deg "S-jog" sat at a ramp's gore, on the ramp's pavement); counted, not failed
-                if (k >= 10.0 && LgUnderOther(r[i].x, r[i].z, e.YAt(r[i].s), r[i].e)) { lgUnderOther++; continue; }
+                if (k >= 10.0 && (LgUnderOther(r[i].x, r[i].z, e.YAt(r[i].s), r[i].e) || LgNearRampNode(map, r[i].e, r[i].s, LineGateRules.GoreReachM))) { lgUnderOther++; continue; }
                 // the local maximum
                 bool peak = true;
                 for (int q = Math.Max(4, i - 3); q <= Math.Min(n - 5, i + 3) && peak; q++)
@@ -1124,7 +1154,7 @@ namespace PSXRacing.EditorTools
                 float mph = LineGateRules.Mph(e); float rate = LineGateRules.TaperRate(mph);
                 // the pavement edge (or edge line) bulging out and back at a freeway ramp terminal: the
                 // speed-change lane, judged on the terminal's taper (AASHTO), not MUTCD's through-lane drop
-                if (Math.Max(a1, a2) >= 45.0 && LgUnderOther(r[i1].x, r[i1].z, e.YAt(r[i1].s), r[i1].e)) { lgUnderOther++; continue; }
+                if (Math.Max(a1, a2) >= 45.0 && (LgUnderOther(r[i1].x, r[i1].z, e.YAt(r[i1].s), r[i1].e) || LgNearRampNode(map, r[i1].e, r[i1].s, LineGateRules.GoreReachM))) { lgUnderOther++; continue; }
                 bool terminal = st0.Boundary && LgAtRampTerminal(map, r[i1].e, r[i1].s);
                 if (terminal) rate = Mathf.Min(rate, LineGateRules.TerminalRate);
                 double need = rate * W;
@@ -1852,7 +1882,7 @@ namespace PSXRacing.EditorTools
             Line($"  not judged for shape: {lgChannelChains} channelizing lines (solid white where the road's own layout has no line: a gore's side, a turning roadway's edge)");
             Line($"  read: {lgPolys.Count} pavement polygons ({lgUntappedTris} triangles of other emitters), {lgSeamSpans} span sides are seams with other pavement, {lgMarks} short marks, {lgSolidLane} solid lane / channelizing lines cut from the edge-line column; {lgSharpJoins} candidate joins refused for meeting at more than 45 deg (a gore's V tip)");
             Line($"  SURFACE census: {lgStretchedM:0} m of ribbon with a pavement strip stretched or squeezed past 1.25x; {lgStripeQuads} thin strips ({lgStripeM:0} m: the gap inside a double line, the strip beside a curb) drawn from a whole lane band - not failed; {lgDoubleSpans} spans drawn twice");
-            Line($"  passed by rule: {lgKinkFacets} curve facets (a deflection over 4 m chords gone over 8 / 16 m chords: a curve drawn as a polyline, or a facet within 2.5 cm of its curve); {lgUnderOther} sharp kinks or S-jogs (10 / 45 deg and more) of paint lying on another road's ribbon (a ramp's gore); {lgGradeFacets} grade breaks gone over 20 / 40 m chords (a vertical curve drawn in facets); {lgTerminalPassed} pavement-edge moves at freeway ramp terminals within the AASHTO terminal taper ({LineGateRules.TerminalRate:0}:1); {lgKinkCorners} kinks ({lgKinkGore} more at a gore's nose) and {lgStepCorners} pavement-edge steps at junction corners (15 m from the drawn end at a node of 1 or 3+ arms: the mouth strip and its curb return); {lgEndsTypeChange} line ends inside an edge and {lgJointRetyped} at a joint where another line of another pattern continues it (MUTCD 2009 3B.04 / 3A.06: a pattern change); {lgEndsAtJunction} line ends within 25 m of a junction (the stop line or crosswalk: MUTCD 2009 3B.16 / 3B.18); {lgEndsEdgeLine} edge-line ends inside an edge (MUTCD 2009 3B.06 / 3B.07: edge lines may stop at curbs, driveways, openings); {lgCtlEqual} side roads with no control meeting a road of their own class (MUTCD 2009 2B.04: the basic right-of-way rule); {lgMouthPassed} road mouths whose nearest solid line is the far side's, a centre yellow (a left turn) or a split's own yellow");
+            Line($"  passed by rule: {lgKinkFacets} curve facets (a deflection over 4 m chords gone over 8 / 16 m chords: a curve drawn as a polyline, or a facet within 2.5 cm of its curve); {lgUnderOther} sharp kinks or S-jogs (10 / 45 deg and more) of paint lying on another road's ribbon or within 60 m of a ramp's diverge / merge (its gore's V); {lgGradeFacets} grade breaks gone over 20 / 40 m chords (a vertical curve drawn in facets); {lgTerminalPassed} pavement-edge moves at freeway ramp terminals within the AASHTO terminal taper ({LineGateRules.TerminalRate:0}:1); {lgKinkCorners} kinks ({lgKinkGore} more at a gore's nose) and {lgStepCorners} pavement-edge steps at junction corners (15 m from the drawn end at a node of 1 or 3+ arms: the mouth strip and its curb return); {lgEndsTypeChange} line ends inside an edge and {lgJointRetyped} at a joint where another line of another pattern continues it (MUTCD 2009 3B.04 / 3A.06: a pattern change); {lgEndsAtJunction} line ends within 25 m of a junction (the stop line or crosswalk: MUTCD 2009 3B.16 / 3B.18); {lgEndsEdgeLine} edge-line ends inside an edge (MUTCD 2009 3B.06 / 3B.07: edge lines may stop at curbs, driveways, openings); {lgCtlEqual} side roads with no control meeting a road of their own class (MUTCD 2009 2B.04: the basic right-of-way rule); {lgMouthPassed} road mouths whose nearest solid line is the far side's, a centre yellow (a left turn) or a split's own yellow");
         }
     }
 }
