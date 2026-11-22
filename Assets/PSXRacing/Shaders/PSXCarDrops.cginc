@@ -127,4 +127,49 @@ float CarDropsH(float3 p, float3 n, float3 down, float3 air, float up, float win
     return hRain;
 }
 
+// (RAINGLASS 2026-11-22) THE BEADS AS LITTLE LENSES, read from the chase
+// camera. A bead on a car is a tiny convex mirror: whatever lights the scene -
+// the sky by day, every street lamp and headlamp at night - shows in it as one
+// bright point near its upper edge, and its rim is a dark ring. The old look
+// lit a bead only where its SCREEN-space slope faced the light, which a bead of
+// two or three pixels does not have, so from the chase view the glass carried
+// next to nothing. This gives the bead layer's own dome (x height, yz where in
+// the bead, w its radius) in the same plane as CarDropsH, and how many pixels
+// across it is, for the caller's highlight and rim. More beads on GLASS
+// (`glass` 0..1: the paint's own glass mask), which sheds less of them.
+float4 CDBead4(float2 q, float cell, float density, float seed)
+{
+    float2 g = q / cell;
+    float2 id = floor(g);
+    float4 h = CDHash(id + seed);
+    float2 c = (id + 0.5 + (h.xy - 0.5) * 0.5) * cell;
+    float life = frac(_Time.y * (0.05 + 0.08 * h.w) + h.z);
+    float alive = step(h.z, density) * smoothstep(0.0, 0.08, life) * (1.0 - smoothstep(0.75, 1.0, life));
+    float r = cell * lerp(0.12, 0.30, h.w);
+    float2 n = (q - c) / r;
+    return float4(saturate(1.0 - dot(n, n)) * alive, n, r);
+}
+
+// The bead layer at a point (see above); `up2` = the plane's up (against
+// gravity, unit), `pxR` the bead's radius in pixels.
+float4 CarBeadLens(float3 p, float3 n, float3 down, float wind, float glass, out float2 up2, out float pxR)
+{
+    float3 a = abs(n);
+    float topM = step(a.x, a.y) * step(a.z, a.y);
+    float sideM = (1.0 - topM) * step(a.z, a.x);
+    float endM = 1.0 - topM - sideM;
+    float2 q = (p.xz * topM + p.zy * sideM + p.xy * endM) * CD_SCALE;
+    float2 gd = down.xz * topM + down.zy * sideM + down.xy * endM;
+    up2 = -gd / max(length(gd), 1e-4);
+    float rain = _PSXCarDrops.x;
+    float streakW = saturate(wind * 1.5);
+    float dens = rain * lerp(1.0, 1.45, glass);
+    float4 b = CDBead4(q, 0.018, dens * lerp(0.55, 0.12, streakW), 1.7);
+    float4 b2 = CDBead4(q, 0.032, dens * lerp(0.35, 0.08, streakW), 9.3);
+    b = b.x >= b2.x ? b : b2;
+    float fp = max(length(fwidth(q)), 1e-6);
+    pxR = b.w / fp;
+    return b;
+}
+
 #endif

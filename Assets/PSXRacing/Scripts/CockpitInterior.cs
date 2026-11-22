@@ -397,11 +397,134 @@ namespace PSXRacing
                             Rain2GlassId = Shader.PropertyToID("_CabinRain2");
         /// <summary>For the checks: strokes started since the scene loaded.</summary>
         public static int WiperStrokes { get; private set; }
+        /// <summary>(rainglass) The stroke value now: 0 parked .. 1 the top of the stroke. One number
+        /// drives the drawn blades, the modelled arms and the shader's wipe.</summary>
+        public static float WiperS { get; private set; }
+        /// <summary>(rainglass) Where the shader's phase maps came from: "model" (the v10 cockpit's
+        /// own), "drawn" (made from the drawn blades' arcs), or null (none built).</summary>
+        public static string PhaseSource { get; private set; }
+        static Texture2D phaseTex;
+        static readonly int PhaseTexId = Shader.PropertyToID("_WiperPhase"), WiperDrawId = Shader.PropertyToID("_WiperDraw");
+        /// <summary>The modelled wipers (v10 Wiper_* nodes), when the cockpit has them.</summary>
+        struct ModelWiper { public Transform arm, blade; public CockpitModel.WiperDef def; public Quaternion bladeRest; }
+        ModelWiper[] modelWipers;
+        /// <summary>True when this cabin draws modelled wipers (and the glass no blades).</summary>
+        public bool HasModelWipers => modelWipers != null && modelWipers.Length > 0;
+
+        /// <summary>The stroke value <paramref name="tc"/> seconds into a stroke of
+        /// <paramref name="stroke"/> seconds: eased (WiperPhase.S) with Rain2.WiperMap, the 11-17
+        /// linear triangle without. 0 once the stroke is over.</summary>
+        public static float StrokeS(float tc, float stroke)
+        {
+            float ph = tc / Mathf.Max(stroke, 0.05f);
+            if (ph <= 0f || ph >= 1f) return 0f;
+            return Rain2.WiperMap ? WiperPhase.S(ph) : 1f - Mathf.Abs(ph * 2f - 1f);
+        }
+
+        /// <summary>The modelled arms (and blades) posed for the stroke the shader is on (the
+        /// _CabinWipe global this frame): parked when the wipers are off.</summary>
+        public void PoseWipers()
+        {
+            if (!HasModelWipers) return;
+            var w = Shader.GetGlobalVector(WipeId);
+            bool run = w.w > 0.5f;
+            foreach (var m in modelWipers)
+            {
+                if (m.arm == null) continue;
+                var d = m.def;
+                float s = run ? StrokeS(w.x - d.phaseLag * w.y, w.y) : 0f;
+                float deg = d.strokeDeg * s;
+                Vector3 axis = d.armAxis.sqrMagnitude > 1e-6f ? d.armAxis.normalized : Vector3.up;
+                m.arm.localRotation = d.armRot * Quaternion.AngleAxis(d.armSign * deg, axis);
+                if (m.blade != null && d.hingeArmDeg != null && d.hingeDeg != null && d.hingeArmDeg.Length > 0 && d.hingeArmDeg.Length == d.hingeDeg.Length)
+                {
+                    float h = Hinge(d.hingeArmDeg, d.hingeDeg, deg);
+                    Vector3 ba = d.bladeAxis.sqrMagnitude > 1e-6f ? d.bladeAxis.normalized : Vector3.up;
+                    m.blade.localRotation = m.bladeRest * Quaternion.AngleAxis(h, ba);
+                }
+            }
+        }
+
+        /// <summary>The blade's hinge angle at this arm angle: the modeller's table, linear, held at its ends.</summary>
+        public static float Hinge(float[] armDeg, float[] hingeDeg, float deg)
+        {
+            if (deg <= armDeg[0]) return hingeDeg[0];
+            for (int i = 1; i < armDeg.Length; i++)
+                if (deg <= armDeg[i])
+                {
+                    float t = Mathf.InverseLerp(armDeg[i - 1], armDeg[i], deg);
+                    return Mathf.Lerp(hingeDeg[i - 1], hingeDeg[i], t);
+                }
+            return hingeDeg[hingeDeg.Length - 1];
+        }
+
+        /// <summary>The Wiper_* nodes of a v10 cockpit as rotating parts under the model (an RHD
+        /// cabin mirrors them with the rest). Nothing while the layout has none.</summary>
+        void BuildWipers(System.Collections.Generic.Dictionary<string, CockpitModel.Part> parts, CockpitModel.Layout lay)
+        {
+            modelWipers = null;
+            if (!Rain2.WiperModel || lay.wipers == null || lay.wipers.Length == 0 || parts == null) return;
+            var list = new System.Collections.Generic.List<ModelWiper>();
+            foreach (var d in lay.wipers)
+            {
+                if (d == null || string.IsNullOrEmpty(d.armPart) || !parts.ContainsKey(d.armPart)) continue;
+                var arm = new GameObject("Wiper_" + d.key + "_Pivot").transform;
+                arm.gameObject.layer = gameObject.layer;
+                arm.SetParent(model, false);
+                arm.localPosition = d.armPivot;
+                arm.localRotation = d.armRot;
+                Place(parts, d.armPart, arm);
+                Transform blade = null;
+                Quaternion bladeRest = Quaternion.identity;
+                if (!string.IsNullOrEmpty(d.bladePart) && parts.ContainsKey(d.bladePart))
+                {
+                    blade = new GameObject("Wiper_" + d.key + "_Hinge").transform;
+                    blade.gameObject.layer = gameObject.layer;
+                    blade.SetParent(arm, false);
+                    var inv = Quaternion.Inverse(d.armRot);
+                    blade.localPosition = inv * (d.bladePivot - d.armPivot);
+                    bladeRest = inv * d.bladeRot;
+                    blade.localRotation = bladeRest;
+                    Place(parts, d.bladePart, blade);
+                }
+                list.Add(new ModelWiper { arm = arm, blade = blade, def = d, bladeRest = bladeRest });
+            }
+            if (list.Count == 0) return;
+            modelWipers = list.ToArray();
+            // the glass stops drawing its own blades, and clears behind each arm on its own lag
+            var lag = Vector4.zero;
+            foreach (var mw in modelWipers)
+                if (mw.def.key != null && mw.def.key.ToLowerInvariant().StartsWith("pass")) lag.y = mw.def.phaseLag; else lag.x = mw.def.phaseLag;
+            if (glassMats != null)
+                foreach (var m in glassMats)
+                    if (m != null) { m.SetFloat(WiperDrawId, 0f); m.SetVector("_WiperLag", lag); }
+        }
+
+        /// <summary>The windscreen's phase texture (built once): the v10 model's maps if the
+        /// cockpit ships them, else the drawn blades' arcs.</summary>
+        static Texture2D PhaseTexture(Vector4 wiper, Vector4 arc, float mu, float mv)
+        {
+            if (phaseTex != null) return phaseTex;
+            float[] d, p;
+            if (WiperPhase.TryModelMaps(out d, out p)) PhaseSource = "model";
+            else { WiperPhase.Analytic(wiper, arc, mu, mv, out d, out p); PhaseSource = "drawn"; }
+            phaseTex = WiperPhase.Pack(d, p, mu, mv);
+            return phaseTex;
+        }
 
         /// <summary>A stroke's seconds and the cycle's, by how hard it rains
         /// (Rain2.RainNow: 0.55 light .. 1 a downpour).</summary>
         public static void WiperTiming(float rain, out float stroke, out float period)
         {
+            if (Rain2.WiperMap)
+            {
+                // (rainglass 11-22) every setting rests a moment at park, as a crank-driven wiper
+                // does: intermittent ~17 wipes a minute, slow ~40, fast ~60 (stroke = up and back)
+                if (rain > 0.86f) { stroke = 0.80f; period = 1.00f; }
+                else if (rain > 0.68f) { stroke = 1.20f; period = 1.50f; }
+                else { stroke = 1.30f; period = 3.60f; }
+                return;
+            }
             if (rain > 0.86f) { stroke = 0.9f; period = 0.9f; }
             else if (rain > 0.68f) { stroke = 1.3f; period = 1.4f; }
             else { stroke = 1.3f; period = 3.6f; }
@@ -416,8 +539,9 @@ namespace PSXRacing
         {
             bool glass = Rain2.On && Rain2.Glass;
             Shader.SetGlobalVector(Rain2GlassId, new Vector4(glass && Rain2.CurrentTier == Rain2.Tier.High ? 1f : 0f,
-                                                             glass && Rain2.CurrentTier != Rain2.Tier.Mobile ? 1f : 0f, 0f, 0f));
-            if (!Rain2.On || !Rain2.Wipers) { Shader.SetGlobalVector(WipeId, Vector4.zero); return; }
+                                                             glass && Rain2.CurrentTier != Rain2.Tier.Mobile ? 1f : 0f,
+                                                             glass && Rain2.Beads2 ? 1f : 0f, 0f));
+            if (!Rain2.On || !Rain2.Wipers) { Shader.SetGlobalVector(WipeId, Vector4.zero); WiperS = 0f; PoseWipers(); return; }
             float rain = Rain2.RainNow;
             float v = car != null ? Mathf.Abs(car.forwardSpeed) : 0f;
             // The cabin ticks only while the cockpit shows, so the car's
@@ -441,8 +565,10 @@ namespace PSXRacing
                 WiperStrokes++;
             }
             if (wipeTc > 2000f) wipeTc = 1000f;
+            WiperS = StrokeS(wipeTc, wipeStroke);
             Shader.SetGlobalVector(WipeId, new Vector4(wipeTc, wipeStroke, wipePrev, 1f));
-            Shader.SetGlobalVector(Wipe2Id, new Vector4(WiperFill(Mathf.Max(rain, 0.55f), wind), 0f, 0f, 0f));
+            Shader.SetGlobalVector(Wipe2Id, new Vector4(WiperFill(Mathf.Max(rain, 0.55f), wind), WiperS, Rain2.WiperMap ? 1f : 0f, 0f));
+            PoseWipers();
         }
 
         /// <summary>For the shot tool: the wipers <paramref name="into"/>
@@ -453,12 +579,14 @@ namespace PSXRacing
         {
             bool glass = Rain2.On && Rain2.Glass;
             Shader.SetGlobalVector(Rain2GlassId, new Vector4(glass && Rain2.CurrentTier == Rain2.Tier.High ? 1f : 0f,
-                                                             glass && Rain2.CurrentTier != Rain2.Tier.Mobile ? 1f : 0f, 0f, 0f));
-            if (!fitted || !Rain2.On || !Rain2.Wipers) { Shader.SetGlobalVector(WipeId, Vector4.zero); return; }
+                                                             glass && Rain2.CurrentTier != Rain2.Tier.Mobile ? 1f : 0f,
+                                                             glass && Rain2.Beads2 ? 1f : 0f, 0f));
+            if (!fitted || !Rain2.On || !Rain2.Wipers) { Shader.SetGlobalVector(WipeId, Vector4.zero); WiperS = 0f; return; }
             float wind = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(5f, 28f, speedMps));
             WiperTiming(rain, out float stroke, out float period);
             Shader.SetGlobalVector(WipeId, into < 0f ? new Vector4(1000f, stroke, 1000f, 1f) : new Vector4(into, stroke, period, 1f));
-            Shader.SetGlobalVector(Wipe2Id, new Vector4(WiperFill(Mathf.Max(rain, 0.55f), wind), 0f, 0f, 0f));
+            WiperS = into < 0f ? 0f : StrokeS(into, stroke);
+            Shader.SetGlobalVector(Wipe2Id, new Vector4(WiperFill(Mathf.Max(rain, 0.55f), wind), WiperS, Rain2.WiperMap ? 1f : 0f, 0f));
         }
         static bool warned;
 
@@ -569,6 +697,7 @@ namespace PSXRacing
                 r.sharedMaterial = glassMats[i];
             }
             BuildReflection(screen, panes);
+            BuildWipers(parts, lay);
 
             // The wheel stands on its own uniformly scaled root beside the
             // model (WheelFrame), so the cabin's per-axis fit cannot make it oval.
@@ -658,7 +787,11 @@ namespace PSXRacing
                 // lying along the base and sweeping WiperSweepDeg from there.
                 float reach = Mathf.Min(0.46f * mu, 1.02f * mv);
                 m.SetVector("_Wiper", new Vector4(0.10f * mu, 0.52f * mu, -0.04f * mv, reach));
-                m.SetVector("_WiperArc", new Vector4(WiperParkDeg * Mathf.Deg2Rad, WiperSweepDeg * Mathf.Deg2Rad, 0.20f, 0.011f * Mathf.Max(mu, 0.5f)));
+                var arcV = new Vector4(WiperParkDeg * Mathf.Deg2Rad, WiperSweepDeg * Mathf.Deg2Rad, 0.20f, 0.011f * Mathf.Max(mu, 0.5f));
+                m.SetVector("_WiperArc", arcV);
+                // (rainglass) the wipe read from the phase maps (the shader picks it by _CabinWipe2.z)
+                m.SetTexture(PhaseTexId, PhaseTexture(new Vector4(0.10f * mu, 0.52f * mu, -0.04f * mv, reach), arcV, mu, mv));
+                m.SetFloat(WiperDrawId, 1f);
             }
             return m;
         }

@@ -59,6 +59,12 @@ OUT = os.path.join(ROOT, "Assets", "PSXRacing", "Resources", "Cockpit")
 SRC_OUT = os.path.join(ROOT, "Assets", "PSXRacing", "CockpitSrc")
 SRC = r"C:\Users\mcgee\OneDrive\Documents\Game Development\PSX Assets\PSX Racing\Universal_Cockpit_RX7_FD_v09"
 BLEND = os.path.join(SRC, "RX7_FD_Cockpit_v09_LHD.blend")
+# (rainglass 11-22) the v10 delivery (modelled wipers) is converted by pointing these at it:
+#   PSX_COCKPIT_SRC=<folder holding Integration\>  PSX_COCKPIT_BLEND=<the LHD .blend>
+if os.environ.get("PSX_COCKPIT_SRC"):
+    SRC = os.environ["PSX_COCKPIT_SRC"]
+if os.environ.get("PSX_COCKPIT_BLEND"):
+    BLEND = os.environ["PSX_COCKPIT_BLEND"]
 INTEG = os.path.join(SRC, "Integration", "integration_LHD.json")
 GENERIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "generic_cockpit.py")
 
@@ -74,6 +80,142 @@ OTHER = {"Wheel_Leather": "leather", "Cockpit_Trim": "trim",
          "Gauge_Display_Replace_Material": "gauge", "Mirror_Replace_RenderTexture": "mirror"}
 GAUGES = {"Gauge_Temp_Blank": "temp", "Gauge_Tach_Blank": "tach", "Gauge_Speed_Blank": "speed", "Gauge_Fuel_Blank": "fuel"}
 GLASS = {"Glass_Windshield": "windshield", "Glass_Door_L": "door_l", "Glass_Door_R": "door_r", "Glass_RearWindow": "rear"}
+
+
+# ---------------------------------------------------------------------------
+#  THE WIPERS (rainglass, 2026-11-22; Cockpit_Wipers_Codex_Brief_2026-11-22.md)
+# ---------------------------------------------------------------------------
+# v10 adds Wiper_Driver_Arm / _Blade and Wiper_Passenger_Arm / _Blade (rigid,
+# each rotated about ONE local axis) and a static Wiper_Cowl. The arms and
+# blades become their own parts, each written in its node's frame (frame_of:
+# origin on the node's origin = the spindle or the hinge), so the game turns
+# them as it turns the wheel; the cowl stays in the cabin. The layout gets a
+# "wipers" list (CockpitModel.WiperDef). A Blender rotation of +a about the
+# node's local axis is, in the game's reflected frame, -a about that axis
+# mapped by B2U: armSign is -1 and the axis is given in the part's frame. The
+# script CHECKS that on the arm's own vertices before it writes anything.
+# The two phase maps (Wiper_Phase_<Side>_UV0.png) are copied as raw PNG bytes
+# to Resources/Cockpit/wiper_phase_<side>.bytes (WiperPhase.cs reads them).
+WIPER_SIDES = ("Driver", "Passenger")
+
+
+def _find(d, *names):
+    """A value by any of these key names (case and '_' insensitive), searched
+    in d and one level of nested dicts; None if absent."""
+    if not isinstance(d, dict):
+        return None
+    want = [n.lower().replace("_", "") for n in names]
+    for k, v in d.items():
+        if k.lower().replace("_", "") in want:
+            return v
+    for v in d.values():
+        if isinstance(v, dict):
+            r = _find(v, *names)
+            if r is not None:
+                return r
+    return None
+
+
+def _axis_letter(v, default="Z"):
+    """'Z', '+Z', '-Y', {'axis': 'Z', 'sign': -1}, [0,0,1] -> (unit Vector in the node's local Blender frame)."""
+    if isinstance(v, (list, tuple)) and len(v) == 3:
+        return Vector(v).normalized()
+    sign = 1.0
+    if isinstance(v, dict):
+        sign = float(_find(v, "sign") or 1.0)
+        v = _find(v, "axis", "letter") or default
+    v = str(v or default).strip().upper()
+    if v.startswith("-"):
+        sign, v = -sign, v[1:]
+    v = v.lstrip("+")
+    e = {"X": Vector((1, 0, 0)), "Y": Vector((0, 1, 0)), "Z": Vector((0, 0, 1))}.get(v[:1], Vector((0, 0, 1)))
+    return e * sign
+
+
+def _rodrigues(v, axis, deg):
+    return Matrix.Rotation(math.radians(deg), 3, axis.normalized()) @ v
+
+
+def wiper_parts(obs, integ, parts):
+    """The arms and blades as parts, their layout entries, and the phase maps copied. [] before v10."""
+    block = _find(integ, "wipers") or {}
+    entries = block if isinstance(block, list) else [v for v in block.values() if isinstance(v, dict)] if isinstance(block, dict) else []
+    out = []
+    for side in WIPER_SIDES:
+        arm = obs.get("Wiper_%s_Arm" % side)
+        if arm is None or arm.type != 'MESH':
+            continue
+        ent = next((e for e in entries if side.lower() in json.dumps(e).lower() and ("Wiper_%s_Arm" % side) in json.dumps(e)), None) or {}
+        stroke = float(_find(ent, "full_stroke_angle_deg", "full_stroke_deg", "stroke_angle_deg", "stroke_deg", "full_stroke_angle") or 0.0)
+        lag = float(_find(ent, "phase_offset", "phase_lag", "out_of_phase", "offset_s") or 0.0)
+        ax_b = _axis_letter(_find(ent, "arm_axis_blender", "rotation_axis_blender", "axis_blender") or "Z")
+        origin, R = frame_of(arm)
+        mw3 = arm.matrix_world.to_3x3().normalized()
+        A_b = (mw3 @ ax_b).normalized()                       # Blender world
+        axis_local = (R.transposed() @ B2U(A_b)).normalized()  # the part's frame, Unity axes
+        name_a = "wiper_%s_arm" % side.lower()
+        at = mesh_tris(arm, pivot_map(origin, R), uv_for)
+        parts.append(pack_part(name_a, at))
+        # the check: Blender's +10 deg about the node's axis == the game's -10 deg about axis_local
+        ob = arm.matrix_world.translation
+        err = 0.0
+        for v in arm.data.vertices[:200]:
+            w = arm.matrix_world @ v.co
+            bl = B2U(ob + _rodrigues(w - ob, A_b, 10.0))
+            local = R.transposed() @ (B2U(w) - origin)
+            game = origin + R @ _rodrigues(local, axis_local, -10.0)
+            err = max(err, (bl - game).length)
+        print("[V08] wiper %-9s arm: stroke %.1f deg, lag %.3f, axis(local) %s, convention check err %.6f m"
+              % (side, stroke, lag, tuple(round(x, 4) for x in axis_local), err))
+        if err > 1e-4:
+            raise SystemExit("[V08] WIPER AXIS CHECK FAILED for %s (%.6f m)" % (side, err))
+        qa = R.to_quaternion()
+        d = {"key": side.lower(), "armPart": name_a, "bladePart": "",
+             "armPivot": v3(origin), "armAxis": v3(axis_local),
+             "armRot": {"x": round(qa.x, 6), "y": round(qa.y, 6), "z": round(qa.z, 6), "w": round(qa.w, 6)},
+             "strokeDeg": round(stroke, 4), "armSign": -1.0, "phaseLag": round(lag, 4)}
+        blade = obs.get("Wiper_%s_Blade" % side)
+        if blade is not None and blade.type == 'MESH':
+            bo, BR = frame_of(blade)
+            hb = _axis_letter(_find(ent, "hinge_axis_blender", "blade_axis_blender", "hinge_axis") or "Z")
+            HB = (blade.matrix_world.to_3x3().normalized() @ hb).normalized()
+            name_b = "wiper_%s_blade" % side.lower()
+            parts.append(pack_part(name_b, mesh_tris(blade, pivot_map(bo, BR), uv_for)))
+            qb = BR.to_quaternion()
+            table = _find(ent, "hinge_table", "blade_hinge_table", "table") or []
+            pairs = []
+            for row in table:
+                if isinstance(row, dict):
+                    a_, h_ = _find(row, "arm_deg", "arm", "arm_angle"), _find(row, "hinge_deg", "hinge", "hinge_angle")
+                else:
+                    a_, h_ = row[0], row[1]
+                if a_ is not None and h_ is not None:
+                    pairs.append((float(a_), float(h_)))
+            pairs.sort()
+            d.update({"bladePart": name_b, "bladePivot": v3(bo), "bladeAxis": v3((BR.transposed() @ B2U(HB)).normalized()),
+                      "bladeRot": {"x": round(qb.x, 6), "y": round(qb.y, 6), "z": round(qb.z, 6), "w": round(qb.w, 6)},
+                      # the game turns by -hinge (the same reflection as the arm)
+                      "hingeArmDeg": [round(a_, 4) for a_, _ in pairs], "hingeDeg": [round(-h_, 4) for _, h_ in pairs]})
+            print("[V08] wiper %-9s blade: hinge table %d rows" % (side, len(pairs)))
+        if stroke <= 0.0:
+            print("[V08] WARNING: no full stroke angle for the %s wiper in the integration file - it will not move" % side)
+        out.append(d)
+    # the phase maps, raw PNG bytes
+    for side in WIPER_SIDES:
+        fn = "Wiper_Phase_%s_UV0.png" % side
+        hit = None
+        for root, _, files in os.walk(SRC):
+            if fn in files:
+                hit = os.path.join(root, fn)
+                break
+        dst = os.path.join(OUT, "wiper_phase_%s.bytes" % side.lower())
+        if hit:
+            with open(hit, "rb") as a, open(dst, "wb") as b:
+                b.write(a.read())
+            print("[V08] phase map %s -> %s" % (hit, dst))
+        elif out:
+            print("[V08] WARNING: %s not found under %s - the game falls back to the drawn arcs" % (fn, SRC))
+    return out
 
 
 def B2U(v):
@@ -269,6 +411,9 @@ def main():
     for o in sorted(bpy.data.objects, key=lambda o: o.name):
         if o.type != 'MESH' or o.name == "Steering_Wheel":
             continue
+        # (v10) the moving wiper parts are their own parts (the static Wiper_Cowl stays in the cabin)
+        if o.name.startswith("Wiper_") and (o.name.endswith("_Arm") or "_Blade" in o.name):
+            continue
         tris = mesh_tris(o, model_map, uv_for)
         if o.name in GAUGES or o.name in GLASS:
             every += tris
@@ -313,6 +458,7 @@ def main():
         print("[V08] glass %-10s m/U %.3f m/V %.3f up(uv) %+.2f %+.2f rear(uv) %+.2f %+.2f"
               % (key, Pu.length, Pv.length, up[0], up[1], rear[0], rear[1]))
     layout["glass"] = panes
+    layout["wipers"] = wiper_parts(obs, integ, parts)
     Pu, Pv, P0 = uv_frame(mirror_face)
     mc = sum((p for t in mirror_face for p in t[2]), Vector()) / (3 * len(mirror_face))
     layout["mirror"] = {"part": "mirror", "centre": v3(mc), "uRight": 1 if Pu.x > 0 else -1, "vUp": 1 if Pv.y > 0 else -1,

@@ -59,6 +59,9 @@ Shader "PSX/CabinGlass"
         _Out ("Outward (metres frame), for the bend", Vector) = (1, 0, 0, 0)
         _PaneRain ("This pane's share of the rain", Range(0, 1)) = 1
         [HideInInspector] _PSXBreak ("Break: x state, y seed, zw strike (share of the pane)", Vector) = (0, 0, 0, 0)
+        [HideInInspector] _WiperPhase ("Wiper phase maps (r, g phase; b, a edge distance)", 2D) = "black" {}
+        [HideInInspector] _WiperDraw ("Draw the blades (no modelled wipers)", Float) = 1
+        [HideInInspector] _WiperLag ("Each arm's lag, share of the stroke (x driver, y passenger)", Vector) = (0, 0, 0, 0)
     }
     SubShader
     {
@@ -85,8 +88,17 @@ Shader "PSX/CabinGlass"
             float4 _Wiper;        // this pane's wipers, metres frame: pivot 1 x, pivot 2 x, pivots' y, blade reach (0 = none)
             float4 _WiperArc;     // parked angle, sweep (radians), the blade's inner end as a share of its reach, blade width (m)
             float4 _CabinWipe;    // seconds into this stroke, a stroke's seconds, the last cycle's seconds, 1 = wipers fitted
-            float4 _CabinWipe2;   // x: seconds for a wiped pane to bead up again
-            float4 _CabinRain2;   // x: 1 = the water looks through (needs _PSXSSRLive); y: 1 = the third bead size
+            float4 _CabinWipe2;   // x: seconds for a wiped pane to bead up again; y: the stroke value s now; z: 1 = the phase maps (rainglass)
+            // RAINGLASS (2026-11-22): the wipe from two phase maps in this pane's UV0 (WiperPhase.cs;
+            // the v10 modeller's maps, or placeholders made from the drawn arcs): r, g = the stroke
+            // value s at which each arm's rubber crosses this point on the upstroke; b, a = signed
+            // distance to the edge of each arm's swept area, 0.5 + d / (2 R2G_FIELD_M), inside +.
+            sampler2D _WiperPhase;
+            float _WiperDraw;     // 1: draw the blades here (the model has no Wiper_* nodes)
+            float4 _WiperLag;     // each arm's lag behind the stroke, a share of its time
+            #define R2G_FIELD_M 0.04       // = WiperPhase.FieldM
+            #define R2G_BANK_M  0.030      // the bank of water a moving blade pushes ahead of it, metres deep
+            float4 _CabinRain2;   // x: 1 = the water looks through (needs _PSXSSRLive); y: 1 = the third bead size; z: 1 = the rainglass beads (Rain2.Beads2)
             sampler2D _PSXSSRColour;
             float _PSXSSRLive;    // 1 while this camera's frame copy is bound (SpeedBlurFeature.WetPass)
             #define R2G_LENS    0.000016   // a drop's bend of what is behind it: metres squared (see the note at its use)
@@ -145,6 +157,39 @@ Shader "PSX/CabinGlass"
                 return float4(saturate(1.0 - dot(n, n)) * alive, n, r);
             }
             float4 BeadMax(float4 a, float4 b) { return a.x >= b.x ? a : b; }
+
+            // (RAINGLASS) A bead as his clip shows them: not a round dome but a drop
+            // that SAGS - longer below its middle the bigger it is - and now and then
+            // two drops run together into one blob. Same cell, same life as Bead3;
+            // yz is still the lens direction in the pane's frame (|yz| < 1 inside).
+            float4 Bead4(float2 q, float cell, float density, float seed, float rMul, float2 down)
+            {
+                float2 g = q / cell;
+                float2 id = floor(g);
+                float4 h = H42(id + seed);
+                float2 c = (id + 0.5 + (h.xy - 0.5) * 0.5) * cell;
+                float life = frac(_Time.y * (0.05 + 0.08 * h.w) + h.z);
+                float alive = step(h.z, density) * smoothstep(0.0, 0.08, life) * (1.0 - smoothstep(0.75, 1.0, life));
+                float r = cell * lerp(0.12, 0.30, h.w) * rMul;
+                float2 side = float2(down.y, -down.x);
+                float2 d = q - c;
+                float al = dot(d, down), ac = dot(d, side);
+                float sag = 1.0 + 0.75 * h.y * smoothstep(0.35, 0.9, h.w);
+                al /= al > 0.0 ? sag : 1.0;
+                ac *= 1.0 + 0.18 * (h.x - 0.5);
+                float2 n = (side * ac + down * al) / r;
+                float4 a = float4(saturate(1.0 - dot(n, n)), n, r);
+                // two drops run together (about a third of the bigger ones)
+                if (frac(h.x * 7.31 + h.y * 3.17) < 0.35 * smoothstep(0.25, 0.7, h.w))
+                {
+                    float r2 = r * lerp(0.55, 0.85, frac(h.z * 5.3));
+                    float2 c2 = c + (side * (frac(h.w * 9.1) - 0.5) * 1.6 + down * 0.55) * r;
+                    float2 n2 = (q - c2) / r2;
+                    a = BeadMax(a, float4(saturate(1.0 - dot(n2, n2)), n2, r2));
+                }
+                a.x *= alive;
+                return a;
+            }
 
             // Beads on a grid of `cell` metres: present for a while, then gone.
             float Beads(float2 q, float cell, float density, float seed)
@@ -253,35 +298,78 @@ Shader "PSX/CabinGlass"
                     float tc = _CabinWipe.x, D = max(_CabinWipe.y, 0.05);
                     float ph = saturate(tc / D);
                     float sw = 1.0 - abs(ph * 2.0 - 1.0);            // 0 parked .. 1 at the top .. 0 parked
+                    if (_CabinWipe2.z > 0.5) sw = _CabinWipe2.y;      // (rainglass) the eased stroke value s
                     float th = _WiperArc.x + sw * _WiperArc.y;
                     float2 bd = float2(cos(th), sin(th));
                     float r1 = _Wiper.w, r0 = _Wiper.w * _WiperArc.z;
                     float since = 1000.0;
                     float aa = max(length(qdx), length(qdy));         // a pixel, in the pane's metres
+                    if (_CabinWipe2.z > 0.5)
+                    {
+                        // RAINGLASS: WHERE each rubber passes, from the phase maps. A point at phase p
+                        // is crossed when the eased stroke s(t) = 0.5 - 0.5 cos(pi u) reaches p: on
+                        // the way up at u = acos(1 - 2p) / pi of the half stroke, on the way back at
+                        // the mirror of that. Each arm may lag the stroke (_WiperLag, the linkage).
+                        float4 wm = tex2D(_WiperPhase, i.uv);
+                        float inside = 0.0, edgeBank = 0.0, ahead = 0.0;
+                        for (int k = 0; k < 2; k++)
+                        {
+                            float p = k == 0 ? wm.r : wm.g;
+                            float dIn = ((k == 0 ? wm.b : wm.a) - 0.5) * (2.0 * R2G_FIELD_M);   // metres, + inside
+                            float inK = smoothstep(-aa, aa, dIn);
+                            float tk = tc - (k == 0 ? _WiperLag.x : _WiperLag.y) * D;
+                            float u = acos(clamp(1.0 - 2.0 * p, -1.0, 1.0)) * 0.318309886;
+                            float tUp = 0.5 * u * D, tDn = (1.0 - 0.5 * u) * D;
+                            float sk = tk >= tDn ? tk - tDn : tk >= tUp ? tk - tUp : tk + _CabinWipe.z - tDn;
+                            if (inK > 0.5) since = min(since, sk);
+                            inside = max(inside, inK);
+                            // the water the blades leave piled along the swept area's edge
+                            edgeBank = max(edgeBank, dIn < 0.0 ? saturate(1.0 + dIn / R2G_RIDGE_M) : 0.0);
+                            // the bank the moving rubber pushes ahead of it: points a little further
+                            // along the stroke than the blade is now (in metres: the phase's own slope)
+                            float phk = tk / D;
+                            if (phk > 0.0 && phk < 1.0)
+                            {
+                                float uk = phk < 0.5 ? phk * 2.0 : 2.0 - phk * 2.0;
+                                float s = 0.5 - 0.5 * cos(3.14159265 * uk);
+                                float gradP = max(length(float2(ddx(p), ddy(p))) / max(aa, 1e-6), 0.5);
+                                float dm = (p - s) * (phk < 0.5 ? 1.0 : -1.0) / gradP;
+                                ahead = max(ahead, inK * smoothstep(-0.002, 0.004, dm) * (1.0 - smoothstep(0.010, R2G_BANK_M, dm))
+                                                       * smoothstep(0.0, 0.15, s));
+                            }
+                        }
+                        ridge = max(edgeBank * (1.0 - inside), ahead);
+                    }
                     for (int k = 0; k < 2; k++)
                     {
                         float2 v = q - float2(k == 0 ? _Wiper.x : _Wiper.y, _Wiper.z);
                         float r = length(v);
-                        float sp = (atan2(v.y, v.x) - _WiperArc.x) / _WiperArc.y;
-                        if (sp > 0.0 && sp < 1.0 && r > r0 && r < r1)
+                        if (_CabinWipe2.z < 0.5)
                         {
-                            // the stroke passes this angle going up at tUp and coming back at tDn
-                            float tUp = 0.5 * sp * D, tDn = (1.0 - 0.5 * sp) * D;
-                            since = min(since, tc >= tDn ? tc - tDn : tc >= tUp ? tc - tUp : tc + _CabinWipe.z - tDn);
+                            float sp = (atan2(v.y, v.x) - _WiperArc.x) / _WiperArc.y;
+                            if (sp > 0.0 && sp < 1.0 && r > r0 && r < r1)
+                            {
+                                // the stroke passes this angle going up at tUp and coming back at tDn
+                                float tUp = 0.5 * sp * D, tDn = (1.0 - 0.5 * sp) * D;
+                                since = min(since, tc >= tDn ? tc - tDn : tc >= tUp ? tc - tUp : tc + _CabinWipe.z - tDn);
+                            }
+                            // just outside the swept arc (beyond the blade's tip, or past
+                            // the top of the stroke): a ragged bank of pushed water
+                            float outR = (r - r1) / R2G_RIDGE_M;
+                            float outA = (sp - 1.0) * _WiperArc.y * r / R2G_RIDGE_M;
+                            float rgk = 0.0;
+                            if (sp > 0.0 && sp < 1.0 && outR > 0.0 && outR < 1.0) rgk = 1.0 - outR;
+                            if (r > r0 && r < r1 && outA > 0.0 && outA < 1.0) rgk = max(rgk, 1.0 - outA);
+                            ridge = max(ridge, rgk);
                         }
-                        // just outside the swept arc (beyond the blade's tip, or past
-                        // the top of the stroke): a ragged bank of pushed water
-                        float outR = (r - r1) / R2G_RIDGE_M;
-                        float outA = (sp - 1.0) * _WiperArc.y * r / R2G_RIDGE_M;
-                        float rgk = 0.0;
-                        if (sp > 0.0 && sp < 1.0 && outR > 0.0 && outR < 1.0) rgk = 1.0 - outR;
-                        if (r > r0 && r < r1 && outA > 0.0 && outA < 1.0) rgk = max(rgk, 1.0 - outA);
-                        ridge = max(ridge, rgk);
-                        float al = dot(v, bd);
-                        float dB = length(v - bd * clamp(al, r0, r1));
-                        float dA = length(v - bd * clamp(al, 0.0, (r0 + r1) * 0.5));
-                        blade = max(blade, 1.0 - smoothstep(_WiperArc.w * 0.5, _WiperArc.w * 0.5 + aa * 1.5, dB));
-                        blade = max(blade, 1.0 - smoothstep(_WiperArc.w * 0.22, _WiperArc.w * 0.22 + aa * 1.5, dA));
+                        if (_WiperDraw > 0.5)
+                        {
+                            float al = dot(v, bd);
+                            float dB = length(v - bd * clamp(al, r0, r1));
+                            float dA = length(v - bd * clamp(al, 0.0, (r0 + r1) * 0.5));
+                            blade = max(blade, 1.0 - smoothstep(_WiperArc.w * 0.5, _WiperArc.w * 0.5 + aa * 1.5, dB));
+                            blade = max(blade, 1.0 - smoothstep(_WiperArc.w * 0.22, _WiperArc.w * 0.22 + aa * 1.5, dA));
+                        }
                     }
                     fill = saturate(since / max(_CabinWipe2.x, 0.05));
                     fill *= fill;
@@ -301,11 +389,25 @@ Shader "PSX/CabinGlass"
                     // stands a full arm from the eye, where a 4 mm bead is three
                     // pixels of a 1080-line frame and the pane reads as grain)
                     float bs = 1.0 + 0.6 * _CabinRain2.y * step(0.001, _Wiper.w);
+                    // (RAINGLASS) life size nearer: 1.3 x on the windscreen (it read coarse at 1.6), and
+                    // the side and rear glass - a hand from the eye - at 0.62 of the old cells (they read
+                    // as big as coins beside the driver's head)
+                    bool b2 = _CabinRain2.z > 0.5;
+                    if (b2) bs = _Wiper.w > 0.001 ? 1.0 + 0.3 * _CabinRain2.y : 0.62;
                     // (RAIN 2, parked: a fourth size - the screen is COVERED in small
                     // bright beads in his clip - and the fine one far denser)
                     float park = _CabinRain2.y * (1.0 - wind);
-                    float4 bB = BeadMax(Bead3(q, 0.016 * bs, rainW * lerp(0.55, 0.25, wind) * dens, 1.7, 1.0),
-                                        Bead3(q, 0.028 * bs, rainW * lerp(0.35, 0.15, wind) * dens, 9.3, 1.0));
+                    float4 bB;
+                    if (b2)
+                    {
+                        bB = BeadMax(Bead4(q, 0.016 * bs, rainW * lerp(0.62, 0.25, wind) * dens, 1.7, 1.0, _Down.xy),
+                                     Bead4(q, 0.028 * bs, rainW * lerp(0.42, 0.15, wind) * dens, 9.3, 1.05, _Down.xy));
+                    }
+                    else
+                    {
+                        bB = BeadMax(Bead3(q, 0.016 * bs, rainW * lerp(0.55, 0.25, wind) * dens, 1.7, 1.0),
+                                     Bead3(q, 0.028 * bs, rainW * lerp(0.35, 0.15, wind) * dens, 9.3, 1.0));
+                    }
                     if (park > 0.01)
                     {
                         float4 f1 = Bead3(q, 0.0085 * bs, rainW * 0.92 * park, 5.9, 1.15);
@@ -317,7 +419,7 @@ Shader "PSX/CabinGlass"
                     // (RAIN 2, parked: more runners, their trails unbroken - the
                     // running sheets of his clip)
                     float hR = Runners(q, _Down.xy, 0.026, 0.30, _CabinRun, rainW * (0.45 * dens + 0.25 * park), 4.1, 0.55 * park) * (1.0 - wind);
-                    float hS = Runners(q, wdir, 0.020, 0.55, _CabinBlow, rainW * 0.75, 7.7, 0.85) * wind;
+                    float hS = Runners(q, wdir, 0.020, 0.55, _CabinBlow, rainW * (b2 ? 0.95 : 0.75), 7.7, 0.85) * wind;
                     float hgt = max(hB, max(hR, hS));
                     // (RAIN 2) the bank a blade leaves, ragged
                     // (a thin film packed with small beads, not a smooth line)
@@ -364,6 +466,10 @@ Shader "PSX/CabinGlass"
                             dpx = clamp(-dp * ((R2G_FISH + 1.0) * cover), -R2G_MAXPX * px1080, R2G_MAXPX * px1080);
                         }
                         float sheet = rainW * R2G_SHEET * (1.0 - wind) * (1.0 - cover);
+                        // (RAINGLASS) at speed the water the blades have not taken is a blown,
+                        // streaming sheet (his fast clip: the screen's edges bright with it), so the
+                        // swept arcs - where little has landed since - read clear against it
+                        if (b2) sheet = rainW * fill * R2G_SHEET * lerp(1.0, 0.75, wind) * (1.0 - cover);
                         float2 wob = float2(sin(q.y * 95.0 + sin(q.x * 37.0 + _CabinRun * 9.0) * 1.7),
                                             sin(q.x * 80.0 + sin(q.y * 41.0 - _CabinRun * 12.0) * 1.9));
                         dpx += wob * (R2G_WOBBLE * px1080 * sheet);
@@ -372,17 +478,38 @@ Shader "PSX/CabinGlass"
                         // (a bead gathers light: brighter in its middle, dark only at its very rim)
                         float rim = beadTop ? smoothstep(0.72, 0.98, length(bB.yz)) : edge * 0.35;   // (a runner's trail is a bright thread of water, not a dark scratch)
                         float gather = beadTop ? 1.0 + 0.9 * park + 0.6 * smoothstep(0.3, 0.9, hgt) : 1.0 + 0.5 * smoothstep(0.45, 0.95, hgt);
+                        float rimK = 0.6;
+                        if (b2)
+                        {
+                            // (RAINGLASS) his beads are clear water with a crisp dark outline (the
+                            // edge bends the scene away) and the light they bend in, not glowing
+                            // orange coins: a wider rim, darker, and much less gathered light
+                            rim = beadTop ? smoothstep(0.50, 0.92, length(bB.yz)) : edge * 0.35;
+                            rimK = 0.82;
+                            gather = beadTop ? 1.0 + 0.22 * park + 0.18 * smoothstep(0.3, 0.9, hgt) : 1.0 + 0.3 * smoothstep(0.45, 0.95, hgt);
+                        }
                         float3 seen = tex2Dlod(_PSXSSRColour, float4(suv, 0.0, 0.0)).rgb;
                         // (a bead by the pillar would show the pillar - a black fleck on
                         // the pane: it keeps most of what is straight behind it)
                         if (beadTop) seen = max(seen, tex2Dlod(_PSXSSRColour, float4(i.pos.xy / _ScreenParams.xy, 0.0, 0.0)).rgb * 0.75);
-                        through = seen * (wetA * (1.0 - 0.6 * rim * cover) * gather);
+                        // (RAINGLASS) the picture in a bead is the scene's light, less its tint:
+                        // a third of the way to grey (sodium-lit streets made every bead orange)
+                        if (b2 && beadTop) seen = lerp(seen, dot(seen, float3(0.30, 0.59, 0.11)).xxx, 0.33);
+                        through = seen * (wetA * (1.0 - rimK * rim * cover) * gather);
                         // the glint: one bright point up and to the side of each bead's crown
                         float g2 = beadTop ? (1.0 - smoothstep(0.0, 0.32, length(bB.yz - float2(-0.30, 0.38)))) * cover : glint;
+                        // (RAINGLASS) a sharper, smaller glint and a thin bright crescent on the bead's
+                        // upper edge (the sky and the lamps caught in its rim)
+                        if (b2 && beadTop)
+                        {
+                            float2 up2 = -_Down.xy;
+                            g2 = (1.0 - smoothstep(0.0, 0.20, length(bB.yz - (up2 * 0.42 + float2(-up2.y, up2.x) * 0.22)))) * cover;
+                            g2 += 0.35 * rim * saturate(dot(bB.yz, up2)) * cover;
+                        }
                         dropA = wetA;
                         dropC = cover * (sky * 0.05 + ambient * 0.03) * (1.0 - edge)
                               + g2 * (sky * 0.6 + _PSXLightColor.rgb * 0.35 * day + lamp * 2.0 + ambient * 0.25)
-                              + sheet * R2G_VEIL * park * (ambient * 0.5 + sky * 0.25 + lamp);
+                              + sheet * R2G_VEIL * (b2 ? park + 0.8 * wind : park) * (ambient * 0.5 + sky * 0.25 + lamp);
                     }
                     rgb = rgb * (1.0 - dropA) + dropC;
                     a = a + dropA * (1.0 - a);

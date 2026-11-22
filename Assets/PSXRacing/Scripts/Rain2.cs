@@ -58,6 +58,24 @@ namespace PSXRacing
         public static bool Trails = Env("PSX_RAIN2_TRAILS", true);
         /// <summary>The rain's own sound (PSX_RAIN2_AUDIO).</summary>
         public static bool Audio = Env("PSX_RAIN2_AUDIO", true);
+        // ---- rainglass (2026-11-22; owner after PC52: "the rain on the car windows could be improved,
+        //      as well as the windshield wiper models and animation") ----
+        /// <summary>The wipe read from the two phase maps in the windscreen's UV0 (the modeller's v10
+        /// maps when the cockpit carries them, else placeholders made from the drawn arcs), the
+        /// stroke as one eased value s with a dwell at park, and the bank of water pushed ahead of
+        /// the blade (PSX_RAIN2_WIPERMAP). Off: the 11-17 analytic arcs, linear stroke.</summary>
+        public static bool WiperMap = Env("PSX_RAIN2_WIPERMAP", true);
+        /// <summary>Modelled wipers: the cockpit's Wiper_* nodes as rotating parts driven by s, the
+        /// drawn blades off (PSX_RAIN2_WIPERMODEL). Nothing changes while the model has none.</summary>
+        public static bool WiperModel = Env("PSX_RAIN2_WIPERMODEL", true);
+        /// <summary>The cockpit glass's new beads: cool and clear (the scene's light, not its warm
+        /// tint), irregular sagging shapes, a dark lower rim and a bright upper one, smaller on the
+        /// side glass (PSX_RAIN2_BEADS2).</summary>
+        public static bool Beads2 = Env("PSX_RAIN2_BEADS2", true);
+        /// <summary>The car's own glass and paint from outside: beads that read at chase distance,
+        /// streaks back along the air with speed, the glass's beads lit by the lamps
+        /// (PSX_RAIN2_CARGLASS).</summary>
+        public static bool CarGlass = Env("PSX_RAIN2_CARGLASS", true);
 
         static bool Env(string name, bool fallback)
         {

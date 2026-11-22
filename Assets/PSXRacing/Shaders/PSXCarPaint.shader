@@ -1040,9 +1040,27 @@ Shader "PSX/CarPaint"
                     float coverD = smoothstep(0.0, 0.12, hW);
                     float edgeD = 1.0 - smoothstep(0.05, 0.55, hW);
                     float glintD = pow(saturate(-gradD.y * 0.7 + gradD.x * 0.3), 6.0) * smoothstep(0.25, 0.6, hW);
-                    col = col * (1.0 - coverD * lerp(0.18, 0.45, edgeD))
+                    // (RAINGLASS) the whole bead no longer darkened like a spot of dirt: its rim is (below)
+                    float darkD = _PSXCarDrops.z > 0.5 ? lerp(0.04, 0.22, edgeD) : lerp(0.18, 0.45, edgeD);
+                    col = col * (1.0 - coverD * darkD)
                         + coverD * (1.0 - edgeD) * sky * lerp(0.16, 0.30, glass)
                         + glintD * (sky * 0.6 + (_PSXLightColor.rgb * (0.35 * sunVis) + (headD + lampD) * DROP_LAMP) * expo);
+                    // (RAINGLASS, Rain2.CarGlass) every bead holds a bright point of the light
+                    // round it near its upper edge and a dark rim - so the glass and the paint
+                    // read as beaded from the chase camera by day and under street lamps.
+                    // A bead under about a pixel gives its average instead (no sparkle crawl).
+                    if (_PSXCarDrops.z > 0.5 && _PSXCarDrops.x > 0.002)
+                    {
+                        float2 up2; float pxR;
+                        float4 bl = CarBeadLens(i.bpos, normalize(i.bnrm), downB, saturate(_PSXCarWind.w), glass, up2, pxR);
+                        float lens = bl.x * (1.0 - dull);
+                        float resolved = saturate((pxR - 0.8) / 1.6);
+                        float pt = 1.0 - smoothstep(0.0, 0.38, length(bl.yz - up2 * 0.45));
+                        float ring = smoothstep(0.55, 0.95, length(bl.yz)) * step(0.001, lens);
+                        float3 lightIn = sky * lerp(0.7, 1.1, glass) + (_PSXLightColor.rgb * (0.55 * sunVis) + (headD + lampD) * 1.6) * expo;
+                        float spot = lerp(smoothstep(0.0, 0.2, lens) * 0.16, pt * step(0.001, lens), resolved);
+                        col = col * (1.0 - ring * resolved * lerp(0.16, 0.45, glass)) + lightIn * spot * lerp(0.7, 1.0, glass);
+                    }
                     float flake = smoothstep(0.05, 0.35, snowH);
                     col = lerp(col, light * 0.92, flake * 0.92);
                 }
