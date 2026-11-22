@@ -263,14 +263,14 @@ Shader "PSX/Lens"
                     float al = dot(d, away);
                     float tail = min(max(-al, 0.0), run * DROP2_TAIL);
                     d += away * tail;
-                    float thin = 1.0 - 0.55 * saturate(tail / max(r * 2.0, 1e-5));
+                    float thin = 1.0 - 0.35 * smoothstep(0.0, 1.0, tail / max(r * 3.0, 1e-5));
                     float2 side = float2(-away.y, away.x);
                     float ac = dot(d, side) / thin;
                     d = away * dot(d, away) + side * ac;
                     q = d / r;
                     q.x *= 1.0 + 0.30 * (h1.x - 0.5);
                     q.y *= 1.0 + 0.30 * (h1.y - 0.5);
-                    q += 0.22 * sin(q.yx * float2(2.7, 3.3) + h1.zw * 6.2832);
+                    q += 0.12 * sin(q.yx * float2(2.3, 2.9) + h1.zw * 6.2832);
                 }
                 float a = alive * saturate(t / DROP_FADE_IN) * (1.0 - end)
                         * (1.0 - smoothstep(DROP_EDGE, 1.0, length(q)));
