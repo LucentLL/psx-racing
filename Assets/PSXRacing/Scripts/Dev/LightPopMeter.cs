@@ -73,6 +73,7 @@ namespace PSXRacing
         int afterCutSave;
         int cutIndex;
         long noiseFrames, noiseZero;
+        int selfFrames, selfNoisy, selfWorst;
 
         // ---- the frame before ----
         bool havePrev;
@@ -128,7 +129,7 @@ namespace PSXRacing
             haveEye = false; havePrev = false; framesSinceCut = 9999;
             for (int i = 0; i < evCount.Length; i++) { evCount[i] = 0; evAfterCut[i] = 0; evLight[i] = 0; lastPopFrame[i] = -100; pairs[i].Clear(); }
             stripEvery = stripEveryFrames; stripN = 0; afterCutSave = 0; cutIndex = 0;
-            noiseFrames = noiseZero = 0;
+            noiseFrames = noiseZero = 0; selfFrames = selfNoisy = selfWorst = 0;
             StreetLights.MeterOn = true; CarLights.MeterOn = true;
             if (carT != null) lastCarPos = carT.position;
             System.IO.Directory.CreateDirectory(System.IO.Path.Combine(OutDir, seg));
@@ -142,7 +143,8 @@ namespace PSXRacing
             var sb = new StringBuilder();
             sb.Append(seg).Append(": ").Append((segDistM / 1000f).ToString("0.00", CultureInfo.InvariantCulture)).Append(" km, ")
               .Append(segSeconds.ToString("0", CultureInfo.InvariantCulture)).Append(" s, ").Append(segFrames).Append(" frames, ")
-              .Append(segCuts).Append(" cuts; quiet frames ").Append(noiseFrames > 0 ? (100.0 * noiseZero / noiseFrames).ToString("0", CultureInfo.InvariantCulture) : "-").Append("%; tile halo births faded so far ").Append(NightGlow.BirthsFaded).Append("\n");
+              .Append(segCuts).Append(" cuts; quiet frames ").Append(noiseFrames > 0 ? (100.0 * noiseZero / noiseFrames).ToString("0", CultureInfo.InvariantCulture) : "-").Append("%; meter self-noise ").Append(selfNoisy).Append("/").Append(selfFrames)
+              .Append(" frames, worst ").Append(selfWorst).Append(" px; tile halo births faded so far ").Append(NightGlow.BirthsFaded).Append("\n");
             int total = 0;
             for (int i = 0; i < (int)Cause.Count; i++) total += evCount[i];
             sb.Append("    POPS ").Append(total).Append(" (").Append(km > 0.01f ? (total / km).ToString("0.0", CultureInfo.InvariantCulture) + "/km, " : "")
@@ -190,17 +192,32 @@ namespace PSXRacing
 
             CollectRenderers();
 
-            // B: the frame before, at this pose
             bool diffable = havePrev && !cut;
+            // WARM-UP: the frame's first render advances the light hand-overs
+            // (the hook) and carries the speed blur of the camera's move since
+            // the last frame; every later render at this pose has none. So the
+            // first is thrown away, and A and B are both later renders: they
+            // differ by the lights put back and by nothing else.
+            Render(cam, readA, ref pixA);
+            // A: the frame as the game draws it
+            Render(cam, readA, ref pixA);
+            CaptureCur();
+            // the meter's own noise: A again, every tenth frame
+            if (segFrames % 10 == 0)
+            {
+                Render(cam, readB, ref pixB);
+                Diff(pixA, pixB, out int selfPx, out _, out _, out _);
+                selfFrames++;
+                if (selfPx > 0) selfNoisy++;
+                selfWorst = Mathf.Max(selfWorst, selfPx);
+            }
+            // B: the frame before's lights, at this pose
             if (diffable)
             {
                 ApplyPrev(true, true, true, true, true);
                 Render(cam, readB, ref pixB);
                 RestoreAll();
             }
-            // A: the frame as the game draws it (the hook ranks / advances here)
-            Render(cam, readA, ref pixA);
-            CaptureCur();
 
             if (diffable)
             {
@@ -292,6 +309,7 @@ namespace PSXRacing
                 if (list.Count > PairsPerCause)
                 {
                     try { System.IO.File.Delete(System.IO.Path.Combine(OutDir, seg, list[list.Count - 1].file + ".png")); } catch (System.Exception) { }
+                    try { System.IO.File.Delete(System.IO.Path.Combine(OutDir, seg, list[list.Count - 1].file + ".txt")); } catch (System.Exception) { }
                     list.RemoveAt(list.Count - 1);
                 }
             }
