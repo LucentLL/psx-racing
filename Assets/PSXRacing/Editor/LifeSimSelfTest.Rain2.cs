@@ -161,8 +161,10 @@ namespace PSXRacing.EditorTools
                           && CockpitInterior.Hinge(lay.wipers[0].hingeArmDeg, lay.wipers[0].hingeDeg, 40f) == -3f,
                           "a v10 cockpit's wipers block reads (CockpitModel.WiperDef) and the blade's hinge table interpolates, held at its ends");
                     // the converter keeps Wiper_* arms and blades as their own parts
-                    string conv = System.IO.File.ReadAllText(System.IO.Path.Combine(Application.dataPath, "../tools/cockpit/cockpit_v08.py"));
-                    Check(conv.Contains("def wiper_parts(") && conv.Contains("o.name.startswith(\"Wiper_\")") && conv.Contains("WIPER AXIS CHECK FAILED"),
+                    string convPath = System.IO.Path.Combine(Application.dataPath, "../tools/cockpit/cockpit_v08.py");
+                    string conv = System.IO.File.Exists(convPath) ? System.IO.File.ReadAllText(convPath) : null;
+                    if (conv == null) Line("  (the cockpit converter is not in this project copy - a sandbox: its check runs in the repo)");
+                    else Check(conv.Contains("def wiper_parts(") && conv.Contains("o.name.startswith(\"Wiper_\")") && conv.Contains("WIPER AXIS CHECK FAILED"),
                           "the cockpit converter writes Wiper_* arms and blades as separate rotating parts and checks their axis convention");
                 }
                 finally { Rain2.WiperMap = keepMap; }
