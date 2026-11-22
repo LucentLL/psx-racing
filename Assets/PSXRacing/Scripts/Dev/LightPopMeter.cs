@@ -536,8 +536,8 @@ namespace PSXRacing
             if (m != null && m.HasProperty("_ColorDepth"))
             {
                 shownMat = new Material(m) { hideFlags = HideFlags.HideAndDontSave };
-                shownMat.SetFloat("_ColorDepth", PSXQuality.ColorDepth);
-                shownMat.SetFloat("_DitherStrength", PSXQuality.Dither);
+                shownMat.SetFloat("_ColorDepth", 8f);   // no 5/6-bit steps: a smooth fade must not read as a step
+                shownMat.SetFloat("_DitherStrength", 0f);
                 if (shownMat.HasProperty("_Grade")) shownMat.SetFloat("_Grade", 1f);
             }
             readA = new Texture2D(W, H, TextureFormat.RGBA32, false);

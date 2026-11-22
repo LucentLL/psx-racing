@@ -45,9 +45,9 @@ namespace PSXRacing
 
         /// <summary>A lamp straight behind the eye scores its distance times
         /// 1 + this; one whose pool touches the line of sight, times 1.</summary>
-        public const float ViewPenalty = 3f;
+        public const float ViewPenalty = 2f;
         /// <summary>Score metres inside the cut over which a lamp comes up.</summary>
-        public const float RankBandM = 20f;
+        public const float RankBandM = 35f;
         /// <summary>No cut lies further out than this score: the reach.</summary>
         public const float ScoreCap = MaxReach;
 
