@@ -140,7 +140,7 @@ namespace PSXRacing.EditorTools
                     Check(share > 35f && share < 95f && mono && tested >= 6,
                           "the placeholder phase maps: the blades sweep most of the screen and the phase grows along the stroke",
                           $"swept {share:0}% of the pane; ring samples {tested}, rising {rising}");
-                    var tex = WiperPhase.Pack(pd, pp, mu, mv);
+                    var tex = WiperPhase.Pack(pd, pp, mu, mv, true);
                     var px = tex.GetPixels32();
                     // inside a swept texel the edge channel reads > 0.5, outside < 0.5
                     int agree = 0, n = 0;

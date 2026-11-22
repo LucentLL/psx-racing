@@ -99,7 +99,7 @@ namespace PSXRacing
         }
 
         /// <summary>The shader's texture from two phase arrays (NaN = never).</summary>
-        public static Texture2D Pack(float[] driver, float[] passenger, float mu, float mv)
+        public static Texture2D Pack(float[] driver, float[] passenger, float mu, float mv, bool readable = false)
         {
             var px = new Color32[W * H];
             float tx = mu / W, ty = mv / H;
@@ -122,7 +122,7 @@ namespace PSXRacing
                 hideFlags = HideFlags.HideAndDontSave,
             };
             t.SetPixels32(px);
-            t.Apply(false, true);
+            t.Apply(false, !readable);
             return t;
         }
 
