@@ -512,7 +512,11 @@ Shader "PSX/CabinGlass"
                         if (beadTop) seen = max(seen, tex2Dlod(_PSXSSRColour, float4(i.pos.xy / _ScreenParams.xy, 0.0, 0.0)).rgb * 0.75);
                         // (RAINGLASS) the picture in a bead is the scene's light, less its tint:
                         // a third of the way to grey (sodium-lit streets made every bead orange)
-                        if (b2 && beadTop) seen = lerp(seen, dot(seen, float3(0.30, 0.59, 0.11)).xxx, 0.25);
+                        // (and, at night under an unlit sky, a bead's upside-down picture is mostly that
+                        // black sky: half of it is the scene straight behind, so a bead reads as clear water
+                        // with a rim, not a grey pebble)
+                        if (b2 && beadTop) seen = lerp(lerp(seen, tex2Dlod(_PSXSSRColour, float4(i.pos.xy / _ScreenParams.xy, 0.0, 0.0)).rgb, 0.45),
+                                                       dot(seen, float3(0.30, 0.59, 0.11)).xxx, 0.22);
                         through = seen * (wetA * (1.0 - rimK * rim * cover) * gather);
                         // the glint: one bright point up and to the side of each bead's crown
                         float g2 = beadTop ? (1.0 - smoothstep(0.0, 0.32, length(bB.yz - float2(-0.30, 0.38)))) * cover : glint;
