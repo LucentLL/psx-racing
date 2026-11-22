@@ -14444,6 +14444,15 @@ namespace PSXRacing.EditorTools
                     if (d < nearD) { nearD = d; nearL = l; }
                     if (d > farD) { farD = d; farL = l; }
                 }
+                if (StreetLights.NoPop)
+                    // NO LIGHT POPS (2026-11-22): the eighth is dimmed by how near it
+                    // stands to the ninth's score (the cut) - a weight that moves
+                    // only as the eye moves, never in a step
+                    Check(n > 1 && nearL > 0f && farL < nearL && farL > 0f,
+                          "an edit-mode push takes its lamps at once, the last one in faded by its distance to the cut",
+                          "nearest " + nearL.ToString("0.000") + " at " + nearD.ToString("0") + " m, farthest " +
+                          farL.ToString("0.000") + " at " + farD.ToString("0") + " m");
+                else
                 Check(n > 1 && nearL > 0f && farD < StreetLights.MaxReach - StreetLights.FadeBandM &&
                       Mathf.Abs(farL - nearL) <= nearL * 1e-3f,
                       "an edit-mode push takes its lamps at once, and the last one in is as bright as the first " +
@@ -14480,6 +14489,46 @@ namespace PSXRacing.EditorTools
                 // frame. Now no street lamp's pushed colour may change by more
                 // than one ease step (EaseRate x dt, at full colour).
                 const float frameDt = 1f / 60f;
+                var lampLin0 = StreetLights.Bulb.linear;
+                float streetFull0 = Mathf.Max(lampLin0.r, Mathf.Max(lampLin0.g, lampLin0.b)) * StreetLights.StreetIntensity;
+                if (StreetLights.NoPop)
+                {
+                    // NO LIGHT POPS (2026-11-22): no held set and no clock. The eye
+                    // drives through the twenty lamps at 30 m/s (0.5 m a frame) and
+                    // turns 1.5 degrees a frame; no street lamp's pushed colour may
+                    // change by more than a tenth of a full lamp between two frames
+                    // (a lamp leaving the table has faded out, one coming in starts
+                    // from nothing), and a cut is right at once: one push from a new
+                    // eye is the table an edit-mode push gives it.
+                    var prevT = Table(); float worstMove = 0f;
+                    Vector3 e = eye, f = fwd;
+                    StreetLights.PushFrame(e, f, frameDt);
+                    prevT = Table();
+                    for (int k = 0; k < 120; k++)
+                    {
+                        e += f * 0.5f;
+                        f = Quaternion.Euler(0f, k < 60 ? 1.5f : -1.5f, 0f) * f;
+                        StreetLights.PushFrame(e, f, frameDt);
+                        var nowT = Table();
+                        worstMove = Mathf.Max(worstMove, WorstStreetJump(prevT, nowT));
+                        prevT = nowT;
+                    }
+                    Check(worstMove <= streetFull0 * 0.1f,
+                          "driving and turning through a lit street moves no lamp's light by more than a tenth in a frame " +
+                          "(no lamp switches in or out of the table)",
+                          "worst change " + (worstMove / streetFull0).ToString("0.000") + " of a full lamp");
+                    var cutEye = eye + fwd * 30f;
+                    StreetLights.PushFrame(eye + Vector3.right * 400f, fwd, frameDt);
+                    StreetLights.PushFrame(cutEye, -fwd, frameDt);
+                    var afterCut = Table();
+                    StreetLights.Push(cutEye, -fwd);
+                    float cutDiff = WorstStreetJump(afterCut, Table());
+                    Check(afterCut.Count > 0 && cutDiff <= 1e-4f,
+                          "after a camera cut the first frame's table is already the new view's (nothing to ease in)",
+                          afterCut.Count + " lamps, worst difference " + cutDiff.ToString("0.0000"));
+                }
+                else
+                {
                 float easeStep = StreetLights.EaseRate * frameDt;
                 var lampLin = StreetLights.Bulb.linear;
                 float streetFull = Mathf.Max(lampLin.r, Mathf.Max(lampLin.g, lampLin.b)) * StreetLights.StreetIntensity;
@@ -14547,6 +14596,7 @@ namespace PSXRacing.EditorTools
                 StreetLights.Remove(swapIn);
                 // Frees the held slots of the two removed lamps.
                 StreetLights.PushFrame(eye, fwd, frameDt);
+                }
 
                 StreetLights.StreetOn = false;
                 StreetLights.Push(eye, fwd);
