@@ -88,7 +88,8 @@ namespace PSXRacing
         readonly List<Renderer> lightRends = new List<Renderer>();
         readonly List<(Renderer r, bool was)> undo = new List<(Renderer, bool)>();
 
-        RenderTexture rt;
+        RenderTexture rt, rtShown;
+        Material shownMat;
         Texture2D readA, readB;
         byte[] pixA, pixB;
         static readonly int FieldTexId = Shader.PropertyToID("_PSXLampField");
@@ -115,6 +116,8 @@ namespace PSXRacing
         {
             StreetLights.MeterOn = false; CarLights.MeterOn = false;
             if (rt != null) { rt.Release(); Destroy(rt); }
+            if (rtShown != null) { rtShown.Release(); Destroy(rtShown); }
+            if (shownMat != null) Destroy(shownMat);
         }
 
         /// <summary>Start a segment (a route in one view, a replay).</summary>
@@ -455,6 +458,20 @@ namespace PSXRacing
             if (rt != null) return;
             rt = new RenderTexture(W, H, 32, RenderTextureFormat.ARGB32) { filterMode = FilterMode.Point };
             rt.Create();
+            rtShown = new RenderTexture(W, H, 0, RenderTextureFormat.ARGB32) { filterMode = FilterMode.Point };
+            rtShown.Create();
+            // THE PICTURE THE PLAYER GETS: the camera's buffer through the
+            // scene's own PSX/Blit (exposure, grade, halation, dither), as the
+            // screenshot tools show it - a raw render is not what the eye sees
+            var output = FindFirstObjectByType<PSXCameraOutput>();
+            var m = output != null && output.display != null ? output.display.material : null;
+            if (m != null && m.HasProperty("_ColorDepth"))
+            {
+                shownMat = new Material(m) { hideFlags = HideFlags.HideAndDontSave };
+                shownMat.SetFloat("_ColorDepth", PSXQuality.ColorDepth);
+                shownMat.SetFloat("_DitherStrength", PSXQuality.Dither);
+                if (shownMat.HasProperty("_Grade")) shownMat.SetFloat("_Grade", 1f);
+            }
             readA = new Texture2D(W, H, TextureFormat.RGBA32, false);
             readB = new Texture2D(W, H, TextureFormat.RGBA32, false);
         }
@@ -464,8 +481,17 @@ namespace PSXRacing
             var request = new RenderPipeline.StandardRequest { destination = rt };
             if (!RenderPipeline.SupportsRenderRequest(cam, request)) return;
             RenderPipeline.SubmitRenderRequest(cam, request);
+            var src = rt;
+            if (shownMat != null)
+            {
+                var glow = Halation.Wanted(shownMat) ? Halation.BuildNow(rt) : null;
+                Halation.Apply(shownMat, glow);
+                Graphics.Blit(rt, rtShown, shownMat);
+                Halation.Release(ref glow);
+                src = rtShown;
+            }
             var prev = RenderTexture.active;
-            RenderTexture.active = rt;
+            RenderTexture.active = src;
             into.ReadPixels(new Rect(0, 0, W, H), 0, 0, false);
             RenderTexture.active = prev;
             var raw = into.GetRawTextureData<byte>();

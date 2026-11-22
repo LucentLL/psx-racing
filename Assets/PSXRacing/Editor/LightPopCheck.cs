@@ -189,7 +189,7 @@ namespace PSXRacing.EditorTools
                     }
                     ChaseCamera.PreviewView(view);
                     var ai = car.gameObject.AddComponent<AIDriver>();
-                    ai.path = path; ai.skill = 0.95f; ai.ReseedPath(); ai.speedCapMps = 0f; ai.driving = true;
+                    ai.path = path; ai.skill = 0.95f; ai.ReseedPath(); ai.speedCapMps = float.PositiveInfinity; ai.driving = true;
                     Random.InitState(4242);
                     Time.captureFramerate = 30;
                     for (int k = 0; k < 20; k++) yield return null;   // the camera settles behind the car
