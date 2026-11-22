@@ -172,4 +172,24 @@ float4 CarBeadLens(float3 p, float3 n, float3 down, float wind, float glass, out
     return b;
 }
 
+// (RAINGLASS2 2026-11-22, Rain2.CarBeads, PSX_RAIN2_CARBEADS: _PSXRain2Glass3.x) A bead on dark glass by
+// day is NOT a white point: it is a little convex mirror of the SKY, so it shows a soft highlight over its
+// upper half and a darker lower rim, and only a real point light (the sun when it shows, a street lamp, a
+// headlamp) makes the sharp bright point. fe3ce8a6's bead put the whole sky into one point - the rear glass
+// read as white speckle on black. `pointL` = those point lights' colour, already exposed.
+float4 _PSXRain2Glass3;
+float3 CarBeadShade2(float3 col, float4 bl, float2 up2, float lens, float resolved, float glass, float3 sky, float3 pointL)
+{
+    float rN = length(bl.yz);
+    float upK = dot(bl.yz, up2);
+    float inB = step(0.001, lens);
+    float ring = smoothstep(0.62, 0.97, rN) * inB * (0.55 + 0.45 * saturate(0.3 - upK));
+    float dome = saturate(0.40 + 0.70 * upK) * (1.0 - smoothstep(0.72, 1.0, rN)) * smoothstep(0.0, 0.3, lens);
+    float pt = (1.0 - smoothstep(0.0, 0.24, length(bl.yz - up2 * 0.5))) * inB;
+    float3 res = sky * (dome * lerp(0.16, 0.30, glass)) + pointL * pt;
+    float3 unres = (sky * 0.08 + pointL * 0.12) * smoothstep(0.0, 0.2, lens);
+    col *= 1.0 - ring * resolved * lerp(0.22, 0.50, glass);
+    return col + lerp(unres, res, resolved) * lerp(0.5, 1.0, glass);
+}
+
 #endif

@@ -83,6 +83,25 @@ namespace PSXRacing
         /// third the size, slowed by the air so they arc and scatter instead of flying as long
         /// straight bars beside the car (PSX_RAIN2_STREAKS).</summary>
         public static bool Streaks = Env("PSX_RAIN2_STREAKS", true);
+        // ---- rainglass2 (2026-11-22, round 2; owner: "I've seen rain water "pool" when moved by
+        //      wipers") - each =0 is fe3ce8a6's picture ----
+        /// <summary>The wiper's water bank as his clips show it: a thick refracting ridge carried ahead
+        /// of the blade, dropped as a heavy lump at the arc's end, then running off (down the screen
+        /// parked, back along the air at speed) (PSX_RAIN2_BANK2).</summary>
+        public static bool Bank2 = Env("PSX_RAIN2_BANK2", true);
+        /// <summary>The parked windscreen covered edge to edge: irregular beads, merged blobs and
+        /// smears, rivulets that start, run and stop (PSX_RAIN2_COVER).</summary>
+        public static bool Cover = Env("PSX_RAIN2_COVER", true);
+        /// <summary>At speed the wiped arcs stay clear: no milky film where the blade has been, only
+        /// new beads and a smear that lasts a moment (PSX_RAIN2_CLEAR).</summary>
+        public static bool Clear = Env("PSX_RAIN2_CLEAR", true);
+        /// <summary>The chase camera's lens drops smaller, flatter and less regular, sliding and
+        /// trailing with speed instead of round rimmed bubbles (PSX_RAIN2_LENSDROPS).</summary>
+        public static bool LensDrops = Env("PSX_RAIN2_LENSDROPS", true);
+        /// <summary>Beads on the car's glass and paint from outside by day: the sky as a soft
+        /// highlight over the bead's upper half and a dark lower rim, not white speckle
+        /// (PSX_RAIN2_CARBEADS).</summary>
+        public static bool CarBeads = Env("PSX_RAIN2_CARBEADS", true);
 
         static bool Env(string name, bool fallback)
         {
@@ -145,6 +164,10 @@ namespace PSXRacing
         static readonly int CoverId = Shader.PropertyToID("_PSXRain2Cover");
         public static readonly int CoverTexId = Shader.PropertyToID("_PSXRain2CoverTex");
         public static readonly int PoolBandId = Shader.PropertyToID("_PoolBand");
+        /// <summary>(rainglass2) x Bank2, y Cover, z Clear, w LensDrops: 1 = on (all 0 without rain 2).</summary>
+        static readonly int Glass2Id = Shader.PropertyToID("_PSXRain2Glass2");
+        /// <summary>(rainglass2) x CarBeads.</summary>
+        static readonly int Glass3Id = Shader.PropertyToID("_PSXRain2Glass3");
 
         /// <summary>How hard it is raining on the open road right now, 0..1
         /// (0 when nothing falls), and how much water stands on it, 0..1 - as
@@ -177,8 +200,17 @@ namespace PSXRacing
             float layers = !On || !Rings ? 0f : CurrentTier == Tier.High ? 2f : CurrentTier == Tier.Low ? 1f : 0f;
             // x is the shaders' one gate: with no pools there is no film/pool
             // split either, and the rings ride the old picture's water
+            PushGlass2();
             Shader.SetGlobalVector(R2Id, new Vector4(On && (PoolLevel > 0.001f || (layers > 0f && RainNow > 0.01f)) ? 1f : 0f,
                                                      RainNow, PoolLevel, layers));
+        }
+
+        /// <summary>(rainglass2) The round-2 switches as the shaders read them (every Push; the shot
+        /// tools and the perf probe's in-run A/B flip the fields and the next frame shows it).</summary>
+        public static void PushGlass2()
+        {
+            Shader.SetGlobalVector(Glass2Id, On ? new Vector4(Bank2 ? 1f : 0f, Cover ? 1f : 0f, Clear ? 1f : 0f, LensDrops ? 1f : 0f) : Vector4.zero);
+            Shader.SetGlobalVector(Glass3Id, On ? new Vector4(CarBeads ? 1f : 0f, 0f, 0f, 0f) : Vector4.zero);
         }
 
         /// <summary>The cover mask (Rain2Driver): world metres to its uv, or off.</summary>
@@ -241,6 +273,8 @@ namespace PSXRacing
             RainNow = 0f; PoolLevel = 0f;
             Shader.SetGlobalVector(R2Id, Vector4.zero);
             Shader.SetGlobalVector(CoverId, Vector4.zero);
+            Shader.SetGlobalVector(Glass2Id, Vector4.zero);
+            Shader.SetGlobalVector(Glass3Id, Vector4.zero);
         }
     }
 }

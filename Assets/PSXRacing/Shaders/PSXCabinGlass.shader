@@ -108,6 +108,12 @@ Shader "PSX/CabinGlass"
             #define R2G_RIDGE_M 0.022      // the bank of water a blade leaves at the edges of its arc, metres wide
             #define R2G_FISH    5.0        // a bead shows the scene from this many of its own radii round it, upside down
             #define R2G_VEIL    0.10       // a parked pane's sheet of water scatters this much of the light on it
+            // RAINGLASS2 (2026-11-22, round 2): x the bank as his clip's (PSX_RAIN2_BANK2), y the parked
+            // pane covered (PSX_RAIN2_COVER), z the wiped arcs clear at speed (PSX_RAIN2_CLEAR); 0 = fe3ce8a6
+            float4 _PSXRain2Glass2;
+            #define R2G_BANK2_M  0.075     // the bank ahead of the rubber, metres deep (his tunnel clip: a hand's width at the tip)
+            #define R2G_DEPO_M   0.045     // the lump it drops beyond the arc's end, metres
+            #define R2G_BANK_PX  15.0      // how far the bank's lip bends what is behind it, pixels of a 1080-line frame
             fixed4 _PSXSkyAmbient;
             fixed4 _PSXAmbient;
             fixed4 _PSXFogColor;
@@ -162,15 +168,15 @@ Shader "PSX/CabinGlass"
             // that SAGS - longer below its middle the bigger it is - and now and then
             // two drops run together into one blob. Same cell, same life as Bead3;
             // yz is still the lens direction in the pane's frame (|yz| < 1 inside).
-            float4 Bead4(float2 q, float cell, float density, float seed, float rMul, float2 down)
+            float4 Bead4(float2 q, float cell, float density, float seed, float rMul, float2 down, float irr)
             {
                 float2 g = q / cell;
                 float2 id = floor(g);
                 float4 h = H42(id + seed);
-                float2 c = (id + 0.5 + (h.xy - 0.5) * 0.5) * cell;
+                float2 c = (id + 0.5 + (h.xy - 0.5) * (irr > 0.5 ? 0.30 : 0.5)) * cell;
                 float life = frac(_Time.y * (0.05 + 0.08 * h.w) + h.z);
                 float alive = step(h.z, density) * smoothstep(0.0, 0.08, life) * (1.0 - smoothstep(0.75, 1.0, life));
-                float r = cell * lerp(0.12, 0.30, h.w) * rMul;
+                float r = cell * lerp(0.12, 0.30, h.w) * rMul * (irr > 0.5 ? 0.80 : 1.0);
                 float2 side = float2(down.y, -down.x);
                 float2 d = q - c;
                 float al = dot(d, down), ac = dot(d, side);
@@ -178,13 +184,27 @@ Shader "PSX/CabinGlass"
                 al /= al > 0.0 ? sag : 1.0;
                 ac *= 1.0 + 0.18 * (h.x - 0.5);
                 float2 n = (side * ac + down * al) / r;
+                if (irr > 0.5)
+                {
+                    // (RAINGLASS2) his parked screen: no two drops alike - an outline that wanders
+                    // (a smooth warp of about a third of the radius) and some drawn out into smears
+                    float ang = h.x * 6.2832;
+                    float2 ax = float2(cos(ang), sin(ang));
+                    float st = 1.0 + 0.8 * step(0.6, frac(h.y * 13.7)) * frac(h.w * 5.1);
+                    float da = dot(n, ax);
+                    n += ax * (da / sqrt(st) - da);
+                    n += (n - ax * dot(n, ax)) * (sqrt(st) - 1.0);
+                    n += 0.30 * sin(n.yx * float2(2.9, 3.4) + h.zw * 6.2832);
+                }
                 float4 a = float4(saturate(1.0 - dot(n, n)), n, r);
-                // two drops run together (about a third of the bigger ones)
-                if (frac(h.x * 7.31 + h.y * 3.17) < 0.35 * smoothstep(0.25, 0.7, h.w))
+                // two drops run together (about a third of the bigger ones; more than half parked)
+                float mergeK = irr > 0.5 ? 0.62 * smoothstep(0.1, 0.55, h.w) : 0.35 * smoothstep(0.25, 0.7, h.w);
+                if (frac(h.x * 7.31 + h.y * 3.17) < mergeK)
                 {
                     float r2 = r * lerp(0.55, 0.85, frac(h.z * 5.3));
                     float2 c2 = c + (side * (frac(h.w * 9.1) - 0.5) * 1.6 + down * 0.55) * r;
                     float2 n2 = (q - c2) / r2;
+                    if (irr > 0.5) n2 += 0.25 * sin(n2.yx * float2(3.1, 2.6) + h.wz * 6.2832);
                     a = BeadMax(a, float4(saturate(1.0 - dot(n2, n2)), n2, r2));
                 }
                 a.x *= alive;
@@ -206,14 +226,23 @@ Shader "PSX/CabinGlass"
 
             // Drops travelling along `dir` in columns `width` wide, `span`
             // metres a cycle, the clock `t`. Head bead + trail behind it.
-            float Runners(float2 q, float2 dir, float width, float span, float t, float density, float seed, float trailK)
+            // (RAINGLASS2) `jerk` 1: a rivulet runs in bursts and stops between them, as water
+            // on glass does (it waits until enough has gathered behind its head), and meanders.
+            float Runners2(float2 q, float2 dir, float width, float span, float t, float density, float seed, float trailK, float jerk)
             {
                 float2 side = float2(dir.y, -dir.x);
                 float x = dot(q, side) / width;
                 float col = floor(x);
                 float4 h = H42(float2(col, seed));
                 float speed = lerp(0.6, 1.4, h.x);
-                float y = dot(q, dir) / span - t * speed + h.y * 7.0;
+                float travel = t * speed;
+                if (jerk > 0.5)
+                {
+                    float tj = travel * 3.0 + h.w * 5.0;
+                    travel = (floor(tj) + smoothstep(0.0, 0.4, frac(tj)) - h.w * 5.0) / 3.0;
+                    x += 0.18 * sin(dot(q, dir) * (40.0 + 30.0 * h.z) + h.y * 6.28);
+                }
+                float y = dot(q, dir) / span - travel + h.y * 7.0;
                 float cyc = floor(y);
                 float4 k = H42(float2(col, cyc + seed * 3.1));
                 float on = step(k.x, density);
@@ -228,6 +257,10 @@ Shader "PSX/CabinGlass"
                 float trail = saturate(1.0 - abs(dx) / (rHead * 0.35 * tr + 1e-4)) * tr
                             * lerp(beadsOn, 1.0, trailK) * 0.8;
                 return max(head, trail) * on;
+            }
+            float Runners(float2 q, float2 dir, float width, float span, float t, float density, float seed, float trailK)
+            {
+                return Runners2(q, dir, width, span, t, density, seed, trailK, 0.0);
             }
 
             fixed4 frag(v2f i) : SV_Target
@@ -296,6 +329,13 @@ Shader "PSX/CabinGlass"
                 float bank = 0.0;       // (RAINGLASS) the pooled water the moving blade pushes ahead of it
                 float smear = 0.0;      // (RAINGLASS) the thin film a blade leaves for a moment behind it (lamps smear in it)
                 float edgeZone = 0.0;   // (RAINGLASS) within 10 cm of a swept arc's edge: where the pooled water runs off
+                // (RAINGLASS2)
+                bool bank2 = _PSXRain2Glass2.x > 0.5;
+                float bankX = 0.0;      // across the bank: 0 at the rubber .. 1 its leading lip
+                float2 bankPx = float2(0.0, 0.0);   // the stroke's direction (ahead) in pixels, unit
+                float depo = 0.0;       // the lump the blade dropped beyond the arc's end, and how fresh it is
+                float depoFresh = 0.0;
+                float swept = 0.0;      // inside either arm's swept area
                 if (_CabinWipe.w > 0.5 && _Wiper.w > 0.0)
                 {
                     float tc = _CabinWipe.x, D = max(_CabinWipe.y, 0.05);
@@ -329,6 +369,37 @@ Shader "PSX/CabinGlass"
                             // the water the blades leave piled along the swept area's edge
                             edgeBank = max(edgeBank, dIn < 0.0 ? saturate(1.0 + dIn / R2G_RIDGE_M) : 0.0);
                             edgeZone = max(edgeZone, saturate(1.0 - abs(dIn) / 0.10));
+                            // (RAINGLASS2) THE LUMP AT THE ARC'S END. Water the bank carried is dropped
+                            // where the rubber stops: at the top of the stroke the whole bank, along the
+                            // tip's and the root's arcs a share all the way. A point just outside asks the
+                            // phase map a few cm INSIDE (along the edge field's own gradient) when the
+                            // rubber last reached there: that is when it was fed, and the lump is fresh
+                            // for a second or two, then thins as it runs off.
+                            float2 gEd = float2(ddx(dIn), ddy(dIn));
+                            float2 uvx = ddx(i.uv), uvy = ddy(i.uv);
+                            if (bank2 && dIn < 0.0 && dIn > -R2G_DEPO_M * 1.6)
+                            {
+                                float dt2 = uvx.x * uvy.y - uvx.y * uvy.x;
+                                float2 gUv = float2(gEd.x * uvy.y - uvx.y * gEd.y, uvx.x * gEd.y - gEd.x * uvy.x) / (abs(dt2) > 1e-14 ? dt2 : 1e-14);
+                                float2 duv = gUv * ((0.03 - dIn) / max(dot(gUv, gUv), 1e-12));
+                                duv = clamp(duv, -0.25, 0.25);
+                                float4 wi = tex2Dlod(_WiperPhase, float4(i.uv + duv, 0.0, 0.0));
+                                float pin = k == 0 ? wi.r : wi.g;
+                                if (pin > 0.002)
+                                {
+                                    float ui = acos(clamp(1.0 - 2.0 * pin, -1.0, 1.0)) * 0.318309886;
+                                    float tUi = 0.5 * ui * D, tDi = (1.0 - 0.5 * ui) * D;
+                                    float fed = tk >= tDi ? tk - tDi : tk >= tUi ? tk - tUi : tk + _CabinWipe.z - tDi;
+                                    float lump = lerp(0.55, 1.0, smoothstep(0.80, 0.97, pin));
+                                    float fresh = exp(-max(fed, 0.0) / 1.4) * lump;
+                                    // the lump: thickest at the edge, its outer side ragged
+                                    float wD = R2G_DEPO_M * (0.55 + 0.45 * fresh) * (0.75 + 0.5 * frac(sin(dot(q, float2(41.3, 29.7))) * 43758.5));
+                                    float prof = saturate(1.0 + dIn / wD);
+                                    prof = prof * prof * (3.0 - 2.0 * prof);
+                                    float dk = prof * (0.40 + 0.60 * fresh);
+                                    if (dk > depo) { depo = dk; depoFresh = fresh; }
+                                }
+                            }
                             // the bank the moving rubber pushes ahead of it: points a little further
                             // along the stroke than the blade is now (in metres: the phase's own slope)
                             float phk = tk / D;
@@ -336,15 +407,38 @@ Shader "PSX/CabinGlass"
                             {
                                 float uk = phk < 0.5 ? phk * 2.0 : 2.0 - phk * 2.0;
                                 float s = 0.5 - 0.5 * cos(3.14159265 * uk);
-                                float gradP = max(length(float2(ddx(p), ddy(p))) / max(aa, 1e-6), 0.5);
+                                float2 gpP = float2(ddx(p), ddy(p));
+                                float gradP = max(length(gpP) / max(aa, 1e-6), 0.5);
                                 float dm = (p - s) * (phk < 0.5 ? 1.0 : -1.0) / gradP;
+                                if (bank2)
+                                {
+                                    // (RAINGLASS2) THE BANK AS HIS CLIP'S: a wedge of pooled water thickest
+                                    // against the rubber, a rounded lip in front, as deep as a hand at full
+                                    // load and ragged along its length. It gathers on the way up (the whole
+                                    // screen's water); on the way back it starts again from what fell since.
+                                    float carry = phk < 0.5 ? smoothstep(0.0, 0.25, s) : 0.35 + 0.40 * smoothstep(0.0, 0.6, 1.0 - s);
+                                    float rag = 0.5 + 0.5 * sin(dot(q, float2(23.0, 31.0)) + 1.3 * sin(dot(q, float2(-41.0, 17.0)) + _CabinRun * 3.0));
+                                    float wB = R2G_BANK2_M * (0.45 + 0.55 * carry) * (0.70 + 0.55 * rag);
+                                    float x = dm / wB;
+                                    float hb = inK * smoothstep(-0.004, 0.002, dm) * pow(saturate(1.0 - x), 0.55) * step(x, 1.0)
+                                             * smoothstep(0.0, 0.08, s + (phk < 0.5 ? 0.0 : 0.2)) * (0.55 + 0.45 * carry);
+                                    if (hb > ahead)
+                                    {
+                                        ahead = hb;
+                                        bankX = saturate(x);
+                                        bankPx = (phk < 0.5 ? 1.0 : -1.0) * gpP / max(length(gpP), 1e-8);
+                                    }
+                                }
+                                else
                                 ahead = max(ahead, inK * smoothstep(-0.002, 0.004, dm) * (1.0 - smoothstep(0.010, R2G_BANK_M, dm))
                                                        * smoothstep(0.0, 0.15, s));
                             }
                         }
                         ridge = edgeBank * (1.0 - inside);
                         bank = ahead;
-                        smear = inside * exp(-since * 4.0) * step(since, 999.0);
+                        swept = inside;
+                        // (RAINGLASS2, CLEAR) the film behind the blade lasts a moment, not a second
+                        smear = inside * exp(-since * (_PSXRain2Glass2.z > 0.5 ? 9.0 : 4.0)) * step(since, 999.0);
                     }
                     for (int k = 0; k < 2; k++)
                     {
@@ -377,7 +471,7 @@ Shader "PSX/CabinGlass"
                             blade = max(blade, 1.0 - smoothstep(_WiperArc.w * 0.22, _WiperArc.w * 0.22 + aa * 1.5, dA));
                         }
                     }
-                    fill = saturate(since / max(_CabinWipe2.x, 0.05));
+                    fill = saturate(since / max(_CabinWipe2.x * (_PSXRain2Glass2.z > 0.5 ? 1.0 + 1.8 * _CabinWind : 1.0), 0.05));
                     fill *= fill;
                 }
 
@@ -403,11 +497,18 @@ Shader "PSX/CabinGlass"
                     // (RAIN 2, parked: a fourth size - the screen is COVERED in small
                     // bright beads in his clip - and the fine one far denser)
                     float park = _CabinRain2.y * (1.0 - wind);
+                    // (RAINGLASS2, COVER) the parked windscreen covered edge to edge, as his: every drop its
+                    // own outline, merged blobs and smears, a coarser size of big flat blobs, and rivulets
+                    // that run in bursts and stop (fe3ce8a6's parked frame was sparser than the one before)
+                    float cov = _PSXRain2Glass2.y > 0.5 && b2 && _Wiper.w > 0.001 ? smoothstep(0.2, 0.9, park) : 0.0;
+                    float irr = _PSXRain2Glass2.y > 0.5 && b2 ? 1.0 : 0.0;
                     float4 bB;
                     if (b2)
                     {
-                        bB = BeadMax(Bead4(q, 0.016 * bs, rainW * lerp(0.62, 0.25, wind) * dens, 1.7, 1.0, _Down.xy),
-                                     Bead4(q, 0.028 * bs, rainW * lerp(0.42, 0.15, wind) * dens, 9.3, 1.05, _Down.xy));
+                        bB = BeadMax(Bead4(q, 0.016 * bs, rainW * lerp(0.62, 0.25, wind) * dens * (1.0 + 0.35 * cov), 1.7, 1.0, _Down.xy, irr),
+                                     Bead4(q, 0.028 * bs, rainW * lerp(0.42, 0.15, wind) * dens * (1.0 + 0.45 * cov), 9.3, 1.05 + 0.15 * cov, _Down.xy, irr));
+                        if (cov > 0.01)
+                            bB = BeadMax(bB, Bead4(q, 0.046 * bs, rainW * 0.55 * cov, 3.9, 1.0, _Down.xy, 1.0));
                     }
                     else
                     {
@@ -424,7 +525,7 @@ Shader "PSX/CabinGlass"
                     float hB = bB.x;
                     // (RAIN 2, parked: more runners, their trails unbroken - the
                     // running sheets of his clip)
-                    float hR = Runners(q, _Down.xy, 0.026, 0.30, _CabinRun, rainW * (0.45 * dens + 0.25 * park), 4.1, 0.55 * park) * (1.0 - wind);
+                    float hR = Runners2(q, _Down.xy, 0.026, 0.30, _CabinRun, rainW * (0.45 * dens + 0.25 * park + 0.35 * cov), 4.1, 0.55 * park, cov > 0.01 ? 1.0 : 0.0) * (1.0 - wind);
                     float hS = Runners(q, wdir, 0.020, 0.55, _CabinBlow, rainW * (b2 ? 0.95 : 0.75), 7.7, 0.85) * wind;
                     float hgt = max(hB, max(hR, hS));
                     // (RAIN 2) the bank a blade leaves, ragged
@@ -433,16 +534,27 @@ Shader "PSX/CabinGlass"
                     // (RAINGLASS) the bank the blade drives before it is POOLED water (his clips): a
                     // thick wavering band, not beads - and what it leaves at the arcs' edges runs
                     // off in rivulets, down the screen parked, back along the air at speed
-                    if (bank > 0.0)
+                    bool inBank = false;
+                    if (bank2)
+                    {
+                        // (RAINGLASS2) the bank swallows the beads it reaches; the lump at the arc's end
+                        // is pooled water with a ragged, beaded outer edge
+                        inBank = bank > 0.06;
+                        if (inBank) hgt = max(hgt * (1.0 - smoothstep(0.06, 0.25, bank)), bank * rain);
+                        if (depo > 0.0) hgt = max(hgt, depo * rain * (0.70 + 0.30 * Beads(q, 0.0070, 0.95, 19.3)));
+                    }
+                    else if (bank > 0.0)
                         hgt = max(hgt, bank * rain * (0.62 + 0.18 * sin(dot(q, float2(61.0, 47.0)) + _CabinRun * 23.0)
                                                          + 0.20 * Beads(q, 0.0065, 0.9, 17.7)));
                     if (edgeZone > 0.0 && b2)
                     {
                         float2 rdir = normalize(lerp(_Down.xy, wdir, saturate(wind * 1.4)));
-                        hgt = max(hgt, edgeZone * Runners(q, rdir, 0.014, 0.18, wind > 0.3 ? _CabinBlow : _CabinRun * 2.0,
-                                                          rain * 0.85, 21.3, 0.7));
+                        // (RAINGLASS2) a fresh lump runs off in more and heavier rivulets
+                        float runK = bank2 ? 0.55 + 0.9 * depoFresh : 0.85;
+                        hgt = max(hgt, edgeZone * Runners(q, rdir, bank2 ? 0.017 : 0.014, bank2 ? 0.24 : 0.18, wind > 0.3 ? _CabinBlow : _CabinRun * 2.0,
+                                                          rain * runK, 21.3, 0.7));
                     }
-                    bool beadTop = hB >= max(hR, hS) && hB > 0.0;
+                    bool beadTop = hB >= max(hR, hS) && hB > 0.0 && (!bank2 || (!inBank && hB >= hgt - 1e-4));
                     // WATER, not paint: a drop is clear in the middle (a
                     // little of the sky it bends in), dark at its rim where it
                     // bends the scene away, with one small bright glint where
@@ -488,9 +600,39 @@ Shader "PSX/CabinGlass"
                         // streaming sheet (his fast clip: the screen's edges bright with it), so the
                         // swept arcs - where little has landed since - read clear against it
                         if (b2) sheet = max(rainW * fill * R2G_SHEET * lerp(1.0, 0.5, wind), 0.45 * smear * rain) * (1.0 - cover);
+                        // (RAINGLASS2, CLEAR) at speed no film builds where the blade has been: his fast
+                        // clip is a dark, clear centre with the water streaming outside the arcs - what
+                        // lands there now is drops and streaks (above), and the blade's smear a moment
+                        if (b2 && _PSXRain2Glass2.z > 0.5)
+                            sheet = max(rainW * fill * R2G_SHEET * lerp(1.0, 0.5, wind) * (1.0 - swept * smoothstep(0.08, 0.40, wind)),
+                                        0.45 * smear * rain) * (1.0 - cover);
                         float2 wob = float2(sin(q.y * 95.0 + sin(q.x * 37.0 + _CabinRun * 9.0) * 1.7),
                                             sin(q.x * 80.0 + sin(q.y * 41.0 - _CabinRun * 12.0) * 1.9));
                         dpx += wob * (R2G_WOBBLE * px1080 * sheet);
+                        // (RAINGLASS2) THE BANK AND THE LUMP ARE LENSES: pooled water centimetres across
+                        // bends what is behind it by tens of pixels - the scene ahead swims in the bank,
+                        // most at its rounded lip, and wavers as it rolls (his tunnel clip: the lamps
+                        // smeared and doubled in the band before the blade)
+                        float lipL = 0.0, bankShade = 1.0;
+                        if (bank2 && !beadTop && (inBank || depo > 0.05))
+                        {
+                            float pxm = sqrt(m2);
+                            float gl = length(gpx);
+                            float2 gdir = gpx / max(gl, 1e-6);
+                            float slopeN = min(gl * (0.05 / max(pxm, 1e-6)), 1.5);
+                            float roll = 0.75 + 0.25 * sin(dot(q, float2(57.0, 43.0)) + _CabinRun * 19.0);
+                            dpx += gdir * (slopeN * R2G_BANK_PX * 0.6 * px1080 * roll);
+                            if (inBank)
+                            {
+                                dpx += bankPx * (R2G_BANK_PX * px1080 * (0.30 + 0.70 * smoothstep(0.5, 1.0, bankX)) * roll);
+                                float lx = (bankX - 0.86) / 0.07, mx = (bankX - 0.99) / 0.035;
+                                lipL = exp(-lx * lx) * smoothstep(0.06, 0.3, bank);
+                                bankShade = (0.80 + 0.20 * smoothstep(0.0, 0.25, bankX))
+                                          * (1.0 - 0.45 * exp(-mx * mx));
+                            }
+                            else bankShade = 1.0 + 0.15 * depoFresh;
+                            dpx = clamp(dpx, -R2G_MAXPX * px1080, R2G_MAXPX * px1080);
+                        }
                         float wetA = saturate(max(cover, sheet));
                         float2 suv = (i.pos.xy + dpx) / _ScreenParams.xy;
                         // (a bead gathers light: brighter in its middle, dark only at its very rim)
@@ -517,7 +659,7 @@ Shader "PSX/CabinGlass"
                         // with a rim, not a grey pebble)
                         if (b2 && beadTop) seen = lerp(lerp(seen, tex2Dlod(_PSXSSRColour, float4(i.pos.xy / _ScreenParams.xy, 0.0, 0.0)).rgb, 0.45),
                                                        dot(seen, float3(0.30, 0.59, 0.11)).xxx, 0.22);
-                        through = seen * (wetA * (1.0 - rimK * rim * cover) * gather);
+                        through = seen * (wetA * (1.0 - rimK * rim * cover) * gather * bankShade);
                         // the glint: one bright point up and to the side of each bead's crown
                         float g2 = beadTop ? (1.0 - smoothstep(0.0, 0.32, length(bB.yz - float2(-0.30, 0.38)))) * cover : glint;
                         // (RAINGLASS) a sharper, smaller glint and a thin bright crescent on the bead's
@@ -532,7 +674,9 @@ Shader "PSX/CabinGlass"
                         dropC = cover * (sky * 0.05 + ambient * 0.03) * (1.0 - edge)
                               + g2 * (sky * 0.6 + _PSXLightColor.rgb * 0.35 * day + lamp * 2.0 + ambient * 0.25)
                               + sheet * R2G_VEIL * (b2 ? park + 0.4 * wind : park) * (ambient * 0.5 + sky * 0.25 + lamp)
-                              + (b2 ? smear * rain * 0.18 * (lamp * 1.5 + sky * 0.2) : 0.0);
+                              + (b2 ? smear * rain * 0.18 * (lamp * 1.5 + sky * 0.2) : 0.0)
+                              // (RAINGLASS2) the bank's lip catches the light: a bright wavering line
+                              + lipL * rain * (lamp * 2.2 + sky * 0.45 + ambient * 0.45 + _PSXLightColor.rgb * 0.25 * day);
                     }
                     rgb = rgb * (1.0 - dropA) + dropC;
                     a = a + dropA * (1.0 - a);

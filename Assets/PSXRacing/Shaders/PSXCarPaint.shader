@@ -1060,6 +1060,9 @@ Shader "PSX/CarPaint"
                         float ring = smoothstep(0.55, 0.95, length(bl.yz)) * step(0.001, lens);
                         float3 lightIn = sky * lerp(0.7, 1.1, glass) + (_PSXLightColor.rgb * (0.55 * sunVis) + (headD + lampD) * 1.6) * expo;
                         float spot = lerp(smoothstep(0.0, 0.2, lens) * 0.16, pt * step(0.001, lens), resolved);
+                        if (_PSXRain2Glass3.x > 0.5)   // (RAINGLASS2) the sky soft over the bead's top, points only from real lights
+                            col = CarBeadShade2(col, bl, up2, lens, resolved, glass, sky, (_PSXLightColor.rgb * (0.55 * sunVis) + (headD + lampD) * 1.6) * expo);
+                        else
                         col = col * (1.0 - ring * resolved * lerp(0.16, 0.45, glass)) + lightIn * spot * lerp(0.45, 1.0, glass);
                     }
                     float flake = smoothstep(0.05, 0.35, snowH);
