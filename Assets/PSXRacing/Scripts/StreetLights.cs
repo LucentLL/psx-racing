@@ -407,6 +407,8 @@ namespace PSXRacing
             // An inspector preview renders a preview scene, not this one: it
             // gets no lamps rather than the lamps nearest wherever it sits.
             if (cam.cameraType == CameraType.Preview) { PushNone(); FieldOff(); return; }
+            // the light-pop meter renders its own frame-before state
+            if (MeterHold) return;
             var t = cam.transform;
             if (!Application.isPlaying) { PushInstant(cam); return; }
             // PLAY: the game's view advances the hand-over, once a frame, for
@@ -421,14 +423,20 @@ namespace PSXRacing
             if (Time.frameCount != advancedFrame && driver)
             {
                 advancedFrame = Time.frameCount;
-                GeometryUtility.CalculateFrustumPlanes(cam, planes);
-                Rank(t.position, t.forward, false, true);
-                Advance(t.position, t.forward, Time.unscaledDeltaTime);
+                if (NoPop) RankScored(t.position, t.forward);
+                else
+                {
+                    GeometryUtility.CalculateFrustumPlanes(cam, planes);
+                    Rank(t.position, t.forward, false, true);
+                    Advance(t.position, t.forward, Time.unscaledDeltaTime);
+                }
                 // The dark-night measure and the lamp cones, chosen by the
                 // same eye once a frame (StreetLights.Cones.cs).
-                NightFrame(t.position, Time.unscaledDeltaTime, false);
+                NightFrame(t.position, Time.unscaledDeltaTime, false, t.forward);
             }
-            EmitHeld(t.position);
+            meterDriverEmit = driver;
+            if (NoPop) EmitScored(t.position); else EmitHeld(t.position);
+            meterDriverEmit = false;
             // The lit-street field's window is the game view's too: the
             // mirrors and the reflection probe draw with the one it built.
             PushField(t.position, driver || !ShareFieldWindow);
@@ -478,7 +486,11 @@ namespace PSXRacing
         {
             var cam = Camera.main;
             if (cam == null) { PushNone(); return; }
-            if (Application.isPlaying) { EmitHeld(cam.transform.position); PushField(cam.transform.position); NightDark.Push(); return; }
+            if (Application.isPlaying)
+            {
+                if (NoPop) EmitScored(cam.transform.position); else EmitHeld(cam.transform.position);
+                PushField(cam.transform.position); NightDark.Push(); return;
+            }
             PushInstant(cam);
         }
 
@@ -494,12 +506,16 @@ namespace PSXRacing
         public static void Push(Vector3 eye, Vector3 fwd)
         {
             PushField(eye);
-            if (Application.isPlaying) { EmitHeld(eye); NightDark.Push(); return; }
+            if (Application.isPlaying) { if (NoPop) EmitScored(eye); else EmitHeld(eye); NightDark.Push(); return; }
             float m = fwd.magnitude;
             bool cone = m > 1e-4f;
-            Rank(eye, cone ? fwd / m : Vector3.forward, cone, false);
-            EmitRanked();
-            NightFrame(eye, 0f, true);
+            if (NoPop) { RankScored(eye, cone ? fwd / m : Vector3.forward); EmitScored(eye); }
+            else
+            {
+                Rank(eye, cone ? fwd / m : Vector3.forward, cone, false);
+                EmitRanked();
+            }
+            NightFrame(eye, 0f, true, cone ? fwd / m : Vector3.forward);
         }
 
         /// <summary>
@@ -515,21 +531,29 @@ namespace PSXRacing
             float m = fwd.magnitude;
             bool cone = m > 1e-4f;
             Vector3 f = cone ? fwd / m : Vector3.forward;
-            Rank(eye, f, cone, false);
-            Advance(eye, f, dt);
-            EmitHeld(eye);
+            if (NoPop) { RankScored(eye, f); EmitScored(eye); }
+            else
+            {
+                Rank(eye, f, cone, false);
+                Advance(eye, f, dt);
+                EmitHeld(eye);
+            }
             PushField(eye);
-            NightFrame(eye, dt, false);
+            NightFrame(eye, dt, false, f);
         }
 
         static void PushInstant(Camera cam)
         {
             GeometryUtility.CalculateFrustumPlanes(cam, planes);
             var t = cam.transform;
-            Rank(t.position, t.forward, false, true);
-            EmitRanked();
+            if (NoPop) { RankScored(t.position, t.forward); EmitScored(t.position); }
+            else
+            {
+                Rank(t.position, t.forward, false, true);
+                EmitRanked();
+            }
             PushField(t.position);
-            NightFrame(t.position, 0f, true);
+            NightFrame(t.position, 0f, true, t.forward);
         }
 
         static void PushNone()
@@ -650,12 +674,14 @@ namespace PSXRacing
         {
             int n = 0;
             bool streetOn = StreetOn;
+            MeterBegin();
             for (int h = 0; h < heldCount; h++)
             {
                 if (!Valid(heldHandle[h], out int slot)) continue;
                 ref Entry e = ref entries[slot];
                 if (e.owned && e.owner == null) continue;   // pruned at the next Rank
                 if (!Lit(ref e, streetOn)) continue;
+                MeterNote(heldHandle[h], heldShown[h]);
                 Emit(ref n, slot, heldShown[h] * DistanceFade((e.pos - eye).magnitude));
             }
             Finish(n);

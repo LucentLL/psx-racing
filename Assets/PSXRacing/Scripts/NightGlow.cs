@@ -75,6 +75,9 @@ namespace PSXRacing
         int lampHeads = int.MaxValue;                         // heads past this light nothing (halo only)
         bool built;
         GameObject haloGo;
+        // the light-pop meter (Dev/LightPopMeter.cs)
+        internal static List<NightGlow> MeterAll => all;
+        internal Renderer MeterHalo => haloGo != null ? haloGo.GetComponent<MeshRenderer>() : null;
         Mesh haloMesh;
         static readonly List<Vector3> scratch = new List<Vector3>();
 

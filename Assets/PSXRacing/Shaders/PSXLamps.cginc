@@ -131,6 +131,17 @@ float4 _PSXFieldWarm;     // rgb the bulb (linear), w uptown's gain (its heads w
 #define FIELD_UNDER_RAMP 0.25   // 1 / the metres the reach fades over
 #define FIELD_GLOW_UP_M 8.0
 
+// NO LIGHT POPS (the lightpop round, 2026-11-22; StreetLights.NoPop.cs). The
+// field used to fade over the outer tenth of its WINDOW - a square that steps
+// 32 m at a time - so a pool 200 m up the street jumped between a third and
+// nine tenths of itself every 32 m of driving. With _PSXLampFieldST.w = 2 it
+// fades by its distance from the EYE instead: whole to FIELD_FULL_M, gone by
+// FIELD_END_M, the same whichever window is shown (StreetLights keeps the eye
+// within FIELD_SLACK of the shown window's centre, so the circle is always
+// inside it).
+#define FIELD_END_M  200.0
+#define FIELD_FULL_M 160.0
+
 /// The lit street's light at `wpos` on a surface facing `N` (facingOn 0: no
 /// facing term - rain, decals laid on the road). Zero off the city.
 float3 PSXLampField(float3 wpos, float3 N, float facingOn)
@@ -139,8 +150,11 @@ float3 PSXLampField(float3 wpos, float3 N, float facingOn)
     float2 uv = (wpos.xz - _PSXLampFieldST.xy) * _PSXLampFieldST.z;
     float4 f = tex2Dlod(_PSXLampField, float4(uv, 0.0, 0.0));
     // fade out over the outer tenth of the window (beyond ~200 m the halos
-    // stand for the lamps), and never a NaN from a texel nothing reached
+    // stand for the lamps), and never a NaN from a texel nothing reached;
+    // NO LIGHT POPS (w = 2): by the distance from the eye
     float2 b = saturate(min(uv, 1.0 - uv) * 10.0);
+    float eyeR = length(wpos.xz - _WorldSpaceCameraPos.xz);
+    float edge = lerp(b.x * b.y, saturate((FIELD_END_M - eyeR) / (FIELD_END_M - FIELD_FULL_M)), step(1.5, _PSXLampFieldST.w));
     float headY = _PSXLampFieldY.x + f.b / max(f.g, 1e-4);
     float under = headY - wpos.y;
     float vertP = saturate((under + 1.0) * 0.5) * saturate((FIELD_UNDER_M - under) * FIELD_UNDER_RAMP);
@@ -153,7 +167,7 @@ float3 PSXLampField(float3 wpos, float3 N, float facingOn)
     float uptown = saturate((_PSXFieldWhite.w - length(dc)) * _PSXLampFieldY.w);
     float3 hue = lerp(_PSXFieldWarm.rgb, _PSXFieldWhite.rgb, saturate(f.a / max(f.g, 1e-4)))
                * (1.0 + (_PSXFieldWarm.w - 1.0) * uptown);
-    return hue * ((max(f.r, 0.0) * vertP * upP + max(f.g, 0.0) * vertG * upG) * (b.x * b.y));
+    return hue * ((max(f.r, 0.0) * vertP * upP + max(f.g, 0.0) * vertG * upG) * edge);
 }
 
 /// The street level under `wpos` as the field knows it (the heads' mean

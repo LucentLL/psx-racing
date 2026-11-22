@@ -49,7 +49,7 @@ namespace PSXRacing
         /// The scan, the dark-night measure and the cones for one eye.
         /// <paramref name="instant"/>: edit mode / a tool's shot (no easing).
         /// </summary>
-        static void NightFrame(Vector3 eye, float dt, bool instant)
+        static void NightFrame(Vector3 eye, float dt, bool instant, Vector3 fwd = default)
         {
             int cap = Mathf.Clamp(LampCones.Cap, 0, ConeMax);
             int ranked = 0;
