@@ -423,7 +423,7 @@ namespace PSXRacing
             if (Time.frameCount != advancedFrame && driver)
             {
                 advancedFrame = Time.frameCount;
-                if (NoPop) RankScored(t.position, t.forward);
+                if (NoPop) { RankScored(t.position, t.forward); NightGlow.TickBirths(); }
                 else
                 {
                     GeometryUtility.CalculateFrustumPlanes(cam, planes);
