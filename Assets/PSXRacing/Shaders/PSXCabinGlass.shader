@@ -112,7 +112,7 @@ Shader "PSX/CabinGlass"
             // RAINGLASS2 (2026-11-22, round 2): x the bank as his clip's (PSX_RAIN2_BANK2), y the parked
             // pane covered (PSX_RAIN2_COVER), z the wiped arcs clear at speed (PSX_RAIN2_CLEAR); 0 = fe3ce8a6
             float4 _PSXRain2Glass2;
-            #define R2G_BANK2_M  0.075     // the bank ahead of the rubber, metres deep (his tunnel clip: a hand's width at the tip)
+            #define R2G_BANK2_M  0.090     // the bank ahead of the rubber, metres deep (his tunnel clip: a hand's width at the tip)
             #define R2G_DEPO_M   0.045     // the lump it drops beyond the arc's end, metres
             #define R2G_BANK_PX  15.0      // how far the bank's lip bends what is behind it, pixels of a 1080-line frame
             fixed4 _PSXSkyAmbient;
@@ -677,7 +677,7 @@ Shader "PSX/CabinGlass"
                                 // a thick water surface is a mirror: the whole band carries a wavering sheen of
                                 // the sky and the lamps (what makes it read against a plain road), and it blurs
                                 // what is seen through it along the rubber
-                                bankSheen = smoothstep(0.06, 0.30, bank) * (0.22 + 0.20 * ripple + 0.38 * smoothstep(0.2, 0.8, lump4.x));
+                                bankSheen = smoothstep(0.06, 0.30, bank) * (0.24 + 0.20 * ripple + 0.50 * smoothstep(0.2, 0.8, lump4.x));
                                 bankBlur = alongPx * (6.0 * px1080) + bankPx * (2.0 * px1080);
                                 bankShade = (0.78 + 0.37 * smoothstep(0.0, 0.25, bankX))
                                           * (1.0 - 0.45 * exp(-mx * mx));
@@ -735,8 +735,9 @@ Shader "PSX/CabinGlass"
                               + sheet * R2G_VEIL * (b2 ? park + 0.4 * wind : park) * (ambient * 0.5 + sky * 0.25 + lamp)
                               + (b2 ? smear * rain * 0.18 * (lamp * 1.5 + sky * 0.2) : 0.0)
                               // (RAINGLASS2) the bank's lip catches the light: a bright wavering line
-                              + lipL * rain * (lamp * 0.9 + sky * 0.30 + ambient * 0.30 + _PSXLightColor.rgb * 0.20 * day)
-                              + bankSheen * rain * (lamp * 0.60 + sky * 0.14 + ambient * 0.14 + _PSXLightColor.rgb * 0.06 * day);
+                              + lipL * rain * (lerp(lamp, dot(lamp, float3(0.30, 0.59, 0.11)).xxx, 0.5) * 0.9 + sky * 0.30 + ambient * 0.30 + _PSXLightColor.rgb * 0.20 * day)
+                              // (a lamp's colour only half: a brake lamp beside the car tinted the whole band red)
+                              + bankSheen * rain * (lerp(lamp, dot(lamp, float3(0.30, 0.59, 0.11)).xxx, 0.6) * 0.40 + sky * 0.14 + ambient * 0.16 + _PSXLightColor.rgb * 0.06 * day);
                     }
                     rgb = rgb * (1.0 - dropA) + dropC;
                     a = a + dropA * (1.0 - a);

@@ -146,7 +146,9 @@ namespace PSXRacing.EditorTools
             int k = 0;
             while (k < shots)
             {
-                float due = k * total / (shots - 1);
+                // ten frames across the stroke itself, the rest spread over what follows
+                int inStroke = Mathf.Min(10, shots - 1);
+                float due = k <= inStroke - 1 ? k * stroke / (inStroke - 1) : stroke + (k - inStroke + 1) * after / (shots - inStroke);
                 if (Time.time - t0 + 1e-4f >= due)
                 {
                     if (k == shots / 3) pendingBig = name + "_" + k.ToString("00") + "_4k";
@@ -308,7 +310,7 @@ namespace PSXRacing.EditorTools
                 yield return null;
             }
             yield return Shot("cruise_cockpit");
-            yield return StrokeSeq("seqc", 12, 1.2f);
+            yield return StrokeSeq("seqc", 14, 1.0f);
             ChaseCamera.PreviewView(ChaseCamera.View.Chase);
             for (float t = 0f; t < 4f; t += Time.unscaledDeltaTime) { Frame(); top = Mathf.Max(top, car.speedKmh); yield return null; }
             yield return Shot("cruise_chase");
@@ -350,7 +352,7 @@ namespace PSXRacing.EditorTools
                     ChaseCamera.PreviewView(ChaseCamera.View.Cockpit);
                     for (float t = 0f; t < 2.5f; t += Time.unscaledDeltaTime) { raceT += Time.unscaledDeltaTime; Frame(); top = Mathf.Max(top, car.speedKmh); yield return null; }
                     yield return Shot("race_cockpit");
-                    yield return StrokeSeq("seqr", 10, 0.8f);
+                    yield return StrokeSeq("seqr", 12, 0.6f);
                     // and stopped: the wipers run on for five seconds, the dropped water runs DOWN
                     if (Env("PSX_RAIN2_SEQ", "1") != "0" && Rain2.On)
                     {
@@ -358,7 +360,7 @@ namespace PSXRacing.EditorTools
                         for (float t = 0f; t < 14f && Mathf.Abs(car.forwardSpeed) > 1.0f; t += Time.unscaledDeltaTime) { raceT += Time.unscaledDeltaTime; Frame(); yield return null; }
                         ai.driving = false;
                         Rain2PlayCheck.Line($"  stopped: {car.speedKmh / 1.609f:0} mph");
-                        yield return StrokeSeq("seqp", 12, 1.6f);
+                        yield return StrokeSeq("seqp", 14, 1.6f);
                     }
                     break;
                 }
