@@ -294,6 +294,7 @@ Shader "PSX/CabinGlass"
                 float fill = 1.0;
                 float ridge = 0.0;      // (RAIN 2) the water a blade leaves piled along the edges of its arc
                 float bank = 0.0;       // (RAINGLASS) the pooled water the moving blade pushes ahead of it
+                float smear = 0.0;      // (RAINGLASS) the thin film a blade leaves for a moment behind it (lamps smear in it)
                 float edgeZone = 0.0;   // (RAINGLASS) within 10 cm of a swept arc's edge: where the pooled water runs off
                 if (_CabinWipe.w > 0.5 && _Wiper.w > 0.0)
                 {
@@ -343,6 +344,7 @@ Shader "PSX/CabinGlass"
                         }
                         ridge = edgeBank * (1.0 - inside);
                         bank = ahead;
+                        smear = inside * exp(-since * 4.0) * step(since, 999.0);
                     }
                     for (int k = 0; k < 2; k++)
                     {
@@ -397,7 +399,7 @@ Shader "PSX/CabinGlass"
                     // the side and rear glass - a hand from the eye - at 0.46 of the old cells (they read
                     // as big as coins beside the driver's head)
                     bool b2 = _CabinRain2.z > 0.5;
-                    if (b2) bs = _Wiper.w > 0.001 ? 1.0 + 0.3 * _CabinRain2.y : 0.46;
+                    if (b2) bs = _Wiper.w > 0.001 ? 1.0 + 0.3 * _CabinRain2.y : 0.40;
                     // (RAIN 2, parked: a fourth size - the screen is COVERED in small
                     // bright beads in his clip - and the fine one far denser)
                     float park = _CabinRain2.y * (1.0 - wind);
@@ -485,7 +487,7 @@ Shader "PSX/CabinGlass"
                         // (RAINGLASS) at speed the water the blades have not taken is a blown,
                         // streaming sheet (his fast clip: the screen's edges bright with it), so the
                         // swept arcs - where little has landed since - read clear against it
-                        if (b2) sheet = rainW * fill * R2G_SHEET * lerp(1.0, 0.75, wind) * (1.0 - cover);
+                        if (b2) sheet = max(rainW * fill * R2G_SHEET * lerp(1.0, 0.75, wind), 0.45 * smear * rain) * (1.0 - cover);
                         float2 wob = float2(sin(q.y * 95.0 + sin(q.x * 37.0 + _CabinRun * 9.0) * 1.7),
                                             sin(q.x * 80.0 + sin(q.y * 41.0 - _CabinRun * 12.0) * 1.9));
                         dpx += wob * (R2G_WOBBLE * px1080 * sheet);
@@ -500,9 +502,9 @@ Shader "PSX/CabinGlass"
                             // (RAINGLASS) his beads are clear water with a crisp dark outline (the
                             // edge bends the scene away) and the light they bend in, not glowing
                             // orange coins: a wider rim, darker, and much less gathered light
-                            rim = beadTop ? smoothstep(0.50, 0.92, length(bB.yz)) : edge * 0.35;
-                            rimK = 0.82;
-                            gather = beadTop ? 1.0 + 0.22 * park + 0.18 * smoothstep(0.3, 0.9, hgt) : 1.0 + 0.3 * smoothstep(0.45, 0.95, hgt);
+                            rim = beadTop ? smoothstep(0.60, 0.95, length(bB.yz)) : edge * 0.35;
+                            rimK = 0.62;
+                            gather = beadTop ? 1.0 + 0.35 * park + 0.25 * smoothstep(0.3, 0.9, hgt) : 1.0 + 0.3 * smoothstep(0.45, 0.95, hgt);
                         }
                         float3 seen = tex2Dlod(_PSXSSRColour, float4(suv, 0.0, 0.0)).rgb;
                         // (a bead by the pillar would show the pillar - a black fleck on
@@ -510,7 +512,7 @@ Shader "PSX/CabinGlass"
                         if (beadTop) seen = max(seen, tex2Dlod(_PSXSSRColour, float4(i.pos.xy / _ScreenParams.xy, 0.0, 0.0)).rgb * 0.75);
                         // (RAINGLASS) the picture in a bead is the scene's light, less its tint:
                         // a third of the way to grey (sodium-lit streets made every bead orange)
-                        if (b2 && beadTop) seen = lerp(seen, dot(seen, float3(0.30, 0.59, 0.11)).xxx, 0.33);
+                        if (b2 && beadTop) seen = lerp(seen, dot(seen, float3(0.30, 0.59, 0.11)).xxx, 0.25);
                         through = seen * (wetA * (1.0 - rimK * rim * cover) * gather);
                         // the glint: one bright point up and to the side of each bead's crown
                         float g2 = beadTop ? (1.0 - smoothstep(0.0, 0.32, length(bB.yz - float2(-0.30, 0.38)))) * cover : glint;
@@ -525,7 +527,8 @@ Shader "PSX/CabinGlass"
                         dropA = wetA;
                         dropC = cover * (sky * 0.05 + ambient * 0.03) * (1.0 - edge)
                               + g2 * (sky * 0.6 + _PSXLightColor.rgb * 0.35 * day + lamp * 2.0 + ambient * 0.25)
-                              + sheet * R2G_VEIL * (b2 ? park + 0.8 * wind : park) * (ambient * 0.5 + sky * 0.25 + lamp);
+                              + sheet * R2G_VEIL * (b2 ? park + 0.8 * wind : park) * (ambient * 0.5 + sky * 0.25 + lamp)
+                              + (b2 ? smear * rain * 0.18 * (lamp * 1.5 + sky * 0.2) : 0.0);
                     }
                     rgb = rgb * (1.0 - dropA) + dropC;
                     a = a + dropA * (1.0 - a);
