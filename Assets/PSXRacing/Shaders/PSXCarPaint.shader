@@ -1053,7 +1053,8 @@ Shader "PSX/CarPaint"
                     {
                         float2 up2; float pxR;
                         float4 bl = CarBeadLens(i.bpos, normalize(i.bnrm), downB, saturate(_PSXCarWind.w), glass, up2, pxR);
-                        float lens = bl.x * saturate(1.0 - dull * 3.0);   // (not on a wheel: its tyre would sparkle)
+                        float lens = bl.x * saturate(1.0 - dull * 3.0)    // (not on a wheel: its tyre would sparkle - nor on the
+                                   * lerp(1.0, smoothstep(0.55, 0.80, i.hgt), glass);   // dark rubber low on a body whose wheels are its own texels)
                         float resolved = saturate((pxR - 0.8) / 1.6);
                         float pt = 1.0 - smoothstep(0.0, 0.38, length(bl.yz - up2 * 0.45));
                         float ring = smoothstep(0.55, 0.95, length(bl.yz)) * step(0.001, lens);

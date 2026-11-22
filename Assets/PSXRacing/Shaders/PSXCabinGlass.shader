@@ -487,7 +487,7 @@ Shader "PSX/CabinGlass"
                         // (RAINGLASS) at speed the water the blades have not taken is a blown,
                         // streaming sheet (his fast clip: the screen's edges bright with it), so the
                         // swept arcs - where little has landed since - read clear against it
-                        if (b2) sheet = max(rainW * fill * R2G_SHEET * lerp(1.0, 0.75, wind), 0.45 * smear * rain) * (1.0 - cover);
+                        if (b2) sheet = max(rainW * fill * R2G_SHEET * lerp(1.0, 0.5, wind), 0.45 * smear * rain) * (1.0 - cover);
                         float2 wob = float2(sin(q.y * 95.0 + sin(q.x * 37.0 + _CabinRun * 9.0) * 1.7),
                                             sin(q.x * 80.0 + sin(q.y * 41.0 - _CabinRun * 12.0) * 1.9));
                         dpx += wob * (R2G_WOBBLE * px1080 * sheet);
@@ -527,7 +527,7 @@ Shader "PSX/CabinGlass"
                         dropA = wetA;
                         dropC = cover * (sky * 0.05 + ambient * 0.03) * (1.0 - edge)
                               + g2 * (sky * 0.6 + _PSXLightColor.rgb * 0.35 * day + lamp * 2.0 + ambient * 0.25)
-                              + sheet * R2G_VEIL * (b2 ? park + 0.8 * wind : park) * (ambient * 0.5 + sky * 0.25 + lamp)
+                              + sheet * R2G_VEIL * (b2 ? park + 0.4 * wind : park) * (ambient * 0.5 + sky * 0.25 + lamp)
                               + (b2 ? smear * rain * 0.18 * (lamp * 1.5 + sky * 0.2) : 0.0);
                     }
                     rgb = rgb * (1.0 - dropA) + dropC;
