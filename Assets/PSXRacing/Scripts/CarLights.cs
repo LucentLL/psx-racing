@@ -706,7 +706,7 @@ namespace PSXRacing
                 // the rain's water film on every car's paint (THE FINISH)
                 Shader.SetGlobalFloat(PaintGloss.CarWetId, Seasons.CarWetNow);
                 // and the drops and flakes on them (PSXCarDrops)
-                Shader.SetGlobalVector(PaintGloss.CarDropsId, new Vector4(WeatherFx.CarRain, WeatherFx.CarSnow, 0f, 0f));
+                Shader.SetGlobalVector(PaintGloss.CarDropsId, new Vector4(WeatherFx.CarRain, WeatherFx.CarSnow, Rain2.On && Rain2.CarGlass ? 1f : 0f, 0f));
             }
         }
 
