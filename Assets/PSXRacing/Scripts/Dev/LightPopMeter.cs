@@ -139,7 +139,7 @@ namespace PSXRacing
             var sb = new StringBuilder();
             sb.Append(seg).Append(": ").Append((segDistM / 1000f).ToString("0.00", CultureInfo.InvariantCulture)).Append(" km, ")
               .Append(segSeconds.ToString("0", CultureInfo.InvariantCulture)).Append(" s, ").Append(segFrames).Append(" frames, ")
-              .Append(segCuts).Append(" cuts; quiet frames ").Append(noiseFrames > 0 ? (100.0 * noiseZero / noiseFrames).ToString("0", CultureInfo.InvariantCulture) : "-").Append("%\n");
+              .Append(segCuts).Append(" cuts; quiet frames ").Append(noiseFrames > 0 ? (100.0 * noiseZero / noiseFrames).ToString("0", CultureInfo.InvariantCulture) : "-").Append("%; tile halo births faded so far ").Append(NightGlow.BirthsFaded).Append("\n");
             int total = 0;
             for (int i = 0; i < (int)Cause.Count; i++) total += evCount[i];
             sb.Append("    POPS ").Append(total).Append(" (").Append(km > 0.01f ? (total / km).ToString("0.0", CultureInfo.InvariantCulture) + "/km, " : "")
