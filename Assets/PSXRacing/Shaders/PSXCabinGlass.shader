@@ -112,7 +112,7 @@ Shader "PSX/CabinGlass"
             // RAINGLASS2 (2026-11-22, round 2): x the bank as his clip's (PSX_RAIN2_BANK2), y the parked
             // pane covered (PSX_RAIN2_COVER), z the wiped arcs clear at speed (PSX_RAIN2_CLEAR); 0 = fe3ce8a6
             float4 _PSXRain2Glass2;
-            #define R2G_BANK2_M  0.090     // the bank ahead of the rubber, metres deep (his tunnel clip: a hand's width at the tip)
+            #define R2G_BANK2_M  0.055     // the bank ahead of the rubber, metres deep (his tunnel clip: 40-80 px of a 4K frame)
             #define R2G_DEPO_M   0.045     // the lump it drops beyond the arc's end, metres
             #define R2G_BANK_PX  15.0      // how far the bank's lip bends what is behind it, pixels of a 1080-line frame
             fixed4 _PSXSkyAmbient;
@@ -437,8 +437,8 @@ Shader "PSX/CabinGlass"
                                         float gradM = max(length(gM), 0.5);
                                         float dm2 = (p - s) * dirK / gradM;
                                         float carry = phk < 0.5 ? smoothstep(0.0, 0.25, s) : 0.35 + 0.40 * smoothstep(0.0, 0.6, 1.0 - s);
-                                        float rag = 0.5 + 0.5 * sin(dot(q, float2(23.0, 31.0)) + 1.3 * sin(dot(q, float2(-41.0, 17.0)) + _CabinRun * 3.0));
-                                        float wB = R2G_BANK2_M * (0.45 + 0.55 * carry) * (0.70 + 0.55 * rag);
+                                        float rag = 0.5 + 0.5 * sin(dot(q, float2(14.0, 19.0)) + 1.1 * sin(dot(q, float2(-27.0, 11.0)) + _CabinRun * 3.0));
+                                        float wB = R2G_BANK2_M * (0.45 + 0.55 * carry) * (0.78 + 0.40 * rag);
                                         float x = dm2 / wB;
                                         float hb = inK * smoothstep(-0.004, 0.002, dm2) * sqrt(saturate(1.0 - x)) * (1.0 - smoothstep(0.96, 1.0, x))
                                                  * smoothstep(0.0, 0.08, s + (phk < 0.5 ? 0.0 : 0.2)) * (0.55 + 0.45 * carry);
@@ -673,13 +673,17 @@ Shader "PSX/CabinGlass"
                                 float2 dpl = float2(qdy.y * dql.x - qdy.x * dql.y, qdx.x * dql.y - qdx.y * dql.x) / (abs(dtl) > 1e-12 ? dtl : 1e-12);
                                 dpx -= dpl * (2.5 * smoothstep(0.0, 0.3, lump4.x));
                                 float lx = (bankX - 0.84) / 0.10, mx = (bankX - 0.99) / 0.035;
-                                lipL = 0.30 * exp(-lx * lx) * smoothstep(0.06, 0.3, bank) + 0.25 * smoothstep(0.3, 0.8, lump4.x) * saturate(dot(lump4.yz, -_Down.xy));
+                                lipL = 0.30 * exp(-lx * lx) * smoothstep(0.06, 0.3, bank) + 0.12 * smoothstep(0.3, 0.8, lump4.x) * saturate(dot(lump4.yz, -_Down.xy));
                                 // a thick water surface is a mirror: the whole band carries a wavering sheen of
                                 // the sky and the lamps (what makes it read against a plain road), and it blurs
                                 // what is seen through it along the rubber
-                                bankSheen = smoothstep(0.06, 0.30, bank) * (0.24 + 0.20 * ripple + 0.50 * smoothstep(0.2, 0.8, lump4.x));
-                                bankBlur = alongPx * (6.0 * px1080) + bankPx * (2.0 * px1080);
-                                bankShade = (0.78 + 0.37 * smoothstep(0.0, 0.25, bankX))
+                                float lumpRim = smoothstep(0.55, 0.95, length(lump4.yz)) * step(0.01, lump4.x);
+                                // (11-22 17:40 at 4K it read as milky foam: clear water now - a faint sheen, the
+                                // light caught on each blob's upper rim, a dark outline round each blob)
+                                bankSheen = smoothstep(0.06, 0.30, bank) * (0.05 + 0.08 * ripple + 0.55 * lumpRim * saturate(dot(lump4.yz, -_Down.xy) + 0.2));
+                                bankShade *= 1.0 - 0.40 * lumpRim * saturate(0.4 - dot(lump4.yz, -_Down.xy));
+                                bankBlur = alongPx * (2.5 * px1080) + bankPx * (1.0 * px1080);
+                                bankShade *= (0.78 + 0.37 * smoothstep(0.0, 0.25, bankX))
                                           * (1.0 - 0.45 * exp(-mx * mx));
                             }
                             else bankShade = 1.0 + 0.15 * depoFresh;
