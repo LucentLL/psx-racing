@@ -12301,7 +12301,8 @@ namespace PSXRacing.EditorTools
                 System.IO.Path.Combine(Application.dataPath, "..", "ProjectSettings", "GraphicsSettings.asset"));
             Check(gfx.Contains("26c3a241d27b43d1a8b9585a3a9b7713"),
                   "PSX/Beam is in GraphicsSettings' always-included shaders");
-            Check(CarLights.MaxLights == 8, "eight headlight slots in the table");
+            Check(CarLights.MaxLights == 16 && CarLights.LegacyLights == 8,
+                  "sixteen headlight slots in the table (eight cars on PC since the lightpop round; eight lamps elsewhere and with PSX_LIGHT_NOPOP=0)");
             Check(CarLights.BeamRange >= 60f && CarLights.BeamRange <= 100f,
                   "a halogen low beam reaches 60-100 m", CarLights.BeamRange);
             Check(CarLights.Halogen.r > CarLights.Halogen.g && CarLights.Halogen.g > CarLights.Halogen.b,

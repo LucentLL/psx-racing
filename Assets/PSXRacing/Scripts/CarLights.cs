@@ -514,6 +514,7 @@ namespace PSXRacing
         void OnEnable()
         {
             if (!all.Contains(this)) all.Add(this);
+            bornAt = Time.unscaledTime;
             Refresh();
         }
 
@@ -972,7 +973,11 @@ namespace PSXRacing
         // ------------------------------------------------------------------
         //  The global table PSXHeadlights.cginc reads.
         // ------------------------------------------------------------------
-        public const int MaxLights = 8;
+        /// <summary>Slots in the shader table (PSXHeadlights.cginc PSX_MAX_HEADLIGHTS).
+        /// 16 since the lightpop round; today's table (PSX_LIGHT_NOPOP=0) and
+        /// phones fill <see cref="LegacyLights"/> of them.</summary>
+        public const int MaxLights = 16;
+        public const int LegacyLights = 8;
         static readonly Vector4[] gPos = new Vector4[MaxLights];
         static readonly Vector4[] gFwd = new Vector4[MaxLights];
         static readonly Vector4[] gRight = new Vector4[MaxLights];
@@ -1001,11 +1006,23 @@ namespace PSXRacing
         // where the cars and the eye are, so it moves only as they move, and a
         // replay cut is right on its first frame. PSX_LIGHT_NOPOP=0: as before.
         public const float HeadAimM = 12f, HeadAimRadiusM = 25f;
-        public const float HeadRankBandM = 25f, HeadFullM = 150f, HeadEndM = 210f;
-        const int CarsMax = MaxLights / 2;
-        static readonly int[] scoredIdx = new int[CarsMax + 1];
-        static readonly float[] scoredScore = new float[CarsMax + 1];
-        static readonly float[] scoredFade = new float[CarsMax + 1];
+        public const float HeadRankBandM = 45f, HeadFullM = 150f, HeadEndM = 210f;
+        /// <summary>A car's beams on the world: its lamps are scored by the aim
+        /// point's distance times 1 + this times how far off the line of sight
+        /// (less than the street lamps': a car turning across the view must not
+        /// sweep the ranking).</summary>
+        public const float HeadViewPenalty = 1f;
+        /// <summary>A car just switched on (a spawn, a respawn) scores this much
+        /// further, easing to nothing over <see cref="HeadBirthS"/>: it slides
+        /// into the ranking instead of moving the cut in a step.</summary>
+        public const float HeadBirthM = 120f, HeadBirthS = 1.5f;
+        const int CarsCap = MaxLights / 2;
+        /// <summary>Cars whose beams light the world: eight on PC, four on a phone.</summary>
+        static int CarsMax => PlatformProfile.PC ? CarsCap : LegacyLights / 2;
+        float bornAt = -100f;
+        static readonly int[] scoredIdx = new int[CarsCap + 1];
+        static readonly float[] scoredScore = new float[CarsCap + 1];
+        static readonly float[] scoredFade = new float[CarsCap + 1];
         static int scoredCount;
         static float carCut;
 
@@ -1021,7 +1038,9 @@ namespace PSXRacing
         static void ScoreCars(Vector3 eye, Vector3 fwd)
         {
             scoredCount = 0;
-            int cap = CarsMax + 1;
+            int carsMax = CarsMax;
+            int cap = carsMax + 1;
+            float now = Time.unscaledTime;
             for (int i = 0; i < sorted.Count; i++)
             {
                 var tr = sorted[i].transform;
@@ -1029,7 +1048,10 @@ namespace PSXRacing
                 Vector3 d = aim - eye;
                 float dist = d.magnitude;
                 if (dist >= HeadEndM) continue;
-                float s = dist * StreetLights.ViewFactor(d, dist, HeadAimRadiusM, fwd);
+                float vf = StreetLights.ViewFactor(d, dist, HeadAimRadiusM, fwd);
+                float s = dist * (1f + (vf - 1f) * HeadViewPenalty / StreetLights.ViewPenalty);
+                float born = Application.isPlaying ? Mathf.Clamp01((now - sorted[i].bornAt) / HeadBirthS) : 1f;
+                s += HeadBirthM * (1f - born);
                 if (s >= HeadEndM) continue;
                 if (scoredCount == cap && s >= scoredScore[cap - 1]) continue;
                 int k = scoredCount < cap ? scoredCount++ : cap - 1;
@@ -1041,8 +1063,8 @@ namespace PSXRacing
                 }
                 scoredScore[k] = s; scoredIdx[k] = i; scoredFade[k] = fade;
             }
-            carCut = scoredCount > CarsMax ? Mathf.Min(scoredScore[CarsMax], HeadEndM) : HeadEndM;
-            if (scoredCount > CarsMax) scoredCount = CarsMax;
+            carCut = scoredCount > carsMax ? Mathf.Min(scoredScore[carsMax], HeadEndM) : HeadEndM;
+            if (scoredCount > carsMax) scoredCount = carsMax;
         }
 
         // ---- the light-pop meter's hooks (Dev/LightPopMeter.cs) ----
@@ -1116,7 +1138,7 @@ namespace PSXRacing
                 {
                     var l = noPop && !meterB ? sorted[scoredIdx[c]] : sorted[c];
                     // NO LIGHT POPS: the car's rank weight times its own distance fade
-                    float rank = noPop && !meterB ? Mathf.Clamp01((carCut - scoredScore[c]) / HeadRankBandM) : (n < MaxLights ? 1f : 0f);
+                    float rank = noPop && !meterB ? Mathf.Clamp01((carCut - scoredScore[c]) / HeadRankBandM) : (n < LegacyLights ? 1f : 0f);
                     float w = noPop && !meterB ? rank * scoredFade[c] : rank;
                     if (meterB)
                     {
@@ -1127,7 +1149,7 @@ namespace PSXRacing
                     else if (MeterOn) MeterRank[System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(l)] = rank;
                     if (w <= 0f) continue;
                     var cw = col * w;
-                    for (int i = 0; i < 2 && n < MaxLights; i++)
+                    for (int i = 0; i < 2 && n < (noPop ? MaxLights : LegacyLights); i++)
                     {
                         if (l.HeadOut(i)) continue;   // R1a part 2a: a lamp a hit broke gives no light
                         var t = l.beams[i].transform;
