@@ -114,6 +114,9 @@ namespace PSXRacing
 
         void Awake()
         {
+            // PSX_LIGHTPOP_W/H: the measured frame's size (pop counts are defined at 512x288)
+            if (int.TryParse(System.Environment.GetEnvironmentVariable("PSX_LIGHTPOP_W") ?? "", out int w) && w >= 256) W = w;
+            if (int.TryParse(System.Environment.GetEnvironmentVariable("PSX_LIGHTPOP_H") ?? "", out int h) && h >= 144) H = h;
             for (int i = 0; i < pairs.Length; i++) pairs[i] = new List<(float, string)>();
             csv.AppendLine("segment,frame,t,cause,px,light,cx,cy,dist_m,after_cut,detail");
         }
@@ -234,7 +237,7 @@ namespace PSXRacing
                 Diff(pixA, pixB, out int px, out double light, out float cx, out float cy);
                 noiseFrames++;
                 if (px == 0) noiseZero++;
-                if (px >= MinPx)
+                if (px >= MinPx * (W * H) / (512 * 288))
                 {
                     segPopFrames++;
                     // the frame before, whole, for the pair (the cause renders reuse pixB)
@@ -260,6 +263,8 @@ namespace PSXRacing
                 }
             }
             if (stripEvery > 0 && segFrames % stripEvery == 0) SaveFrame(pixA, "strip_" + (stripN++).ToString("000"));
+            // PSX_LIGHTPOP_VIDEO=1: every frame, for a clip (tools: ffmpeg at 30 fps)
+            if (Video) SaveFrame(pixA, "v_" + segFrames.ToString("00000"), true);
             if (afterCutSave > 0) { SaveFrame(pixA, "cut" + cutIndex.ToString("00") + "_f" + (3 - afterCutSave)); afterCutSave--; }
 
             // this frame becomes the frame before
@@ -585,12 +590,14 @@ namespace PSXRacing
             if (light > 0) { cx = (float)(sx / light / W); cy = 1f - (float)(sy / light / H); }
         }
 
-        void SaveFrame(byte[] pix, string name)
+        public static bool Video = System.Environment.GetEnvironmentVariable("PSX_LIGHTPOP_VIDEO") == "1";
+
+        void SaveFrame(byte[] pix, string name, bool jpg = false)
         {
             if (pix == null) return;
             var tex = new Texture2D(W, H, TextureFormat.RGBA32, false);
             tex.LoadRawTextureData(pix); tex.Apply(false);
-            try { System.IO.File.WriteAllBytes(System.IO.Path.Combine(OutDir, seg, name + ".png"), tex.EncodeToPNG()); } catch (System.Exception) { }
+            try { System.IO.File.WriteAllBytes(System.IO.Path.Combine(OutDir, seg, name + (jpg ? ".jpg" : ".png")), jpg ? tex.EncodeToJPG(88) : tex.EncodeToPNG()); } catch (System.Exception) { }
             Destroy(tex);
         }
 
