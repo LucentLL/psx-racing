@@ -36,12 +36,12 @@ namespace PSXRacing
     {
         public enum Tier { Mobile = 0, Low = 1, High = 2 }
 
-        /// <summary>The whole package. PSX_RAIN2=0 (and unset): the rain as it was.
-        /// DEFAULT OFF until its cost is proven under the budget: the one
-        /// measurement so far (2026-11-17, 3832 x 2054, the owner's game
-        /// running beside it) read +1.3 ms for the ground and +2.1..2.5 ms in
-        /// the cockpit against a 1.0 ms target. PSX_RAIN2=1 turns it on.</summary>
-        public static bool On = Env("PSX_RAIN2", false);
+        /// <summary>The whole package. DEFAULT ON on PC (the PC profile) since 2026-11-22: the owner,
+        /// after trying it in PC52, asked for it to be merged into the main game like the HD water.
+        /// PSX_RAIN2=0: the rain as it was. Phones and WebGL keep the old rain unless PSX_RAIN2=1
+        /// (their tiers are unverified). Cost measured 2026-11-17 at 3832 x 2054: about +0.2 to
+        /// +0.5 ms for the whole package (noisy: his game ran beside it).</summary>
+        public static bool On = Env("PSX_RAIN2", PlatformProfile.PC);
         /// <summary>Standing water by slope + the gutter pans (PSX_RAIN2_POOLS).</summary>
         public static bool Pools = Env("PSX_RAIN2_POOLS", true);
         /// <summary>The drops' rings in the water (PSX_RAIN2_RINGS).</summary>
