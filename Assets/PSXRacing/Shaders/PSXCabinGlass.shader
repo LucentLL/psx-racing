@@ -94,6 +94,7 @@ Shader "PSX/CabinGlass"
             // value s at which each arm's rubber crosses this point on the upstroke; b, a = signed
             // distance to the edge of each arm's swept area, 0.5 + d / (2 R2G_FIELD_M), inside +.
             sampler2D _WiperPhase;
+            float4 _WiperPhase_TexelSize;
             float _WiperDraw;     // 1: draw the blades here (the model has no Wiper_* nodes)
             float4 _WiperLag;     // each arm's lag behind the stroke, a share of its time
             #define R2G_FIELD_M 0.04       // = WiperPhase.FieldM
@@ -393,7 +394,7 @@ Shader "PSX/CabinGlass"
                                     float lump = lerp(0.55, 1.0, smoothstep(0.80, 0.97, pin));
                                     float fresh = exp(-max(fed, 0.0) / 1.4) * lump;
                                     // the lump: thickest at the edge, its outer side ragged
-                                    float wD = R2G_DEPO_M * (0.55 + 0.45 * fresh) * (0.75 + 0.5 * frac(sin(dot(q, float2(41.3, 29.7))) * 43758.5));
+                                    float wD = R2G_DEPO_M * (0.55 + 0.45 * fresh) * (0.80 + 0.20 * sin(dot(q, float2(37.0, 29.0))) + 0.15 * sin(dot(q, float2(-71.0, 53.0))));
                                     float prof = saturate(1.0 + dIn / wD);
                                     prof = prof * prof * (3.0 - 2.0 * prof);
                                     float dk = prof * (0.40 + 0.60 * fresh);
@@ -416,17 +417,39 @@ Shader "PSX/CabinGlass"
                                     // against the rubber, a rounded lip in front, as deep as a hand at full
                                     // load and ragged along its length. It gathers on the way up (the whole
                                     // screen's water); on the way back it starts again from what fell since.
-                                    float carry = phk < 0.5 ? smoothstep(0.0, 0.25, s) : 0.35 + 0.40 * smoothstep(0.0, 0.6, 1.0 - s);
-                                    float rag = 0.5 + 0.5 * sin(dot(q, float2(23.0, 31.0)) + 1.3 * sin(dot(q, float2(-41.0, 17.0)) + _CabinRun * 3.0));
-                                    float wB = R2G_BANK2_M * (0.45 + 0.55 * carry) * (0.70 + 0.55 * rag);
-                                    float x = dm / wB;
-                                    float hb = inK * smoothstep(-0.004, 0.002, dm) * pow(saturate(1.0 - x), 0.55) * step(x, 1.0)
-                                             * smoothstep(0.0, 0.08, s + (phk < 0.5 ? 0.0 : 0.2)) * (0.55 + 0.45 * carry);
-                                    if (hb > ahead)
+                                    // The phase's slope from the map itself, two texels either side (a pixel's
+                                    // own derivative steps at every texel and frayed the bank's lip into grit),
+                                    // one-sided where a neighbour lies outside the swept area.
+                                    float dirK = phk < 0.5 ? 1.0 : -1.0;
+                                    if (inK > 0.0 && (p - s) * dirK > -0.02 && (p - s) * dirK < 0.30)
                                     {
-                                        ahead = hb;
-                                        bankX = saturate(x);
-                                        bankPx = (phk < 0.5 ? 1.0 : -1.0) * gpP / max(length(gpP), 1e-8);
+                                        float2 tx = _WiperPhase_TexelSize.xy * 2.0;
+                                        float4 sR = tex2Dlod(_WiperPhase, float4(i.uv + float2(tx.x, 0.0), 0.0, 0.0));
+                                        float4 sL = tex2Dlod(_WiperPhase, float4(i.uv - float2(tx.x, 0.0), 0.0, 0.0));
+                                        float4 sU = tex2Dlod(_WiperPhase, float4(i.uv + float2(0.0, tx.y), 0.0, 0.0));
+                                        float4 sD = tex2Dlod(_WiperPhase, float4(i.uv - float2(0.0, tx.y), 0.0, 0.0));
+                                        float pR = k == 0 ? sR.r : sR.g, pL = k == 0 ? sL.r : sL.g, pU = k == 0 ? sU.r : sU.g, pD = k == 0 ? sD.r : sD.g;
+                                        float spanU = (pR > 0.002 ? 1.0 : 0.0) + (pL > 0.002 ? 1.0 : 0.0);
+                                        float spanV = (pU > 0.002 ? 1.0 : 0.0) + (pD > 0.002 ? 1.0 : 0.0);
+                                        float dpdu = ((pR > 0.002 ? pR : p) - (pL > 0.002 ? pL : p)) / (max(spanU, 1.0) * tx.x);
+                                        float dpdv = ((pU > 0.002 ? pU : p) - (pD > 0.002 ? pD : p)) / (max(spanV, 1.0) * tx.y);
+                                        float2 gM = float2(dpdu / max(_Metres.x, 1e-4), dpdv / max(_Metres.y, 1e-4));   // per metre on the pane
+                                        float gradM = max(length(gM), 0.5);
+                                        float dm2 = (p - s) * dirK / gradM;
+                                        float carry = phk < 0.5 ? smoothstep(0.0, 0.25, s) : 0.35 + 0.40 * smoothstep(0.0, 0.6, 1.0 - s);
+                                        float rag = 0.5 + 0.5 * sin(dot(q, float2(23.0, 31.0)) + 1.3 * sin(dot(q, float2(-41.0, 17.0)) + _CabinRun * 3.0));
+                                        float wB = R2G_BANK2_M * (0.45 + 0.55 * carry) * (0.70 + 0.55 * rag);
+                                        float x = dm2 / wB;
+                                        float hb = inK * smoothstep(-0.004, 0.002, dm2) * sqrt(saturate(1.0 - x)) * (1.0 - smoothstep(0.96, 1.0, x))
+                                                 * smoothstep(0.0, 0.08, s + (phk < 0.5 ? 0.0 : 0.2)) * (0.55 + 0.45 * carry);
+                                        if (hb > ahead)
+                                        {
+                                            ahead = hb;
+                                            bankX = saturate(x);
+                                            // the stroke's direction in screen pixels (p grows along the upstroke)
+                                            float2 gPix = float2(dpdu * uvx.x + dpdv * uvx.y, dpdu * uvy.x + dpdv * uvy.y);
+                                            bankPx = dirK * gPix / max(length(gPix), 1e-8);
+                                        }
                                     }
                                 }
                                 else
@@ -475,6 +498,8 @@ Shader "PSX/CabinGlass"
                     fill *= fill;
                 }
 
+                // (RAINGLASS2) the lump's own slope, smooth (uniform flow: before any branch on it)
+                float2 gDepo = float2(ddx(depo), ddy(depo));
                 if (rain > 0.002)
                 {
                     float wind = _CabinWind;
@@ -535,12 +560,20 @@ Shader "PSX/CabinGlass"
                     // thick wavering band, not beads - and what it leaves at the arcs' edges runs
                     // off in rivulets, down the screen parked, back along the air at speed
                     bool inBank = false;
+                    float4 lump4 = float4(0.0, 0.0, 0.0, 1.0);
                     if (bank2)
                     {
                         // (RAINGLASS2) the bank swallows the beads it reaches; the lump at the arc's end
                         // is pooled water with a ragged, beaded outer edge
                         inBank = bank > 0.06;
-                        if (inBank) hgt = max(hgt * (1.0 - smoothstep(0.06, 0.25, bank)), bank * rain);
+                        if (inBank)
+                        {
+                            // the gathered water is lumpy - drops run together into blobs riding the
+                            // band (his clip: a band of bright, bent blobs before the rubber)
+                            lump4 = Bead4(q, 0.011, 1.0, 23.1, 1.35, _Down.xy, 1.0);
+                            lump4.x *= smoothstep(0.06, 0.35, bank);
+                            hgt = max(hgt * (1.0 - smoothstep(0.06, 0.25, bank)), bank * rain * (0.55 + 0.45 * lump4.x));
+                        }
                         if (depo > 0.0) hgt = max(hgt, depo * rain * (0.70 + 0.30 * Beads(q, 0.0070, 0.95, 19.3)));
                     }
                     else if (bank > 0.0)
@@ -613,21 +646,40 @@ Shader "PSX/CabinGlass"
                         // bends what is behind it by tens of pixels - the scene ahead swims in the bank,
                         // most at its rounded lip, and wavers as it rolls (his tunnel clip: the lamps
                         // smeared and doubled in the band before the blade)
-                        float lipL = 0.0, bankShade = 1.0;
+                        float lipL = 0.0, bankShade = 1.0, bankSheen = 0.0;
+                        float2 bankBlur = float2(0.0, 0.0);
                         if (bank2 && !beadTop && (inBank || depo > 0.05))
                         {
                             float pxm = sqrt(m2);
-                            float gl = length(gpx);
-                            float2 gdir = gpx / max(gl, 1e-6);
-                            float slopeN = min(gl * (0.05 / max(pxm, 1e-6)), 1.5);
                             float roll = 0.75 + 0.25 * sin(dot(q, float2(57.0, 43.0)) + _CabinRun * 19.0);
-                            dpx += gdir * (slopeN * R2G_BANK_PX * 0.6 * px1080 * roll);
+                            if (!inBank)
+                            {
+                                float gl = length(gDepo);
+                                float slopeN = min(gl * (0.04 / max(pxm, 1e-6)), 1.5);
+                                dpx += gDepo / max(gl, 1e-6) * (slopeN * R2G_BANK_PX * 0.7 * px1080 * roll);
+                            }
                             if (inBank)
                             {
-                                dpx += bankPx * (R2G_BANK_PX * px1080 * (0.30 + 0.70 * smoothstep(0.5, 1.0, bankX)) * roll);
-                                float lx = (bankX - 0.86) / 0.07, mx = (bankX - 0.99) / 0.035;
-                                lipL = exp(-lx * lx) * smoothstep(0.06, 0.3, bank);
-                                bankShade = (0.80 + 0.20 * smoothstep(0.0, 0.25, bankX))
+                                // a lens of the bank's own profile (thickness ~ sqrt(1 - x)): what is behind it
+                                // is drawn out toward the lip - a magnifying band, not a shifted copy - and
+                                // ripples along its length as it rolls; every blob in it bends its own bit
+                                float2 alongPx = float2(-bankPx.y, bankPx.x);
+                                float ripple = sin(dot(q, float2(131.0, 97.0)) + _CabinRun * 31.0) * 0.5
+                                             + sin(dot(q, float2(-63.0, 149.0)) - _CabinRun * 23.0) * 0.5;
+                                float bendK = 1.0 - sqrt(saturate(1.0 - bankX));
+                                dpx = bankPx * (R2G_BANK_PX * px1080 * (bendK * 1.6 - 0.3) * roll) + alongPx * (ripple * 3.0 * px1080);
+                                float2 dql = lump4.yz * lump4.w;
+                                float dtl = qdx.x * qdy.y - qdx.y * qdy.x;
+                                float2 dpl = float2(qdy.y * dql.x - qdy.x * dql.y, qdx.x * dql.y - qdx.y * dql.x) / (abs(dtl) > 1e-12 ? dtl : 1e-12);
+                                dpx -= dpl * (2.5 * smoothstep(0.0, 0.3, lump4.x));
+                                float lx = (bankX - 0.84) / 0.10, mx = (bankX - 0.99) / 0.035;
+                                lipL = 0.30 * exp(-lx * lx) * smoothstep(0.06, 0.3, bank) + 0.25 * smoothstep(0.3, 0.8, lump4.x) * saturate(dot(lump4.yz, -_Down.xy));
+                                // a thick water surface is a mirror: the whole band carries a wavering sheen of
+                                // the sky and the lamps (what makes it read against a plain road), and it blurs
+                                // what is seen through it along the rubber
+                                bankSheen = smoothstep(0.06, 0.30, bank) * (0.22 + 0.20 * ripple + 0.38 * smoothstep(0.2, 0.8, lump4.x));
+                                bankBlur = alongPx * (6.0 * px1080) + bankPx * (2.0 * px1080);
+                                bankShade = (0.78 + 0.37 * smoothstep(0.0, 0.25, bankX))
                                           * (1.0 - 0.45 * exp(-mx * mx));
                             }
                             else bankShade = 1.0 + 0.15 * depoFresh;
@@ -649,6 +701,12 @@ Shader "PSX/CabinGlass"
                             gather = beadTop ? 1.0 + 0.35 * park + 0.25 * smoothstep(0.3, 0.9, hgt) : 1.0 + 0.3 * smoothstep(0.45, 0.95, hgt);
                         }
                         float3 seen = tex2Dlod(_PSXSSRColour, float4(suv, 0.0, 0.0)).rgb;
+                        if (bankSheen > 0.0)
+                        {
+                            float2 bb = bankBlur / _ScreenParams.xy;
+                            seen = (seen * 2.0 + tex2Dlod(_PSXSSRColour, float4(suv + bb, 0.0, 0.0)).rgb
+                                               + tex2Dlod(_PSXSSRColour, float4(suv - bb, 0.0, 0.0)).rgb) * 0.25;
+                        }
                         // (a bead by the pillar would show the pillar - a black fleck on
                         // the pane: it keeps most of what is straight behind it)
                         if (beadTop) seen = max(seen, tex2Dlod(_PSXSSRColour, float4(i.pos.xy / _ScreenParams.xy, 0.0, 0.0)).rgb * 0.75);
@@ -662,6 +720,7 @@ Shader "PSX/CabinGlass"
                         through = seen * (wetA * (1.0 - rimK * rim * cover) * gather * bankShade);
                         // the glint: one bright point up and to the side of each bead's crown
                         float g2 = beadTop ? (1.0 - smoothstep(0.0, 0.32, length(bB.yz - float2(-0.30, 0.38)))) * cover : glint;
+                        if (lipL > 0.0 || (bank2 && inBank)) g2 = 0.0;   // (RAINGLASS2: the bank's light is its lip's, below)
                         // (RAINGLASS) a sharper, smaller glint and a thin bright crescent on the bead's
                         // upper edge (the sky and the lamps caught in its rim)
                         if (b2 && beadTop)
@@ -676,7 +735,8 @@ Shader "PSX/CabinGlass"
                               + sheet * R2G_VEIL * (b2 ? park + 0.4 * wind : park) * (ambient * 0.5 + sky * 0.25 + lamp)
                               + (b2 ? smear * rain * 0.18 * (lamp * 1.5 + sky * 0.2) : 0.0)
                               // (RAINGLASS2) the bank's lip catches the light: a bright wavering line
-                              + lipL * rain * (lamp * 2.2 + sky * 0.45 + ambient * 0.45 + _PSXLightColor.rgb * 0.25 * day);
+                              + lipL * rain * (lamp * 0.9 + sky * 0.30 + ambient * 0.30 + _PSXLightColor.rgb * 0.20 * day)
+                              + bankSheen * rain * (lamp * 0.60 + sky * 0.14 + ambient * 0.14 + _PSXLightColor.rgb * 0.06 * day);
                     }
                     rgb = rgb * (1.0 - dropA) + dropC;
                     a = a + dropA * (1.0 - a);
