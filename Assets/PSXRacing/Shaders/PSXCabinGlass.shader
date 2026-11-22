@@ -97,7 +97,7 @@ Shader "PSX/CabinGlass"
             float _WiperDraw;     // 1: draw the blades here (the model has no Wiper_* nodes)
             float4 _WiperLag;     // each arm's lag behind the stroke, a share of its time
             #define R2G_FIELD_M 0.04       // = WiperPhase.FieldM
-            #define R2G_BANK_M  0.030      // the bank of water a moving blade pushes ahead of it, metres deep
+            #define R2G_BANK_M  0.045      // the bank of water a moving blade pushes ahead of it, metres deep
             float4 _CabinRain2;   // x: 1 = the water looks through (needs _PSXSSRLive); y: 1 = the third bead size; z: 1 = the rainglass beads (Rain2.Beads2)
             sampler2D _PSXSSRColour;
             float _PSXSSRLive;    // 1 while this camera's frame copy is bound (SpeedBlurFeature.WetPass)
@@ -293,6 +293,8 @@ Shader "PSX/CabinGlass"
                 // one last passed this point.
                 float fill = 1.0;
                 float ridge = 0.0;      // (RAIN 2) the water a blade leaves piled along the edges of its arc
+                float bank = 0.0;       // (RAINGLASS) the pooled water the moving blade pushes ahead of it
+                float edgeZone = 0.0;   // (RAINGLASS) within 10 cm of a swept arc's edge: where the pooled water runs off
                 if (_CabinWipe.w > 0.5 && _Wiper.w > 0.0)
                 {
                     float tc = _CabinWipe.x, D = max(_CabinWipe.y, 0.05);
@@ -325,6 +327,7 @@ Shader "PSX/CabinGlass"
                             inside = max(inside, inK);
                             // the water the blades leave piled along the swept area's edge
                             edgeBank = max(edgeBank, dIn < 0.0 ? saturate(1.0 + dIn / R2G_RIDGE_M) : 0.0);
+                            edgeZone = max(edgeZone, saturate(1.0 - abs(dIn) / 0.10));
                             // the bank the moving rubber pushes ahead of it: points a little further
                             // along the stroke than the blade is now (in metres: the phase's own slope)
                             float phk = tk / D;
@@ -338,7 +341,8 @@ Shader "PSX/CabinGlass"
                                                        * smoothstep(0.0, 0.15, s));
                             }
                         }
-                        ridge = max(edgeBank * (1.0 - inside), ahead);
+                        ridge = edgeBank * (1.0 - inside);
+                        bank = ahead;
                     }
                     for (int k = 0; k < 2; k++)
                     {
@@ -390,10 +394,10 @@ Shader "PSX/CabinGlass"
                     // pixels of a 1080-line frame and the pane reads as grain)
                     float bs = 1.0 + 0.6 * _CabinRain2.y * step(0.001, _Wiper.w);
                     // (RAINGLASS) life size nearer: 1.3 x on the windscreen (it read coarse at 1.6), and
-                    // the side and rear glass - a hand from the eye - at 0.62 of the old cells (they read
+                    // the side and rear glass - a hand from the eye - at 0.46 of the old cells (they read
                     // as big as coins beside the driver's head)
                     bool b2 = _CabinRain2.z > 0.5;
-                    if (b2) bs = _Wiper.w > 0.001 ? 1.0 + 0.3 * _CabinRain2.y : 0.62;
+                    if (b2) bs = _Wiper.w > 0.001 ? 1.0 + 0.3 * _CabinRain2.y : 0.46;
                     // (RAIN 2, parked: a fourth size - the screen is COVERED in small
                     // bright beads in his clip - and the fine one far denser)
                     float park = _CabinRain2.y * (1.0 - wind);
@@ -424,6 +428,18 @@ Shader "PSX/CabinGlass"
                     // (RAIN 2) the bank a blade leaves, ragged
                     // (a thin film packed with small beads, not a smooth line)
                     if (ridge > 0.0) hgt = max(hgt, ridge * rain * (0.30 + 0.70 * Beads(q, 0.0075, 0.95, 13.1)));
+                    // (RAINGLASS) the bank the blade drives before it is POOLED water (his clips): a
+                    // thick wavering band, not beads - and what it leaves at the arcs' edges runs
+                    // off in rivulets, down the screen parked, back along the air at speed
+                    if (bank > 0.0)
+                        hgt = max(hgt, bank * rain * (0.62 + 0.18 * sin(dot(q, float2(61.0, 47.0)) + _CabinRun * 23.0)
+                                                         + 0.20 * Beads(q, 0.0065, 0.9, 17.7)));
+                    if (edgeZone > 0.0 && b2)
+                    {
+                        float2 rdir = normalize(lerp(_Down.xy, wdir, saturate(wind * 1.4)));
+                        hgt = max(hgt, edgeZone * Runners(q, rdir, 0.014, 0.18, wind > 0.3 ? _CabinBlow : _CabinRun * 2.0,
+                                                          rain * 0.85, 21.3, 0.7));
+                    }
                     bool beadTop = hB >= max(hR, hS) && hB > 0.0;
                     // WATER, not paint: a drop is clear in the middle (a
                     // little of the sky it bends in), dark at its rim where it

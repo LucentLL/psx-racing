@@ -388,7 +388,46 @@ namespace PSXRacing
                 startSize = Random.Range(0.05f, 0.11f) * (1f + slide * 0.6f + inWater * 0.5f),
                 startColor = DropColour,
             };
+            if (Rain2.On && Rain2.Streaks)
+            {
+                // (rainglass) droplets, not bars: a third the size, and their speed spread wider
+                e.startSize *= Random.Range(0.28f, 0.42f);
+                e.velocity += new Vector3(Random.Range(-1.2f, 1.2f), Random.Range(-0.6f, 0.9f), Random.Range(-1.2f, 1.2f));
+            }
+            ApplyDropLook();
             drops.Emit(e, 1);
+        }
+
+        bool dropLookSet, dropLookOn;
+
+        /// <summary>(rainglass 11-22, Rain2.Streaks) The droplets as a camera sees them. They left the
+        /// tread with half the car's speed and nothing slowed them: at 100 mph a 5-11 cm sprite
+        /// stretched 0.035 s of its flight plus 1.6 of its size - metre-long white bars flying
+        /// beside the car in straight parallel lines, right in front of the chase camera. Now the
+        /// air slows them (drag 2.6: half their speed gone in about a quarter second), so each
+        /// arcs back and down on its own path, and the stretch is a short exposure blur. Off: the
+        /// 11-16 look, to the value.</summary>
+        void ApplyDropLook()
+        {
+            bool on = Rain2.On && Rain2.Streaks;
+            if (drops == null || (dropLookSet && on == dropLookOn)) return;
+            dropLookSet = true;
+            dropLookOn = on;
+            var lv = drops.limitVelocityOverLifetime;
+            lv.enabled = on;
+            if (on)
+            {
+                lv.limit = new ParticleSystem.MinMaxCurve(200f);
+                lv.drag = new ParticleSystem.MinMaxCurve(1.8f, 3.4f);
+                lv.multiplyDragByParticleSize = false;
+                lv.multiplyDragByParticleVelocity = false;
+            }
+            var r = dropHolder != null ? dropHolder.GetComponent<ParticleSystemRenderer>() : null;
+            if (r != null)
+            {
+                r.velocityScale = on ? 0.012f : 0.035f;
+                r.lengthScale = on ? 1.0f : 1.6f;
+            }
         }
 
         bool BuildDrops()

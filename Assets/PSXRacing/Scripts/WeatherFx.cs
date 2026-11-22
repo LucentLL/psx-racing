@@ -201,6 +201,7 @@ namespace PSXRacing
                 }
             }
 
+            if (ps != null && weather != Weather.Snow) ApplyRainLook();
             var cam = Camera.main;
             if (cam == null) return;
             var t = cam.transform;
@@ -476,6 +477,7 @@ namespace PSXRacing
             // used to be a white dot that glowed at midnight.
             if (snow && mat.HasProperty("_Lit")) mat.SetFloat("_Lit", 1f);
             r.sharedMaterial = mat;
+            if (!snow) ApplyRainLook();
 
             ps.Play();
 
@@ -487,6 +489,59 @@ namespace PSXRacing
                 sprayPoll = 0f;
             }
             else snowSince = Time.time;   // the cars start gathering it (CarSnow)
+        }
+
+        bool rainLookSet, rainLookOn;
+
+        /// <summary>
+        /// (rainglass 11-22, Rain2.Streaks) THE STREAKS AS A CAMERA SEES THEM. The owner, of the chase
+        /// view: "the water streaks are very large and move in straight lines. Very unrealistic."
+        /// Every drop fell at one speed, one lean (1.2 m/s of wind) and one size, stretched to
+        /// 0.05 s of its fall (0.75 m) plus 0.02 s of the camera's motion: a sheet of identical
+        /// parallel bars, the near ones a hand long in the chase view. Now a streak is about a
+        /// 1/60 s exposure - 0.3 m of fall, a little more along the camera's own motion, so at
+        /// speed the rain rakes at the lens along the direction of travel - and every drop has its
+        /// own fall speed (12.5-17 m/s), width (0.9-1.6 cm) and drift (0.4-2 m/s with the wind,
+        /// +-0.6 across), and a low-quality turbulence stirs them. Re-applied when the switch
+        /// changes (the perf tour's A/B flips it in one run). Off: the 10-19 settings, to the value.
+        /// </summary>
+        void ApplyRainLook()
+        {
+            bool on = Rain2.On && Rain2.Streaks;
+            if (rainLookSet && on == rainLookOn) return;
+            rainLookSet = true;
+            rainLookOn = on;
+            var main = ps.main;
+            var vel = ps.velocityOverLifetime;
+            var noise = ps.noise;
+            var r = GetComponent<ParticleSystemRenderer>();
+            if (on)
+            {
+                main.startSpeed = new ParticleSystem.MinMaxCurve(12.5f, 17f);
+                main.startSize = new ParticleSystem.MinMaxCurve(0.009f, 0.016f);
+                vel.x = new ParticleSystem.MinMaxCurve(0.4f, 2.0f);
+                vel.y = new ParticleSystem.MinMaxCurve(0f, 0f);
+                vel.z = new ParticleSystem.MinMaxCurve(-0.6f, 0.6f);
+                noise.enabled = true;
+                noise.quality = ParticleSystemNoiseQuality.Low;
+                noise.strength = 0.9f;
+                noise.frequency = 0.35f;
+                noise.scrollSpeed = 0.6f;
+                noise.octaveCount = 1;
+                r.velocityScale = 0.020f;
+                r.cameraVelocityScale = 0.012f;
+            }
+            else
+            {
+                main.startSpeed = RainSpeed;
+                main.startSize = 0.018f;
+                vel.x = new ParticleSystem.MinMaxCurve(1.2f);
+                vel.y = new ParticleSystem.MinMaxCurve(0f);
+                vel.z = new ParticleSystem.MinMaxCurve(0f);
+                noise.enabled = false;
+                r.velocityScale = 0.05f;
+                r.cameraVelocityScale = 0.02f;
+            }
         }
 
         static Texture2D Dot()

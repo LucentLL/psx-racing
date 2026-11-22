@@ -76,6 +76,13 @@ namespace PSXRacing
         /// streaks back along the air with speed, the glass's beads lit by the lamps
         /// (PSX_RAIN2_CARGLASS).</summary>
         public static bool CarGlass = Env("PSX_RAIN2_CARGLASS", true);
+        /// <summary>The rain in the AIR and the tyres' droplets as a camera sees them (owner 11-22,
+        /// of the chase view: "the water streaks are very large and move in straight lines. Very
+        /// unrealistic"): falling streaks a third as long and thinner, every drop its own speed,
+        /// size and drift, stirred by turbulence instead of one parallel sheet; tyre droplets a
+        /// third the size, slowed by the air so they arc and scatter instead of flying as long
+        /// straight bars beside the car (PSX_RAIN2_STREAKS).</summary>
+        public static bool Streaks = Env("PSX_RAIN2_STREAKS", true);
 
         static bool Env(string name, bool fallback)
         {
