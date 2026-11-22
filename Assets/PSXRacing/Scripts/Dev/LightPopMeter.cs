@@ -91,7 +91,7 @@ namespace PSXRacing
         RenderTexture rt, rtShown;
         Material shownMat;
         Texture2D readA, readB;
-        byte[] pixA, pixB;
+        byte[] pixA, pixB, pixB0;
         static readonly int FieldTexId = Shader.PropertyToID("_PSXLampField");
         static readonly int FieldSTId = Shader.PropertyToID("_PSXLampFieldST");
         static readonly int ConeAId = Shader.PropertyToID("_PSXConeA");
@@ -210,6 +210,9 @@ namespace PSXRacing
                 if (px >= MinPx)
                 {
                     segPopFrames++;
+                    // the frame before, whole, for the pair (the cause renders reuse pixB)
+                    if (pixB0 == null || pixB0.Length != pixB.Length) pixB0 = new byte[pixB.Length];
+                    System.Buffer.BlockCopy(pixB, 0, pixB0, 0, pixB.Length);
                     // which component: each put back alone
                     Cause best = Cause.Mixed; int bestPx = 0;
                     TryCause(cam, Cause.Street, ref best, ref bestPx);
@@ -535,9 +538,9 @@ namespace PSXRacing
                 for (int x = 0; x < W; x++)
                 {
                     int i = (y * W + x) * 4;
-                    var b = new Color32(pixB[i], pixB[i + 1], pixB[i + 2], 255);
+                    var b = new Color32(pixB0[i], pixB0[i + 1], pixB0[i + 2], 255);
                     var a = new Color32(pixA[i], pixA[i + 1], pixA[i + 2], 255);
-                    int d = Mathf.Min(255, 4 * Mathf.Max(Mathf.Abs(pixA[i] - pixB[i]), Mathf.Max(Mathf.Abs(pixA[i + 1] - pixB[i + 1]), Mathf.Abs(pixA[i + 2] - pixB[i + 2]))));
+                    int d = Mathf.Min(255, 4 * Mathf.Max(Mathf.Abs(pixA[i] - pixB0[i]), Mathf.Max(Mathf.Abs(pixA[i + 1] - pixB0[i + 1]), Mathf.Abs(pixA[i + 2] - pixB0[i + 2]))));
                     o[y * W * 3 + x] = b;
                     o[y * W * 3 + W + x] = a;
                     o[y * W * 3 + 2 * W + x] = new Color32((byte)d, (byte)d, (byte)d, 255);

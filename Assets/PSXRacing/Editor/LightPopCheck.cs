@@ -194,10 +194,26 @@ namespace PSXRacing.EditorTools
                     Time.captureFramerate = 30;
                     for (int k = 0; k < 20; k++) yield return null;   // the camera settles behind the car
                     meter.Begin(rid + "_" + view.ToString().ToLowerInvariant(), car.transform, strip);
-                    float g0 = Time.time, top = 0f;
-                    while (Time.time - g0 < secs) { top = Mathf.Max(top, car.speedKmh); yield return null; }
+                    float g0 = Time.time, top = 0f, slowFor = 0f;
+                    int nudges = 0;
+                    while (Time.time - g0 < secs)
+                    {
+                        top = Mathf.Max(top, car.speedKmh);
+                        // held up by the traffic or a signal: set on 60 m (a cut, not counted)
+                        slowFor = Mathf.Abs(car.forwardSpeed) < 3f ? slowFor + Time.deltaTime : 0f;
+                        if (slowFor > 2.5f && ai.PathIndex < path.Count - 40)
+                        {
+                            int to = Mathf.Min(path.Count - 13, ai.PathIndex + Mathf.CeilToInt(60f / Mathf.Max(0.5f, path.spacing)));
+                            Vector3 tn = path.GetTangent(to); tn.y = 0f; tn.Normalize();
+                            car.ResetTo(path.GetPoint(to) + Vector3.up * 0.45f, Quaternion.LookRotation(tn, Vector3.up), seated: true);
+                            ai.ReseedPath();
+                            slowFor = 0f; nudges++;
+                        }
+                        if (ai.PathIndex >= path.Count - 12) break;
+                        yield return null;
+                    }
                     string line = meter.End();
-                    LightPopCheck.Line(line + "\n    top " + top.ToString("0") + " km/h");
+                    LightPopCheck.Line(line + "\n    top " + top.ToString("0") + " km/h, " + nudges + " nudges past held-up traffic");
                     Time.captureFramerate = 0;
                 }
             }
