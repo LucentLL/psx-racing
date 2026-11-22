@@ -49,9 +49,11 @@ namespace PSXRacing
         public const float CutJumpM = 20f, CutTurnDeg = 45f;
         public const int AfterCutFrames = 12;
 
-        public enum Cause { Street = 0, Point, Field, Head, Halo, Lens, Beam, Cones, Mixed, Count }
+        public enum Cause { Street = 0, Point, Field, Head, Halo, Lens, Beam, Cones, Mixed, Noise, Count }
         static readonly string[] CauseName = { "street lamp table", "tail lamp table", "lamp field", "headlight table",
-                                               "lamp halos", "car lenses", "car beam cones", "lamp cones", "mixed" };
+                                               "lamp halos", "car lenses", "car beam cones", "lamp cones", "mixed", "NOISE (no light changed)" };
+        /// <summary>A lamp's or car's weight moved less than this: no evidence.</summary>
+        const float MinWeightStep = 0.02f;
 
         // ---- the segment being measured ----
         string seg;
@@ -61,6 +63,7 @@ namespace PSXRacing
         Vector3 lastEye, lastFwd, lastCarPos;
         bool haveEye;
         int framesSinceCut = 9999;
+        int lastShot = -1;
         Transform carT;
         readonly int[] evCount = new int[(int)Cause.Count];
         readonly int[] evAfterCut = new int[(int)Cause.Count];
@@ -80,7 +83,8 @@ namespace PSXRacing
         readonly Dictionary<int, float> prevStreet = new Dictionary<int, float>(), curStreet = new Dictionary<int, float>();
         readonly Dictionary<int, float> prevHead = new Dictionary<int, float>(), curHead = new Dictionary<int, float>();
         Texture prevFieldTex, curFieldTex;
-        Vector4 prevFieldST, curFieldST;
+        Vector4 prevFieldST, curFieldST, prevFieldY, curFieldY, saveFieldY;
+        string prevFieldState = "", curFieldState = "";
         readonly Vector4[] prevConeA = new Vector4[StreetLights.ConeMax], prevConeB = new Vector4[StreetLights.ConeMax];
         readonly Vector4[] curConeA = new Vector4[StreetLights.ConeMax], curConeB = new Vector4[StreetLights.ConeMax];
         bool prevConeOn, curConeOn;
@@ -95,6 +99,7 @@ namespace PSXRacing
         byte[] pixA, pixB, pixB0;
         static readonly int FieldTexId = Shader.PropertyToID("_PSXLampField");
         static readonly int FieldSTId = Shader.PropertyToID("_PSXLampFieldST");
+        static readonly int FieldYId = Shader.PropertyToID("_PSXLampFieldY");
         static readonly int ConeAId = Shader.PropertyToID("_PSXConeA");
         static readonly int ConeBId = Shader.PropertyToID("_PSXConeB");
 
@@ -146,7 +151,7 @@ namespace PSXRacing
               .Append(segCuts).Append(" cuts; quiet frames ").Append(noiseFrames > 0 ? (100.0 * noiseZero / noiseFrames).ToString("0", CultureInfo.InvariantCulture) : "-").Append("%; meter self-noise ").Append(selfNoisy).Append("/").Append(selfFrames)
               .Append(" frames, worst ").Append(selfWorst).Append(" px; tile halo births faded so far ").Append(NightGlow.BirthsFaded).Append("\n");
             int total = 0;
-            for (int i = 0; i < (int)Cause.Count; i++) total += evCount[i];
+            for (int i = 0; i < (int)Cause.Count; i++) if (i != (int)Cause.Noise) total += evCount[i];
             sb.Append("    POPS ").Append(total).Append(" (").Append(km > 0.01f ? (total / km).ToString("0.0", CultureInfo.InvariantCulture) + "/km, " : "")
               .Append((total * 60f / Mathf.Max(1f, segSeconds)).ToString("0.0", CultureInfo.InvariantCulture)).Append("/min)");
             for (int i = 0; i < (int)Cause.Count; i++)
@@ -181,6 +186,11 @@ namespace PSXRacing
             Vector3 eye = t.position, fwd = t.forward;
             bool cut = haveEye && ((eye - lastEye).sqrMagnitude > CutJumpM * CutJumpM ||
                                    Vector3.Dot(fwd, lastFwd) < Mathf.Cos(CutTurnDeg * Mathf.Deg2Rad));
+            // a camcorder tape's own cut (a new clip or the other bystander), however near
+            var cc = cam.GetComponent<CamcorderCam>();
+            int shot = cc != null && cc.enabled ? cc.CurrentClip * 16 + cc.CurrentLens : -1;
+            if (haveEye && shot != lastShot) cut = true;
+            lastShot = shot;
             if (haveEye && !cut && carT != null) segDistM += (carT.position - lastCarPos).magnitude;
             else if (haveEye && !cut) segDistM += (eye - lastEye).magnitude;
             if (carT != null) lastCarPos = carT.position;
@@ -231,12 +241,19 @@ namespace PSXRacing
                     if (pixB0 == null || pixB0.Length != pixB.Length) pixB0 = new byte[pixB.Length];
                     System.Buffer.BlockCopy(pixB, 0, pixB0, 0, pixB.Length);
                     // which component: each put back alone
-                    Cause best = Cause.Mixed; int bestPx = 0;
-                    TryCause(cam, Cause.Street, ref best, ref bestPx);
-                    TryCause(cam, Cause.Field, ref best, ref bestPx);
-                    TryCause(cam, Cause.Head, ref best, ref bestPx);
-                    TryCause(cam, Cause.Halo, ref best, ref bestPx);
-                    TryCause(cam, Cause.Cones, ref best, ref bestPx);
+                    // A POP NEEDS A CAUSE: only a component whose state really
+                    // moved this frame may be blamed (a lamp's or car's weight
+                    // by MinWeightStep, the field's window or texture, the
+                    // cones' arrays, a light renderer that came or went); a
+                    // frame with none is the renderer's own noise, kept apart
+                    bool eS = StreetMoved(), eF = prevFieldTex != curFieldTex || prevFieldST != curFieldST,
+                         eH = HeadMoved(), eR = !curOn.SetEquals(prevOn), eC = ConesMoved();
+                    Cause best = (eS || eF || eH || eR || eC) ? Cause.Mixed : Cause.Noise; int bestPx = 0;
+                    if (eS) TryCause(cam, Cause.Street, ref best, ref bestPx);
+                    if (eF) TryCause(cam, Cause.Field, ref best, ref bestPx);
+                    if (eH) TryCause(cam, Cause.Head, ref best, ref bestPx);
+                    if (eR) TryCause(cam, Cause.Halo, ref best, ref bestPx);
+                    if (eC) TryCause(cam, Cause.Cones, ref best, ref bestPx);
                     if (best == Cause.Street && PointDominates()) best = Cause.Point;
                     if (best == Cause.Halo) best = RendererCause();
                     Note(best, px, light, cx, cy, eye);
@@ -257,6 +274,32 @@ namespace PSXRacing
             RestoreAll();
             Diff(pixA, pixB, out int px, out _, out _, out _);
             if (px > bestPx) { bestPx = px; best = c; }
+        }
+
+        bool StreetMoved()
+        {
+            foreach (var kv in curStreet)
+                if (Mathf.Abs(kv.Value - (prevStreet.TryGetValue(kv.Key, out float p) ? p : 0f)) >= MinWeightStep) return true;
+            foreach (var kv in prevStreet)
+                if (!curStreet.ContainsKey(kv.Key) && kv.Value >= MinWeightStep) return true;
+            return false;
+        }
+
+        bool HeadMoved()
+        {
+            foreach (var kv in curHead)
+                if (Mathf.Abs(kv.Value - (prevHead.TryGetValue(kv.Key, out float p) ? p : 0f)) >= MinWeightStep) return true;
+            foreach (var kv in prevHead)
+                if (!curHead.ContainsKey(kv.Key) && kv.Value >= MinWeightStep) return true;
+            return false;
+        }
+
+        bool ConesMoved()
+        {
+            if (curConeOn != prevConeOn) return true;
+            for (int i = 0; i < curConeA.Length; i++)
+                if ((curConeA[i] - prevConeA[i]).sqrMagnitude > 1e-8f || (curConeB[i] - prevConeB[i]).sqrMagnitude > 1e-10f) return true;
+            return false;
         }
 
         bool PointDominates()
@@ -339,7 +382,7 @@ namespace PSXRacing
                 detail = "car weight " + was.ToString("0.00", CultureInfo.InvariantCulture) + "->" + now.ToString("0.00", CultureInfo.InvariantCulture);
                 return bd;
             }
-            if (c == Cause.Field) { detail = "field window/content"; return -1f; }
+            if (c == Cause.Field) { detail = "field " + prevFieldState + " -> " + curFieldState; return -1f; }
             if (c == Cause.Cones) { detail = "cone arrays"; return -1f; }
             // a renderer that came or went
             foreach (var r in curOn)
@@ -389,6 +432,8 @@ namespace PSXRacing
             foreach (var kv in CarLights.MeterRank) curHead[kv.Key] = kv.Value;
             curFieldTex = Shader.GetGlobalTexture(FieldTexId);
             curFieldST = Shader.GetGlobalVector(FieldSTId);
+            curFieldState = StreetLights.MeterFieldState;
+            curFieldY = Shader.GetGlobalVector(FieldYId);
             var m = LampCones.MeterMat;
             var mr = LampCones.MeterRenderer;
             curConeOn = mr != null && mr.enabled;
@@ -409,7 +454,7 @@ namespace PSXRacing
         {
             prevStreet.Clear(); foreach (var kv in curStreet) prevStreet[kv.Key] = kv.Value;
             prevHead.Clear(); foreach (var kv in curHead) prevHead[kv.Key] = kv.Value;
-            prevFieldTex = curFieldTex; prevFieldST = curFieldST;
+            prevFieldTex = curFieldTex; prevFieldST = curFieldST; prevFieldState = curFieldState; prevFieldY = curFieldY;
             System.Array.Copy(curConeA, prevConeA, curConeA.Length);
             System.Array.Copy(curConeB, prevConeB, curConeB.Length);
             prevConeOn = curConeOn;
@@ -431,8 +476,10 @@ namespace PSXRacing
             if (field)
             {
                 saveFieldTex = Shader.GetGlobalTexture(FieldTexId); saveFieldST = Shader.GetGlobalVector(FieldSTId);
+                saveFieldY = Shader.GetGlobalVector(FieldYId);
                 if (prevFieldTex != null) Shader.SetGlobalTexture(FieldTexId, prevFieldTex);
                 Shader.SetGlobalVector(FieldSTId, prevFieldST);
+                Shader.SetGlobalVector(FieldYId, prevFieldY);
             }
             else saveFieldTex = null;
             if (head) { CarLights.MeterPush(prevHead); heldHead = true; }
@@ -460,7 +507,7 @@ namespace PSXRacing
         void RestoreAll()
         {
             if (heldStreet) { StreetLights.MeterHold = false; heldStreet = false; StreetLights.MeterEmit(StreetLights.MeterRank, Camera.main.transform.position); }
-            if (saveFieldTex != null) { Shader.SetGlobalTexture(FieldTexId, saveFieldTex); Shader.SetGlobalVector(FieldSTId, saveFieldST); saveFieldTex = null; }
+            if (saveFieldTex != null) { Shader.SetGlobalTexture(FieldTexId, saveFieldTex); Shader.SetGlobalVector(FieldSTId, saveFieldST); Shader.SetGlobalVector(FieldYId, saveFieldY); saveFieldTex = null; }
             if (heldHead) { CarLights.MeterPush(null); heldHead = false; }
             if (heldCones)
             {

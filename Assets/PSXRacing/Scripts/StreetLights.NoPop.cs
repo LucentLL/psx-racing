@@ -205,6 +205,7 @@ namespace PSXRacing
 
         /// <summary>The field as last pushed (the meter's frame-before state).</summary>
         internal static Texture MeterFieldTex => fieldTex;
+        internal static string MeterFieldState => "lamps " + FieldLamps + " v" + builtVersion + "/" + fieldVersion + " base " + builtBaseY.ToString("0") + " at " + builtOrigin.x.ToString("0") + "," + builtOrigin.y.ToString("0");
         internal static Vector4 MeterFieldST => fieldTex != null && FieldActive ? new Vector4(builtOrigin.x, builtOrigin.y, 1f / (FieldRes * FieldTexelM), 1f) : Vector4.zero;
     }
 }

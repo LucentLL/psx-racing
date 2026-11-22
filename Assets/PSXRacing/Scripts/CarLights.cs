@@ -1116,8 +1116,8 @@ namespace PSXRacing
                 {
                     var l = noPop && !meterB ? sorted[scoredIdx[c]] : sorted[c];
                     // NO LIGHT POPS: the car's rank weight times its own distance fade
-                    float rank = noPop ? Mathf.Clamp01((carCut - scoredScore[c]) / HeadRankBandM) : (n < MaxLights ? 1f : 0f);
-                    float w = noPop ? rank * scoredFade[c] : rank;
+                    float rank = noPop && !meterB ? Mathf.Clamp01((carCut - scoredScore[c]) / HeadRankBandM) : (n < MaxLights ? 1f : 0f);
+                    float w = noPop && !meterB ? rank * scoredFade[c] : rank;
                     if (meterB)
                     {
                         // the meter's frame-before: the weights it had, faded for today's distance
