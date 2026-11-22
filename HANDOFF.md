@@ -72,7 +72,7 @@ column the parked cockpit reads 1.3-1.6 ms (se ~0.35), NOT proven under 1.0. Run
   lightpop may be in this file - the hunk is only the `if (_PSXRain2Glass3.x > 0.5) ... else` round the old bead line),
   `Editor/Rain2PlayCheck.cs` (stroke sequences, a stopped stage at the race's end), `Editor/LifeSimSelfTest.Rain2.cs` (2 checks).
   No scene, data, bake, ProjectSettings, Scripts/City or lamp file.
-- PSXLab holds this branch's Scripts/Editor/Shaders; the measuring player is `C:\Users\mcgee\PSXRelease\_rainglass2` (recycle after).
+- PSXLab holds this branch's Scripts/Editor/Shaders; the measuring player _rainglass2 was recycled (Recycle Bin).
 
 # HANDOFF - RAINGLASS: the rain on the car's windows, both views; the falling streaks; ready for the modelled wipers (agent "rainglass", Opus 5.5, 11-22; branch `rain-glass` off mountain-nm 62a90355; NOT pushed, NOT merged)
 
