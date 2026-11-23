@@ -42,7 +42,7 @@ namespace PSXRacing
 
         class ApTarget
         {
-            public string name; public bool car;
+            public string name; public bool car, wall;
             public Vector3 patch, between, head; public float headGround; public bool hasHead, hasBetween;
             public List<Vector3> path = new List<Vector3>();   // camera line, index = metres from the target (1 m steps)
             public List<Vector3> pathTan = new List<Vector3>();   // travel direction (toward the target)
@@ -114,7 +114,7 @@ namespace PSXRacing
                 if (tg == null) { Say("APPROACH " + spec + ": no target"); continue; }
                 Say("APPROACH " + tg.name + " patch " + V(tg.patch) + " head " + (tg.hasHead ? V(tg.head) : "none") + " path " + tg.path.Count + " m");
                 var csv = new StringBuilder();
-                csv.AppendLine("name,variant,dist_m,cam_x,cam_z,patch_px_x,patch_px_y,patch_box,patch_Y,patch_occ,between_Y,between_occ,halo_peak,halo_core_px,halo_glow_px,cone_excess,frame_median_Y,field_lamps,table_lamps,ms");
+                csv.AppendLine("name,variant,dist_m,cam_x,cam_z,patch_px_x,patch_px_y,patch_box,patch_Y,patch_occ,between_Y,between_occ,halo_peak,halo_core_px,halo_glow_px,cone_excess,frame_median_Y,field_lamps,table_lamps,ms,patch_surf_Y,between_surf_Y");
                 // the start: wait for the ring round the first camera place
                 float startD = Mathf.Min(dists[0] + 40f, tg.path.Count - 1);
                 if (chase != null) chase.enabled = false;
@@ -149,8 +149,20 @@ namespace PSXRacing
                         Capture(cam, rt, screen, blit, tex, W, H);
                         float ms = (PerfClock.Now() - c0) / 10000f;
                         string row = Measure(tg, cam, tex, W, H, pv.name, want);
+                        // the same frame with only the patch's own surface drawn (the roads' layer; a wall
+                        // target its buildings'): no tree, prop, halo or glare between the eye and the patch
+                        var fullPix = apPix;
+                        int maskWas = cam.cullingMask;
+                        cam.cullingMask = tg.wall ? (1 << CityWorld.SolidLayer) | (1 << CityWorld.RoadLayer) : (1 << CityWorld.RoadLayer);
+                        Capture(cam, rt, screen, blit, tex, W, H);
+                        cam.cullingMask = maskWas;
+                        apPix = tex.GetPixels32();
+                        Vector3 tt0 = tg.pathTan.Count > 0 ? tg.pathTan[0] : Vector3.forward, rr0 = Vector3.Cross(Vector3.up, tt0).normalized;
+                        float sY = BoxY(cam, tg.patch, tt0, rr0, W, H, out _, out _);
+                        float sB = tg.hasBetween ? BoxY(cam, tg.between, tt0, rr0, W, H, out _, out _) : -1f;
+                        apPix = fullPix;
                         Say("N3DBG " + tg.name + " " + pv.name + " " + want + " dark " + NightDark.Amount.ToString("0.00") + " floor " + NightDark.CityFloor + " sum " + NightDark.LampSum.ToString("0.0") + " eye " + V(cam.transform.position) + " patch " + StreetLights.N3Debug(tg.patch) + " || eye " + StreetLights.N3Debug(cam.transform.position));
-                        csv.AppendLine(row + "," + ms.ToString("0", ci));
+                        csv.AppendLine(row + "," + ms.ToString("0", ci) + "," + sY.ToString("0.0", ci) + "," + sB.ToString("0.0", ci));
                         bool thumb = want >= 990f || Mathf.Abs(want - 450f) < 1f || Mathf.Abs(want - 230f) < 1f || Mathf.Abs(want - 110f) < 1f || Mathf.Abs(want - 50f) < 1f || Mathf.Abs(want - 30f) < 1f;
                         if (thumb) Thumb(tex, W, H, thumbW, tag + "_ap_" + tg.name + "_" + pv.name + "_" + want.ToString("0", ci) + ".jpg");
                         for (int i = pv.ops.Count - 1; i >= 0; i--) pv.ops[i].off();
@@ -356,7 +368,7 @@ namespace PSXRacing
             var ci = CultureInfo.InvariantCulture;
             if (!double.TryParse(f[1], NumberStyles.Float, ci, out double la) || !double.TryParse(f[2], NumberStyles.Float, ci, out double lo) ||
                 !double.TryParse(f[3], NumberStyles.Float, ci, out double fla) || !double.TryParse(f[4], NumberStyles.Float, ci, out double flo)) return null;
-            var tg = new ApTarget { name = f[0], car = f.Length > 6 && f[6] == "car" };
+            var tg = new ApTarget { name = f[0], car = f.Length > 6 && f[6] == "car", wall = f.Length > 6 && f[6] == "wall" };
             Vector2 at = LL(la, lo), from = LL(fla, flo);
             // the road out from the target toward the camera's side
             var route = FollowRoad(map, tg.name, at, from, f[5], 1400f);
