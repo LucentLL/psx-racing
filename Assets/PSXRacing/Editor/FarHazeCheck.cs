@@ -5,6 +5,7 @@ using System.IO;
 using UnityEditor;
 using UnityEngine;
 using PSXRacing;
+using PSXRacing.City;
 
 namespace PSXRacing.EditorTools
 {
@@ -21,7 +22,7 @@ namespace PSXRacing.EditorTools
     /// pixel of something that far). A column counts when its skyline - the
     /// first land under at least 8 rows of sky - has far land in the 4 rows
     /// under it and sky in the 4 over it (2 rows of gap each side). The JUDGED
-    /// columns are those whose land the haze paints at least half of (a third
+    /// columns are those whose land the haze paints at least ~60% of (a third
     /// frame per weather and hour, its fog colour magenta): lit land darker or
     /// brighter than its sky is the light's business, the haze is this check's. Its land
     /// and sky luminances (sRGB decoded, Rec. 709) go into 16-column bins; the
@@ -77,7 +78,6 @@ namespace PSXRacing.EditorTools
             var rep = new System.Text.StringBuilder();
             rep.AppendLine($"# far haze check, tag {tag}, PSX_FARHAZE2 {(Env("PSX_FARHAZE2", "1") != "0" ? "on" : "off")}, dynamic sky {Env("PSX_FH_DYN", "1")}, limit {Limit} (clear day {LimitClearDay})");
             rep.AppendLine("# venue spot view weather hour | far land: cols ratio worst | FOGGED far land (judged): cols ratio worst | skyL landL (fogged) | verdict");
-            int fails = 0, rows = 0;
 
             var venues = new List<string>();
             string vArg = Env("PSX_FH_VENUES", "").Replace('+', ',');
@@ -86,7 +86,7 @@ namespace PSXRacing.EditorTools
             {
                 for (int i = 0; i < TrackCatalog.Count; i++)
                     if (TrackCatalog.At(i).stage) venues.Add(TrackCatalog.At(i).id);
-                venues.AddRange(new[] { "UptownLoop", "IndependenceSprint", "TryonSprint" });
+                venues.Add("Charlotte");
             }
             var spotMap = new Dictionary<string, string>();
             foreach (var s in Env("PSX_FH_SPOTS", "LakeLure:7970c,3000,10500").Split(';'))
@@ -100,6 +100,7 @@ namespace PSXRacing.EditorTools
             bool dyn = Env("PSX_FH_DYN", "1") == "1";
             float farM = float.Parse(Env("PSX_FH_FAR", "0"), CultureInfo.InvariantCulture);
 
+            var ctx = new Ctx { outDir = outDir, weathers = weathers, hours = hours, dyn = dyn, keep = keep, rep = rep };
             bool keepDyn = SkyModePrefs.Dynamic;
             int keepWeather = RaceHandoff.WeatherOverride;
             try
@@ -109,6 +110,8 @@ namespace PSXRacing.EditorTools
                 foreach (string venue in venues)
                 {
                     string id = venue.Trim();
+                    ctx.beforeShot = null;
+                    if (id == "Charlotte") { CityPoses(ctx); continue; }
                     TrackCatalog.TrackDef def = null;
                     for (int i = 0; i < TrackCatalog.Count; i++) if (TrackCatalog.At(i).id == id) def = TrackCatalog.At(i);
                     if (def == null || !File.Exists("Assets/PSXRacing/Scenes/" + id + ".unity")) { rep.AppendLine($"{id}: no scene - skipped"); continue; }
@@ -122,10 +125,11 @@ namespace PSXRacing.EditorTools
                     if (forest != null && Env("PSX_FH_FOREST", "1") == "0") { forest.enabled = false; forest.gameObject.SetActive(false); forest = null; }
                     var output = Object.FindFirstObjectByType<PSXCameraOutput>();
                     var dressing = Object.FindFirstObjectByType<SeasonDress>();
-                    if (path == null || globals == null || sun == null) { rep.AppendLine($"{id}: scene parts missing - skipped"); continue; }
+                    if (path == null || globals == null || sun == null || path.Count < 24) { rep.AppendLine($"{id}: scene parts missing (or no path) - skipped"); continue; }
                     if (output != null) output.height = 480;
                     var sc = cam.GetComponent<StageCulling>();
                     if (sc != null) sc.Configure(cam);
+                    ctx.cam = cam; ctx.globals = globals; ctx.sun = sun; ctx.forest = forest;
                     if (dressing != null)
                     {
                         typeof(SeasonDress).GetMethod("Register", System.Reflection.BindingFlags.NonPublic |
@@ -160,60 +164,7 @@ namespace PSXRacing.EditorTools
                         string view = chase ? "chase" : "vista";
                         string stem = $"{id}_{Mathf.RoundToInt(m)}_{view}";
 
-                        // THE MASKS: clear noon, once per pose
-                        Force("clear");
-                        TimeOfDay.Apply(Hour("noon"), sun);
-                        var keepFlags = cam.clearFlags; var keepBg = cam.backgroundColor;
-                        cam.clearFlags = CameraClearFlags.SolidColor; cam.backgroundColor = new Color(0f, 1f, 0f, 1f);
-                        var keepSky = RenderSettings.skybox; RenderSettings.skybox = null;
-                        globals.Apply();
-                        Color32[] skyM = Shoot(cam, forest, eye, rot, outDir, stem + "_mask_sky", out int w, out int h);
-                        cam.clearFlags = keepFlags; cam.backgroundColor = keepBg; RenderSettings.skybox = keepSky;
-                        TimeOfDay.Apply(Hour("noon"), sun);
-                        globals.fogColor = new Color(1f, 0f, 1f, 1f); globals.fogNear = far; globals.fogFar = far + 1f; globals.fogCurve = 1f;
-                        globals.Apply();
-                        Shader.SetGlobalVector("_PSXFarHaze", Vector4.zero);
-                        Shader.SetGlobalVector("_PSXAerial", Vector4.zero);
-                        Color32[] farMk = Shoot(cam, forest, eye, rot, outDir, stem + "_mask_far", out _, out _);
-                        if (skyM == null || farMk == null) { rep.AppendLine($"{stem}: no frame"); continue; }
-
-                        foreach (string wx in weathers)
-                            foreach (string hr in hours)
-                            {
-                                int hour = Hour(hr.Trim());
-                                if (hour < 0) continue;
-                                Force(wx.Trim());
-                                TimeOfDay.Apply(hour, sun);
-                                globals.Apply();
-                                if (dyn) DynamicSky.PrimeClouds(eye);
-                                string name = $"{stem}_{wx.Trim()}_{hr.Trim()}";
-                                Color32[] px = Shoot(cam, forest, eye, rot, outDir, name, out _, out _);
-                                if (px == null) { rep.AppendLine(name + ": no frame"); continue; }
-                                // THE FOG'S SHARE of this weather and hour: the same frame with
-                                // the fog colour magenta (and no cap): what the haze paints
-                                globals.fogColor = new Color(1f, 0f, 1f, 1f);
-                                globals.Apply();
-                                Shader.SetGlobalVector("_PSXFarHaze", Vector4.zero);
-                                Shader.SetGlobalVector("_PSXAerial", Vector4.zero);
-                                Color32[] fogMk = Shoot(cam, forest, eye, rot, outDir, name + "_fogmask", out _, out _);
-                                File.Delete(Path.Combine(outDir, name + "_fogmask.png"));
-                                Measure(px, skyM, farMk, null, w, h, out int cols, out float ratio, out float worst, out _, out _);
-                                Measure(px, skyM, farMk, fogMk, w, h, out int fcols, out float fratio, out float fworst, out float sl, out float ll);
-                                bool clearDay = wx.Trim() == "clear" && hr.Trim() == "noon";
-                                float lim = clearDay ? LimitClearDay : Limit;
-                                string verdict = fcols < 6 ? "n/a (no fogged far skyline)" : ll < DarkFloor ? "ok (dark)" : fworst > lim ? "FAIL" : "ok";
-                                if (verdict == "FAIL") fails++;
-                                rows++;
-                                rep.AppendLine(string.Format(CultureInfo.InvariantCulture, "{0} {1} {2} {3} {4} | {5} {6:0.00} {7:0.00} | {8} {9:0.00} {10:0.00} | {11:0.000} {12:0.000} | {13}",
-                                    id, Mathf.RoundToInt(m), view, wx.Trim(), hr.Trim(), cols, ratio, worst, fcols, fratio, fworst, sl, ll, verdict));
-                                if (!keep.Contains(id) && !(wx.Trim() == "clear" && hr.Trim() == "noon"))
-                                    File.Delete(Path.Combine(outDir, name + ".png"));
-                            }
-                        if (!keep.Contains(id))
-                        {
-                            File.Delete(Path.Combine(outDir, stem + "_mask_sky.png"));
-                            File.Delete(Path.Combine(outDir, stem + "_mask_far.png"));
-                        }
+                        Pose(ctx, id, stem, Mathf.RoundToInt(m).ToString(CultureInfo.InvariantCulture), view, eye, rot, far);
                     }
                 }
             }
@@ -224,9 +175,143 @@ namespace PSXRacing.EditorTools
                 SkyModePrefs.Dynamic = keepDyn;
                 TimeOfDay.FarEdgeM = 0f; TimeOfDay.HorizonM = 0f;
             }
-            rep.AppendLine($"# FARHAZE {(fails == 0 ? "PASS" : "FAIL")}: {fails} of {rows} frames over the limit");
+            rep.AppendLine($"# FARHAZE {(ctx.fails == 0 ? "PASS" : "FAIL")}: {ctx.fails} of {ctx.rows} frames over the limit");
             File.WriteAllText(Path.Combine(outDir, ReportName), rep.ToString());
-            Debug.Log("[FarHaze] " + rows + " frames, " + fails + " over the limit; " + outDir);
+            Debug.Log("[FarHaze] " + ctx.rows + " frames, " + ctx.fails + " over the limit; " + outDir);
+        }
+
+        /// <summary>One pose: its two masks, then every weather x hour (frame + fog share).</summary>
+        sealed class Ctx
+        {
+            public Camera cam; public PSXGlobals globals; public Light sun; public MeshForest forest;
+            public string outDir; public string[] weathers, hours; public bool dyn; public HashSet<string> keep;
+            public System.Text.StringBuilder rep; public int fails, rows; public System.Action beforeShot;
+        }
+
+        static void Pose(Ctx ctx, string id, string stem, string spotLabel, string view, Vector3 eye, Quaternion rot, float far)
+        {
+            var cam = ctx.cam; var globals = ctx.globals; var sun = ctx.sun; var forest = ctx.forest; var outDir = ctx.outDir;
+            var weathers = ctx.weathers; var hours = ctx.hours; bool dyn = ctx.dyn; var keep = ctx.keep; var rep = ctx.rep;
+            // THE MASKS: clear noon, once per pose
+            Force("clear");
+            TimeOfDay.Apply(Hour("noon"), sun);
+            var keepFlags = cam.clearFlags; var keepBg = cam.backgroundColor;
+            cam.clearFlags = CameraClearFlags.SolidColor; cam.backgroundColor = new Color(0f, 1f, 0f, 1f);
+            var keepSky = RenderSettings.skybox; RenderSettings.skybox = null;
+            globals.Apply();
+            Color32[] skyM = Shoot(cam, forest, eye, rot, outDir, stem + "_mask_sky", out int w, out int h);
+            cam.clearFlags = keepFlags; cam.backgroundColor = keepBg; RenderSettings.skybox = keepSky;
+            TimeOfDay.Apply(Hour("noon"), sun);
+            globals.fogColor = new Color(1f, 0f, 1f, 1f); globals.fogNear = far; globals.fogFar = far + 1f; globals.fogCurve = 1f;
+            globals.Apply();
+            Shader.SetGlobalVector("_PSXFarHaze", Vector4.zero);
+            Shader.SetGlobalVector("_PSXAerial", Vector4.zero);
+            Color32[] farMk = Shoot(cam, forest, eye, rot, outDir, stem + "_mask_far", out _, out _);
+            if (skyM == null || farMk == null) { rep.AppendLine($"{stem}: no frame"); return; }
+
+            foreach (string wx in weathers)
+                foreach (string hr in hours)
+                {
+                    int hour = Hour(hr.Trim());
+                    if (hour < 0) continue;
+                    Force(wx.Trim());
+                    TimeOfDay.Apply(hour, sun);
+                    globals.Apply();
+                    if (dyn) DynamicSky.PrimeClouds(eye);
+                    string name = $"{stem}_{wx.Trim()}_{hr.Trim()}";
+                    Color32[] px = Shoot(cam, forest, eye, rot, outDir, name, out _, out _);
+                    if (px == null) { rep.AppendLine(name + ": no frame"); continue; }
+                    // THE FOG'S SHARE of this weather and hour: the same frame with
+                    // the fog colour magenta (and no cap): what the haze paints
+                    globals.fogColor = new Color(1f, 0f, 1f, 1f);
+                    globals.Apply();
+                    Shader.SetGlobalVector("_PSXFarHaze", Vector4.zero);
+                    Shader.SetGlobalVector("_PSXAerial", Vector4.zero);
+                    Color32[] fogMk = Shoot(cam, forest, eye, rot, outDir, name + "_fogmask", out _, out _);
+                    File.Delete(Path.Combine(outDir, name + "_fogmask.png"));
+                    Measure(px, skyM, farMk, null, w, h, out int cols, out float ratio, out float worst, out _, out _);
+                    Measure(px, skyM, farMk, fogMk, w, h, out int fcols, out float fratio, out float fworst, out float sl, out float ll);
+                    bool clearDay = wx.Trim() == "clear" && hr.Trim() == "noon";
+                    float lim = clearDay ? LimitClearDay : Limit;
+                    string verdict = fcols < 6 ? "n/a (no fogged far skyline)" : ll < DarkFloor ? "ok (dark)" : fworst > lim ? "FAIL" : "ok";
+                    if (verdict == "FAIL") ctx.fails++;
+                    ctx.rows++;
+                    rep.AppendLine(string.Format(CultureInfo.InvariantCulture, "{0} {1} {2} {3} {4} | {5} {6:0.00} {7:0.00} | {8} {9:0.00} {10:0.00} | {11:0.000} {12:0.000} | {13}",
+                        id, spotLabel, view, wx.Trim(), hr.Trim(), cols, ratio, worst, fcols, fratio, fworst, sl, ll, verdict));
+                    if (!keep.Contains(id) && !(wx.Trim() == "clear" && hr.Trim() == "noon"))
+                        File.Delete(Path.Combine(outDir, name + ".png"));
+                }
+            if (!keep.Contains(id))
+            {
+                File.Delete(Path.Combine(outDir, stem + "_mask_sky.png"));
+                File.Delete(Path.Combine(outDir, stem + "_mask_far.png"));
+            }
+        }
+
+        const float CityEyeM = 30f;
+        static System.Action beforeShotHook;
+
+        /// <summary>CHARLOTTE: three eyes on the freeways round uptown, looking at
+        /// it - the far city (CitySkyline) over the far land (CityFar) - with the
+        /// streamed ring round the eye, as SkylineHazeShots stands them.</summary>
+        static void CityPoses(Ctx ctx)
+        {
+            var def = System.Array.Find(TrackCatalog.All, d => d.id == "Charlotte");
+            if (def == null || !File.Exists("Assets/PSXRacing/Scenes/Charlotte.unity") || !PSXScreenshotTool.Open(def, out var cam, out _))
+            { ctx.rep.AppendLine("Charlotte: did not open - skipped"); return; }
+            var map = CityMap.Get();
+            if (map == null) { ctx.rep.AppendLine("Charlotte: no city data - skipped"); return; }
+            PSXRacingBuilder.EnsureCityTextures();
+            foreach (var c in Object.FindObjectsByType<Canvas>(FindObjectsSortMode.None)) c.enabled = false;
+            var output = Object.FindFirstObjectByType<PSXCameraOutput>();
+            if (output != null) output.height = 480;
+            ctx.cam = cam;
+            ctx.sun = GameObject.Find("Sun")?.GetComponent<Light>();
+            ctx.globals = Object.FindFirstObjectByType<PSXGlobals>();
+            ctx.forest = null;
+            if (ctx.sun == null || ctx.globals == null) { ctx.rep.AppendLine("Charlotte: scene parts missing - skipped"); return; }
+            var go = new GameObject("~farHazeCity");
+            var world = go.AddComponent<CityWorld>();
+            try
+            {
+                ctx.rep.AppendLine($"Charlotte: far plane {cam.farClipPlane:0} m");
+                foreach (var (road, side, km) in new[] { ("I-277", -1, 1.0f), ("I-77", 1, 4.0f), ("I-485", -1, 12f) })
+                {
+                    float best = float.MaxValue; int bei = -1; float bs = 0f;
+                    for (int ei = 0; ei < map.edges.Length; ei++)
+                    {
+                        var e = map.edges[ei];
+                        if (e.link || e.name != road) continue;
+                        for (float s = 0f; s <= e.length; s += 10f)
+                        {
+                            var pt = e.PointAt(s);
+                            if (Mathf.Sign(pt.y - map.uptown.y) != side) continue;
+                            float d = Mathf.Abs(Vector2.Distance(pt, map.uptown) - km * 1000f);
+                            if (d < best) { best = d; bei = ei; bs = s; }
+                        }
+                    }
+                    if (bei < 0) { ctx.rep.AppendLine($"Charlotte {road} {side}: no road"); continue; }
+                    var be = map.edges[bei];
+                    var at = be.PointAt(bs);
+                    // a deck's height over the road (an interchange flyover): the far land
+                    // and the far city stand over the near blocks only from up there
+                    var eye = new Vector3(at.x, be.YAt(bs) + CityEyeM, at.y);
+                    var rot = Quaternion.LookRotation(new Vector3(map.uptown.x, eye.y + 20f, map.uptown.y) - eye);
+                    // the PC player's far plane (CityWorld.LateUpdate, play mode only)
+                    float ringFar = world.ring * CityMeshes.TileSize - 12f;
+                    if (PlatformProfile.PC && cam.farClipPlane < ringFar) cam.farClipPlane = ringFar;
+                    world.EnsureRing(eye, world.ring);
+                    beforeShotHook = () => world.RefreshSkyline(cam);
+                    string label = road.Replace("-", "") + (side < 0 ? "S" : "N");
+                    Pose(ctx, "Charlotte", "Charlotte_" + label, label, "deck30m", eye, rot, 380f);
+                }
+            }
+            finally
+            {
+                beforeShotHook = null;
+                world.DropAll();
+                Object.DestroyImmediate(go);
+            }
         }
 
         static int Hour(string name)
@@ -255,6 +340,7 @@ namespace PSXRacing.EditorTools
         static Color32[] Shoot(Camera cam, MeshForest forest, Vector3 eye, Quaternion rot, string dir, string name, out int w, out int h)
         {
             cam.transform.SetPositionAndRotation(eye, rot);
+            beforeShotHook?.Invoke();
             SunShadows.RenderFor(cam);
             if (forest != null) forest.DrawNow(cam);
             string rel = "farhaze/" + Path.GetFileName(dir) + "/" + name;
@@ -274,6 +360,8 @@ namespace PSXRacing.EditorTools
         static float Lum(Color32 c) => 0.2126f * Lin(c.r) + 0.7152f * Lin(c.g) + 0.0722f * Lin(c.b);
         static bool IsSky(Color32 c) => c.g > c.r + 100 && c.g > c.b + 100;
         static bool IsFar(Color32 c) => c.r > c.g + 70 && c.b > c.g + 70;
+        /// <summary>At least about 60% of the pixel is the (magenta) haze.</summary>
+        static bool IsFogged(Color32 c) => c.r > c.g + 150 && c.b > c.g + 150;
 
         /// <summary>Column by column, top down (texture rows run bottom up).</summary>
         internal static void Measure(Color32[] px, Color32[] sky, Color32[] far, Color32[] fogged, int w, int h,
@@ -299,7 +387,7 @@ namespace PSXRacing.EditorTools
                 {
                     int rl = yS + Gap + k, rs = yS - Gap - 1 - k;
                     int il = (h - 1 - rl) * w + x, isk = (h - 1 - rs) * w + x;
-                    if (IsSky(sky[il]) || !IsFar(far[il]) || !IsSky(sky[isk]) || (fogged != null && !IsFar(fogged[il]))) ok = false;
+                    if (IsSky(sky[il]) || !IsFar(far[il]) || !IsSky(sky[isk]) || (fogged != null && !IsFogged(fogged[il]))) ok = false;
                     l += Lum(px[il]); s += Lum(px[isk]);
                 }
                 if (!ok) continue;
