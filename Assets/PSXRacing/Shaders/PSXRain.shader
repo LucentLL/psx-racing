@@ -155,8 +155,8 @@ Shader "PSX/Rain"
             // SPRAY_LAMP_CAP, so the mist is tinted red right behind a lit tail lamp, never a
             // red-white flare.
             #define SPRAY_BASE      0.45
-            #define SPRAY_LAMP      0.9
-            #define SPRAY_LAMP_CAP  0.30
+            #define SPRAY_LAMP      0.75
+            #define SPRAY_LAMP_CAP  0.22
 
             sampler2D _MainTex;
             float4 _MainTex_ST;

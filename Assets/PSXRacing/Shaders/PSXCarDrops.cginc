@@ -187,7 +187,7 @@ float CD2Rivulets(float2 q, float2 dir, float t, float density, float seed, floa
     // (whole across the head's width and a little more, so no bead pixel is left inside the water)
     float wHalf = rHead * 1.2;
     wipe = on * (1.0 - smoothstep(wHalf, wHalf + fp + 0.0008, abs(dx))) * step(-rHead * 1.2, back)
-         * (1.0 - smoothstep(len * 0.8, len * 1.6, back));
+         * (1.0 - smoothstep(len, len * 1.6, back));
     float hgt = max(head, trail) * on;
     // under a pixel wide: its average, not a crawling line
     float res = saturate((rHead / max(fp, 1e-6) - 0.5) / 1.0);

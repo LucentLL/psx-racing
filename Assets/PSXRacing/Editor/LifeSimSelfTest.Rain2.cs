@@ -323,7 +323,7 @@ namespace PSXRacing.EditorTools
             float halfW = Mathf.Max(rHead * 0.55f * Mathf.Lerp(1f, 0.55f, Mathf.Clamp01(back / len)), 1e-4f);
             float trail = Mathf.Clamp01(1f - Mathf.Abs(dx) / halfW) * tr * 0.55f;
             float wHalf = rHead * 1.2f;
-            wipe = (Mathf.Abs(dx) <= wHalf ? 1f : 0f) * (back >= -rHead * 1.2f ? 1f : 0f) * (1f - Mathf.SmoothStep(0f, 1f, (back - len * 0.8f) / (len * 0.8f)));
+            wipe = (Mathf.Abs(dx) <= wHalf ? 1f : 0f) * (back >= -rHead * 1.2f ? 1f : 0f) * (1f - Mathf.SmoothStep(0f, 1f, (back - len) / (len * 0.6f)));
             return Mathf.Max(head, trail);
         }
 
@@ -338,7 +338,9 @@ namespace PSXRacing.EditorTools
                   "CARDROPS2: the self-test's port reads the shader's own sizes");
             // three cars: the body frame is the car's own metres (the bead sizes are set there)
             int cars = 0;
-            foreach (var body in new[] { CarModelLibrary.Body.Hatch, CarModelLibrary.Body.Saloon, CarModelLibrary.Body.Pickup, CarModelLibrary.Body.Van })
+            // (the catalog has no pickup or van today: then an estate or an off-roader, the tallest flat tailgates it has)
+            foreach (var body in new[] { CarModelLibrary.Body.Hatch, CarModelLibrary.Body.Saloon, CarModelLibrary.Body.Pickup, CarModelLibrary.Body.Van,
+                                         CarModelLibrary.Body.Offroad, CarModelLibrary.Body.Estate })
             {
                 if (cars >= 3) break;
                 CarSpec spec = null;
@@ -363,7 +365,7 @@ namespace PSXRacing.EditorTools
                 Check(len > 3.0f && len < 6.5f && dMin >= 2f - 1e-3f && dMax <= 10.2f, "CARDROPS2: " + body + " beads 2-10 mm across in the car's own metres",
                       len.ToString("0.00") + " m, " + dMin.ToString("0.0") + "-" + dMax.ToString("0.0") + " mm");
             }
-            Check(cars >= 3, "CARDROPS2: three body types tried (hatch, saloon, a pickup or van)", cars);
+            Check(cars >= 3, "CARDROPS2: three body types tried (hatch, saloon, and a pickup, van, off-roader or estate)", cars);
             // rivulets and beads on a 20 x 20 cm patch, parked (down) and at speed (back along the air), at three times
             int both = 0, river = 0, beadPx = 0;
             float widest = 0f;
