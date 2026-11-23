@@ -100,8 +100,10 @@ namespace PSXRacing.EditorTools
                 foreach (var o in v.ops) { o.was = Get(o); Set(o, o.v); }
                 for (int pass = 0; pass < 2; pass++)   // a warm-up render first (the speed blur's history)
                 {
-                    cam.targetTexture = rt;
-                    cam.Render();
+                    // the camera's whole stack (the cockpit's interior overlay too), as the light-pop meter does
+                    var request = new UnityEngine.Rendering.RenderPipeline.StandardRequest { destination = rt };
+                    if (UnityEngine.Rendering.RenderPipeline.SupportsRenderRequest(cam, request)) UnityEngine.Rendering.RenderPipeline.SubmitRenderRequest(cam, request);
+                    else { cam.targetTexture = rt; cam.Render(); }
                 }
                 RenderTexture glow = null;
                 if (blit != null && Halation.Wanted(blit)) glow = Halation.BuildNow(rt);
