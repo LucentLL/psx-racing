@@ -65,8 +65,11 @@ namespace PSXRacing.City
         /// 0 with it off). Not found yet: testing the whole section for other pavement did not remove them. PSX_CITY_STRIP=1: on.</summary>
         public static bool StripOn = System.Environment.GetEnvironmentVariable("PSX_CITY_STRIP") == "1";
         public static bool ValleyOn = System.Environment.GetEnvironmentVariable("PSX_CITY_VALLEY") != "0";
-        public static bool BulbCurbOn = System.Environment.GetEnvironmentVariable("PSX_CITY_BULBCURB") != "0";
-        public static bool StdBulbsOn = System.Environment.GetEnvironmentVariable("PSX_CITY_STDBULBS") != "0";
+        // (roadsmerge 11-23) DEFAULT OFF: with the standard bulbs on, the line gate finds a new 3.9 deg pavement-edge kink at a bulb
+        // (Robinson Circle e22036 s199) and a 2.0 deg one at the limit (NC Music Factory Blvd e597 s192); it also clears the 42 deg one
+        // at Morehead Ridge Dr e24305 - net KINK +1. =1: on (BULBCURB and BULBDRIVES go with it). scratchpad roadsmerge ROUND2.md.
+        public static bool BulbCurbOn = System.Environment.GetEnvironmentVariable("PSX_CITY_BULBCURB") == "1";
+        public static bool StdBulbsOn = System.Environment.GetEnvironmentVariable("PSX_CITY_STDBULBS") == "1";
         public static bool WalkClearOn = System.Environment.GetEnvironmentVariable("PSX_CITY_WALKCLEAR") != "0";
         /// <summary>(roadsmerge 11-23) the two-lane collector / arterial shoulder section with no curb (hoods 2, 0ba58918): OFF until
         /// the line gate passes with it - with it on, its newly painted edge lines put existing taper and kink faults on the

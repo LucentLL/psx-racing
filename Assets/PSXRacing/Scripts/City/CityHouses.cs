@@ -710,7 +710,7 @@ namespace PSXRacing.City
             return d;
         }
 
-        public static bool BulbDrivesOn = System.Environment.GetEnvironmentVariable("PSX_CITY_BULBDRIVES") != "0";
+        public static bool BulbDrivesOn = System.Environment.GetEnvironmentVariable("PSX_CITY_BULBDRIVES") == "1";   // (roadsmerge 11-23) off with the standard bulbs
         /// <summary>Tools: driveways laid off a bulb's rim since the world was bound.</summary>
         public static int BulbDrives;
 
