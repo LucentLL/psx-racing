@@ -55,6 +55,8 @@ namespace PSXRacing.EditorTools
             RaceHandoff.WeatherOverride = System.Enum.TryParse(Env("PSX_LIGHTPOP_WEATHER", "Clear"), true, out Weather wx) ? (int)wx : (int)Weather.Clear;
             RaceHandoff.StartFuelPct = 100f;
             RaceHandoff.CalendarDay = 320;
+            // (tunnel2) PSX_LIGHTPOP_DAY: the calendar day (the PC60 tour ran day 290, the fall dress)
+            if (int.TryParse(Env("PSX_LIGHTPOP_DAY", ""), out int dayIx) && dayIx > 0) RaceHandoff.CalendarDay = dayIx;
             var cars = CarCatalog.All;
             if (mode == "race")
             {
@@ -255,25 +257,32 @@ namespace PSXRacing.EditorTools
                 // past the exit, looking at it). PSX_LIGHTPOP_VIEWS picks views.
                 foreach (string offRaw in LightPopCheck.Env("PSX_LIGHTPOP_TUNNELOFFS", "-90,12,60").Split(','))
                 {
+                    // (tunnel2) "a3868" = that path metre itself (facing forward; "ra3868" facing back);
+                    // a "@x" suffix stands the car x m right of the centre line (default a quarter road)
                     string ot = offRaw.Trim();
+                    float lat = def.roadWidth * 0.25f;
+                    int at = ot.IndexOf('@');
+                    if (at > 0) { float.TryParse(ot.Substring(at + 1), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out lat); ot = ot.Substring(0, at); }
                     bool back = ot.StartsWith("r");
                     if (back) ot = ot.Substring(1);
+                    bool abs = ot.StartsWith("a");
+                    if (abs) ot = ot.Substring(1);
                     if (!float.TryParse(ot, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float off)) continue;
-                    float m = Mathf.Clamp(back ? span.y - off : span.x + off, 0f, (n - 2) * TrackCatalog.Spacing);
+                    float m = Mathf.Clamp(abs ? off : back ? span.y - off : span.x + off, 0f, (n - 2) * TrackCatalog.Spacing);
                     int i = Mathf.Clamp(Mathf.RoundToInt(m / TrackCatalog.Spacing), 1, n - 2);
                     Vector3 fwd = pts[i + 1] - pts[i - 1]; fwd.y = 0f; fwd.Normalize();
                     if (back) fwd = -fwd;
                     Vector3 right = Vector3.Cross(Vector3.up, fwd);
-                    var pos = pts[i] + right * (def.roadWidth * 0.25f) + Vector3.up * 0.45f;
+                    var pos = pts[i] + right * lat + Vector3.up * 0.45f;
                     var rot = Quaternion.LookRotation(fwd, Vector3.up);
                     foreach (var vn in LightPopCheck.Env("PSX_LIGHTPOP_VIEWS", "chase,cockpit").Split(','))
                     {
-                        var view = vn.Trim() == "cockpit" ? ChaseCamera.View.Cockpit : ChaseCamera.View.Chase;
+                        if (!System.Enum.TryParse(vn.Trim(), true, out ChaseCamera.View view)) view = ChaseCamera.View.Chase;
                         ChaseCamera.PreviewView(view);
                         for (int k = 0; k < 40; k++) { car.ResetTo(pos, rot, seated: true); yield return null; }
-                        string seg = "tunnel" + no + "_" + (back ? "r" : "") + offRaw.Trim().TrimStart('r').Replace("-", "m") + "_" + view.ToString().ToLowerInvariant();
+                        string seg = "tunnel" + no + "_" + (back ? "r" : "") + offRaw.Trim().TrimStart('r').Replace("-", "m").Replace("@", "x") + "_" + view.ToString().ToLowerInvariant();
                         LightLookShotRunner.Queue(System.IO.Path.Combine(LightPopMeter.OutDir, "shots"), seg); yield return null;
-                        LightPopCheck.Line("shot " + seg + " at " + pos.ToString("F0") + "; tunnel lamps " + TunnelLamps.Count + ", field lamps " + StreetLights.FieldLamps + ", registered " + StreetLights.Registered);
+                        LightPopCheck.Line("shot " + seg + " at " + pos.ToString("F0") + " (path m " + m.ToString("0") + "); tunnel lamps " + TunnelLamps.Count + ", forests queued " + LightLookShots.ForestsQueued + (LightLookShots.ShotForest ? "" : " (PSX_SHOT_FOREST=0)"));
                     }
                 }
                 if (++no >= 2) break;
