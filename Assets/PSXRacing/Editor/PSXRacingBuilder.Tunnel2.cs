@@ -425,7 +425,7 @@ namespace PSXRacing.EditorTools
             float R = T2Radius(halfW), RE = R + T2RingW;
             float wallX = T2WallX(halfW), top = T2WallTopY(halfW), bottom = -2.6f;
             var sv = new List<Vector3>(); var suv = new List<Vector2>(); var sc = new List<Color>(); var st = new List<int>();
-            float Tint() => Rnd(0.44f, 0.68f) * (rnd.NextDouble() < 0.15 ? 0.78f : 1f);
+            float Tint() => Rnd(0.48f, 0.74f) * (rnd.NextDouble() < 0.15 ? 0.78f : 1f);
 
             // ---- the ring: voussoirs over the arch, radiating ----
             const int VN = 25;
