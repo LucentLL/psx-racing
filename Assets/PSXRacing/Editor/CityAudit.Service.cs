@@ -87,7 +87,7 @@ namespace PSXRacing.EditorTools
                         if (kv.Length < 2) continue;
                         var xy = kv[1].Split(',');
                         int tx = int.Parse(xy[0], I), tz = int.Parse(xy[1], I);
-                        var ms = new List<double>(); long tris = 0, baked = 0; int svcLots = 0, allLots = 0;
+                        var ms = new List<double>(); long tris = 0, baked = 0; int svcLots = 0, allLots = 0, subs = 0;
                         var ll = CityMeshes.LotsInTile(map, tx, tz);
                         if (ll != null) foreach (int li in ll) { allLots++; if (CityMeshes.ServiceLotsFrom >= 0 && li >= CityMeshes.ServiceLotsFrom) svcLots++; }
                         for (int rep = 0; rep < 5; rep++)
@@ -96,12 +96,12 @@ namespace PSXRacing.EditorTools
                             var tm = CityMeshes.Build(map, trims, proc, tx, tz);
                             if (rep > 0) ms.Add(t0.Elapsed.TotalMilliseconds);
                             if (rep == 4) baked = CityTileCache.Encode(tm).Length;
-                            tris = 0;
+                            tris = 0; subs = 0;
                             foreach (var m in new[] { tm.ground, tm.roads, tm.barriers, tm.guardrails, tm.kerbs, tm.lampPosts, tm.banks, tm.water, tm.buildings })
-                                if (m != null) { for (int sm = 0; sm < m.subMeshCount; sm++) tris += (long)m.GetIndexCount(sm) / 3; Object.DestroyImmediate(m); }
+                                if (m != null) { for (int sm = 0; sm < m.subMeshCount; sm++) { tris += (long)m.GetIndexCount(sm) / 3; if (m.GetIndexCount(sm) > 0) subs++; } Object.DestroyImmediate(m); }
                         }
                         ms.Sort();
-                        Line(string.Format(I, "COST tile ({0}, {1}) {2}: {3} triangles, build median {4:0.0} ms (min {5:0.0}), baked {6} bytes; lots in the tile {7} ({8} service quads)", tx, tz, kv[0], tris, ms[ms.Count / 2], ms[0], baked, allLots, svcLots));
+                        Line(string.Format(I, "COST tile ({0}, {1}) {2}: {3} triangles, {9} non-empty submeshes (draw calls), build median {4:0.0} ms (min {5:0.0}), baked {6} bytes; lots in the tile {7} ({8} service quads)", tx, tz, kv[0], tris, ms[ms.Count / 2], ms[0], baked, allLots, svcLots, subs));
                     }
 
                 // ---- 4. the ways' ground
