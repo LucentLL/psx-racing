@@ -64,6 +64,10 @@ namespace PSXRacing.City
         public static bool BulbCurbOn = System.Environment.GetEnvironmentVariable("PSX_CITY_BULBCURB") != "0";
         public static bool StdBulbsOn = System.Environment.GetEnvironmentVariable("PSX_CITY_STDBULBS") != "0";
         public static bool WalkClearOn = System.Environment.GetEnvironmentVariable("PSX_CITY_WALKCLEAR") != "0";
+        /// <summary>(roadsmerge 11-23) the two-lane collector / arterial shoulder section with no curb (hoods 2, 0ba58918): OFF until
+        /// the line gate passes with it - with it on, its newly painted edge lines put existing taper and kink faults on the
+        /// gate as new places (SHIFT +2, SJOG +1, KINK +4, WIDTH +2 city-wide). PSX_CITY_SHOULDER2=1: on.</summary>
+        public static bool ShoulderSectionOn = System.Environment.GetEnvironmentVariable("PSX_CITY_SHOULDER2") == "1";
 
         /// <summary>(the lanes round's curb close-ups, scratchpad lanes/EDGES.md version 2, 13:45: N Graham St at 1400 and
         /// McClintock Rd, looked at from above) On the OLD city house streets the asphalt runs to the curb: there is no
