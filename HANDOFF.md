@@ -1,3 +1,52 @@
+# HANDOFF - LIGHTPOP: no street lamp, headlight, cone, halo or lamp-field pool switches on or off (agent "lightpop", Opus 5.5, 11-22/23; branch `light-pop` off 62a90355, mountain-nm 1b1f2100 merged in; NOT pushed, NOT merged)
+
+Owner 11-22 after PC52: "now I constantly see light pop-in. Streetlights, headlights. It is very offputting and distracting while driving or watching replays".
+
+## The instrument (new, measuring only)
+- `Scripts/Dev/LightPopMeter.cs`: every frame renders the game camera at the same pose twice (after a discarded warm-up render that carries the speed blur and the hook's advance): A = this frame, B = every light hand-over put back to the frame before (lamp table at last frame's weights with today's positions / intensities / distance fades, last frame's lamp field + its window + base height, headlight table at last frame's weights, cone arrays, halo / lens / beam renderers as they were). A-B = only the light that SWITCHED. Pop frame = >= 40 px (at 512x288) changed by >= 6 levels AND >= 10% of themselves, through PSX/Blit at 8 bits undithered. A cause must show evidence (a weight step >= 0.05 in one frame, a field window/texture change, a cone change, a renderer that came/went); frames with none are logged as renderer NOISE and not counted. At 30 fps a 0.25 s timer ease is 13%/frame and IS counted; a distance fade at driving speed (2-4%/frame) is not.
+- `Editor/LightPopCheck.cs` + `tools/lightpop-check.ps1`: Charlotte free roam at night (routes tryon = N Tryon St, uptown, i77s = I-77, ctr_prov = Providence Rd residential) chase and cockpit, 40 s each at a fixed 30 fps, AI flat out, nudged past held-up traffic; race mode: GillespieGap (mountain stage, 3 rivals) and UptownLoop at night, 30 s chase + 30 s cockpit, then SAVE TO TAPE and 50 s of the camcorder replay (camcorder cuts detected by clip/lens). Hidden, PSXPerf.
+- `tools/lightpop-cost.ps1`: the perf tour's in-process probe in the editor, 3832x2054 offscreen, night, park, 20 reps x 30 frames, variants nopop_off / cars8 / street8.
+
+## What was found (base 62a90355)
+1. LAMP FIELD (Charlotte's lit streets): faded over the outer tenth of its 512 m WINDOW, which steps 32 m at a time: every step the far pools (150-250 m) jumped (StreetLights.Field.cs PushField, PSXLamps.cginc PSXLampField `b`). 15-26 pops/km on every city route - the main cause.
+2. LAMP TABLE: a held set of the nearest 8 street + 4 tail lamps, FRUSTUM-culled, eased in/out on a 0.25 s TIMER (StreetLights.cs Rank/Advance, EaseRate 4); a turn of < 45 deg did not snap. In the city only glints use it; on race scenes it is the pools: 25-29/km on UptownLoop.
+3. LAMP CONES: hand-over band 15 m (StreetLights.Cones.cs): 38-40/km on UptownLoop.
+4. HEADLIGHT TABLE: the 4 cars nearest by car position, cut HARD with no fade (CarLights.PushGlobals): 2-5/km in traffic; pushed in LateUpdate with the old camera pose on a replay cut.
+5. TILE HALOS: a streamed tile's halos switch on with the tile, seen at 350-490 m (NightGlow.MakeHalo): 1-3/km.
+6. A sliced field build after a cut left the old window shown (no pools round the new eye) for frames: the replay's field pops within 12 frames of a cut.
+
+## What changed (all behind PSX_LIGHT_NOPOP, default ON; =0 is today's light hand-overs)
+- `StreetLights.NoPop.cs` (new): the table is a pure function of the eye. Score = distance x view factor (1 .. 1+2 behind, continuous); slots to the lowest scores; weight = min(rank fade over 35 m inside the first excluded score, distance fade). No state, no timer: a camera cut is right on its first frame. Tail lamps by distance alone. PC: 16 street slots (+4 tail) - table 20 (PSX_MAX_LAMPS 20, MaxLamps 20; today's / phones fill 12: LegacyLamps, StreetCap 8).
+- `PSXLamps.cginc`: field fades by distance from the EYE (whole to 160 m, gone at 200 m) when _PSXLampFieldST.w = 2; with the field on, a diffuse-only walk stops after the leading tail lamps (_PSXLampPoints: street entries give no diffuse there - same picture, pays for the 16 slots).
+- `StreetLights.Field.cs`: field ST.w = 2 under NoPop; a window the eye has left by > 54 m is rebuilt whole (cut / teleport).
+- `StreetLights.Cones.cs`: cone hand-over band 40 m under NoPop.
+- `CarLights.cs`: headlights scored by the aim point (12 m ahead of the car) x a gentler view factor; weight = min(rank fade over 45 m, distance fade whole to 150 m, gone at 210 m); a newly enabled car scores +120 m easing out over 1.5 s (slides into the ranking); cut capped at 420 m; re-pushed at render time for the rendering eye (StreetLights' driver frame). Table 16 slots (PSX_MAX_HEADLIGHTS 16); cars on PC `CarLights.HeadCarsPC` = 4 (8 measured +0.2..1.8 ms - not shipped); today's path fills 8 (LegacyLights).
+- `NightGlow.cs`: a late tile whose heads are within 0.92 x far plane gets its halos up over 1 s (MaterialPropertyBlock _Strength) instead of switching on.
+- Meter hooks (internal): StreetLights.MeterHold/MeterRank/MeterEmit, CarLights.MeterPush/MeterRank, NightGlow.MeterAll/MeterHalo, LampCones.MeterMat/MeterRenderer.
+- LifeSimSelfTest: the lamp-table section gains a NoPop branch (driving/turning through 20 lamps moves no lamp > 10% a frame; the first frame after a cut is the edit-mode table); headlight slot count check 16/8.
+
+## Proof (scratch `C:\Users\mcgee\AppData\Local\Temp\claude\be91fcb74e64226b\40ca151a-c5be-4aaa-9ea2-b8dd0e7c98a9\scratchpad\lightpop\`)
+- Pop table (final code; before = PSX_LIGHT_NOPOP=0, same build, fresh processes): `pop_table_final.txt`; raw `final\`.
+  City free roam before -> after (pops/km): N Tryon chase 16.2 -> 0, cockpit 14.9 -> 0; Uptown chase 26.0 -> 1.4, cockpit 24.0 -> 0;
+  I-77 chase 32.1 -> 9.7 (all tiny: 40-280 px, total light 1/40 of before), cockpit 31.3 -> 0; Providence Rd chase 25.6 -> 0, cockpit 26.4 -> 0.
+  UptownLoop race chase 96.9 -> 1.0, cockpit 95.5 -> 0; replay 12.0/min -> 1.2/min. GillespieGap race chase 6.3 -> 0, cockpit 0 -> 0; replay 21.6/min -> 3.6/min.
+- Sheets: `sheet_before_final.png` (worst pair per cause per segment, before), `sheet_after_final_leftovers.png` (every leftover's worst pair), `strips_ref_before_after.jpg` (owner's reference | before | after, 5 s apart).
+- Clips (BEFORE | AFTER, 30 fps real time, 1920 wide): `clips\tryon_chase.mp4`, `clips\uptown_chase.mp4`, `clips\i77_cockpit.mp4`, `clips\uptownloop_replay.mp4` (7 cuts). The two sides are separate drives: traffic and AI lines differ, so compare how lights arrive, not frame for frame.
+- Cost (editor in-process A/B, 3832x2054, night, park, 20 x 30 frames each way; d = PSX_LIGHT_NOPOP=0 minus ON, +ve = NoPop cheaper): N Tryon chase -0.32 (sd 0.91), cockpit +0.61 (1.47); Uptown chase +0.59 (1.94), cockpit +0.40 (1.27) ms. Cost-neutral within the noise. 8 cars' beams instead of 4: +0.2..+1.8 ms (not shipped). 8 street slots instead of 16: within +-0.6 (noise).
+- Self-test (hidden, PSXPerf, fresh processes): 104 FAIL lines on this branch, 104 on base mountain-nm 1b1f2100, the SAME set (no new failure); the lamp-table checks pass in their NoPop form (worst change driving+turning 0.083 of a lamp a frame; first frame after a cut = the new view's table, difference 0.0000).
+
+## Leftovers (honest)
+- I-77 chase: headlight rank hand-overs at 5-10%/frame when 5+ cars contest 4 slots (oncoming traffic), 40-90 px each; field rebuilds when lamps change inside the window (version bump), up to 280 px at > 150 m. Mixed (4) are those together.
+- GillespieGap replay: 3 headlight steps (beams fading by distance as a car races away from a bystander at 50 m/s).
+- Meter frames have no speed blur and no dither (both sides alike); sub-pixel twinkle of distant car lenses (PSX/Glow has no minimum pixel size) is NOT measured by A-B and is not fixed.
+- The owner's reference bar (a row of points+halos to the vanishing point) is a LOOK change beyond pop: our halos are small at range; not attempted (offer).
+- Not run: the watched drive, a player build, Android/WebGL, Town, a stage with a street-lamp row (GillespieGap has none), the intro tunnel / Parkway tunnels (no lamp code there).
+
+## For the merge / a PC build
+- Merge `light-pop`; mountain-nm 1b1f2100 already merged in (clean). New files with metas: Scripts/StreetLights.NoPop.cs, Scripts/Dev/LightPopMeter.cs, Editor/LightPopCheck.cs. Shared files: StreetLights.cs (OnBeginCamera, Push*, EmitHeld, Send, consts), StreetLights.Field.cs (PushField), StreetLights.Cones.cs, CarLights.cs (OnEnable, PushGlobals, consts), NightGlow.cs (MakeHalo), LampCones.cs, PSXLamps.cginc, PSXHeadlights.cginc, LifeSimSelfTest.cs.
+- Nothing under Scripts/City: no line gate, NO city re-bake. No scene pass, no data. A player build picks it up as code + shaders.
+- Player A/B for the owner's machine: `PSXRacing.exe -perftour "routes=uptown&probe=park&offscreen=3832x2054&hour=Night&weather=Clear&view=chase&pv=nopop_off=set:StreetLights.NoPop:0&pcfg=20,8,30" -perfout <dir>`.
+
 # HANDOFF - RAINGLASS2: the wiper's water bank, the parked screen covered, the wiped arcs clear at speed, car beads by day, the chase lens drops (agent "rainglass2", Opus 5.5, 11-22; branch `rain-glass2` off mountain-nm fe3ce8a6; NOT pushed, NOT merged)
 
 Owner 11-22: "I've seen rain water "pool" when moved by wipers." Round 1 (fe3ce8a6) named its own shortfalls; this round closes them,

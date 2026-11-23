@@ -33,6 +33,10 @@ namespace PSXRacing
         /// <summary>Metres inside the first excluded lamp's distance over which
         /// a cone fades in (the cap's hand-over).</summary>
         public const float ConeRankBandM = 15f;
+        /// <summary>NO LIGHT POPS (2026-11-22): the same hand-over over 40 m, so a
+        /// cone at the cap comes up over a second and more of driving, not half a
+        /// second (the light-pop meter caught the 15 m band in Uptown).</summary>
+        public const float ConeRankBandNoPopM = 40f;
         /// <summary>Metres: a lamp whose ground cannot be found (no collider under
         /// it) gets this tall a cone.</summary>
         public const float ConeDefaultH = 7.5f;
@@ -49,7 +53,7 @@ namespace PSXRacing
         /// The scan, the dark-night measure and the cones for one eye.
         /// <paramref name="instant"/>: edit mode / a tool's shot (no easing).
         /// </summary>
-        static void NightFrame(Vector3 eye, float dt, bool instant)
+        static void NightFrame(Vector3 eye, float dt, bool instant, Vector3 fwd = default)
         {
             int cap = Mathf.Clamp(LampCones.Cap, 0, ConeMax);
             int ranked = 0;
@@ -100,7 +104,7 @@ namespace PSXRacing
                 ref Entry e = ref entries[coneIdx[k]];
                 float d = coneDist[k];
                 float fade = Mathf.Clamp01((ConeReachM - d) / ConeFadeBandM);
-                if (cut < float.PositiveInfinity) fade *= Mathf.Clamp01((cut - d) / ConeRankBandM);
+                if (cut < float.PositiveInfinity) fade *= Mathf.Clamp01((cut - d) / (NoPop ? ConeRankBandNoPopM : ConeRankBandM));
                 float g = e.intensity / StreetIntensity * strength * fade;
                 if (g <= 0f) continue;
                 float h = Mathf.Clamp(e.pos.y - GroundUnder(ref e), 2f, 14f);

@@ -514,6 +514,7 @@ namespace PSXRacing
         void OnEnable()
         {
             if (!all.Contains(this)) all.Add(this);
+            bornAt = Time.unscaledTime;
             Refresh();
         }
 
@@ -972,7 +973,11 @@ namespace PSXRacing
         // ------------------------------------------------------------------
         //  The global table PSXHeadlights.cginc reads.
         // ------------------------------------------------------------------
-        public const int MaxLights = 8;
+        /// <summary>Slots in the shader table (PSXHeadlights.cginc PSX_MAX_HEADLIGHTS).
+        /// 16 since the lightpop round; today's table (PSX_LIGHT_NOPOP=0) and
+        /// phones fill <see cref="LegacyLights"/> of them.</summary>
+        public const int MaxLights = 16;
+        public const int LegacyLights = 8;
         static readonly Vector4[] gPos = new Vector4[MaxLights];
         static readonly Vector4[] gFwd = new Vector4[MaxLights];
         static readonly Vector4[] gRight = new Vector4[MaxLights];
@@ -988,6 +993,104 @@ namespace PSXRacing
 
         /// <summary>How many lamps the table holds right now. For tests.</summary>
         public static int PushedCount { get; private set; }
+
+        // ---- NO LIGHT POPS (the lightpop round, 2026-11-22) ----
+        // The table was the four cars nearest the camera, cut HARD at the
+        // fourth: in traffic the fifth car's beams on the road switched on and
+        // off as the order changed, with no fade at all. Now each lit car gets
+        // a score - the distance from the eye to the stretch of road its beams
+        // light (HeadAimM ahead of it), times StreetLights' view factor - the
+        // four lowest take the slots, and each is weighted by how far inside
+        // the fifth's score (the cut) it is, over HeadRankBandM, and by its own
+        // distance (whole to HeadFullM, none at HeadEndM): a pure function of
+        // where the cars and the eye are, so it moves only as they move, and a
+        // replay cut is right on its first frame. PSX_LIGHT_NOPOP=0: as before.
+        public const float HeadAimM = 12f, HeadAimRadiusM = 25f;
+        public const float HeadRankBandM = 45f, HeadFullM = 150f, HeadEndM = 210f;
+        /// <summary>No cut lies further out than this score: twice the end, so a car
+        /// with no rival for its slot (a race of four seen from a replay's bystander)
+        /// fades by its own distance alone, never by the angle its beams point at.</summary>
+        public const float HeadScoreCap = HeadEndM * 2f;
+        /// <summary>A car's beams on the world: its lamps are scored by the aim
+        /// point's distance times 1 + this times how far off the line of sight
+        /// (less than the street lamps': a car turning across the view must not
+        /// sweep the ranking).</summary>
+        public const float HeadViewPenalty = 1f;
+        /// <summary>A car just switched on (a spawn, a respawn) scores this much
+        /// further, easing to nothing over <see cref="HeadBirthS"/>: it slides
+        /// into the ranking instead of moving the cut in a step.</summary>
+        public const float HeadBirthM = 120f, HeadBirthS = 1.5f;
+        const int CarsCap = MaxLights / 2;
+        /// <summary>Cars whose beams light the world: eight on PC, four on a phone.</summary>
+        static int CarsMax => PlatformProfile.PC ? Mathf.Clamp(HeadCarsPC, 1, CarsCap) : LegacyLights / 2;
+        /// <summary>Cars whose beams light the world on PC (the perf probe's
+        /// set:CarLights.HeadCarsPC:4 A/B).</summary>
+        public static int HeadCarsPC = 4;
+        float bornAt = -100f;
+        static readonly int[] scoredIdx = new int[CarsCap + 1];
+        static readonly float[] scoredScore = new float[CarsCap + 1];
+        static readonly float[] scoredFade = new float[CarsCap + 1];
+        static int scoredCount;
+        static float carCut;
+
+        static float HeadFade(CarLights l, Vector3 eye)
+        {
+            var tr = l.transform;
+            float dist = (tr.position + tr.forward * HeadAimM - eye).magnitude;
+            return Mathf.Clamp01((HeadEndM - dist) / (HeadEndM - HeadFullM));
+        }
+
+        /// <summary>The four lowest scores of <see cref="sorted"/> into
+        /// scoredIdx (best first) and the cut (the fifth, never past HeadEndM).</summary>
+        static void ScoreCars(Vector3 eye, Vector3 fwd)
+        {
+            scoredCount = 0;
+            int carsMax = CarsMax;
+            int cap = carsMax + 1;
+            float now = Time.unscaledTime;
+            for (int i = 0; i < sorted.Count; i++)
+            {
+                var tr = sorted[i].transform;
+                Vector3 aim = tr.position + tr.forward * HeadAimM;
+                Vector3 d = aim - eye;
+                float dist = d.magnitude;
+                if (dist >= HeadEndM) continue;
+                float vf = StreetLights.ViewFactor(d, dist, HeadAimRadiusM, fwd);
+                float s = dist * (1f + (vf - 1f) * HeadViewPenalty / StreetLights.ViewPenalty);
+                float born = Application.isPlaying ? Mathf.Clamp01((now - sorted[i].bornAt) / HeadBirthS) : 1f;
+                s += HeadBirthM * (1f - born);
+                if (s >= HeadScoreCap) continue;
+                if (scoredCount == cap && s >= scoredScore[cap - 1]) continue;
+                int k = scoredCount < cap ? scoredCount++ : cap - 1;
+                float fade = Mathf.Clamp01((HeadEndM - dist) / (HeadEndM - HeadFullM));
+                while (k > 0 && scoredScore[k - 1] > s)
+                {
+                    scoredScore[k] = scoredScore[k - 1]; scoredIdx[k] = scoredIdx[k - 1]; scoredFade[k] = scoredFade[k - 1];
+                    k--;
+                }
+                scoredScore[k] = s; scoredIdx[k] = i; scoredFade[k] = fade;
+            }
+            carCut = scoredCount > carsMax ? Mathf.Min(scoredScore[carsMax], HeadScoreCap) : HeadScoreCap;
+            if (scoredCount > carsMax) scoredCount = carsMax;
+        }
+
+        // ---- the light-pop meter's hooks (Dev/LightPopMeter.cs) ----
+        internal static bool MeterOn, MeterHold;
+        /// <summary>Per car (instance id): the rank part of its weight as last pushed.</summary>
+        internal static readonly Dictionary<int, float> MeterRank = new Dictionary<int, float>();
+        /// <summary>The frame-before's weights, while the meter re-pushes it.</summary>
+        internal static Dictionary<int, float> MeterPrev;
+        /// <summary>Re-push the table at the frame-before's weights (cars where they are now).</summary>
+        internal static void MeterPush(Dictionary<int, float> prev)
+        {
+            MeterHold = true; MeterPrev = prev;
+            try { PushGlobals(); }
+            finally { MeterHold = false; MeterPrev = null; }
+        }
+        /// <summary>Every live CarLights (the meter's lens and beam renderers).</summary>
+        internal static List<CarLights> MeterAll => all;
+        internal Renderer MeterLens(int i, bool head) => head ? (headLens[i] as Renderer) : (tailLens[i] as Renderer);
+        internal Renderer MeterBeam(int i) => beams[i];
 
         /// <summary>
         /// Fill the table from every lit car, nearest the camera first, two
@@ -1017,7 +1120,9 @@ namespace PSXRacing
                     if (live && l.LitNow && l.beams[0] != null) sorted.Add(l);
                 }
                 var cam = Camera.main;
-                if (cam != null)
+                bool noPop = StreetLights.NoPop && cam != null;
+                if (noPop) ScoreCars(cam.transform.position, cam.transform.forward);
+                else if (cam != null)
                 {
                     Vector3 eye = cam.transform.position;
                     sorted.Sort((a, b) => (a.transform.position - eye).sqrMagnitude
@@ -1032,9 +1137,26 @@ namespace PSXRacing
                 float bi = BeamIntensityNow;
                 var col = Halogen.linear * bi;
                 float glint = GlintIntensity / Mathf.Max(bi, 1e-4f);
-                foreach (var l in sorted)
+                if (MeterOn && !MeterHold) MeterRank.Clear();
+                bool meterB = MeterHold && MeterPrev != null;
+                int carsTaken = noPop && !meterB ? scoredCount : sorted.Count;
+                Vector3 eyeNow = cam != null ? cam.transform.position : Vector3.zero;
+                for (int c = 0; c < carsTaken; c++)
                 {
-                    for (int i = 0; i < 2 && n < MaxLights; i++)
+                    var l = noPop && !meterB ? sorted[scoredIdx[c]] : sorted[c];
+                    // NO LIGHT POPS: the car's rank weight times its own distance fade
+                    float rank = noPop && !meterB ? Mathf.Clamp01((carCut - scoredScore[c]) / HeadRankBandM) : (n < LegacyLights ? 1f : 0f);
+                    float w = noPop && !meterB ? Mathf.Min(rank, scoredFade[c]) : rank;
+                    if (meterB)
+                    {
+                        // the meter's frame-before: the weights it had, faded for today's distance
+                        rank = MeterPrev.TryGetValue(System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(l), out float pr) ? pr : 0f;
+                        w = noPop ? Mathf.Min(rank, HeadFade(l, eyeNow)) : rank;
+                    }
+                    else if (MeterOn) MeterRank[System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(l)] = rank;
+                    if (w <= 0f) continue;
+                    var cw = col * w;
+                    for (int i = 0; i < 2 && n < (noPop ? MaxLights : LegacyLights); i++)
                     {
                         if (l.HeadOut(i)) continue;   // R1a part 2a: a lamp a hit broke gives no light
                         var t = l.beams[i].transform;
@@ -1042,7 +1164,7 @@ namespace PSXRacing
                         gPos[n] = new Vector4(p.x, p.y, p.z, BeamRange);
                         gFwd[n] = new Vector4(f.x, f.y, f.z, cosOuter);
                         gRight[n] = new Vector4(r.x, r.y, r.z, cosInner);
-                        gColor[n] = new Vector4(col.r, col.g, col.b, glint);
+                        gColor[n] = new Vector4(cw.r, cw.g, cw.b, glint);
                         n++;
                     }
                 }

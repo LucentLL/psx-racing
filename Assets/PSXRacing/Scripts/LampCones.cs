@@ -82,6 +82,9 @@ namespace PSXRacing
         static MeshRenderer mr;
         static Mesh mesh;
         static Material mat;
+        // the light-pop meter (Dev/LightPopMeter.cs)
+        internal static Material MeterMat => mat;
+        internal static MeshRenderer MeterRenderer => mr;
         static bool warned;
 
         /// <summary>The fill is done (slots 0..n-1 of BufA/BufB): send it and

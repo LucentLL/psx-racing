@@ -75,6 +75,9 @@ namespace PSXRacing
         int lampHeads = int.MaxValue;                         // heads past this light nothing (halo only)
         bool built;
         GameObject haloGo;
+        // the light-pop meter (Dev/LightPopMeter.cs)
+        internal static List<NightGlow> MeterAll => all;
+        internal Renderer MeterHalo => haloGo != null ? haloGo.GetComponent<MeshRenderer>() : null;
         Mesh haloMesh;
         static readonly List<Vector3> scratch = new List<Vector3>();
 
@@ -284,6 +287,7 @@ namespace PSXRacing
             mr.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
             mr.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
             mr.enabled = on;
+            if (Application.isPlaying && explicitHeads) BirthIfSeen(mr);
             if (!Application.isPlaying)
             {
                 // Never saved with the scene. The mesh is NOT DontUnloadUnusedAsset
@@ -294,6 +298,54 @@ namespace PSXRacing
                 mf.hideFlags = HideFlags.DontSave;
                 mr.hideFlags = HideFlags.DontSave;
                 haloMesh.hideFlags = HideFlags.DontSaveInEditor | HideFlags.DontSaveInBuild;
+            }
+        }
+
+        // ---- NO LIGHT POPS (the lightpop round, 2026-11-22) ----
+        /// <summary>Seconds a streamed tile's halos take to come up when the
+        /// tile stands up inside the drawn distance (a late tile): a lamp head
+        /// rises out of the night instead of switching on with its tile. A tile
+        /// born beyond the drawn distance (the usual case) shows nothing to fade.</summary>
+        public const float HaloBirthS = 1.0f;
+        static readonly List<(MeshRenderer r, float t0)> births = new List<(MeshRenderer, float)>();
+        static MaterialPropertyBlock birthBlock;
+        static readonly int StrengthId = Shader.PropertyToID("_Strength");
+        /// <summary>Tiles whose halos were faded in (tests, the meter's report).</summary>
+        public static int BirthsFaded { get; private set; }
+
+        void BirthIfSeen(MeshRenderer mr)
+        {
+            if (!StreetLights.NoPop || !on) return;
+            var cam = Camera.main;
+            if (cam == null) return;
+            Vector3 eye = cam.transform.position;
+            // the halo's own end (PSX/Halo: never past 0.92 of the far plane)
+            float seen = cam.farClipPlane * 0.92f, seen2 = seen * seen;
+            bool any = false;
+            for (int i = 0; i < heads.Count && !any; i++) any = (heads[i] - eye).sqrMagnitude < seen2;
+            if (!any) return;
+            if (birthBlock == null) birthBlock = new MaterialPropertyBlock();
+            birthBlock.Clear();
+            birthBlock.SetFloat(StrengthId, 0f);
+            mr.SetPropertyBlock(birthBlock);
+            births.Add((mr, Time.unscaledTime));
+            BirthsFaded++;
+        }
+
+        /// <summary>Ease every born halo up (StreetLights' driver frame, once a frame).</summary>
+        internal static void TickBirths()
+        {
+            if (births.Count == 0) return;
+            float now = Time.unscaledTime;
+            for (int i = births.Count - 1; i >= 0; i--)
+            {
+                var (r, t0) = births[i];
+                if (r == null) { births.RemoveAt(i); continue; }
+                float k = Mathf.Clamp01((now - t0) / HaloBirthS);
+                if (k >= 1f) { r.SetPropertyBlock(null); births.RemoveAt(i); continue; }
+                birthBlock.Clear();
+                birthBlock.SetFloat(StrengthId, k * k * (3f - 2f * k));
+                r.SetPropertyBlock(birthBlock);
             }
         }
 

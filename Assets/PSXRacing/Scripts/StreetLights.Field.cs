@@ -149,8 +149,12 @@ namespace PSXRacing
                 long pc = PerfClock.On ? PerfClock.Now() : 0;   // city perf round 1
                 // city perf round 1: a step of a window already shown is built
                 // over frames behind it (FieldSliced); the first window, a
-                // street-lights switch and the editor's tools build it whole
-                if (FieldSliced && Application.isPlaying && fieldTex != null && builtStreetOn == StreetOn && StreetOn)
+                // street-lights switch and the editor's tools build it whole.
+                // NO LIGHT POPS: and so is a window the eye has left (a replay
+                // cut, a respawn, a teleport): the shown one would hold no pool
+                // round the new eye for the frames a sliced build takes.
+                bool left = NoPop && fieldTex != null && !float.IsNaN(builtOrigin.x) && FieldEyeOff(eye) > FieldSlackM;
+                if (FieldSliced && Application.isPlaying && fieldTex != null && builtStreetOn == StreetOn && StreetOn && !left)
                 {
                     using (BuildFieldMarker.Auto()) StepPending(origin, Mathf.Round(eye.y));
                     origin = builtOrigin;
@@ -170,7 +174,7 @@ namespace PSXRacing
             FieldActive = FieldLamps > 0;
             if (!FieldActive) { FieldOff(); return; }
             Shader.SetGlobalTexture(FieldTexId, fieldTex);
-            Shader.SetGlobalVector(FieldSTId, new Vector4(origin.x, origin.y, 1f / span, 1f));
+            Shader.SetGlobalVector(FieldSTId, new Vector4(origin.x, origin.y, 1f / span, NoPop ? 2f : 1f));
             Shader.SetGlobalVector(FieldYId, new Vector4(builtBaseY, UptownCentre.x, UptownCentre.y, 1f / Mathf.Max(1f, UptownOuterM - UptownInnerM)));
             // (the 1990s city: _PSXFieldWhite carries the mercury head now,
             // _PSXFieldWarm.w uptown's gain)
@@ -178,6 +182,16 @@ namespace PSXRacing
             Shader.SetGlobalVector(FieldWhiteId, new Vector4(w.r, w.g, w.b, UptownOuterM));
             Shader.SetGlobalVector(FieldWarmId, new Vector4(k.r, k.g, k.b, UptownGain));
             Shader.SetGlobalVector(BounceId, new Vector4(CityBounce.x, CityBounce.y, CityBounce.z, 1f));
+        }
+
+        /// <summary>NO LIGHT POPS: how far (per axis) the eye may stand from
+        /// the shown window's centre before the window is rebuilt whole - the
+        /// half window less PSXLamps.cginc's FIELD_END_M, less a texel.</summary>
+        const float FieldSlackM = FieldRes * FieldTexelM * 0.5f - 200f - FieldTexelM;
+        static float FieldEyeOff(Vector3 eye)
+        {
+            float half = FieldRes * FieldTexelM * 0.5f;
+            return Mathf.Max(Mathf.Abs(eye.x - (builtOrigin.x + half)), Mathf.Abs(eye.z - (builtOrigin.y + half)));
         }
 
         static void FieldOff()

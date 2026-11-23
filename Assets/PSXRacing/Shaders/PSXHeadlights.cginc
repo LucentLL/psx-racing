@@ -72,7 +72,7 @@
 #define PSX_HEADLIGHTS_INCLUDED
 #include "PSXSpecBend.cginc"
 
-#define PSX_MAX_HEADLIGHTS 8
+#define PSX_MAX_HEADLIGHTS 16   // (16 since the lightpop round: eight cars on PC; four elsewhere and with PSX_LIGHT_NOPOP=0)
 
 // THE LOW BEAM'S SHAPE (see the header). Distances in metres; the cut is the
 // slope over the beam axis (fy / fz), the axis being BeamDipDeg (1.5) down.
