@@ -957,7 +957,12 @@ namespace PSXRacing.City
                         if (k < 0 || k >= ne) continue;
                         skipNodes.Add(map.edges[k].a); skipNodes.Add(map.edges[k].b);
                     }
-                    foreach (int nd in skipNodes) foreach (int k in map.nodeEdges[nd]) skipNear.Add(k);
+                    // three hops out: a taper the exporter designed for a changed count can sit two edges away (Monroe Rd e16890)
+                    for (int hop = 0; hop < 3; hop++)
+                    {
+                        foreach (int nd in skipNodes) foreach (int k in map.nodeEdges[nd]) skipNear.Add(k);
+                        if (hop < 2) foreach (int k in skipNear) { skipNodes.Add(map.edges[k].a); skipNodes.Add(map.edges[k].b); }
+                    }
                 }
                 void ReadTapr(List<LineModel.Tapr> list, float[] offs)
                 {
