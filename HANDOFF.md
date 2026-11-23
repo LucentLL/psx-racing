@@ -1,3 +1,96 @@
+# HANDOFF - ROADSMERGE: the three 11-15 Charlotte street branches landed on PC57 code (agent "roadsmerge", Opus 5.5, 2026-11-23; branch `charlotte-land1115` off mountain-nm 992312c8; NOT pushed, NOT merged)
+
+Owner context: the hoods / lanes / minor work was promised for PC43 and never merged ("these issues cannot get through the quality gate audits"). Worktree `C:\Users\mcgee\PSX Racing-roadsmerge`, sandbox PSXRoadA (WebGL, atomic lock). Scratch: `scratchpad\roadsmerge\` (PROGRESS.md, gate.ps1 / job.ps1 / chain*.ps1, stripends.mjs, mouthdist.mjs, out\, sheets\).
+
+## Merges (all three merged clean; typecheck OK after each)
+| merge | commit | what |
+|---|---|---|
+| charlotte-hoods fc60739d | f7e3f465 | curbs 4: standard section (strip + 6 in curb + 5 ft walk), valley gutter, std cul-de-sac bulbs with curb, curb cuts with a concrete apron, bulb driveways, no pan on old house streets; `Resources/charlotte_deadends.txt` |
+| charlotte-roads-audit 10f06bfe | edc5ccb0 | LANES2 (58 ways' lane counts, section LAN2 in `charlotte_city.bytes`, graph b2aa3453 unchanged), parking lanes, bike lanes / paved shoulders, planted median stretches |
+| charlotte-minor 28937179 | fb09fb10 | service ways as pavement only (`Resources/charlotte_service.bytes`, 10,290 pieces, 899 km, 5,013 mouths as lot entrances; no node or edge) |
+
+## My commits after the merges
+- 2a1f006e `CityAudit.ServiceOnly` cost line also counts non-empty submeshes (draw calls).
+- b54ccb25 `PSX_CITY_SERVICE_MEDIAN` (default ON): no service pavement between two opposed carriageways of one road and no mouth on a carriageway's median side (120 segments and 69 mouths kept out; 29 mouths sat on the median side of 14 divided roads, e.g. Freedom Dr, Wilkinson Blvd, Providence Rd, N Tryon St). On the medians I looked at (Freedom Dr) nothing was drawn across them either way; this stops a curb opening in a median curb.
+- ec9dea56 `PSX_CITY_SHOULDER2` (default OFF): hoods' "two-lane collector / arterial = shoulder section, no curb" split out of PSX_CITY_STRIP.
+- 16d5063c `CityRefSpots.RunService`: PSX_SERVICE_TOPH / PSX_SERVICE_AHEAD (closer plan frames).
+- 3d74ed1b PROPOSED gate rule behind `PSX_LG_SEAMROADS=1` (OFF by default: the committed gate is unchanged; see below). (Its STRIPCLEAR part had no measurable effect and was taken out again in 053c82d8.)
+- 053c82d8 `PSX_CITY_STRIP` DEFAULT OFF (reason below).
+- 3edb2928 `charlotte_lotent.bytes` re-made (`CityAudit.LotEntranceBake` on 053c82d8; LANES2 widened 101 entrances' edges).
+
+## Switches and defaults
+| switch | default | piece | why |
+|---|---|---|---|
+| PSX_CITY_VALLEY, STDBULBS, BULBCURB, BULBDRIVES, OLDNOPAN, WALKCLEAR | ON | hoods | passes the gate (bisect: hv1 / hv2 runs) |
+| PSX_CITY_STRIP | **OFF** | hoods standard section (planting strip, 6 in curb top, 5 ft walk, curb-cut apron) | creates 6 walk / curb pieces 0.15-0.88 m inside another road's travelled way at junction ends (gate MEDIAN): Statesville Rd e8580 s4, Monroe Rd e17101 s4 and e10289 s1, N Tryon St e2053 s283, Perimeter Pkwy e19416 s21, Brownstone St e22766 s202 (box run at Monroe: 1 on / 0 off). Also drops the west walk at the owner's N Tryon fork. Cause not found (testing the whole section for other pavement removed none). |
+| PSX_CITY_SHOULDER2 | OFF | hoods no-curb two-lane state roads | needs STRIP; unproven |
+| PSX_CITY_LANES2, MEDIANSTRETCH | ON | roads-audit | lane counts alone move the gate by about 0 net (hoods2 -> rv1) |
+| PSX_CITY_PARKING, PSX_CITY_STRIPS | ON | parking lanes, bike lanes / shoulders | Case A: the travelled way holds (centre line and lane lines straight); only the curb returns 2.0 m (parking) / 1.2 m (bike) before the corner. 181 gate places are exactly these ends (SHIFT 98, SJOG 77, KINK 6). Proposed PARKEND rule below |
+| PSX_CITY_STRIPS_ALL | OFF | every OSM bike tag | unproven (as the branch left it) |
+| PSX_CITY_SERVICE, SERVICE_AISLES, SERVICE_MEDIAN | ON | service ways | see the gate's seam reading below |
+
+## Line gate (whole city, 10,626 tiles; tools\city-linegate.ps1 through scratch gate.ps1; the committed baseline baee68f8 is of 742315cd drawing: 992312c8 itself = 17,712)
+| class | baseline file | 992312c8 | final 053c82d8 | change vs 992312c8 | of which parking/bike ends (Case A) |
+|---|---|---|---|---|---|
+| SHIFT | 2764 | 2764 | 2912 | +148 | 98 |
+| SJOG | 2774 | 2774 | 2887 | +113 | 77 |
+| KINK | 3231 | 3231 | 3254 | +23 | 6 |
+| WIDTH | 630 | 630 | 642 | +12 | (S College / Good Samaritan: unmarked parking lane read as a 5.8-5.9 m curb lane) |
+| CONT | 1726 | 1726 | 1704 | -22 | |
+| SURFACE | 261 | 261 | 261 | 0 | |
+| JUNCTION | 657 | 657 | 656 | -1 | |
+| MEDIAN | 76 | 76 | 73 | -3 | |
+| STEP | 9671 | 3951 | 3917 | -34 | |
+| BARRIER | 1630 | 1630 | 1630 | 0 | |
+| BRIDGE | 12 | 12 | 12 | 0 | |
+| ALL | | 17,712 | 17,948 | +236 | |
+STRICT SUBSET (053c82d8 code + lotent, with PSX_CITY_PARKING=0 PSX_CITY_STRIPS=0 PSX_CITY_SERVICE=0; = hoods without STRIP + LANES2 + median stretches): ALL 17,701 (-11): SHIFT 2761 SJOG 2775 (+1) KINK 3232 (+1) WIDTH 627 CONT 1724 JUNCTION 656 MEDIAN 73 STEP 3951 BARRIER 1629. The +1 / +1 are pre-existing map faults re-read on the LANES2 roads (same spots, label moved: Monroe Rd e16890 -> e16892 centre yellow, Steele Creek e771 painted line -> pavement edge, N Graham e16661 s156 painted -> pavement edge).
+
+Component runs (each a whole city): hoods alone +2..+4 SHIFT/SJOG/KINK/WIDTH and MEDIAN +4 (all from STRIP: hv2 with STRIP=0 = only KINK +1); + LANES2 about 0 net; + parking / strips +181 (Case A ends); + service ways SHIFT +40 SJOG +16 KINK +18 WIDTH +12 (rv1 -> mv1), with 310 places new and 285 gone, 70 % within 40 m of a service mouth.
+WHY THE SERVICE WAYS MOVE THE GATE: their asphalt is drawn in the roads mesh (850k more untapped pavement triangles); the gate calls a pavement edge with other pavement 0.35 m outside it a SEAM (+14,568 seam span sides), so beside every service mouth / frontage drive the road's edge chain is cut and re-read: faults move, appear and disappear along the same roads. No line or ribbon of a road changes.
+
+### Proposed gate rules (not applied; the coordinator decides and records the baseline)
+1. SEAMROADS (`PSX_LG_SEAMROADS=1`, in the code, off): a pavement edge is a seam only beside another road's ribbon or fan, not beside untapped asphalt (lot aisles, service ways, aprons). Counts with it: 992312c8-equivalent (everything off) 17,813 (CONT 1,852, BRIDGE 21 - the rule itself moves the base: a new baseline is needed); final with it 18,018: vs its own base SHIFT +126 SJOG +75 KINK +7 WIDTH +1 CONT -1 STEP +2 MEDIAN -3 BARRIER -1 - i.e. the service churn is gone and what is left is the parking / bike ends.
+2. PARKEND (not coded): a pavement-edge move on a side whose LAN2 row carries a parking lane / bike lane / shoulder, of that strip's width +-0.25 m, starting within ParkClearM + ParkEaseM + 5 m of a junction's trim, with every painted line on the edge holding (no line move >= 0.05 m within +-30 m), is a STRIP END, not SHIFT / SJOG / KINK. It is checked instead against: the end >= 6.1 m (20 ft) back of the crosswalk / curb return (no parking within 6 m of a corner), the curb return 3-8 m long, no painted line following the curb in, travel-lane widths unchanged. And WIDTH: on a LAN2 parking side the curb lane may be lane + 2.44 m whatever the class. With both rules: final - base = SHIFT about +28, SJOG about -2, KINK +1, WIDTH +1 (B list below).
+3. Lines that do move on strip edges (B, 13 places): at joints where a bike lane's line meets the next edge's lane line (Cindy Ln e12591 s0, Beatties Ford e7955 s1, Ashley Rd e14470 s3 / e10277, Beatties Ford e14095 s1 centre yellow 2.0 m in 47 m, e18234); the frame at Beatties e7955 shows the line straight from the seat, so likely the gate pairing a bike line with a lane line - NOT verified for each.
+
+## Cost (editor, CityAudit.ServiceOnly, 5 tiles, median of 4 builds; before = every merged switch off, fresh processes)
+| tile | triangles | draw calls (non-empty submeshes) | baked bytes | tile build ms |
+|---|---|---|---|---|
+| Uptown (-9,18) | 34,817 -> 35,025 (+0.6 %) | 21 -> 21 | 3.84 -> 3.81 MB | 430 -> 408 |
+| arterial, Providence Rd (-3,7) | 41,019 -> 44,815 (+9.3 %) | 18 -> 18 | 3.52 -> 3.88 MB | 343 -> 681 (min 449) |
+| residential subdivision (13,36) | 11,259 -> 11,727 (+4.2 %) | 11 -> 11 | 0.96 -> 0.99 MB | 41 -> 58 |
+| Beatties Ford (-14,29) | 37,221 -> 38,719 (+4.0 %) | 19 -> 20 | 3.20 -> 3.36 MB | 405 -> 428 |
+| Freedom Dr (-20,20) | 33,200 -> 35,232 (+6.1 %) | 19 -> 19 | 2.96 -> 3.16 MB | 243 -> 264 |
+(these frames had STRIP on; with it off now the hoods share is smaller.) No new slot, material or mesh bucket: draw calls +1 on one tile of five. Tile count unchanged (10,626, graph b2aa3453). Bake size: about +5 % on the four non-Uptown tiles (not a whole bake; scale from these). Frame cost was NOT measured: no perf tour A/B ran (the owner's PSXRacing.exe was running all session and the disk rule forbids a player); +0.6-9 % triangles and no new draw calls should be far under 0.5 ms, but the coordinator must measure it in the next PC build.
+
+## Self-tests (PSXRoadA, hidden, fresh processes)
+- LifeSimSelfTest: 992312c8 93 FAIL, branch 93 FAIL, the same set (no new failure).
+- City audit (CityAudit.Run, Uptown box): 992312c8 24 FAIL, branch 25: NEW "billboard density on US and NC routes within +-20 % of NCDOT's": 161 -> 156 placed for 197 (0.44 per km against 0.55; the limit is 158). Probably the service ways / lots taking frontage the billboard placer used; not fixed.
+
+## The owner's spots (sheets `Review\Charlotte_Roads_2026-11-23\land1115_before_after_1..9.jpg` in the art workspace; strip off/on: `land1115_strip_section_off_on.jpg`; each pair = the same pose, fresh processes; plan views are STAGED, labelled)
+- Fourth Ward, N Poplar St (his PC31 "all beige paving, no lawns, no curb"): NOT CHANGED. Inside the Uptown loop the hoods rule keeps the walk from the curb, and these branches do not touch Fourth Ward's paved frontage.
+- N Tryon, his pose and the fork: the lines are as PC57 (LINEFIX / TWIN lists out of scope). New: dark service-way pavement behind the frontage (real drives), crude polygon look from above.
+- Residential street with driveways (subdivision) and the pre-war street: valley gutter and the old-street no-pan look; the planting strip is NOT in (STRIP off).
+- East Blvd (parking) and Camden Rd: parking lanes along the curb, the curb returning 2 m before each corner; the lane lines and the double yellow run straight.
+- Ashley Rd / Cindy Ln / Beatties Ford: bike lanes behind a solid white line; Beatties Ford at no. 917 is four lanes (was two).
+- Service mouths: Providence Rd mid-block (curb cut and apron), near a signal (Providence at a filling station), Freedom Dr (divided; the median stays whole).
+
+## What the next PC build must run (in order)
+1. Take by path: `Assets/PSXRacing/Resources/charlotte_city.bytes` (with LAN2, 8,764,052 bytes), `charlotte_deadends.txt` + .meta, `charlotte_service.bytes` + .meta, `charlotte_lotent.bytes` (re-made here). New scripts with metas: CityLanes2.cs, CityMeshes.Parking.cs, CityMeshes.Curbs4.cs, CityMeshes.ServiceWays.cs, Editor CityRefSpots.Curbs4.cs, CityAudit.Service.cs, CityRefSpots.Service.cs, CityServiceDrive.cs.
+2. If any other branch changes Scripts/City or the city data before the build: re-run `CityAudit.LotEntranceBake` (2.5 min; never with PSX_CITY_SERVICE_INBAKE=1) - and if the graph changes, `node tools/city/service_ways.mjs --cache "C:\Users\mcgee\PSX Racing\tools\city\cache"` and `lanes2.mjs` on the merged file.
+3. The city tile re-bake (about 40 min; the bake fingerprint covers Resources/charlotte_*.bytes) and the city map tiles.
+4. No scene pass, no kit step (no new slot or material).
+5. Env: none needed for the defaults. Opt-in: PSX_CITY_STRIP=1, PSX_CITY_SHOULDER2=1, PSX_CITY_STRIPS_ALL=1. Off-switches: PSX_CITY_LANES2 / PARKING / STRIPS / MEDIANSTRETCH / SERVICE / SERVICE_MEDIAN / VALLEY / STDBULBS / BULBCURB / BULBDRIVES / OLDNOPAN / WALKCLEAR = 0.
+6. Gate: with the committed gate this branch FAILS (SHIFT +148 SJOG +113 KINK +23 WIDTH +12 vs 992312c8). Either accept rules 1-2 and re-record, or build with PSX_CITY_PARKING=0 PSX_CITY_STRIPS=0 PSX_CITY_SERVICE=0 as defaults (that subset gates SJOG +1, KINK +1: re-labelled existing faults).
+
+## Left open
+- STRIP's 6 curb pieces in lanes (cause), then STRIP + SHOULDER2 on.
+- The billboard density FAIL.
+- Service mouths: 27 inside junctions and 6 on freeways are not drawn (minor's notes); unnamed drives meet the road through the edge line (MUTCD allows the edge line across a driveway).
+- Frame cost in a player.
+- The service file and LAN2 were made from pre-LANES2 widths: a mouth on one of the 22 widened edges starts under the new pavement (harmless) - re-run service_ways.mjs when the export is next run.
+
 # HANDOFF - LIGHTPOP: no street lamp, headlight, cone, halo or lamp-field pool switches on or off (agent "lightpop", Opus 5.5, 11-22/23; branch `light-pop` off 62a90355, mountain-nm 1b1f2100 merged in; NOT pushed, NOT merged)
 
 Owner 11-22 after PC52: "now I constantly see light pop-in. Streetlights, headlights. It is very offputting and distracting while driving or watching replays".
