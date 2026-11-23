@@ -121,16 +121,50 @@ namespace PSXRacing
             if (n4Todo.Count == 0) { N4Upload(); return; }
             var clock = System.Diagnostics.Stopwatch.StartNew();
             Physics.SyncTransforms();
+            // in chunks (a whole ring at load is thousands of lamps: one batch would hold hundreds of MB)
+            int shadowed = 0, total = 0;
+            for (int c0 = 0; c0 < n4Todo.Count; c0 += 192)
+            {
+                n4Chunk.Clear();
+                for (int c = c0; c < Mathf.Min(n4Todo.Count, c0 + 192); c++) n4Chunk.Add(n4Todo[c]);
+                total += N4CastChunk(n4Chunk, ref shadowed);
+            }
+            N4Rays += total;
+            N4Shadowed = shadowed;
+            // the atlas rows of every slot just found
+            N4EnsureAtlas();
+            foreach (int slot in n4Todo) N4WriteRow(slot);
+            N4Upload();
+            N4LastMs = (float)clock.Elapsed.TotalMilliseconds;
+            if (n4Todo.Count >= 50) Debug.Log("[StreetLights] NIGHT 4: the view of " + n4Todo.Count + " lamps (" + total + " rays, " + shadowed + " bearings shadowed) in " + N4LastMs.ToString("0") + " ms; " + n4Waiting + " wait for their tiles");
+        }
+
+        /// <summary>Lamps wait for the tiles round them: worth a look again only once the ring changed.</summary>
+        static int n4LiveSeen = -1;
+        static bool N4WaitingDue()
+        {
+            if (n4Waiting <= 0) return false;
+            var w = City.CityWorld.Active;
+            int live = w != null ? w.LiveTiles : -1;
+            if (live == n4LiveSeen) return false;
+            n4LiveSeen = live;
+            return true;
+        }
+
+        static readonly List<int> n4Chunk = new List<int>();
+        /// <summary>One batch of lamps' views (N4UpdateVis): the rays, then each bearing's shadowed stretches.</summary>
+        static int N4CastChunk(List<int> todo, ref int shadowed)
+        {
             int K = N4Radii.Length, per = N4Bearings * K;
-            int total = n4Todo.Count * per;
+            int total = todo.Count * per;
             var cmds = new NativeArray<RaycastCommand>(total, Allocator.TempJob);
             var hits = new NativeArray<RaycastHit>(total * 2, Allocator.TempJob);
             var qp = new QueryParameters(N4Mask, false, QueryTriggerInteraction.Ignore, false);
-            var heads = new Vector3[n4Todo.Count];
-            var grounds = new float[n4Todo.Count];
-            for (int t = 0; t < n4Todo.Count; t++)
+            var heads = new Vector3[todo.Count];
+            var grounds = new float[todo.Count];
+            for (int t = 0; t < todo.Count; t++)
             {
-                ref Entry e = ref entries[n4Todo[t]];
+                ref Entry e = ref entries[todo[t]];
                 if (!e.groundKnown)
                 {
                     e.groundKnown = true;
@@ -154,10 +188,9 @@ namespace PSXRacing
             }
             var job = RaycastCommand.ScheduleBatch(cmds, hits, 64, 2);
             job.Complete();
-            int shadowed = 0;
-            for (int t = 0; t < n4Todo.Count; t++)
+            for (int t = 0; t < todo.Count; t++)
             {
-                int slot = n4Todo[t];
+                int slot = todo[t];
                 var h = heads[t]; float gy = grounds[t];
                 for (int b = 0; b < N4Bearings; b++)
                 {
@@ -218,13 +251,7 @@ namespace PSXRacing
                 n4At[slot] = entries[slot].pos;
             }
             cmds.Dispose(); hits.Dispose();
-            N4Rays += total;
-            N4Shadowed = shadowed;
-            // the atlas rows of every slot just found
-            N4EnsureAtlas();
-            foreach (int slot in n4Todo) N4WriteRow(slot);
-            N4Upload();
-            N4LastMs = (float)clock.Elapsed.TotalMilliseconds;
+            return total;
         }
 
         static bool N4NeighboursLive(City.CityWorld world, Vector3 p)
