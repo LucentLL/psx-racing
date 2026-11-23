@@ -717,14 +717,13 @@ namespace PSXRacing.EditorTools
                 for (int j = 0; j < cols; j++)
                 {
                     float x = -reach + j * step, ax = Mathf.Abs(x);
-                    float b;
-                    if (ax <= wallX + T2WingM) b = pc.y + WingTop(ax);
-                    else
-                    {
-                        Vector3 q = pc + pr * x + face * 1.5f;
-                        float g = GroundAt(q, out bool om);
-                        b = om ? g : StageGroundHeightAt(q.x, q.z);
-                    }
+                    // the approach's ground just in front of the plane (the cut
+                    // slope): a wing step dies into it where it stands higher
+                    Vector3 q = pc + pr * x + face * 1.5f;
+                    float gq = GroundAt(q, out bool om);
+                    float front = om ? gq : StageGroundHeightAt(q.x, q.z);
+                    float b = ax <= wallX ? pc.y + WingTop(ax)
+                            : ax <= wallX + T2WingM ? Mathf.Max(pc.y + WingTop(ax), front) : front;
                     if (pass == 0) baseA[j] = b; else baseB[j] = b;
                 }
             }
@@ -784,8 +783,8 @@ namespace PSXRacing.EditorTools
                             {
                                 float g = GroundAt(p, out bool om);
                                 y = (om ? g : StageGroundHeightAt(p.x, p.z)) - 0.4f;
-                                // never over the masonry's top in front of it
-                                if (Mathf.Abs(x) <= wallX + T2WingM) y = Mathf.Min(y, pass == 0 ? baseA[jj] : baseB[jj]);
+                                // never over the headwall's top in front of it
+                                if (Mathf.Abs(x) <= wallX) y = Mathf.Min(y, pass == 0 ? baseA[jj] : baseB[jj]);
                             }
                             v.Add(new Vector3(p.x, y, p.z));
                             uv.Add(new Vector2(p.x, p.z) / 8f);
@@ -871,7 +870,7 @@ namespace PSXRacing.EditorTools
             tube.isStatic = true;
             parent = tube.transform;
             var lining = T2Mat("TunnelLining", Root + "/Art/Buildings/Textures/ConcreteBare.png", new Color(0.80f, 0.79f, 0.76f), false, Vector4.zero);
-            var stone = T2Mat("TunnelPortalStone2", StageRockTexPath, new Color(0.86f, 0.86f, 0.86f), true, new Vector4(1f / 2.6f, 1f / 11f, 1.0f, 1.6f));
+            var stone = T2Mat("TunnelPortalStone2", StageRockTexPath, new Color(0.88f, 0.90f, 0.94f), true, new Vector4(1f / 2.6f, 1f / 11f, 1.0f, 1.6f));
             var mortar = T2Mat("TunnelPortalMortar", StageRockTexPath, new Color(0.22f, 0.21f, 0.20f), false, Vector4.zero, false);
             BuildBore2(pts, from, stations, parent, rockMat, lining, no, halfW);
             BuildLampRow2(pts, from, stations, parent, no, halfW);

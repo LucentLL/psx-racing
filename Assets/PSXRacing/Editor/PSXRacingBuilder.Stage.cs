@@ -7568,7 +7568,7 @@ namespace PSXRacing.EditorTools
             // (parkwaytunnel) the rock bore's vertex colour is its ambient's share
             // (PSXRacingBuilder.Tunnel2.cs); the c96b5178 tube has none
             if (mat.HasProperty("_HouseTint")) { mat.SetFloat("_HouseTint", Tunnel2 ? 1f : 0f); EditorUtility.SetDirty(mat); }
-            if (Tunnel2 && MountainStage && mat.IsKeywordEnabled("PSX_ROCKFACE")) mat.SetVector("_RockParams", new Vector4(1f / 4.5f, 1f / 15f, 1.0f, 0.35f));
+            if (Tunnel2 && MountainStage && mat.IsKeywordEnabled("PSX_ROCKFACE")) { mat.SetVector("_RockParams", new Vector4(1f / 4.5f, 1f / 15f, 1.0f, 0.35f)); mat.color = new Color(0.80f, 0.82f, 0.86f); }
             t2Tris = 0; t2Stones = 0;
             portalStoneTris = 0;
             var phys = GetOrCreatePhysMat("WallPhys", 0.05f, 0.05f);
