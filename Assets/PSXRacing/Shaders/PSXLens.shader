@@ -92,6 +92,8 @@ Shader "PSX/Lens"
             // (RAINGLASS2, 2026-11-22) w: 1 = the lens drops as water, not bubbles
             // (Rain2.LensDrops, PSX_RAIN2_LENSDROPS; a global, 0 without rain 2)
             float4 _PSXRain2Glass2;
+            float4 _PSXCarDrops2Off;   // (sprayfix) y 1: a99a8ef1's lens drop size
+            #define DROP2_R_FIX   0.6
             #define DROP2_R       0.62    // radius x this: small drops, as a lens a hand from the bumper gets
             #define DROP2_REFRACT 1.3     // a flat drop shows what is just round it, barely turned over
             #define DROP2_RIM     0.14    // a faint rim, not a soap bubble's ring
@@ -258,7 +260,10 @@ Shader "PSX/Lens"
                     // (RAINGLASS2) water, not a bubble: smaller, an outline that wanders, a
                     // little flattened at random, and a running drop drags a thin wet tail
                     // back toward where it started (never past it: the cell search holds)
-                    r *= DROP2_R;
+                    // (sprayfix 11-23, PSX_CARDROPS2: _PSXCarDrops2Off.y 0) the owner: a lens drop as big as a tail
+                    // lamp. A drop a hand from the lens is out of focus and small: 0.6 of it (at most 1.5 % of
+                    // the picture's height across, under a tail lamp's width from the chase camera).
+                    r *= DROP2_R * (_PSXCarDrops2Off.y > 0.5 ? 1.0 : DROP2_R_FIX);
                     float2 d = p - centre;
                     float al = dot(d, away);
                     float tail = min(max(-al, 0.0), run * DROP2_TAIL);

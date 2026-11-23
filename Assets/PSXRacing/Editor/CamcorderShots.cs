@@ -101,6 +101,8 @@ namespace PSXRacing.EditorTools
             RaceHandoff.TimeOfDayIndex = plan[k].hour;
             RaceHandoff.CalendarDay = Day;
             RaceHandoff.WeatherOverride = 0;
+            // (sprayfix) PSX_CAMSHOT_WEATHER=rain: the race in the rain, its spray photographed and measured (SprayFrames)
+            if (SprayFrames.On) RaceHandoff.WeatherOverride = (int)Weather.Rain;
             RaceHandoff.StartFuelPct = 100f;
             // PSX_CAMSHOT_TRAFFIC=0..4: the race's traffic (the hour's own when unset).
             if (int.TryParse(System.Environment.GetEnvironmentVariable("PSX_CAMSHOT_TRAFFIC") ?? "", out int lvl) && lvl >= 0)
@@ -214,6 +216,20 @@ namespace PSXRacing.EditorTools
 
             // The player's car on autopilot, so the camcorders have it to film.
             var car = rm.playerCar;
+            if (SprayFrames.On && car != null)
+            {
+                // (sprayfix) parked on the grid in the rain, the clock stopped for the frames
+                float w0 = Time.realtimeSinceStartup;
+                while (Time.realtimeSinceStartup - w0 < 2.5f) yield return null;
+                CamcorderShots.Line("  rain: weather " + Seasons.CurrentWeather + ", WeatherFx.Raining " + WeatherFx.Raining + ", spray2 " + TireSpray.Spray2 +
+                                    ", cardrops2 " + TireSpray.CarDrops2);
+                float ts0 = Time.timeScale;
+                Time.timeScale = 0f;
+                yield return null;
+                SprayFrames.Parked(car, name);
+                Time.timeScale = ts0;
+                TireSpray.ResetBirthStats();
+            }
             AIDriver auto = null;
             if (car != null)
             {
@@ -244,9 +260,18 @@ namespace PSXRacing.EditorTools
             int slidePoint = -1, untilPoint = -1;
             float slideUntil = -1f, slideSign = 1f, untilAt = -1f;
             bool slid = false;
+            int sprayNext = 0;
             while (Time.time - g0 < maxRace && Time.realtimeSinceStartup - t0 < 900f)
             {
                 if (rm.State == RaceManager.RaceState.Finished && rp.RecordingDone) break;
+                if (SprayFrames.On && car != null && sprayNext < SprayMarksKmh.Length && car.speedKmh >= SprayMarksKmh[sprayNext])
+                {
+                    float ts = Time.timeScale;
+                    Time.timeScale = 1f;
+                    yield return SprayMoving(rm, car, name, sprayNext);
+                    Time.timeScale = ts;
+                    sprayNext++;
+                }
                 // The plan needs the grid (the recording's first frames).
                 if (live == null && rp.FrameCount > 5 && car != null)
                 {
@@ -390,6 +415,7 @@ namespace PSXRacing.EditorTools
                     if (st.lenses.Count == 0) { CamcorderShots.Line("    " + label + ": no camera found when the tape cut to it"); continue; }
                     Vector3 at = cam.transform.position;
                     yield return Shot(file);
+                    if (SprayFrames.On) SprayFrames.Measure("replay_" + file, false);
                     string osd = CamcorderOSD.Describe();
                     if (osd.StartsWith(label)) labelled++;
                     // A bystander stands still: the lens within its sway of its spot.
@@ -409,6 +435,7 @@ namespace PSXRacing.EditorTools
                         if (cc.CurrentClip == i)
                         {
                             yield return Shot(file + "_b");
+                            if (SprayFrames.On) SprayFrames.Measure("replay_" + file + "_b", false);
                             CamcorderShots.Line("    t " + rp.ReplayTime.ToString("0.0") + " s  " + (cc.CurrentLens == 1 ? "BACK" : "FRONT") +
                                                 "  car " + (rp.Focus != null ? Vector3.Distance(cam.transform.position, rp.Focus.transform.position).ToString("0") : "?") + " m" +
                                                 "  OSD [" + CamcorderOSD.Describe() + "]");
@@ -463,6 +490,20 @@ namespace PSXRacing.EditorTools
             CamcorderShots.Check(onRoad == 0, "no camera stands on a road", onRoad);
             CamcorderShots.Check(blind == 0, "every camera sees its point", blind + " blind");
 
+            if (SprayFrames.On)
+            {
+                CamcorderShots.Line("  spray births in the race and its replay: " + TireSpray.Births + ", the highest " + TireSpray.MaxBirthShare.ToString("0.00") +
+                                    " of its tyre's height (" + (TireSpray.Spray2 ? "spray 2" : "a99a8ef1's spray: its births are not counted") + ")");
+                if (TireSpray.Spray2)
+                    CamcorderShots.Check(TireSpray.Births > 0 && TireSpray.MaxBirthShare <= TireSpray.BirthShareMax + 1e-3f,
+                                         "SPRAY2: every spray particle born at its tyre (under a third of its height)", TireSpray.MaxBirthShare.ToString("0.000"));
+                CamcorderShots.Line("  spray frames " + SprayFrames.Frames + ": the worst plume added p95 " + SprayFrames.WorstDay.ToString("0.00") + " by day, " +
+                                    SprayFrames.WorstNight.ToString("0.00") + " at night");
+                if (TireSpray.Spray2)
+                    CamcorderShots.Check(SprayFrames.WorstDay <= SprayDayLimit && SprayFrames.WorstNight <= SprayNightLimit,
+                                         "SPRAY2: no plume brighter than the road behind it by more than " + SprayDayLimit + " by day / " + SprayNightLimit + " at night (p95)",
+                                         SprayFrames.WorstDay.ToString("0.00") + " / " + SprayFrames.WorstNight.ToString("0.00"));
+            }
             rp.End();
             CamcorderShots.Check(!RaceReplay.Playing && Camcorder.Camera == null, "the replay ends and the look goes with it");
             yield return null;
@@ -470,6 +511,49 @@ namespace PSXRacing.EditorTools
 
         bool saidPass;
         static int fbLive = -1;
+
+        // (sprayfix) the speeds the race is photographed at: 40, 60, 100 and 120 mph
+        static readonly float[] SprayMarksKmh = { 64f, 97f, 161f, 193f };
+        /// <summary>The plume's limit over the road behind it (display luminance 0..1, 95th percentile of
+        /// the pixels the spray changes), by day and at night.</summary>
+        internal const float SprayDayLimit = 0.25f, SprayNightLimit = 0.15f;
+
+        IEnumerator SprayMoving(RaceManager rm, CarController car, string item, int k)
+        {
+            string mph = Mathf.RoundToInt(SprayMarksKmh[k] / 1.609f).ToString();
+            for (int i = 0; i < 3; i++) yield return null;
+            SprayFrames.Measure(item + "_" + mph + "mph_chase");
+            if (k == 1 || k == 3)
+            {
+                ChaseCamera.PreviewView(ChaseCamera.View.Cockpit);
+                for (int i = 0; i < 4; i++) yield return null;
+                SprayFrames.Measure(item + "_" + mph + "mph_cockpit");
+                ChaseCamera.PreviewView(ChaseCamera.View.Chase);
+                for (int i = 0; i < 4; i++) yield return null;
+            }
+            var chase = ChaseCamera.Active;
+            if ((k == 1 || k == 2) && chase != null)
+            {
+                // a rival's chase view: the nearest other car
+                CarController rival = null;
+                float best = float.MaxValue;
+                foreach (var c in rm.allCars)
+                {
+                    if (c == null || c == car) continue;
+                    float d = (c.transform.position - car.transform.position).sqrMagnitude;
+                    if (d < best) { best = d; rival = c; }
+                }
+                if (rival != null)
+                {
+                    var keep = chase.target;
+                    chase.target = rival.transform;
+                    for (int i = 0; i < 12; i++) yield return null;
+                    SprayFrames.Measure(item + "_" + mph + "mph_rival_" + Mathf.RoundToInt(rival.speedKmh / 1.609f) + "mph");
+                    chase.target = keep;
+                    for (int i = 0; i < 6; i++) yield return null;
+                }
+            }
+        }
 
         /// <summary>A sum over the middle of a render texture (to tell whether it changes).</summary>
         static long Sum(RenderTexture rt)
@@ -551,6 +635,134 @@ namespace PSXRacing.EditorTools
             RenderTexture.active = prev;
             File.WriteAllBytes(Path.Combine(dir, CamcorderShots.tag + "_" + name + ".png"), tex.EncodeToPNG());
             Object.DestroyImmediate(tex);
+        }
+    }
+
+    /// <summary>
+    /// THE SPRAY IN THE FRAME (sprayfix, 2026-11-23). With PSX_CAMSHOT_WEATHER=rain the camcorder run
+    /// also photographs the rain on and behind the cars: parked on the grid (the body's beads close up,
+    /// the whole car, the chase view at rest), the race in chase and cockpit as the player's car passes
+    /// 40 / 60 / 100 / 120 mph and a rival's chase view, and every replay clip - and MEASURES each frame:
+    /// the same camera rendered with every car's spray drawn and with it hidden, so the plume is the
+    /// pixels the spray changed, and its brightness is read against the road behind it (the frame
+    /// without it). The births of every spray particle in the run are checked against the wheels
+    /// (TireSpray.MaxBirthShare). Frames to Screenshots\camcorder\&lt;tag&gt;_spray_*.png.
+    /// </summary>
+    internal static class SprayFrames
+    {
+        internal static bool On => (System.Environment.GetEnvironmentVariable("PSX_CAMSHOT_WEATHER") ?? "").ToLowerInvariant() == "rain";
+        /// <summary>The worst plume of the run, by day and at night (added luminance, 95th percentile).</summary>
+        internal static float WorstDay, WorstNight;
+        internal static int Frames;
+        static readonly List<Renderer> hidden = new List<Renderer>(64);
+
+        static bool IsSpray(Renderer r)
+        {
+            string n = r.gameObject.name;
+            return r is ParticleSystemRenderer && (n.EndsWith(" Spray") || n.EndsWith(" Splash") || n == "Rain2 Traffic Mist");
+        }
+
+        static Texture2D Render(Camera cam, int w, int h, UnityEngine.Experimental.Rendering.GraphicsFormat fmt)
+        {
+            var fb = cam.targetTexture;
+            var rt = new RenderTexture(w, h, 24, fmt);
+            rt.Create();
+            Canvas.ForceUpdateCanvases();
+            var request = new UnityEngine.Rendering.RenderPipeline.StandardRequest { destination = rt };
+            if (UnityEngine.Rendering.RenderPipeline.SupportsRenderRequest(cam, request))
+                for (int i = 0; i < 2; i++) UnityEngine.Rendering.RenderPipeline.SubmitRenderRequest(cam, request);
+            var prev = RenderTexture.active;
+            RenderTexture.active = rt;
+            var tex = new Texture2D(w, h, TextureFormat.RGB24, false);
+            tex.ReadPixels(new Rect(0, 0, w, h), 0, 0);
+            tex.Apply();
+            RenderTexture.active = prev == rt ? null : prev;
+            cam.targetTexture = fb;
+            rt.Release();
+            Object.DestroyImmediate(rt);
+            return tex;
+        }
+
+        static float Lum(Color32 c) => (0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b) / 255f;
+
+        /// <summary>Render the camera as it stands with and without the spray, save the first as
+        /// &lt;tag&gt;_spray_&lt;name&gt;.png (unless `save` is false) and log the plume against the road.</summary>
+        internal static void Measure(string name, bool save = true)
+        {
+            var cam = Camera.main;
+            if (cam == null || SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Null) return;
+            var fb = cam.targetTexture;
+            int w = fb != null ? fb.width : 1280, h = fb != null ? fb.height : 720;
+            var fmt = fb != null ? fb.graphicsFormat : UnityEngine.Experimental.Rendering.GraphicsFormat.R8G8B8A8_SRGB;
+            StreetLights.Push(cam.transform.position, cam.transform.forward);
+            var with = Render(cam, w, h, fmt);
+            hidden.Clear();
+            foreach (var r in Object.FindObjectsByType<ParticleSystemRenderer>(FindObjectsInactive.Exclude))
+                if (r.enabled && IsSpray(r)) { r.enabled = false; hidden.Add(r); }
+            var without = Render(cam, w, h, fmt);
+            foreach (var r in hidden) if (r != null) r.enabled = true;
+            var a = with.GetPixels32();
+            var b = without.GetPixels32();
+            var add = new List<float>(4096);
+            var lw = new List<float>(4096);
+            double road = 0;
+            for (int i = 0; i < a.Length; i++)
+            {
+                float la = Lum(a[i]), lb = Lum(b[i]);
+                if (Mathf.Abs(la - lb) < 0.03f) continue;
+                add.Add(la - lb);
+                lw.Add(la);
+                road += lb;
+            }
+            string dir = Path.Combine(CamcorderShots.ProjectDir, "Screenshots", "camcorder");
+            Directory.CreateDirectory(dir);
+            if (save) File.WriteAllBytes(Path.Combine(dir, CamcorderShots.tag + "_spray_" + name + ".png"), with.EncodeToPNG());
+            Object.DestroyImmediate(with);
+            Object.DestroyImmediate(without);
+            bool night = RaceHandoff.TimeOfDayIndex == TimeOfDay.Night || RaceHandoff.TimeOfDayIndex == TimeOfDay.Dusk;
+            if (add.Count == 0)
+            {
+                CamcorderShots.Line("    SPRAY " + name + ": no pixel changed by the spray (" + hidden.Count + " spray systems)");
+                return;
+            }
+            add.Sort(); lw.Sort();
+            float p95Add = add[(int)(add.Count * 0.95f)], p95With = lw[(int)(lw.Count * 0.95f)], maxWith = lw[lw.Count - 1];
+            float roadMean = (float)(road / add.Count);
+            Frames++;
+            if (night) WorstNight = Mathf.Max(WorstNight, p95Add); else WorstDay = Mathf.Max(WorstDay, p95Add);
+            CamcorderShots.Line("    SPRAY " + name + ": plume " + add.Count + " px (" + (100f * add.Count / a.Length).ToString("0.0") + " % of the frame), " +
+                                "brightness p95 " + p95With.ToString("0.00") + " max " + maxWith.ToString("0.00") + " over the road behind it " + roadMean.ToString("0.00") +
+                                ", added p95 " + p95Add.ToString("0.00") + (night ? " (night)" : " (day)"));
+        }
+
+        /// <summary>Parked on the grid, the time stopped: the body's rain close up and whole, and the chase view at rest.</summary>
+        internal static void Parked(CarController car, string item)
+        {
+            var cam = Camera.main;
+            if (car == null || cam == null) return;
+            var chase = cam.GetComponent<ChaseCamera>();
+            CamcorderShots.Line("    parked: _PSXCarDrops " + Shader.GetGlobalVector("_PSXCarDrops") + ", _PSXCarDrops2Off " + Shader.GetGlobalVector("_PSXCarDrops2Off"));
+            Measure(item + "_rest_chase");
+            var t = car.transform;
+            Vector3 p0 = cam.transform.position; Quaternion r0 = cam.transform.rotation; float f0 = cam.fieldOfView;
+            if (chase != null) chase.enabled = false;
+            try
+            {
+                // the boot lid and the rear glass from a step behind, then the whole car from the rear quarter
+                cam.fieldOfView = 40f;
+                cam.transform.position = t.position + t.up * 1.55f - t.forward * 3.0f + t.right * 0.6f;
+                cam.transform.LookAt(t.position + t.up * 0.95f - t.forward * 1.6f);
+                Measure(item + "_rest_close");
+                cam.transform.position = t.position + t.up * 1.6f - t.forward * 5.5f + t.right * 3.5f;
+                cam.transform.LookAt(t.position + t.up * 0.6f);
+                Measure(item + "_rest_whole");
+            }
+            finally
+            {
+                cam.transform.SetPositionAndRotation(p0, r0);
+                cam.fieldOfView = f0;
+                if (chase != null) chase.enabled = true;
+            }
         }
     }
 }

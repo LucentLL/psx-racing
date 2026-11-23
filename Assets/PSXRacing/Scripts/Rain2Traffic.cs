@@ -30,6 +30,11 @@ namespace PSXRacing
 
         static readonly List<Rigidbody> bodies = new List<Rigidbody>(96);
         static readonly List<float> owed = new List<float>(96);
+        // (TireSpray.Spray2) how far the body's origin stands above the road (m, along its up), read
+        // from its colliders' lowest point when the list is re-read: the mist is born ON the road.
+        static readonly List<float> rideH = new List<float>(96);
+        /// <summary>A traffic car's tyre radius for the births (no CarController to ask).</summary>
+        const float TrafficWheelR = 0.31f;
         static float nextRefresh;
         static ParticleSystem ps;
         static GameObject holder;
@@ -39,10 +44,25 @@ namespace PSXRacing
         public static int Cars => bodies.Count;
         public static int Live => ps != null ? ps.particleCount : 0;
 
+        /// <summary>The body's origin over its lowest collider point (the tyres' bottoms, or the
+        /// sills for a body-only collider: within a few cm of the road either way), 0 if none.</summary>
+        static readonly List<Collider> colBuf = new List<Collider>(16);
+        static float RideHeight(Rigidbody rb)
+        {
+            var cols = colBuf;
+            rb.GetComponentsInChildren(false, cols);
+            float low = float.PositiveInfinity;
+            for (int i = 0; i < cols.Count; i++)
+                if (cols[i] != null && !cols[i].isTrigger) low = Mathf.Min(low, cols[i].bounds.min.y);
+            if (float.IsInfinity(low)) return 0f;
+            return Mathf.Clamp(rb.position.y - low, 0f, 1.2f);
+        }
+
         static void Refresh()
         {
             bodies.Clear();
             owed.Clear();
+            rideH.Clear();
             var all = CarLights.AllLive;
             for (int i = 0; i < all.Count; i++)
             {
@@ -51,6 +71,7 @@ namespace PSXRacing
                 if (!l.TryGetComponent<Rigidbody>(out var rb)) continue;
                 bodies.Add(rb);
                 owed.Add(0f);
+                rideH.Add(TireSpray.Spray2 ? RideHeight(rb) : 0f);
             }
         }
 
@@ -81,12 +102,28 @@ namespace PSXRacing
                 for (int j = 0; j < n; j++)
                 {
                     float sx = (Random.value < 0.5f ? -1f : 1f) * HalfTrackM + Random.Range(-0.18f, 0.18f);
+                    if (TireSpray.Spray2)
+                    {
+                        // (sprayfix) the rear tyre's contact patch, on the road under the body
+                        Vector3 contact = p - up * rideH[i] - fwd * (RearM * dir) + side * sx;
+                        TireSpray.Mist2Birth(contact, up, fwd, side, TrafficWheelR, dir, 0f, v,
+                                             out var bp, out var bv, out float bl, out float bs);
+                        emit.position = bp;
+                        emit.velocity = bv;
+                        emit.startLifetime = bl;
+                        emit.startSize = bs;
+                        emit.startColor = new Color(0.80f, 0.82f, 0.86f, TireSpray.Alpha2);
+                        TireSpray.NoteBirth(bp, contact, up, TrafficWheelR);
+                    }
+                    else
+                    {
                     emit.position = p - fwd * (RearM * dir) + side * sx + up * 0.25f;
                     emit.velocity = v * TireSpray.Inherit + up * Random.Range(0.9f, 2.2f)
                                     - fwd * (Random.Range(0.5f, 1.6f) * dir) + side * Random.Range(-0.9f, 0.9f);
                     emit.startLifetime = TireSpray.Life * Random.Range(0.8f, 1.15f);
                     emit.startSize = TireSpray.SizeEnd * Random.Range(0.8f, 1.2f);
                     emit.startColor = new Color(0.80f, 0.82f, 0.86f, TireSpray.Alpha);
+                    }
                     emit.rotation = Random.Range(0f, 360f);
                     ps.Emit(emit, 1);
                 }
@@ -95,7 +132,7 @@ namespace PSXRacing
 
         static bool Build()
         {
-            var mat = TireSpray.SprayMaterial();
+            var mat = TireSpray.Spray2 ? TireSpray.SprayMaterial2() : TireSpray.SprayMaterial();
             if (mat == null) { Rain2.Spray = false; return false; }
             holder = new GameObject("Rain2 Traffic Mist") { layer = CarReflections.NoReflectLayer };
             Object.DontDestroyOnLoad(holder);
@@ -110,12 +147,13 @@ namespace PSXRacing
             main.startLifetime = TireSpray.Life;
             main.startSpeed = 0f;
             main.startSize = TireSpray.SizeEnd;
-            main.gravityModifier = 0.35f;
+            main.gravityModifier = TireSpray.Spray2 ? TireSpray.Gravity2 : 0.35f;
+            if (TireSpray.Spray2) TireSpray.Spray2Look(ps);
             var emission = ps.emission; emission.enabled = false;
             var shape = ps.shape; shape.enabled = false;
             var sol = ps.sizeOverLifetime;
             sol.enabled = true;
-            float s0 = TireSpray.SizeStart / TireSpray.SizeEnd;
+            float s0 = TireSpray.Spray2 ? TireSpray.Size2Start / TireSpray.Size2End : TireSpray.SizeStart / TireSpray.SizeEnd;
             sol.size = new ParticleSystem.MinMaxCurve(1f, new AnimationCurve(new Keyframe(0f, s0, 2.2f, 2.2f), new Keyframe(1f, 1f, 0.15f, 0.15f)));
             var col = ps.colorOverLifetime;
             col.enabled = true;
@@ -130,6 +168,7 @@ namespace PSXRacing
             r.receiveShadows = false;
             r.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
             r.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
+            if (TireSpray.Spray2) r.sortMode = ParticleSystemSortMode.Distance;
             emit = new ParticleSystem.EmitParams();
             ps.Play();
             return true;
@@ -146,6 +185,7 @@ namespace PSXRacing
         {
             bodies.Clear();
             owed.Clear();
+            rideH.Clear();
             nextRefresh = 0f;
             if (ps != null) ps.Clear();
         }
