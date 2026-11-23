@@ -122,13 +122,19 @@
 #ifndef PSX_FIELD_TEX_DECLARED
 #define PSX_FIELD_TEX_DECLARED
 #ifdef UNITY_SEPARATE_TEXTURE_SAMPLER
-Texture2D _PSXLampField, _PSXLampFar, _PSXLampFieldPrev, _PSXLampFarPrev, _PSXCarPool;
+Texture2D _PSXLampField, _PSXLampFar, _PSXLampFieldPrev, _PSXLampFarPrev, _PSXCarPool, _PSXHeadVis;
 SamplerState sampler_PSXLampField;
 #define PSX_FIELD_LOD(t, uv) t.SampleLevel(sampler_PSXLampField, uv, 0.0)
 #else
-sampler2D _PSXLampField, _PSXLampFar, _PSXLampFieldPrev, _PSXLampFarPrev, _PSXCarPool;
+sampler2D _PSXLampField, _PSXLampFar, _PSXLampFieldPrev, _PSXLampFarPrev, _PSXCarPool, _PSXHeadVis;
 #define PSX_FIELD_LOD(t, uv) tex2Dlod(t, float4(uv, 0.0, 0.0))
 #endif
+#endif
+#ifndef PSX_NIGHT4_DECLARED
+#define PSX_NIGHT4_DECLARED
+// NIGHT 4 (StreetLights.Night4.cs): x the lit city's night-sky weight (eased), y the sky's mix to
+// its gradient, z the most a lamp-lit surface's effective albedo reads, w on (0: NIGHT 3 as it was)
+float4 _PSXNight4;
 #endif
 float4 _PSXLampFieldST;   // xy window origin (world xz), z 1/span, w on
 float4 _PSXLampFieldY;    // x base height, yz uptown centre (xz), w 1/(outer-inner)
@@ -186,6 +192,14 @@ float3 PSXLampField(float3 wpos, float3 N, float facingOn)
         float un3 = hY3 - wpos.y;
         float vP3 = saturate((un3 + 1.0) * 0.5) * saturate((FIELD_UNDER_M - un3) * FIELD_UNDER_RAMP);
         float vG3 = saturate((un3 + FIELD_GLOW_UP_M) / FIELD_GLOW_UP_M) * saturate((FIELD_UNDER_M - un3) * FIELD_UNDER_RAMP);
+        // NIGHT 4: a face is lit near its lamp's height and falls off above it - the glow whole
+        // to the head and gone two metres over it (it reached eight: lit faces to the roof),
+        // and a face (not the ground) takes the pool only up to the head
+        if (_PSXNight4.w > 0.5)
+        {
+            vG3 = saturate((un3 + 2.0) * 0.5) * saturate((FIELD_UNDER_M - un3) * FIELD_UNDER_RAMP);
+            vP3 *= lerp(saturate(un3 * 2.0), 1.0, saturate(N.y * 2.0 - 0.6));
+        }
         float upP3 = facingOn > 0.5 ? saturate(0.55 + 0.45 * N.y) : 1.0;
         float upG3 = facingOn > 0.5 ? saturate(0.75 + 0.25 * N.y) : 1.0;
         float2 dc3 = wpos.xz - _PSXLampFieldY.yz;

@@ -1182,9 +1182,11 @@ namespace PSXRacing
                 bool meterB = MeterHold && MeterPrev != null;
                 int carsTaken = noPop && !meterB ? scoredCount : sorted.Count;
                 for (int c = 0; c < sorted.Count; c++) sorted[c].tableW = 0f;   // (NIGHT 3: the pools take the rest)
+                OccUpdate(cam);   // (NIGHT 4: what each car's lamps can see, CarLights.Occlusion.cs)
                 Vector3 eyeNow = cam != null ? cam.transform.position : Vector3.zero;
                 for (int c = 0; c < carsTaken; c++)
                 {
+                    if (ToolPoolOnly) break;   // (the leak probe: every car through the pools)
                     var l = noPop && !meterB ? sorted[scoredIdx[c]] : sorted[c];
                     // NO LIGHT POPS: the car's rank weight times its own distance fade
                     float rank = noPop && !meterB ? Mathf.Clamp01((carCut - scoredScore[c]) / HeadBandNow) : (n < LegacyLights ? 1f : 0f);
@@ -1208,6 +1210,7 @@ namespace PSXRacing
                         gFwd[n] = new Vector4(f.x, f.y, f.z, cosOuter);
                         gRight[n] = new Vector4(r.x, r.y, r.z, cosInner);
                         gColor[n] = new Vector4(cw.r, cw.g, cw.b, glint);
+                        gOcc[n] = OccSlot(l);
                         n++;
                     }
                     if (n > nWas) l.tableW = w;
@@ -1218,6 +1221,7 @@ namespace PSXRacing
             else PoolsOff();
             for (int i = n; i < MaxLights; i++)
                 gPos[i] = gFwd[i] = gRight[i] = gColor[i] = Vector4.zero;
+            OccPushTable(n);
             PushedCount = n;
             // The cone in the air follows the beam (BeamConeStrength). One
             // shared material for every car, so one write.

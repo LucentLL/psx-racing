@@ -2807,7 +2807,16 @@ Shader "PSX/Lit"
                     roadN = lerp(float3(1.0, 1.0, 1.0), toGrey, (1.0 - CITY_ROAD_KEEP) * paved);
                     roadLift = 1.0 + (CITY_ROAD_LIFT - 1.0) * paved;
                 }
-                float3 light = (sunAmb + (headD * beamGain + lampD * (lerp(1.0, beamGain, cityNight) * roadLift)) * roadN) * expo;
+                float lampGain = lerp(1.0, beamGain, cityNight) * roadLift;
+                // NIGHT 4 (StreetLights.Night4.cs): a lamp-lit surface reads at most _PSXNight4.z of
+                // effective albedo - a pale pavement, plaza or face no brighter under the lamp than
+                // the lit asphalt beside it (his frames: pavements 33-45 against our 166, faces dark)
+                if (_PSXNight4.w > 0.5 && cityNight > 0.5)
+                {
+                    float effA = dot(tex.rgb, float3(0.2126, 0.7152, 0.0722)) * lampGain;
+                    lampGain *= min(1.0, _PSXNight4.z / max(effA, 1e-4));
+                }
+                float3 light = (sunAmb + (headD * beamGain + lampD * lampGain) * roadN) * expo;
             #ifdef PSX_FACADE
                 light += _PSXCityBounce.rgb * ((1.0 - 0.6 * saturate(N.y)) * _PSXNight * expo
                        * lerp(BOUNCE_HIGH, 1.0, exp2(-max(facYF, 0.0) * WIN_STOREY_M / BOUNCE_FALL_M)));

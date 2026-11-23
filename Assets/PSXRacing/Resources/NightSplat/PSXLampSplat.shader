@@ -22,7 +22,10 @@ Shader "Hidden/PSX/LampSplat"
             #pragma vertex vert
             #pragma fragment frag
             #include "UnityCG.cginc"
-            float4 _SplatR;   // x 1/rp^2, y 1/rg^2
+            float4 _SplatR;   // x 1/rp^2, y 1/rg^2, z the atlas width of the bearings (NIGHT 4)
+            // NIGHT 4 (StreetLights.Night4.cs): what each lamp's head sees - per bearing, up to two
+            // shadowed stretches of ground (from s.x to s.y, from s.z to s.w, plan metres from the head)
+            sampler2D _LampVis;
             struct appdata { float3 vertex : POSITION; float4 lamp : TEXCOORD0; float4 amt : TEXCOORD1; };
             struct v2f { float4 pos : SV_POSITION; float2 w : TEXCOORD0; float4 lamp : TEXCOORD1; float4 amt : TEXCOORD2; };
             v2f vert(appdata v)
@@ -38,6 +41,17 @@ Shader "Hidden/PSX/LampSplat"
                 float d2 = dot(d, d);
                 float p = saturate(1.0 - d2 * _SplatR.x); p *= p;
                 float g = saturate(1.0 - d2 * _SplatR.y); g *= g;
+                // lamp.z >= 0: this lamp's view is in the atlas (u of its first bearing, v its row)
+                if (i.lamp.z >= 0.0)
+                {
+                    float a = frac(atan2(d.y, d.x) * 0.15915494);
+                    float4 s = tex2Dlod(_LampVis, float4(i.lamp.z + a * _SplatR.z, i.lamp.w, 0.0, 0.0));
+                    float r = sqrt(d2);
+                    float sh = smoothstep(s.x - 0.4, s.x + 1.2, r) * (1.0 - smoothstep(s.y - 1.0, s.y + 0.5, r))
+                             + smoothstep(s.z - 0.4, s.z + 1.2, r) * (1.0 - smoothstep(s.w - 1.0, s.w + 0.5, r));
+                    float vis = saturate(1.0 - sh);
+                    p *= vis; g *= vis;
+                }
                 float pool = i.amt.x * p, glow = i.amt.y * g;
                 return float4(pool, glow, glow * i.amt.z, glow * i.amt.w);
             }
@@ -66,6 +80,8 @@ Shader "Hidden/PSX/LampSplat"
             #define BEAM_FACE_LO       -0.05
             #define BEAM_FACE_HI       0.02
             float _SplatBaseY;
+            // NIGHT 4 (CarLights.Occlusion.cs): per car, the beam's reach on 64 bearings (+-75 deg)
+            sampler2D _PSXHeadVis;
             // vertex.xy = the quad corner (world xz); lamp: xyz the lamp (world), w range;
             // fwd: xyz axis, w cos outer; right: xyz, w cos inner; amt: x weight, y the ground's height under the lamp
             struct appdata { float3 vertex : POSITION; float4 lamp : TEXCOORD0; float4 fwd : TEXCOORD1; float4 rgt : TEXCOORD2; float4 amt : TEXCOORD3; };
@@ -98,6 +114,11 @@ Shader "Hidden/PSX/LampSplat"
                 float nl = -d.y / max(dist, 0.05);   // N = up
                 float facing = smoothstep(BEAM_FACE_LO, BEAM_FACE_HI, nl);
                 float a = (spread * cut * att + spill) * front * facing * i.amt.x;
+                if (i.amt.z >= 0.0)
+                {
+                    float r = tex2Dlod(_PSXHeadVis, float4(0.5 + atan2(fx, fz) * 0.38197186, i.amt.z, 0.0, 0.0)).r;
+                    a *= 1.0 - smoothstep(r + 0.3, r + 1.8, sqrt(fx * fx + fz * fz));
+                }
                 return float4(a, a * (i.amt.y - _SplatBaseY), 0.0, 0.0);
             }
             ENDCG

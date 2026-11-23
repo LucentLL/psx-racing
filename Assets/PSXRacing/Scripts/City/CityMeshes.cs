@@ -922,6 +922,10 @@ namespace PSXRacing.City
             /// <summary>A MERCURY-VAPOUR head, not a bulb: its street's
             /// (<see cref="MercuryStreet"/>, the 1990s city).</summary>
             public bool mercury;
+            /// <summary>LAMPS 4: mounted on a freeway's median Jersey barrier
+            /// (<see cref="TryLampBarrier"/>): its foot is the barrier's top, inside
+            /// the audits' verge clearance by design.</summary>
+            public bool barrier;
         }
 
         // ------------------------------------------------------------------
@@ -4775,6 +4779,18 @@ namespace PSXRacing.City
         /// fingerprint (a PSX_CITY_ switch).</summary>
         public static bool Lamps3 = System.Environment.GetEnvironmentVariable("PSX_CITY_LAMPS3") != "0";
         static readonly float[] LampNudges3 = { 0f, 4f, -4f, 8f, -8f, 12f, -12f, 16f, -16f, 20f, -20f };
+        /// <summary>LAMPS 4 (night round 4, 2026-11-23; PSX_CITY_LAMPS4=0: LAMPS 3's placement): a
+        /// freeway or trunk carriageway whose outside refuses a station (a ramp beside it, a wall, a
+        /// rail) lights it from its MEDIAN - a post on the median verge where the median is open, else
+        /// on the median's Jersey barrier (1999 practice on urban interstates: davits on the concrete
+        /// median), its arm over its own lanes. I-77 had a worst dark stretch of 844 m. In the tile
+        /// bake's fingerprint (a PSX_CITY_ switch).</summary>
+        public static bool Lamps4 = System.Environment.GetEnvironmentVariable("PSX_CITY_LAMPS4") != "0";
+        /// <summary>A barrier-mounted davit's arm (m): over the inside shoulder to the first lane.</summary>
+        const float LampBarrierArmM = 3.0f;
+        /// <summary>No barrier mount within this plan distance (m) of a lamp the tile already stood
+        /// (the other carriageway's, on the same barrier).</summary>
+        const float LampBarrierSpaceM = 12f;
         const float Lamps3NudgeShare = 0.45f;
         const int LampSalt = 41;
         /// <summary>Post, arm and head box, metres: a 0.26 m square pole, a
@@ -4932,6 +4948,16 @@ namespace PSXRacing.City
                         if (r == 0) { placed = true; if (Lamps3) lampPlacedS.Add(s); break; }
                     }
                 }
+                // LAMPS 4: a freeway carriageway's refused station is lit from its median
+                if (!placed && Lamps4 && outsideOnly && LampFromMedian(e))
+                    foreach (float dS in LampNudges3)
+                    {
+                        if (Mathf.Abs(dS) > nudgeShare * step) continue;
+                        float s = s0 + dS;
+                        if (s < lo || s > hi) continue;
+                        if (TryLamp(map, trims, tm, e, s, 1, height, kind, speed) == 0 || TryLampBarrier(map, trims, tm, e, s, height, kind) == 0)
+                        { placed = true; if (Lamps3) lampPlacedS.Add(s); break; }
+                    }
                 // (branchdrop 11-06) by a lane drop held to its node the branch runs on the
                 // held lane, over the verge this lamp stood on: it stands that far further out
                 float held = placed || why != LampRejectSide ? 0f : LineModel.BranchDropHeldShift(e);
@@ -4988,8 +5014,10 @@ namespace PSXRacing.City
                     if (s < lo || s > hi) continue;
                     for (int side = -1; side <= 1 && !placed; side += 2)
                     {
-                        if (outsideOnly && side > 0) continue;
-                        if (TryLamp(map, trims, tm, e, s, side, height, kind, speed) == 0) { placed = true; ps.Add(s); tm.lampStations++; LampTrace?.Invoke(e.index, s, 0); }
+                        bool median = side > 0 && outsideOnly && Lamps4 && LampFromMedian(e);
+                        if (outsideOnly && side > 0 && !median) continue;
+                        if (TryLamp(map, trims, tm, e, s, side, height, kind, speed) == 0 || (median && TryLampBarrier(map, trims, tm, e, s, height, kind) == 0))
+                        { placed = true; ps.Add(s); tm.lampStations++; LampTrace?.Invoke(e.index, s, 0); }
                     }
                 }
                 if (!placed) { ps.Add(mid); }   // nothing can stand there: leave the gap and look at the next one
@@ -5079,6 +5107,63 @@ namespace PSXRacing.City
             return 0;
         }
 
+        /// <summary>LAMPS 4: a one-way freeway or trunk carriageway (not a roundabout, link or deck)
+        /// may stand a lamp on its median side.</summary>
+        static bool LampFromMedian(CityMap.Edge e) => e.oneway && e.cls >= 4 && !e.roundabout && !e.link && !e.bridge;
+
+        /// <summary>Is the median side a Jersey barrier on the ground over every span touching [s0, s1]?</summary>
+        static bool LampMedianBarrier(float s0, float s1)
+        {
+            bool any = false;
+            for (int i = 1; i < sections.Count; i++)
+            {
+                var A = sections[i - 1]; var B = sections[i];
+                if (B.s <= s0) continue;
+                if (A.s >= s1) break;
+                var f = spanFlags[i]; var sf = f[1];
+                if (f.skip || f.elev || f.wedge || f.approach || !f.decided) return false;
+                if (!sf.median || sf.gap || sf.union) return false;
+                if (A.collapsed || B.collapsed) return false;
+                any = true;
+            }
+            return any;
+        }
+
+        /// <summary>LAMPS 4: a davit on the median's Jersey barrier at arc <paramref name="s"/>, its arm
+        /// over this carriageway, or the reason it cannot stand (0 = placed).</summary>
+        static int TryLampBarrier(CityMap map, Trims trims, TileMeshes tm, CityMap.Edge e, float s, float height, byte kind)
+        {
+            if (!LampMedianBarrier(s - LampRunMarginM, s + LampRunMarginM)) return LampRejectSide;
+            foreach (float se in lampEnds)
+                if (Mathf.Abs(s - se) < ApproachRailM) return LampRejectStructure;
+            int n = sections.Count, i = 1, hiI = n - 1;
+            while (i < hiI) { int mid = (i + hiI) >> 1; if (sections[mid].s < s) i = mid + 1; else hiI = mid; }
+            var A = sections[i - 1]; var B = sections[i];
+            float t = Mathf.Clamp01((s - A.s) / Mathf.Max(B.s - A.s, 1e-4f));
+            var ed = Vector3.Lerp(A.Edge(1), B.Edge(1), t) + tm.origin;
+            var outw = Vector2.Lerp(A.Out(1), B.Out(1), t);
+            if (outw.sqrMagnitude < 1e-6f) return LampRejectSide;
+            outw.Normalize();
+            var edgeW = new Vector2(ed.x, ed.z);
+            // the barrier stands on the drawn edge, BarrierW thick outward (EmitSide's sf.median)
+            var footP = edgeW + outw * (BarrierW * 0.5f);
+            var headP = footP - outw * LampBarrierArmM;
+            foreach (var other in tm.lamps)
+            {
+                var o2 = new Vector2(other.foot.x + tm.origin.x, other.foot.z + tm.origin.z);
+                if ((o2 - footP).sqrMagnitude < LampBarrierSpaceM * LampBarrierSpaceM) return LampRejectSide;
+            }
+            int clash = LampPavementClear(map, trims, e, 1, s, footP, headP, ed.y, true);
+            if (clash != 0) return clash;
+            float ground = ed.y + BarrierH;
+            var foot = new Vector3(footP.x, ground - LampSinkM, footP.y) - tm.origin;
+            var head = new Vector3(headP.x, ground - LampSinkM + height, headP.y) - tm.origin;
+            bool breakaway = RaceRunOff.Inside(map, trims, footP);
+            tm.lamps.Add(new Lamp { foot = foot, head = head, height = height, kind = kind, breakaway = breakaway, mercury = MercuryStreet(e), barrier = true });
+            EmitLamp(foot, head, outw);
+            return 0;
+        }
+
         /// <summary>Is this side a plain verge over every span touching
         /// [s0, s1]? The same flags EmitSide drew it from.</summary>
         static bool LampSideClear(int side, float s0, float s1)
@@ -5107,7 +5192,7 @@ namespace PSXRacing.City
         /// is overhead. Returns a LampReject code, or 0.
         /// </summary>
         static int LampPavementClear(CityMap map, Trims trims, CityMap.Edge e, int side, float s,
-                                     Vector2 foot, Vector2 head, float yRef)
+                                     Vector2 foot, Vector2 head, float yRef, bool barrier = false)
         {
             lampSegs.Clear(); lampNodes.Clear();
             float r = CityElevation.MaxCorridorHalf + LampMedianClearM;
@@ -5129,8 +5214,10 @@ namespace PSXRacing.City
                 float yF = o.YAt(atF);
                 float need = LampPavementClearM;
                 // the other carriageway of a divided road, across the median
-                if (oi != e.index && side > 0 && e.oneway && o.oneway && Vector2.Dot(d / len, tanE) < -0.7f)
-                    need = LampMedianClearM;
+                bool across = oi != e.index && side > 0 && e.oneway && o.oneway && Vector2.Dot(d / len, tanE) < -0.7f;
+                if (across) need = LampMedianClearM;
+                // LAMPS 4: a post on the median barrier stands on the barrier, off both carriageways' tarmac
+                if (barrier && (oi == e.index || across)) need = oi == e.index ? 0.1f : 0f;
                 if (Vector2.Distance(foot, a + d * tf) - trims.ReachAt(o, atF) < need && yF > yRef - LampBandM)
                 {
                     LampClashWith = oi;   // (the spacing audit: which road a refused post met)

@@ -33,6 +33,13 @@ float _PSXDynExposure;
 // the zenith down to a few degrees over the horizon (0 = unset: x 1). His frames: a black sky over
 // Uptown, the glow kept low over the city.
 float _PSXN3Sky;
+#ifndef PSX_NIGHT4_DECLARED
+#define PSX_NIGHT4_DECLARED
+// NIGHT 4 (StreetLights.Night4.cs): x the lit city's night-sky weight (eased), y the sky's mix to
+// its gradient, z the most a lamp-lit surface's effective albedo reads, w on (0: NIGHT 3 as it was)
+float4 _PSXNight4;
+#endif
+
 float4 _PSXZenith;       // the single-scattered zenith (DynamicSky, CPU): the light the
                          // multiple-scattering stand-in lends the low sky
 
@@ -546,6 +553,9 @@ float3 PSXDynamicSkyT(float3 dir, out float cloudT)
             float3 below = (sunCol * sunHigh + skyUp) * VOL_GROUND + NIGHT_FLOOR * night +
                            VolCityUnder(dir) * (VOL_CITY / max(_PSXDynExposure, 0.05));
             float3 cloud = (light * cm.r + above * cm.g + below * cm.b) * (1.0 - _PSXVolCov.w * 0.45);
+            // NIGHT 4: a night cloud is never a hole darker than the clear sky beside it (the owner's
+            // "black with navy right next to it"): at least the light of the sky it covers, a touch more
+            if (_PSXNight4.w > 0.5) cloud = lerp(cloud, max(cloud, (1.0 - cm.a) * col * 1.15), night);
             col = col * cm.a + cloud;
             cloudT = cm.a;
         }
@@ -561,6 +571,7 @@ float3 PSXDynamicSkyT(float3 dir, out float cloudT)
             float4 cl = AtmoPuffs(dir, sunDir, sunCol, mu, night);
             // The far rows thin into the haze (and stop reading as rows).
             float fade = saturate((dir.y - 0.015) * 7.0);
+            if (_PSXNight4.w > 0.5) cl.rgb = lerp(cl.rgb, max(cl.rgb, col * 1.15), night);   // (NIGHT 4, as above)
             col = lerp(col, cl.rgb, cl.a * fade);
         }
         if (_PSXCloudDeck.x > 0.001)
@@ -573,7 +584,8 @@ float3 PSXDynamicSkyT(float3 dir, out float cloudT)
 
     // Exposure and a soft shoulder: the display's range.
     col *= _PSXDynExposure;
-    if (_PSXN3Sky > 0.001) col *= lerp(1.0, _PSXN3Sky, saturate(dir.y * 12.0));
+    // NIGHT 4: the same at every elevation (the low sky kept its old light: the pale band)
+    if (_PSXN3Sky > 0.001) col *= _PSXNight4.w > 0.5 ? _PSXN3Sky : lerp(1.0, _PSXN3Sky, saturate(dir.y * 12.0));
     return 1.0 - exp(-col);
 }
 

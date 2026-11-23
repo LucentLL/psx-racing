@@ -122,11 +122,11 @@
 #ifndef PSX_FIELD_TEX_DECLARED
 #define PSX_FIELD_TEX_DECLARED
 #ifdef UNITY_SEPARATE_TEXTURE_SAMPLER
-Texture2D _PSXLampField, _PSXLampFar, _PSXLampFieldPrev, _PSXLampFarPrev, _PSXCarPool;
+Texture2D _PSXLampField, _PSXLampFar, _PSXLampFieldPrev, _PSXLampFarPrev, _PSXCarPool, _PSXHeadVis;
 SamplerState sampler_PSXLampField;
 #define PSX_FIELD_LOD(t, uv) t.SampleLevel(sampler_PSXLampField, uv, 0.0)
 #else
-sampler2D _PSXLampField, _PSXLampFar, _PSXLampFieldPrev, _PSXLampFarPrev, _PSXCarPool;
+sampler2D _PSXLampField, _PSXLampFar, _PSXLampFieldPrev, _PSXLampFarPrev, _PSXCarPool, _PSXHeadVis;
 #define PSX_FIELD_LOD(t, uv) tex2Dlod(t, float4(uv, 0.0, 0.0))
 #endif
 #endif
@@ -152,6 +152,10 @@ float4 _PSXHeadPos[PSX_MAX_HEADLIGHTS];    // xyz lamp (world), w = range in met
 float4 _PSXHeadFwd[PSX_MAX_HEADLIGHTS];    // xyz beam axis (unit), w = cos of the outer half-spread
 float4 _PSXHeadRight[PSX_MAX_HEADLIGHTS];  // xyz lamp right (unit), w = cos of the inner half-spread
 float4 _PSXHeadColor[PSX_MAX_HEADLIGHTS];  // rgb = LINEAR colour x intensity (the plateau), w = the glints' multiplier on it
+// NIGHT 4 (CarLights.Occlusion.cs): x the v of the beam's car's row in _PSXHeadVis, y on. The row
+// holds the beam's reach (m) on 64 bearings across +-75 degrees: past it, a solid is in the way.
+float4 _PSXHeadOcc[PSX_MAX_HEADLIGHTS];
+#define HEAD_OCC_INV2A 0.38197186   // 1 / (2 x 75 degrees in radians)
 
 /// What the beam's diffuse is multiplied by on a texel of LINEAR colour
 /// `albedo` whose normal is `N` (see BEAM_ALBEDO_FLOOR above): 1 by day, on
@@ -283,6 +287,13 @@ void PSXHeadlightsCore(float3 wpos, float3 N, float3 V, float power, float specO
         float drop = -d.y;
         float roadDrop = BEAM_DROP_M + BEAM_DROP_GRADE * length(d.xz);
         float deck = 1.0 - smoothstep(roadDrop, roadDrop + BEAM_DROP_FADE_M, drop);
+
+        // NIGHT 4: nothing past the first solid on this bearing (a wall, a barrier, a rock face)
+        if (_PSXHeadOcc[j].y > 0.5)
+        {
+            float reachM = PSX_FIELD_LOD(_PSXHeadVis, float2(0.5 + atan2(fx, fz) * HEAD_OCC_INV2A, _PSXHeadOcc[j].x)).r;
+            deck *= 1.0 - smoothstep(reachM + 0.3, reachM + 1.8, sqrt(fx * fx + fz * fz));
+        }
 
         float nl = dot(N, -d) / max(dist, 0.05);
         float facing = facingOn > 1.5 ? saturate(nl)

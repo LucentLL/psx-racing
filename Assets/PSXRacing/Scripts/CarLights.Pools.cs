@@ -106,7 +106,7 @@ namespace PSXRacing
                     var u0 = new Vector4(p.x, p.y, p.z, BeamRange);
                     var u1 = new Vector4(f.x, f.y, f.z, cosOuter);
                     var u2 = new Vector4(r.x, r.y, r.z, cosInner);
-                    var u3 = new Vector4(w, l.poolGroundY, 0f, 0f);
+                    var u3 = new Vector4(w, l.poolGroundY, l.OccV, 0f);   // z: NIGHT 4's row, -1 none
                     for (int k = 0; k < 4; k++) { pU0.Add(u0); pU1.Add(u1); pU2.Add(u2); pU3.Add(u3); }
                     pI.Add(v); pI.Add(v + 1); pI.Add(v + 2); pI.Add(v); pI.Add(v + 2); pI.Add(v + 3);
                     lamps++;
@@ -140,6 +140,7 @@ namespace PSXRacing
             Graphics.ExecuteCommandBuffer(poolCmd);
             Shader.SetGlobalTexture(PoolTexId, poolTex);
             Shader.SetGlobalVector(PoolSTId, new Vector4(origin.x, origin.y, 1f / span, 1f));
+            PoolWindowWas(origin, span);
             Shader.SetGlobalVector(PoolColId, new Vector4(col.r, col.g, col.b, baseY));
         }
     }

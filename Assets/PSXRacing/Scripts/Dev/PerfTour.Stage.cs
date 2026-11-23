@@ -366,6 +366,9 @@ namespace PSXRacing
                     Say("stage up: " + env.ToString().Replace("\n", " | "));
                 }
 
+                // NIGHT 4: &leak= on a stage - the rock-face leak probe and the stage's night frames (PerfTour.Night4.cs)
+                if (!string.IsNullOrEmpty(ShotLink.Query(Request() ?? "", "leak"))) { yield return StageNight4(id, path); continue; }
+
                 // offscreen=WxH: the main view into a texture of that size, waited for (see the header)
                 OffscreenView off = null;
                 if (!string.IsNullOrEmpty(offscreenArg) && Camera.main != null && string.IsNullOrEmpty(probeArg))

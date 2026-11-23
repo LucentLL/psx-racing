@@ -281,7 +281,12 @@ namespace PSXRacing
 
             string nshots = ShotLink.Query(Request() ?? "", "nshots");
             string clipArg = ShotLink.Query(Request() ?? "", "clip");
-            if (!string.IsNullOrEmpty(clipArg)) yield return Clip(mode, clipArg);
+            string leakQ = ShotLink.Query(Request() ?? "", "leak");
+            string skyQ = ShotLink.Query(Request() ?? "", "skypano");
+            if (!string.IsNullOrEmpty(leakQ)) yield return LeakProbe(mode, leakQ);   // (NIGHT 4: PerfTour.Night4.cs)
+            if (!string.IsNullOrEmpty(skyQ)) yield return SkyPano(mode, skyQ);
+            if (!string.IsNullOrEmpty(leakQ) || !string.IsNullOrEmpty(skyQ)) { }
+            else if (!string.IsNullOrEmpty(clipArg)) yield return Clip(mode, clipArg);
             else if (!string.IsNullOrEmpty(nshots)) yield return NightShots(mode, nshots);
             else if (!string.IsNullOrEmpty(approachArg)) yield return Approach(mode);
             else if (!string.IsNullOrEmpty(shotsArg)) yield return Shots(mode);

@@ -74,6 +74,7 @@ Shader "PSX/Sky"
             float _HorizonFade;
             float _Stars;
             float _Dynamic;
+            float4 _PSXN4SkyZen, _PSXN4SkyHor;   // NIGHT 4's gradient: overhead, low (w the city glow's share)
             float4 _SunSeen;
             // THE SUN IN THE HAZE (the DAY PASS, 2026-09-21; PSXSunShadow.cginc
             // and TimeOfDay.FogSunFor). The world's fog is brighter toward the
@@ -237,6 +238,8 @@ Shader "PSX/Sky"
                 // How much of the sky behind the dynamic sky's clouds shows:
                 // the stars go under them, and so does the sun's emitter.
                 float cloudT = 1.0;
+                // NIGHT 4: the stars are added after the lit city's gradient (below), not into the source
+                float3 starAdd = float3(0, 0, 0);
                 if (_Dynamic > 0.5)
                 {
                     // THE DYNAMIC SKY (PSXAtmosphere.cginc), with the stars
@@ -248,8 +251,8 @@ Shader "PSX/Sky"
                         float clear = saturate(1.0 - lum * 3.2) * cloudT;
                         float high = saturate((y - 0.04) * 5.0);
                         float band = exp(-pow(dot(dir, normalize(MILKY_POLE)) * MILKY_WIDTH, 2.0));
-                        col += StarField(dir, 0.072 + MILKY_STARS * band) * _Stars * clear * high;
-                        col += MILKY_GLOW * band * _Stars * clear * high;
+                        starAdd = StarField(dir, 0.072 + MILKY_STARS * band) * _Stars * clear * high
+                                + MILKY_GLOW * band * _Stars * clear * high;
                     }
                 }
                 else if (_PanoAmount > 0.001)
@@ -295,13 +298,25 @@ Shader "PSX/Sky"
                         // above it, where a real star is extinguished.
                         float high = saturate((y - 0.04) * 5.0);
                         float band = exp(-pow(dot(dir, normalize(MILKY_POLE)) * MILKY_WIDTH, 2.0));
-                        pano += StarField(dir, 0.072 + MILKY_STARS * band) * _Stars * clear * high;
-                        pano += MILKY_GLOW * band * _Stars * clear * high;
+                        starAdd = (StarField(dir, 0.072 + MILKY_STARS * band) * _Stars * clear * high
+                                 + MILKY_GLOW * band * _Stars * clear * high) * _PanoAmount;
                     }
 
 
                     col = lerp(grad, pano, _PanoAmount);
+                    // NIGHT 4: the photograph darkened over the lit city as the dynamic sky is
+                    if (_PSXNight4.w > 0.5 && _PSXN3Sky > 0.001) col *= _PSXN3Sky;
                 }
+                // NIGHT 4 (StreetLights.Night4.cs): ONE NIGHT SKY over the lit city - a smooth
+                // gradient (near-black overhead, a little lighter low down) with the source sky's
+                // clouds kept only as a faint modulation of it, the stars over it, eased in with
+                // the city and the hour; the city's own low warm glow is added below
+                if (_PSXNight4.w > 0.5 && _PSXNight4.x > 0.001)
+                {
+                    float3 baseN4 = lerp(_PSXN4SkyHor.rgb, _PSXN4SkyZen.rgb, sqrt(saturate(y)));
+                    col = lerp(col, baseN4, saturate(_PSXNight4.y) * _PSXNight4.x);
+                }
+                col += starAdd;
 
                 // Into the fog at the horizon, from both sides. This is what
                 // stops the terrain ending at a visible line: the last band of
@@ -344,7 +359,7 @@ Shader "PSX/Sky"
                                                dot(sunHaze, PSX_FARHAZE_LUM));
                 col = lerp(upper, PSXToneSky((bandRing + sunHaze) * adapt), bandW);
                 // THE CITY'S GLOW (above), over the band and the sky alike
-                col += CityGlow(dir) * adapt;
+                col += CityGlow(dir) * adapt * (_PSXNight4.w > 0.5 ? lerp(1.0, _PSXN4SkyHor.w, _PSXNight4.x) : 1.0);
                 // And below is the ground colour, not a mirror of the sky —
                 // these panoramas render the lower hemisphere as a reflection,
                 // which seen from a bridge deck is a lake hanging in the air.
