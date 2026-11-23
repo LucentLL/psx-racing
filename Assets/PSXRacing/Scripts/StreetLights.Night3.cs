@@ -252,6 +252,9 @@ namespace PSXRacing
         }
 
         static readonly int Night3Id = Shader.PropertyToID("_PSXNight3");
+        static readonly int WetnessId = Shader.PropertyToID("_PSXWetness");
+        /// <summary>The wetness under which NIGHT 3 gives the lit streets' lamps no table glint (a clear night is 0.40).</summary>
+        public static float N3GlintWetMin = 0.6f;
         static int n3AirFrame = -1;
         static readonly int N3SkyId = Shader.PropertyToID("_PSXN3Sky");
         static readonly int NightGlobalId = Shader.PropertyToID("_PSXNight");

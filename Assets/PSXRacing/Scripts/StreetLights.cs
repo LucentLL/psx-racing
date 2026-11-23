@@ -786,6 +786,11 @@ namespace PSXRacing
             ref Entry e = ref entries[i];
             float k = e.intensity * w;
             if (k <= 0f || n >= MaxLamps) return;
+            // NIGHT 3: a lit city street's lamp in the table gives only its wet glint, and only the
+            // lamps within the table's reach have one - on a damp clear night that glint came up on the
+            // road under a lamp as the eye closed to ~200 m (the approach curves: a road patch x3 between
+            // 290 m and 180 m). His clear-night frames are dry: no table glint for them unless it rains.
+            if (Night3 && e.field && e.kind == Kind.Street && FieldActive && Shader.GetGlobalFloat(WetnessId) < N3GlintWetMin) return;
             gPos[n] = new Vector4(e.pos.x, e.pos.y, e.pos.z, e.radius);
             gColor[n] = new Vector4(e.linear.x * k, e.linear.y * k, e.linear.z * k, (float)e.kind);
             n++;
