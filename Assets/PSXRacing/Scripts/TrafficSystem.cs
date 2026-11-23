@@ -454,6 +454,29 @@ namespace PSXRacing
             }
             return best;
         }
+        /// <summary>
+        /// HELD SHORT OF A ONE-WAY STREET (tier1 11-23): an oncoming car the camera can see could not turn off where its
+        /// road becomes one-way (Recycle only takes it out of view), so it drove on down the one-way street against
+        /// the traffic. Now it slows to a stop OneWayHoldM short of where the one-way starts - a driver waiting to turn
+        /// off - and goes out of the race (Recycle) once no camera sees it; the cars behind queue behind it as behind
+        /// any stopped car. And an oncoming car out of view is taken off anywhere within OneWayLookM of a one-way
+        /// stretch, not only in its last 20 m. PSX_TRAFFIC_ONEWAY_HOLD=0: as aipass left it.
+        /// </summary>
+        static readonly bool OneWayHoldOn = System.Environment.GetEnvironmentVariable("PSX_TRAFFIC_ONEWAY_HOLD") != "0";
+        const float OneWayHoldM = 12f, OneWayLookM = 120f;
+        /// <summary>Metres from s, driving dir, to the first one-way waypoint within look (+inf if none).</summary>
+        float OneWayAheadM(float s, int dir, float look)
+        {
+            if (oneWayWp == null) return float.PositiveInfinity;
+            for (float d = 0f; d <= look; d += path.spacing)
+            {
+                float at = s + dir * d;
+                if (path.HasEnds && (at < 0f || at > total)) break;
+                if (OneWayAt(at)) return d;
+            }
+            return float.PositiveInfinity;
+        }
+
         /// <summary>Is the race path one-way (by the city's map) at this many metres along it?</summary>
         bool OneWayAt(float s)
         {
@@ -878,7 +901,8 @@ namespace PSXRacing
                       && !(Time.time - c.wreckedAt > WreckClearS && !InView(c.go.transform.position))
                     : !outOfWindow;
                 // an oncoming car about to drive onto a one-way street turns off there, out of the camera's view
-                if (keep && !c.wrecked && c.dir < 0 && oneWayWp != null && OneWayAt(c.s - 20f) && !InView(c.go.transform.position)) keep = false;
+                if (keep && !c.wrecked && c.dir < 0 && oneWayWp != null && !InView(c.go.transform.position) &&
+                    (OneWayHoldOn ? OneWayAheadM(c.s, c.dir, OneWayLookM) < OneWayLookM : OneWayAt(c.s - 20f))) keep = false;
                 if (keep) continue;
                 c.active = false;
                 c.go.SetActive(false);
@@ -1012,6 +1036,17 @@ namespace PSXRacing
                     v = Mathf.Min(v, EdgePassMps);
                 }
                 else c.edgeLat = float.NaN;
+            }
+            // held short of a one-way street (OneWayHoldOn)
+            if (OneWayHoldOn && c.dir < 0 && oneWayWp != null)
+            {
+                float ow = OneWayAheadM(c.s, c.dir, OneWayLookM);
+                if (ow < OneWayLookM)
+                {
+                    float room = Mathf.Max(0f, ow - OneWayHoldM);
+                    v = Mathf.Min(v, Mathf.Sqrt(2f * 4f * room));
+                    if (room < c.speed * c.speed / (2f * 6f) + 1f) decel = Mathf.Max(decel, 7f);
+                }
             }
             MoveAcross(c, latTarget, dt);
             c.speed = Mathf.MoveTowards(c.speed, v, (v > c.speed ? 2.5f : decel) * dt);

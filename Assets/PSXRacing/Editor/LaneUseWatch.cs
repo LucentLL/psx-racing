@@ -46,6 +46,7 @@ namespace PSXRacing.EditorTools
             owMeets = 0; owSeconds = 0f; owAt.Clear(); owLines.Clear(); respawnAt.Clear(); headLines.Clear();
             headOnsRival = headOnsPlayer = headOnsSlow = headOnsAfterRespawn = headOnsOneWay = headOnsPassing = 0;
             oncomingStreamHits = oncomingStreamHard = 0; streamLines.Clear();
+            OneWayLegal.Reset(); legalNext = 0f;   // tier1 11-23: every traffic car against its street's legal direction
             RaceManager.Respawned -= OnRespawned;
             AIDriver.ResetPassStats();
             if (rm == null) return;
@@ -106,10 +107,44 @@ namespace PSXRacing.EditorTools
                 o = $"traffic {lo.z:+0.0;-0.0} m ahead {lo.x:+0.0;-0.0} right at {Vector3.Dot(other.linearVelocity, who.transform.forward) * 3.6f:+0;-0} km/h along";
             }
             headLines.Add($"HEAD-ON DETAIL {who.name}{(player ? " (player autopilot)" : "")} at {Time.time - t0:0.0}s, {speed:0.0} m/s: car {Mathf.Abs(who.forwardSpeed) * 3.6f:0} km/h" +
+                          RivalsNear(who) +
                           (ai != null ? $", road {(oneWay ? "ONE-WAY (own map)" : ai.DebugTwoWayHere ? "two-way" : "one-way")}, lat {ai.DebugRoadLat:+0.0;-0.0} line {ai.DebugLine:+0.0;-0.0} bias {ai.DebugBias:+0.0;-0.0}" +
                                         (float.IsNegativeInfinity(ai.DebugLeftLimit) ? ", no oncoming guard" : $", guard LIM {ai.DebugLeftLimit:+0.0;-0.0}") +
                                         $", pass side {ai.DebugPassSide}, give {ai.DebugGiveWhy ?? "-"}" : "") +
                           $", {(since < 1e8f ? "respawned " + since.ToString("0.0") + " s before" : "no respawn")}; {o}");
+        }
+
+        /// <summary>THE LEGAL DIRECTION (tier1 11-23, OneWayLegal): every 0.25 s, every traffic car of the race strip
+        /// (wrecks excluded) against the legal direction of the city street under it. Charlotte races only.</summary>
+        static float legalNext;
+        static void SampleLegal(TrafficSystem ts)
+        {
+            if (ts == null || Time.time < legalNext) return;
+            legalNext = Time.time + 0.25f;
+            var def = TrackCatalog.At(RaceHandoff.TrackIndex);
+            if (def == null || !def.IsCityRace) return;
+            var map = PSXRacing.City.CityMap.Get();
+            if (map == null) return;
+            foreach (var rb in ts.Obstacles)
+            {
+                if (rb == null || rb.useGravity || !rb.gameObject.activeInHierarchy) continue;
+                OneWayLegal.Sample(map, rb.name, rb.position, rb.linearVelocity, rb.transform.forward, "race", Time.time - t0);
+            }
+        }
+
+        /// <summary>tier1 11-23: the other racers within 15 m at a head-on (a side push from one alongside was the
+        /// lead on the last one left), each with where it is from the car and its speed.</summary>
+        static string RivalsNear(CarController who)
+        {
+            var sb = new System.Text.StringBuilder();
+            foreach (var c in rm.allCars)
+            {
+                if (c == null || c == who) continue;
+                Vector3 lo = who.transform.InverseTransformPoint(c.transform.position);
+                if (lo.sqrMagnitude > 15f * 15f) continue;
+                sb.Append($" [{c.name} {lo.z:+0.0;-0.0} ahead {lo.x:+0.0;-0.0} right {Mathf.Abs(c.forwardSpeed) * 3.6f:0} km/h]");
+            }
+            return sb.Length > 0 ? ", racers within 15 m:" + sb : ", no racer within 15 m";
         }
 
         /// <summary>Every physics step while racing.</summary>
@@ -117,6 +152,7 @@ namespace PSXRacing.EditorTools
         {
             if (rm == null || rm.State != RaceManager.RaceState.Racing) return;
             var ts = TrafficSystem.Instance;
+            SampleLegal(ts);
             foreach (var c in rm.allCars)
             {
                 if (c == null || c == rm.playerCar) continue;
@@ -222,6 +258,15 @@ namespace PSXRacing.EditorTools
                                    $"mean stay over the line {(stayN > 0 ? over / stayN : 0f):0.0} s");
             }
             foreach (var s in owLines) RacePlayCheck.Note("  " + s);
+            {
+                var def = TrackCatalog.At(RaceHandoff.TrackIndex);
+                if (def != null && def.IsCityRace && TrafficSystem.Instance != null)
+                {
+                    RacePlayCheck.Note("ONE-WAY LEGAL (race strip traffic, OneWayLegal): " + OneWayLegal.Describe(5));
+                    RacePlayCheck.Check(OneWayLegal.Wrong == 0, "no traffic car against a one-way street's legal direction (divided roads' carriageways included)",
+                                        $"{OneWayLegal.Wrong} of {OneWayLegal.OnOneWay} samples on one-way streets");
+                }
+            }
             foreach (var s in headLines) RacePlayCheck.Note("  " + s);
             foreach (var s in streamLines) RacePlayCheck.Note("  " + s);
             RacePlayCheck.Summary($"LANE USE {(AIDriver.PassOncoming ? "ON" : "OFF")} | passes {begun} oncoming-lane {oncoming} held {held} done {done} aborted {aborted} | near misses {nearMisses} | over-line {over:0}s longest {lg:0.0}s | better-line {open:0}s" +
