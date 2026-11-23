@@ -235,6 +235,35 @@ namespace PSXRacing
             }
         }
 
+        /// <summary>Tools: the static field's state and its texel at <paramref name="p"/>
+        /// ("origin res lamps base | R G B A | lamps within 40 m of p in the registry").</summary>
+        public static string N3Debug(Vector3 p)
+        {
+            int near = 0, nearOn = 0;
+            for (int i = 0; i < high; i++)
+            {
+                ref Entry e = ref entries[i];
+                if (!e.used || !e.field || e.kind != Kind.Street) continue;
+                float dx = e.pos.x - p.x, dz = e.pos.z - p.z;
+                if (dx * dx + dz * dz < 1600f) { near++; if (e.on && e.intensity > 0f) nearOn++; }
+            }
+            string px = "-";
+            if (n3Tex != null && n3Tex.IsCreated() && !float.IsNaN(n3Origin.x))
+            {
+                int x = Mathf.FloorToInt((p.x - n3Origin.x) / N3TexelM), z = Mathf.FloorToInt((p.z - n3Origin.y) / N3TexelM);
+                if (x >= 0 && z >= 0 && x < n3Res && z < n3Res)
+                {
+                    var req = UnityEngine.Rendering.AsyncGPUReadback.Request(n3Tex, 0, x, 1, z, 1, 0, 1, TextureFormat.RGBAFloat, null);
+                    req.WaitForCompletion();
+                    if (!req.hasError) { var c = req.GetData<Color>()[0]; px = c.r.ToString("0.00") + " " + c.g.ToString("0.00") + " " + (c.g > 1e-4f ? (n3BaseY + c.b / c.g).ToString("0.0") : "-") + " " + c.a.ToString("0.00"); }
+                    else px = "readback error";
+                }
+                else px = "outside";
+            }
+            return "o " + n3Origin.x.ToString("0") + "/" + n3Origin.y.ToString("0") + " res " + n3Res + " lamps " + n3Lamps + " base " + n3BaseY.ToString("0") +
+                   " | " + px + " | near " + near + " on " + nearOn + " streetOn " + StreetOn + " ver " + n3Version + "/" + n3MeshVersion;
+        }
+
         /// <summary>The lit city-street lamp (a field lamp) nearest <paramref name="p"/>
         /// in plan, within <paramref name="maxM"/> (tools: the approach curves).</summary>
         public static bool NearestFieldLamp(Vector3 p, float maxM, out Vector3 head)
