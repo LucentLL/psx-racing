@@ -114,6 +114,8 @@ namespace PSXRacing
             t.tag = ShotLink.Query(url, "tag") ?? "run";
             t.viewArg = ShotLink.Query(url, "view") ?? "";
             t.shotsArg = ShotLink.Query(url, "shots") ?? "";
+            // &approach=...: the city-night round's approach curves (PerfTour.Approach.cs)
+            t.approachArg = ShotLink.Query(url, "approach") ?? "";
             t.abArg = ShotLink.Query(url, "ab") ?? "";
             // a mountain stage instead of the city (PerfTour.Stage.cs)
             t.stageArg = ShotLink.Query(url, "stage") ?? "";
@@ -277,7 +279,8 @@ namespace PSXRacing
             Post("env.txt", env.ToString());
             Say("free roam up: " + env.ToString().Replace("\n", " | "));
 
-            if (!string.IsNullOrEmpty(shotsArg)) yield return Shots(mode);
+            if (!string.IsNullOrEmpty(approachArg)) yield return Approach(mode);
+            else if (!string.IsNullOrEmpty(shotsArg)) yield return Shots(mode);
             else
                 foreach (var id in routesArg.Split(','))
                 {
