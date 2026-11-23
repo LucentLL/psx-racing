@@ -2,7 +2,7 @@
 # in the EDITOR (Editor\PerfTourEditor.cs) at night, the main view offscreen at 3832x2054, the
 # car driven by the race AI, PSX_LIGHT_NOPOP switched off and on in alternating blocks inside
 # one run. Hidden (batch with graphics). The same A/B in a player:
-#   PSXRacing.exe -perftour "routes=uptown&probe=drive&offscreen=3832x2054&hour=Night&weather=Clear&view=chase&pv=nopop_off=set:StreetLights.NoPop:0;cars4=set:CarLights.HeadCarsPC:4;street8=set:StreetLights.StreetSlotsPC:8&pcfg=8,6,24" -perfout <dir>
+#   PSXRacing.exe -perftour "routes=uptown&probe=drive&offscreen=3832x2054&hour=Night&weather=Clear&view=chase&pv=nopop_off=set:StreetLights.NoPop:0;cars8=set:CarLights.HeadCarsPC:8;street8=set:StreetLights.StreetSlotsPC:8&pcfg=8,6,24" -perfout <dir>
 #
 #   $env:PSX_SANDBOX = 'C:\Users\mcgee\PSXPerf'
 #   powershell -ExecutionPolicy Bypass -File tools\lightpop-cost.ps1 -Routes uptown -Tag lp_uptown
@@ -23,7 +23,7 @@ try {
     }
     if (Test-Path $Out) { Remove-Item $Out -Recurse -Force }
     $env:PSX_LIGHT_NOPOP = "1"
-    $env:PSX_PERFTOUR = "routes=$Routes&probe=$Probe&offscreen=3832x2054&hour=Night&weather=Clear&view=$View&pv=nopop_off=set:StreetLights.NoPop:0;cars4=set:CarLights.HeadCarsPC:4;street8=set:StreetLights.StreetSlotsPC:8&pcfg=$Pcfg&tag=$Tag"
+    $env:PSX_PERFTOUR = "routes=$Routes&probe=$Probe&offscreen=3832x2054&hour=Night&weather=Clear&view=$View&pv=nopop_off=set:StreetLights.NoPop:0;cars8=set:CarLights.HeadCarsPC:8;street8=set:StreetLights.StreetSlotsPC:8&pcfg=$Pcfg&tag=$Tag"
     $env:PSX_PERFOUT = $Out
     $log = "$proj\lightpop_cost_$Tag.log"
     Invoke-UnityJob -Watch:$false -Log $log -MaxMinutes $MaxMinutes -UnityArgs @(

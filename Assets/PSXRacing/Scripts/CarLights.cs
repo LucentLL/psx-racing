@@ -1025,7 +1025,7 @@ namespace PSXRacing
         static int CarsMax => PlatformProfile.PC ? Mathf.Clamp(HeadCarsPC, 1, CarsCap) : LegacyLights / 2;
         /// <summary>Cars whose beams light the world on PC (the perf probe's
         /// set:CarLights.HeadCarsPC:4 A/B).</summary>
-        public static int HeadCarsPC = 8;
+        public static int HeadCarsPC = 4;
         float bornAt = -100f;
         static readonly int[] scoredIdx = new int[CarsCap + 1];
         static readonly float[] scoredScore = new float[CarsCap + 1];
