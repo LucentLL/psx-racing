@@ -36,7 +36,7 @@ namespace PSXRacing
         /// <summary>PSXLamps.cginc's FIELD_END_M: where the near field is gone.</summary>
         const float FieldEndNearM = 200f;
 
-        static Texture2D farTex, farBack;
+        static Texture2D farTex;
         static float[] facc;
         static ushort[] fhalfs;
         static Vector2 farOrigin = new Vector2(float.NaN, float.NaN);
@@ -70,7 +70,7 @@ namespace PSXRacing
             if (dx * dx + dz * dz < r * r) farVersion++;
         }
 
-        static void FarOff() => Shader.SetGlobalVector(FarSTId, Vector4.zero);
+        static void FarOff() { Shader.SetGlobalVector(FarSTId, Vector4.zero); Shader.SetGlobalVector(FarPrevSTId, Vector4.zero); }
 
         static void PushFarField(Vector3 eye, bool mayRebuild)
         {
@@ -92,15 +92,22 @@ namespace PSXRacing
                 else
                 {
                     fPend = false;
+                    bool blend = FieldBlendWanted && farTex != null && farBuiltVersion != farVersion && farBuiltOn == StreetOn && StreetOn && !farPendReshape && !float.IsNaN(farOrigin.x)
+                                 && FarEyeOff(eye) <= FarRes * FarTexelM * 0.5f - FarEndM - FarTexelM;
+                    var oldTex = farTex; var oldO = farOrigin; float oldY = farBaseY;
+                    if (blend) farTex = FarFreeTex();
                     farOrigin = origin; farBaseY = Mathf.Round(eye.y);
                     farBuiltVersion = farVersion; farBuiltOn = StreetOn;
                     using (BuildFarMarker.Auto()) FarLamps = StreetOn ? BuildFar(origin, farBaseY) : 0;
+                    if (blend) BeginFarBlend(oldTex, oldO, oldY);
+                    else farPrev = null;
                 }
                 if (PerfClock.On) PerfClock.Add(PerfClock.Slot.LampField, pc);
             }
             if (farTex == null || FarLamps == 0) { FarOff(); return; }
             Shader.SetGlobalTexture(FarTexId, farTex);
             Shader.SetGlobalVector(FarSTId, new Vector4(farOrigin.x, farOrigin.y, 1f / span, 1f));
+            PushFarBlend();
             // NO POP: never out to where a tile's lamps can still arrive. A tile stands up at the
             // ring's edge, never nearer than the camera's far plane (CityWorld.RingFarM: 1,012 m on a
             // PC with the baked tiles, 500 m on a 2-tile ring - the editor, the web); a new lamp's
@@ -133,7 +140,7 @@ namespace PSXRacing
             int n4 = FarRes * FarRes * 4;
             if (facc == null || facc.Length != n4) { facc = new float[n4]; fhalfs = new ushort[n4]; }
             System.Array.Clear(facc, 0, n4);
-            if (farTex == null) farTex = NewFarTex();
+            if (farTex == null) farTex = FarFreeTex();
             int lamps = 0;
             SplatFar(origin, baseY, 0, high, ref lamps, double.MaxValue);
             for (int i = 0; i < n4; i++) fhalfs[i] = facc[i] == 0f ? (ushort)0 : Mathf.FloatToHalf(facc[i]);
@@ -184,10 +191,13 @@ namespace PSXRacing
                 fStage = 3;
                 return;
             }
-            if (farBack == null) farBack = NewFarTex();
-            farBack.SetPixelData(fhalfs, 0);
-            farBack.Apply(false, false);
-            (farTex, farBack) = (farBack, farTex);
+            var target = FarFreeTex();
+            target.SetPixelData(fhalfs, 0);
+            target.Apply(false, false);
+            bool blendP = FieldBlendWanted && farTex != null && fPendVersion != farBuiltVersion;
+            var oldTexP = farTex; var oldOP = farOrigin; float oldYP = farBaseY;
+            farTex = target;
+            if (blendP) BeginFarBlend(oldTexP, oldOP, oldYP);
             farOrigin = fPendOrigin; farBaseY = fPendBaseY; farBuiltVersion = fPendVersion; farBuiltOn = StreetOn;
             FarLamps = fLamps;
             fPend = false;

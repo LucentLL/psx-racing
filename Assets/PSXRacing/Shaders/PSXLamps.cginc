@@ -114,7 +114,17 @@
 // the rural, mountain and Town roads is untouched. While it is on, the
 // table's STREET entries give only their wet glints (their diffuse is the
 // field's); the tail lamps (points) are unchanged.
-sampler2D _PSXLampField;
+// (lightlook) ONE sampler state for every field texture (the near field, the far field and the
+// two being faded from): PSX/Lit's HD variant is at D3D11's 16 sampler states (its own header,
+// THE SAMPLER BUDGET), so the far and fading textures share the near field's (all bilinear, clamp)
+#ifdef UNITY_SEPARATE_TEXTURE_SAMPLER
+Texture2D _PSXLampField, _PSXLampFar, _PSXLampFieldPrev, _PSXLampFarPrev;
+SamplerState sampler_PSXLampField;
+#define PSX_FIELD_LOD(t, uv) t.SampleLevel(sampler_PSXLampField, uv, 0.0)
+#else
+sampler2D _PSXLampField, _PSXLampFar, _PSXLampFieldPrev, _PSXLampFarPrev;
+#define PSX_FIELD_LOD(t, uv) tex2Dlod(t, float4(uv, 0.0, 0.0))
+#endif
 float4 _PSXLampFieldST;   // xy window origin (world xz), z 1/span, w on
 float4 _PSXLampFieldY;    // x base height, yz uptown centre (xz), w 1/(outer-inner)
 float4 _PSXFieldWhite;    // rgb a mercury-vapour head (linear, the bulb's luminance), w uptown outer radius (m)
@@ -147,9 +157,12 @@ float4 _PSXFieldWarm;     // rgb the bulb (linear), w uptown's gain (its heads w
 // of 8 m texels, taken exactly where the near field lets go (the complement of
 // its eye fade) and gone by _PSXLampFarY.y. _PSXLampFarST.w = 0: off (one
 // uniform branch; and only for a pixel past FIELD_FULL_M).
-sampler2D _PSXLampFar;
 float4 _PSXLampFarST;     // xy window origin (world xz), z 1/span, w on
 float4 _PSXLampFarY;      // x base height, y end (m), z 1/(end - full)
+// A LAMP CHANGE IS FADED (StreetLights.Blend.cs): the texture a rebuild replaced, its window
+// origin (xy), its base height (z) and its remaining weight (w; 0 = no fade running)
+float4 _PSXLampFieldPrevST;
+float4 _PSXLampFarPrevST;
 
 /// The lit street's light at `wpos` on a surface facing `N` (facingOn 0: no
 /// facing term - rain, decals laid on the road). Zero off the city.
@@ -157,14 +170,24 @@ float3 PSXLampField(float3 wpos, float3 N, float facingOn)
 {
     if (_PSXLampFieldST.w < 0.5) return float3(0.0, 0.0, 0.0);
     float2 uv = (wpos.xz - _PSXLampFieldST.xy) * _PSXLampFieldST.z;
-    float4 f = tex2Dlod(_PSXLampField, float4(uv, 0.0, 0.0));
+    float4 f = PSX_FIELD_LOD(_PSXLampField, uv);
+    float fBaseY = _PSXLampFieldY.x;
+    if (_PSXLampFieldPrevST.w > 0.0)
+    {
+        // (lightlook) cross-fading from the texture a lamp change replaced: each re-based to
+        // absolute head heights (B + G x its base), mixed
+        float4 fp = PSX_FIELD_LOD(_PSXLampFieldPrev, (wpos.xz - _PSXLampFieldPrevST.xy) * _PSXLampFieldST.z);
+        f.b += f.g * fBaseY; fp.b += fp.g * _PSXLampFieldPrevST.z;
+        f = lerp(f, fp, _PSXLampFieldPrevST.w);
+        fBaseY = 0.0;
+    }
     // fade out over the outer tenth of the window (beyond ~200 m the halos
     // stand for the lamps), and never a NaN from a texel nothing reached;
     // NO LIGHT POPS (w = 2): by the distance from the eye
     float2 b = saturate(min(uv, 1.0 - uv) * 10.0);
     float eyeR = length(wpos.xz - _WorldSpaceCameraPos.xz);
     float edge = lerp(b.x * b.y, saturate((FIELD_END_M - eyeR) / (FIELD_END_M - FIELD_FULL_M)), step(1.5, _PSXLampFieldST.w));
-    float headY = _PSXLampFieldY.x + f.b / max(f.g, 1e-4);
+    float headY = fBaseY + f.b / max(f.g, 1e-4);
     float under = headY - wpos.y;
     float vertP = saturate((under + 1.0) * 0.5) * saturate((FIELD_UNDER_M - under) * FIELD_UNDER_RAMP);
     float vertG = saturate((under + FIELD_GLOW_UP_M) / FIELD_GLOW_UP_M) * saturate((FIELD_UNDER_M - under) * FIELD_UNDER_RAMP);
@@ -181,8 +204,16 @@ float3 PSXLampField(float3 wpos, float3 N, float facingOn)
     if (_PSXLampFarST.w > 0.5 && _PSXLampFieldST.w > 1.5 && eyeR > FIELD_FULL_M)
     {
         float2 uvF = (wpos.xz - _PSXLampFarST.xy) * _PSXLampFarST.z;
-        float4 g = tex2Dlod(_PSXLampFar, float4(uvF, 0.0, 0.0));
-        float hY = _PSXLampFarY.x + g.b / max(g.g, 1e-4);
+        float4 g = PSX_FIELD_LOD(_PSXLampFar, uvF);
+        float gBaseY = _PSXLampFarY.x;
+        if (_PSXLampFarPrevST.w > 0.0)
+        {
+            float4 gp = PSX_FIELD_LOD(_PSXLampFarPrev, (wpos.xz - _PSXLampFarPrevST.xy) * _PSXLampFarST.z);
+            g.b += g.g * gBaseY; gp.b += gp.g * _PSXLampFarPrevST.z;
+            g = lerp(g, gp, _PSXLampFarPrevST.w);
+            gBaseY = 0.0;
+        }
+        float hY = gBaseY + g.b / max(g.g, 1e-4);
         float uF = hY - wpos.y;
         float vP = saturate((uF + 1.0) * 0.5) * saturate((FIELD_UNDER_M - uF) * FIELD_UNDER_RAMP);
         float vG = saturate((uF + FIELD_GLOW_UP_M) / FIELD_GLOW_UP_M) * saturate((FIELD_UNDER_M - uF) * FIELD_UNDER_RAMP);
@@ -200,7 +231,7 @@ float3 PSXLampField(float3 wpos, float3 N, float facingOn)
 float PSXFieldStreetY(float3 wpos)
 {
     float2 uv = (wpos.xz - _PSXLampFieldST.xy) * _PSXLampFieldST.z;
-    float4 f = tex2Dlod(_PSXLampField, float4(uv, 0.0, 0.0));
+    float4 f = PSX_FIELD_LOD(_PSXLampField, uv);
     return f.g > 0.008 ? _PSXLampFieldY.x + f.b / f.g - 8.5 : _PSXLampFieldY.x - 1.2;
 }
 

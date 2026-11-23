@@ -171,12 +171,18 @@ namespace PSXRacing
                 else
                 {
                     pendOn = false;
+                    // (lightlook) a lamp change is cross-faded, never a cut or a switch
+                    bool blend = FieldBlendWanted && fieldTex != null && builtVersion != fieldVersion && builtStreetOn == StreetOn && StreetOn && !left && !reshaped;
+                    var oldTex = fieldTex; var oldO = builtOrigin; float oldY = builtBaseY;
+                    if (blend) fieldTex = FieldFreeTex();
                     builtOrigin = origin;
                     builtVersion = fieldVersion;
                     builtStreetOn = StreetOn;
                     builtBaseY = Mathf.Round(eye.y);
                     using (BuildFieldMarker.Auto())
                         FieldLamps = StreetOn ? BuildField(origin, builtBaseY) : 0;
+                    if (blend) BeginFieldBlend(oldTex, oldO, oldY);
+                    else fieldPrev = null;
                 }
                 if (PerfClock.On) PerfClock.Add(PerfClock.Slot.LampField, pc);
             }
@@ -184,6 +190,7 @@ namespace PSXRacing
             if (!FieldActive) { FieldOff(); return; }
             Shader.SetGlobalTexture(FieldTexId, fieldTex);
             Shader.SetGlobalVector(FieldSTId, new Vector4(origin.x, origin.y, 1f / span, NoPop ? 2f : 1f));
+            PushFieldBlend();
             Shader.SetGlobalVector(FieldYId, new Vector4(builtBaseY, UptownCentre.x, UptownCentre.y, 1f / Mathf.Max(1f, UptownOuterM - UptownInnerM)));
             // (the 1990s city: _PSXFieldWhite carries the mercury head now,
             // _PSXFieldWarm.w uptown's gain)
@@ -209,6 +216,7 @@ namespace PSXRacing
         {
             FieldActive = false;
             Shader.SetGlobalVector(FieldSTId, Vector4.zero);
+            Shader.SetGlobalVector(FieldPrevSTId, Vector4.zero);
             FarOff();
             Shader.SetGlobalVector(BounceId, Vector4.zero);
         }
@@ -225,7 +233,7 @@ namespace PSXRacing
             int n4 = FieldRes * FieldRes * 4;
             if (acc == null || acc.Length != n4) { acc = new float[n4]; halfs = new ushort[n4]; }
             System.Array.Clear(acc, 0, n4);
-            if (fieldTex == null) fieldTex = NewFieldTex();
+            if (fieldTex == null) fieldTex = FieldFreeTex();
             int lamps = 0, mercs = 0;
             SplatLamps(origin, baseY, 0, high, ref lamps, ref mercs, double.MaxValue);
             ConvertRows(0, FieldRes);
@@ -300,10 +308,14 @@ namespace PSXRacing
                 return;   // the upload on a frame of its own
             }
             // the upload, and the swap
-            if (fieldBack == null) fieldBack = NewFieldTex();
-            fieldBack.SetPixelData(halfs, 0);
-            fieldBack.Apply(false, false);
-            (fieldTex, fieldBack) = (fieldBack, fieldTex);
+            // (lightlook) uploaded into a texture neither shown nor being faded from; a lamp change is cross-faded
+            var target = FieldFreeTex();
+            target.SetPixelData(halfs, 0);
+            target.Apply(false, false);
+            bool blendP = FieldBlendWanted && fieldTex != null && pendVersion != builtVersion;
+            var oldTexP = fieldTex; var oldOP = builtOrigin; float oldYP = builtBaseY;
+            fieldTex = target;
+            if (blendP) BeginFieldBlend(oldTexP, oldOP, oldYP);
             builtOrigin = pendOrigin;
             builtBaseY = pendBaseY;
             builtVersion = pendVersion;

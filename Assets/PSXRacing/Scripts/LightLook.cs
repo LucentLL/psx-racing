@@ -47,6 +47,10 @@ namespace PSXRacing
         /// distance fade 140-240 m).</summary>
         public static bool Beams = Env("PSX_LIGHT_LOOK_BEAMS");
 
+        /// <summary>7. A lamp change inside the lamp field or the far field cross-faded over a
+        /// second instead of switched (StreetLights.Blend.cs).</summary>
+        public static bool FieldBlend = Env("PSX_LIGHT_LOOK_FIELDBLEND");
+
         public static bool PointsOn => On && Points;
         public static bool CarPointsOn => On && CarPoints;
 
