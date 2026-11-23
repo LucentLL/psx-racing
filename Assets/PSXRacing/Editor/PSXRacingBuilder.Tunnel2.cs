@@ -644,7 +644,9 @@ namespace PSXRacing.EditorTools
                     float width = x1 - x0;
                     float y0 = pts[i].y - 1.5f, y1 = pts[i].y + h;
                     Vector3 p = pts[i] + right * (side * (x0 + width * 0.5f)) + into * (StageWallCollThick * 0.5f);
-                    var seg = new GameObject("WallPortal");
+                    // (the wing's box by its own name: the self-test counts four
+                    // WallPortal boxes a tube, one either side of each mouth)
+                    var seg = new GameObject(x0 < wallX ? "WallPortal" : "WallPortalWing");
                     seg.transform.SetParent(parent, false);
                     seg.transform.position = new Vector3(p.x, (y0 + y1) * 0.5f, p.z);
                     seg.transform.rotation = Quaternion.LookRotation(fwd, Vector3.up);
@@ -863,6 +865,11 @@ namespace PSXRacing.EditorTools
         static void BuildTunnel2Parts(List<Vector3> pts, int from, int stations, Transform parent, Material rockMat, PhysicsMaterial phys, int no, float halfW)
         {
             int n = pts.Count;
+            // every part under one "Tunnel<no>" (the self-test's tube marker)
+            var tube = new GameObject("Tunnel" + no);
+            tube.transform.SetParent(parent, false);
+            tube.isStatic = true;
+            parent = tube.transform;
             var lining = T2Mat("TunnelLining", Root + "/Art/Buildings/Textures/ConcreteBare.png", new Color(0.80f, 0.79f, 0.76f), false, Vector4.zero);
             var stone = T2Mat("TunnelPortalStone2", StageRockTexPath, new Color(0.86f, 0.86f, 0.86f), true, new Vector4(1f / 2.6f, 1f / 11f, 1.0f, 1.6f));
             var mortar = T2Mat("TunnelPortalMortar", StageRockTexPath, new Color(0.22f, 0.21f, 0.20f), false, Vector4.zero, false);

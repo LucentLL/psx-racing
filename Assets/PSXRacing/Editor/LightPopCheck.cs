@@ -305,6 +305,20 @@ namespace PSXRacing.EditorTools
             // (lightlook) PSX_LIGHTPOP_TUNNELSHOTS=1: the look shots at each tunnel of the stage
             // (approach, mouth, inside) in both views, the player's car stood there; then done
             if (LightPopCheck.Env("PSX_LIGHTPOP_TUNNELSHOTS", "0") == "1") { yield return TunnelShots(car); yield break; }
+            // (parkwaytunnel) PSX_LIGHTPOP_FROMM: the player's car set down this
+            // far along the race path first (a stage tunnel's approach)
+            float fromM = EnvF("PSX_LIGHTPOP_FROMM", -1f);
+            if (fromM >= 0f && car != null && rm.path != null && rm.path.Count > 4)
+            {
+                int fi = Mathf.Clamp(Mathf.RoundToInt(fromM / rm.path.spacing), 1, rm.path.Count - 2);
+                Vector3 fp = rm.path.GetPoint(fi), ft = rm.path.GetTangent(fi); ft.y = 0f;
+                Vector3 fr = Vector3.Cross(Vector3.up, ft.normalized);
+                var frot = Quaternion.LookRotation(ft.normalized, Vector3.up);
+                for (int k = 0; k < 5; k++) { car.ResetTo(fp + fr * 1.6f + Vector3.up * 0.45f, frot, seated: true); yield return null; }
+                var fai = car.GetComponent<AIDriver>();
+                if (fai != null) fai.ReseedPath();
+                LightPopCheck.Line("set down at " + fromM.ToString("0") + " m");
+            }
             float secs = EnvF("PSX_LIGHTPOP_SECS", 40f);
             int strip = Mathf.RoundToInt(EnvF("PSX_LIGHTPOP_STRIP", 15f));
             string venue = LightPopCheck.Env("PSX_LIGHTPOP_VENUE", "race");
