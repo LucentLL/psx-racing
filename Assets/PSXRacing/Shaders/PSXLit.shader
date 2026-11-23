@@ -2276,8 +2276,11 @@ Shader "PSX/Lit"
                     else
                         bn = PSXBlendNoise(wq) * 0.65 + PSXBlendNoise(wq * 2.7 + 17.3) * 0.35;
                     float bm = smoothstep(1.0 - _BlendParams.z - 0.12, 1.0 - _BlendParams.z + 0.12, bn);
-                    float4 bt = PSXMainTex(_BlendTex, i.wpos.xz * _BlendParams.x);
-                    tex.rgb = lerp(tex.rgb, bt.rgb * _Color.rgb * _BlendTint.rgb, bm);
+                    [branch] if (bm > 0.0)
+                    {
+                        float4 bt = PSXMainTex(_BlendTex, i.wpos.xz * _BlendParams.x);
+                        tex.rgb = lerp(tex.rgb, bt.rgb * _Color.rgb * _BlendTint.rgb, bm);
+                    }
                 }
             #endif
                 // THE LAND AT DISTANCE (see _HorizonMacro): the floor turns into

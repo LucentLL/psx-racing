@@ -249,7 +249,7 @@ namespace PSXRacing.EditorTools
             {
                 if (m == null || !seen.Add(m)) return;
                 if (m.HasProperty("_LeafFall") && m.GetVector("_LeafFall").x > 0.5f) leafMats.Add((m, m.GetVector("_LeafVivid").w));
-                if (m.HasProperty("_BlendTint") && m.IsKeywordEnabled("PSX_GROUNDBLEND") && m.GetColor("_BlendTint") != Color.white) blendMats.Add(m);
+                if (m.HasProperty("_BlendParams") && m.IsKeywordEnabled("PSX_GROUNDBLEND") && Mathf.Abs(m.GetVector("_BlendParams").z - 0.58f) < 0.001f) blendMats.Add(m);   // the verge's new patches only (the floor had its own before)
                 if (m.HasProperty("_RoadLeaves") && m.GetVector("_RoadLeaves").x > 0.5f) roadMats.Add(m);
             }
             foreach (var f in FindObjectsByType<MeshForest>(FindObjectsInactive.Exclude))
@@ -280,7 +280,7 @@ namespace PSXRacing.EditorTools
             Collect();
             var cam = Camera.main;
             if (cam == null) yield break;
-            int rounds = 8, per = 12;
+            int rounds = 16, per = 12;
             var rt = new RenderTexture(3832, 2054, 32, RenderTextureFormat.ARGB32);
             rt.Create();
             var one = new Texture2D(1, 1, TextureFormat.RGBA32, false);
@@ -314,9 +314,10 @@ namespace PSXRacing.EditorTools
             }
             SetSide(true);
             double Mean(System.Collections.Generic.List<double> l) { double s = 0; foreach (var x in l) s += x; return s / l.Count; }
+            double Med(System.Collections.Generic.List<double> l) { var c = new System.Collections.Generic.List<double>(l); c.Sort(); return c[c.Count / 2]; }
             double Sd(System.Collections.Generic.List<double> l) { double m = Mean(l), s = 0; foreach (var x in l) s += (x - m) * (x - m); return System.Math.Sqrt(s / System.Math.Max(1, l.Count - 1)); }
             FallShots.log.AppendLine($"  COST (editor, 3832x2054, {rounds} ABBA rounds x {per} renders): frame A {sumA / rounds:0.00} ms; " +
-                $"FALL2 run-time pieces A-B {Mean(dAB):+0.00;-0.00} +- {Sd(dAB) / System.Math.Sqrt(rounds):0.00} ms (sd {Sd(dAB):0.00}); null A-A {Mean(dAA):+0.00;-0.00} +- {Sd(dAA) / System.Math.Sqrt(rounds):0.00} ms; " +
+                $"FALL2 run-time pieces A-B {Mean(dAB):+0.00;-0.00} +- {Sd(dAB) / System.Math.Sqrt(rounds):0.00} ms (sd {Sd(dAB):0.00}, median {Med(dAB):+0.00;-0.00}); null A-A {Mean(dAA):+0.00;-0.00} +- {Sd(dAA) / System.Math.Sqrt(rounds):0.00} ms (median {Med(dAA):+0.00;-0.00}); " +
                 $"{leafMats.Count} fall leaf materials, {blendMats.Count} verge leaf-patch materials, {roadMats.Count} road materials; piece '{piece}'");
             rt.Release(); Destroy(rt); Destroy(one);
         }
