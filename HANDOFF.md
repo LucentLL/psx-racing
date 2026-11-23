@@ -4,7 +4,7 @@
 - Fallback 2 (a skip list), not a taper to spec: CityLanes2.Skip = Monroe Rd e16891 e10508 e8442 e8443 e8444 e7151 e7152 e7153, N Graham St e16661 e17691 e17692 keep the map's lane count; base TAPR / SPLT within 450 m of them (PSX_CITY_LANES2SKIP=0: none). Boxes round both places = 992312c8 place for place. Sheet: Review\Charlotte_Roads_2026-11-23\land1115_lanes2_skip_monroe_graham.jpg.
 - Also DEFAULT OFF now: PSX_CITY_STDBULBS / BULBCURB / BULBDRIVES (net KINK +1: a new 3.9 deg bulb kink at Robinson Circle e22036).
 - Against 992312c8's own run (not the baseline file, whose STEP 9,671 is stale) every class is equal or lower except STEP 3,951 -> 3,955 (+4): grade breaks moved on LANES2 roads (12 new / 9 gone, e.g. Charlottetowne Ave e9375 2.1 %, W Kingston Ave e20988 1.7 %).
-- charlotte_lotent.bytes re-made at a100cdea. Build steps as in the option-B block, except charlotte_deadends.txt is no longer read by default (keep it for STDBULBS=1). Round 2: scratchpadoadsmerge\ROUND2.md sections 8-9.
+- charlotte_lotent.bytes re-made at a100cdea. Build steps as in the option-B block, except charlotte_deadends.txt is no longer read by default (keep it for STDBULBS=1). Round 2: scratchpad\roadsmerge\ROUND2.md sections 8-9.
 
 ## OPTION B (the coordinator, 11-23 later) - THIS IS THE STATE OF THE BRANCH; the tables below are the round before it
 - c21fa28f: PSX_CITY_PARKING, PSX_CITY_STRIPS, PSX_CITY_SERVICE, PSX_CITY_SERVICE_AISLES DEFAULT OFF (=1 opts in). ON: LANES2, MEDIANSTRETCH, VALLEY, STDBULBS, BULBCURB, BULBDRIVES, OLDNOPAN, WALKCLEAR (and SERVICE_MEDIAN's logic when SERVICE=1). OFF: STRIP, SHOULDER2, STRIPS_ALL.
