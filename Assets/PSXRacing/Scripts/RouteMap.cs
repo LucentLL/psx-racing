@@ -665,15 +665,36 @@ namespace PSXRacing
         }
 
         /// <summary>An arrowhead pointing along <paramref name="dir"/>, on a
-        /// dark outline so it reads on the amber line.</summary>
+        /// dark outline so it reads on the amber line.
+        /// THE DRAG CARDS' ARROWS (tier1 11-23; the owner's batch-1 sheet: "the arrows point the wrong way" on CltD1 and
+        /// CltD3): the head was drawn the right way, but 1.7 long on a 2.0 base it was all but equilateral, and on a
+        /// diagonal line the eye read one of its back corners as the point - against the run. Now it is a slender
+        /// head with a notch cut in its back (2.0 long, 1.5 wide), which has only one way to point.
+        /// PSX_MAP_ARROW_OLD=1: the old head.</summary>
+        static readonly bool OldArrow = System.Environment.GetEnvironmentVariable("PSX_MAP_ARROW_OLD") == "1";
         static void Chevron(VertexHelper vh, Vector2 at, Vector2 dir, float size)
         {
             var side = new Vector2(-dir.y, dir.x);
             float o = size * 0.35f;
-            Tri(vh, at + dir * (size + o), at - dir * (size * 0.7f + o) + side * (size + o),
-                at - dir * (size * 0.7f + o) - side * (size + o), Halo);
-            Tri(vh, at + dir * size, at - dir * size * 0.7f + side * size,
-                at - dir * size * 0.7f - side * size, Arrow);
+            if (OldArrow)
+            {
+                Tri(vh, at + dir * (size + o), at - dir * (size * 0.7f + o) + side * (size + o),
+                    at - dir * (size * 0.7f + o) - side * (size + o), Halo);
+                Tri(vh, at + dir * size, at - dir * size * 0.7f + side * size,
+                    at - dir * size * 0.7f - side * size, Arrow);
+                return;
+            }
+            void Head(float grow, Color32 col)
+            {
+                Vector2 tip = at + dir * (size * 1.1f + grow * 1.4f);
+                Vector2 back = at - dir * (size * 0.9f + grow);
+                Vector2 notch = at - dir * (size * 0.3f - grow * 0.4f);
+                Vector2 l = back + side * (size * 0.75f + grow), r = back - side * (size * 0.75f + grow);
+                Tri(vh, tip, l, notch, col);
+                Tri(vh, tip, notch, r, col);
+            }
+            Head(o, Halo);
+            Head(0f, Arrow);
         }
     }
 
