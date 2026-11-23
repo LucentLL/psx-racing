@@ -37,6 +37,8 @@ namespace PSXRacing
     public partial class PerfTour
     {
         string approachArg;
+        /// <summary>The flown eye over the road (m): a chase camera's height.</summary>
+        public static float EyeH = 3.0f;
 
         class ApTarget
         {
@@ -319,7 +321,7 @@ namespace PSXRacing
             int i = Mathf.Clamp(Mathf.RoundToInt(d), 0, tg.path.Count - 1);
             var p = tg.path[i]; var t = tg.pathTan[i];
             var look = tg.path[Mathf.Clamp(i - 40, 0, tg.path.Count - 1)];
-            var eye = p + Vector3.up * 2.2f;
+            var eye = p + Vector3.up * EyeH;
             var dir = look + Vector3.up * 1.2f - eye;
             if (i < 45) dir = t;
             dir.y = Mathf.Clamp(dir.y, -0.1f, 0.05f) - 0.035f * new Vector2(dir.x, dir.z).magnitude;
@@ -414,7 +416,7 @@ namespace PSXRacing
             else tg.patch = Ground(cP);
             // the road between this lamp and the next one toward the camera (the darkest stretch)
             for (int k = iP + 6; k < Mathf.Min(cl.Count, iP + 70); k++)
-                if (StreetLights.NearestFieldLamp(cl[k], 12f, out var h2) && (h2 - tg.head).sqrMagnitude > 25f)
+                if (StreetLights.NearestFieldLamp(cl[k], 12f, out var h2) && new Vector2(h2.x - tg.head.x, h2.z - tg.head.z).sqrMagnitude > 400f)
                 {
                     int mid = (iP + k) / 2;
                     Vector3 sideB = new Vector3(tg.head.x - cP.x, 0f, tg.head.z - cP.z);
