@@ -1,4 +1,169 @@
-﻿# HANDOFF - TREE COST: what the tree match really costs, and the mirrors in the trees' own far cards (agent "treecost", Opus 5.5, 11-17; branch `tree-cost` off mountain-nm ba49c506; NOT pushed, NOT merged)
+# HANDOFF - RAINGLASS2: the wiper's water bank, the parked screen covered, the wiped arcs clear at speed, car beads by day, the chase lens drops (agent "rainglass2", Opus 5.5, 11-22; branch `rain-glass2` off mountain-nm fe3ce8a6; NOT pushed, NOT merged)
+
+Owner 11-22: "I've seen rain water "pool" when moved by wipers." Round 1 (fe3ce8a6) named its own shortfalls; this round closes them,
+most visible first.
+
+## Found
+- His tunnel clip (14-33-01, 3.5-4.7 s, frame by frame): the blade carries a band of pooled, refracting water 40-80 px deep (4K) on its
+  leading edge, a bright wavering lip, lumpy blobs riding in it; behind the rubber the glass is fully clear; a heavy band is left at
+  the top of the arc. His 11-16 clips have no chase-view rain (cockpit and showroom paint only), so the lens drops are judged alone.
+- fe3ce8a6's bank (`PSXCabinGlass.shader`, the `ahead` band) was a height band with a near-flat top: a flat band refracts nothing
+  and the pane's derivative of the 256x128 phase map steps every texel, so it showed as faint grit at best.
+- The parked screen's round beads all came from one regular grid; the wiped arcs at speed refilled with the 'sheet' (a film) in
+  0.7 s (WiperFill at heavy rain x 0.7 at speed): that film was the haze.
+- Car glass by day: `CarBeadLens` put the whole sky into one bright point per bead -> white speckle on black glass.
+- Lens drops (`PSXLens.shader`): r up to 0.24 of a 0.085-picture-height cell, refract 2.4 r, a 0.30 rim: round soap bubbles.
+
+## Changed (all behind new switches of Rain2, default ON on PC; `=0` = fe3ce8a6's picture, checked bit-exact by construction)
+| Switch | What |
+|---|---|
+| `PSX_RAIN2_BANK2` | the bank: a wedge of water 5.5 cm deep at full load (thickest at the rubber, sqrt profile, rounded lip, ragged), its slope taken from the phase map +-2 texels (no texel grit); a magnifying lens (up to 15 px of 1080 at the lip, ripple along the blade), lumpy blobs riding in it with their own lens and dark outlines, light caught on their upper rims and on the lip, faint sheen. THE LUMP: beyond the arc's edge, fed when the rubber last reached the point just inside (asks the map 3 cm inward along the edge field's gradient), heavier at the top of the stroke, fresh 1.4 s then thinning; more and heavier rivulets run off a fresh lump (down parked, back along the air at speed). |
+| `PSX_RAIN2_COVER` | parked windscreen: every bead its own wandering outline, some drawn into smears, more merged blobs, denser, a 4.6 cm cell layer of big flat blobs; rivulets that run in bursts, stop and meander |
+| `PSX_RAIN2_CLEAR` | at speed no film inside the swept arcs (sheet x (1 - swept)), the blade's smear lasts 1/9 s, refill 1 + 1.8 x wind slower |
+| `PSX_RAIN2_LENSDROPS` | chase lens drops 0.62 x the radius, refract 1.3 r (flat), rim 0.14, glint 0.08, a gently wandering, slightly flattened outline, slide 0.95 cell at full flow with a thinning tail back toward where they started |
+| `PSX_RAIN2_CARBEADS` | car glass/paint beads: the sky as a soft highlight over the bead's upper half, a darker lower rim, a sharp point only from real point lights (the sun when visible, lamps, headlamps) |
+Globals `_PSXRain2Glass2` (bank, cover, clear, lens) and `_PSXRain2Glass3` (car beads), pushed by `Rain2.PushGlass2` from every `Rain2.Push`.
+Play check: `Rain2PlayCheck.StrokeSeq` - every wiper stroke frame on a fixed 1/60 game clock (Time.captureDeltaTime), 10 frames
+inside the stroke + after, one at 3832x2054: seqc (cruise), seqr (race), seqp (stopped, wipers still running). PSX_RAIN2_SEQ=0 skips.
+
+## Proof (scratch `C:\Users\mcgee\AppData\Local\Temp\claude\be91fcb74e64226b\40ca151a-c5be-4aaa-9ea2-b8dd0e7c98a9\scratchpad\rainglass2\`)
+- `rainglass2_sheet.png`: A his stroke | fe3ce8a6 | round 2, night and day, played (hidden, PSXLab, Uptown Trade St, ~43 mph,
+  frames 0-9 = one 0.8 s stroke, 10-13 after); B parked (stills + played); C at speed (still + played); D car glass by day; E chase
+  lens. fe3ce8a6 cells = this code with the five switches =0 in a fresh process. 4K frames: `shots\pr4\play_seq*_4k.png`.
+- Self-test (PSXLab, same sandbox state): fe3ce8a6 code 64 FAIL, this branch 66: the two new ones are "CityFacadeTower lights its
+  windows at night" + "through its window mask" - a scene-material check gated on file times vs the Charlotte build (the base run
+  skipped it); no city, material or lighting file is touched here. TestRain2 28/28 ok (2 new checks).
+- Played runs: the editor's whole-heap allocation meter read 12 KB in one fe3ce8a6-side run (the check allows 8 KB); the seq frames
+  lengthen the drive. Not a per-frame allocation (the stroke code allocates nothing).
+COST (measuring player `PSXRelease\_rainglass2` = this branch, perf-tour probe, Charlotte Trade St, night, heavy rain, offscreen
+3832x2054, the frame waits for the GPU; 12 alternating reps x (6 settle + 12 frames); "gpu wait" = render thread + GPU, the clean
+column; "frame" also carries the CPU). Negative = what switching it off saves; standard error = sd / 3.5.
+
+| Pose (run) | WHOLE rain 2 off: gpu wait (sd) / frame (sd) | ROUND 2 all five off: gpu wait (sd) / frame | nulls (gpu wait) | BANK2 / COVER / CLEAR / LENSDROPS / CARBEADS (gpu wait) |
+|---|---|---|---|---|
+| cockpit parked, run 1 (quiet) | -0.91 (0.51) / -1.62 (1.31) | -0.26 (0.47) / -0.69 | +0.37 / +0.27 | +0.16 / +0.04 / +0.12 / +0.10 / +0.16 |
+| cockpit parked, run 2 (quiet, frame hitches) | -0.79 (0.60) / -1.31 (1.15) | -0.05 (0.49) / -0.06 | -0.27 / +1.18 | 0.00 / -0.31 / +0.41 / (hitch) / -0.17 |
+| chase parked (quiet) | -0.57 (0.67) / -1.11 (0.74) | +0.31 (0.67) / -0.17 | +0.01 / +0.03 | -0.42 / -0.26 / +0.15 / -0.05 / +0.16 |
+| cockpit driving (lightpop play check running) | -0.42 (1.04) / -0.04 (3.32) | +0.22 (1.23) / +0.21 | -0.21 / +0.38 | -0.19 / +0.06 / +0.16 / -0.19 / -0.05 |
+| chase driving (lightpop play check running) | -0.22 (0.94) / -0.31 (2.90) | +0.34 (1.22) / +0.57 | -0.01 / +0.15 | +0.25 / -0.19 / -0.44 / -0.17 / +0.11 |
+
+READ: round 2's own share is inside the noise everywhere: at most ~0.26 ms of gpu wait (cockpit parked run 1, se 0.13; run 2 reads
+0.05), nothing separable in the chase view or driving. The WHOLE rain-2 package measured 0.79-0.91 ms of gpu wait in the cockpit
+parked (round 1 read 0.44 there; round 2's share explains at most 0.26 of the difference, the rest is run-to-run spread), 0.57 chase
+parked, 0.2-0.4 driving: under 1.0 ms on the GPU in every pose, but with little margin in the parked cockpit; on the whole-frame
+column the parked cockpit reads 1.3-1.6 ms (se ~0.35), NOT proven under 1.0. Runs: scratchpad\rainglass2\runs\rg2_*, rg2b_*.
+
+
+## Still short of his clip (my own harshest read)
+- His bank is lit by a tunnel full of lamps; under our street lamps it reads as a clear refracting wedge with a bright thread at its
+  lip - plainly visible at 4K and 1080p by night in Uptown, faint on a dark road and faint by day. Its blobs are a fixed pane pattern
+  the band moves over, not water travelling with the blade.
+- The lip highlight is one thin continuous thread; his lip breaks into blobs.
+- The dropped lump is a beaded band at the arc's top that thins; it does not slide down as one mass when parked.
+- Parked coverage is now edge to edge and irregular, but the beads still read greyer and dimmer than his white-lit, brightly rimmed
+  ones; there is no lamp halo through wet glass (lightpop's area).
+- At speed the arcs are clear; the water outside the arcs reads only faintly (no strong blown streaks at the screen's edges as his).
+- Lens drops: smaller and flatter, but a few still read as beige flakes against bright walls; his clips have no chase rain to match.
+- Car beads by day: soft grey domes now, judged only on the close still (the chase-distance read is the same code, unverified apart).
+
+## At merge
+- Edited: `Scripts/Rain2.cs` (switches + PushGlass2), `Shaders/PSXCabinGlass.shader`, `Shaders/PSXLens.shader`,
+  `Shaders/PSXCarDrops.cginc` (CarBeadShade2), `Shaders/PSXCarPaint.shader` (3 lines inside round 1's RAINGLASS block, ~line 1063:
+  lightpop may be in this file - the hunk is only the `if (_PSXRain2Glass3.x > 0.5) ... else` round the old bead line),
+  `Editor/Rain2PlayCheck.cs` (stroke sequences, a stopped stage at the race's end), `Editor/LifeSimSelfTest.Rain2.cs` (2 checks).
+  No scene, data, bake, ProjectSettings, Scripts/City or lamp file.
+- PSXLab holds this branch's Scripts/Editor/Shaders; the measuring player _rainglass2 was recycled (Recycle Bin).
+
+# HANDOFF - RAINGLASS: the rain on the car's windows, both views; the falling streaks; ready for the modelled wipers (agent "rainglass", Opus 5.5, 11-22; branch `rain-glass` off mountain-nm 62a90355; NOT pushed, NOT merged)
+
+Owner after PC52: "the rain on the car windows could be improved, as well as the windshield wiper models and animation";
+later the same day: "Rain could be better in both. I've seen rain water "pool" when moved by wipers. As far as chase came, the
+water streaks are very large and move in straight lines. Very unrealistic."
+
+## Found
+- CHASE "large straight streaks" had two causes, both particle settings:
+  - `TireSpray.SpawnDrop` / `BuildDrops`: droplets 5-11 cm sprites leaving the tread at 0.55 x the car's speed with no air drag,
+    stretched 0.035 s of flight + 1.6 x size: at speed metre-long white bars flying parallel beside the car, right in front of
+    the chase camera.
+  - `WeatherFx.Build`: every falling drop one speed (15 m/s), one size (1.8 cm), one lean (1.2 m/s), stretched 0.05 s of fall
+    (0.75 m) + 0.02 s of the camera's motion: one sheet of identical parallel bars.
+  - (The chase LENS drops, PSX/Lens, are round drops, not streaks; untouched - the LENS FX option.)
+- Cockpit beads read warm and coarse: each bead's picture was the frame gathered up to 2.5 x (sodium = orange coins), round, thin
+  rim; the side glass used the windscreen's cell sizes a hand from the eye (coin-sized).
+- Wiped arcs did not read as clear-vs-wet: at speed the unwiped water was a few thin streaks, so the arc had nothing to contrast with.
+- Outside: a bead darkened its whole disc (grey dirt dots on paint) and was lit only where its SCREEN-space slope faced the
+  light; a 2-3 px bead has none, so the car's glass carried next to nothing from the chase / replay distance.
+
+## Changed (every piece behind a sub-switch of Rain2; `=0` = 62a90355's picture)
+| Switch | What |
+|---|---|
+| `PSX_RAIN2_STREAKS` | falling streaks ~1/60 s exposure (0.3 m), 0.9-1.6 cm, own fall speed 12.5-17 m/s and drift (0.4-2 m/s with the wind, +-0.6 across), low-quality turbulence; tyre droplets a third the size, air drag 1.8-3.4 (arc back and scatter), short exposure stretch. Re-applied when the switch flips (in-run A/B works). `WeatherFx.ApplyRainLook`, `TireSpray.ApplyDropLook` |
+| `PSX_RAIN2_BEADS2` | cockpit glass: sagging / sometimes-merged beads (`Bead4`), 1.3 x life size on the windscreen (was 1.6), side + rear glass 0.40 of the old cells; a bead shows half the scene straight behind it and a third less tint; wider darker rim, small sharp glint + bright upper crescent; at speed the unwiped water is a blown sheet so the wiped arcs read clear; rivulets run off the arcs' edges (down parked, back along the air at speed); the smear film behind the blade that lamps smear in |
+| `PSX_RAIN2_WIPERMAP` | the wipe from two PHASE MAPS in the windscreen's UV0 (`WiperPhase.cs`: the v10 model's maps when the cockpit ships them, else placeholders made at load from today's drawn arcs) packed as one linear RGBA (phase + signed-distance edge field); the stroke is ONE value s, eased (sine) both ends, with a dwell at park (intermittent 1.3/3.6 s, slow 1.2/1.5, fast 0.8/1.0); the POOLED BANK the blade pushes ahead of it (4.5 cm, wavering film), the ridge left at the arcs' edges |
+| `PSX_RAIN2_WIPERMODEL` | v10's `Wiper_<Side>_Arm` / `_Blade` as separate parts rotated by s x strokeDeg (`CockpitInterior.BuildWipers / PoseWipers`), blade hinge table, per-arm lag; the glass stops drawing its blades. Nothing changes while the model has no such nodes |
+| `PSX_RAIN2_CARGLASS` | outside (`PSXCarDrops.CarBeadLens`, `PSXCarPaint`): every bead holds a bright point of the sky / lamps / headlamps near its upper edge and a dark rim; under ~1 px it gives its average (no crawl); paint beads no longer darken whole; more beads on glass; none on wheels or dark rubber low on the body |
+
+Converter (`tools/cockpit/cockpit_v08.py`): `PSX_COCKPIT_SRC` / `PSX_COCKPIT_BLEND` point it at v10; `wiper_parts()` writes each
+Wiper arm/blade in its own node frame, reads the integration file's `wipers` block (tolerant key names), CHECKS the axis
+convention on the arm's own vertices (Blender +a about the node axis == game -a about the B2U axis; stops if not), copies
+`Wiper_Phase_<Side>_UV0.png` to `Resources/Cockpit/wiper_phase_<side>.bytes`; `Wiper_Cowl` stays in the cabin.
+
+## Proof (scratch `C:\Users\mcgee\AppData\Local\Temp\claude\be91fcb74e64226b\40ca151a-c5be-4aaa-9ea2-b8dd0e7c98a9\scratchpad\rainglass\`)
+- `rainglass_sheet_final.png`: his clips | BEFORE (base 62a90355 code) | AFTER (99362ce1), the same edit-mode poses, fresh processes,
+  PSXLab (scenes from 62a90355; edit-mode stills draw the Classic texture tier). `rainglass_sheet_before.png` = the first critical sheet.
+- Played (hidden, Rain2PlayCheck, PSXPerf, my city scenes): `shots\pbefore\` | `shots\pafter\` play_*.png - chase at ~100 mph: the
+  metre-long white bars behind the wheels are gone (fine scattered droplets). Both runs RAIN2 PLAY OK 12/12.
+- Self-test (PSXPerf): base 62a90355 67 FAIL, branch 68; the one new failure was the new test reading an unreadable texture,
+  fixed (Pack(readable)); TestRain2 26/26 ok after the fix (PSXRec).
+- COST: measuring player `C:\Users\mcgee\PSXRelease\_rainglass` (PSXLab, 99362ce1), perf-tour probe, Charlotte Trade St, night,
+  heavy rain, offscreen 3832x2054 (the frame waits for the GPU), 12 alternating reps x (6 settle + 12 frames), two null A/A
+  variants per run. "gpu wait" = render thread + GPU (the clean column); "frame" also carries the CPU and is noisier.
+| Pose (run) | WHOLE rain 2 (Rain2.On off) gpu wait ms (sd) | frame ms (sd) | null A/A gpu wait | STREAKS | BEADS2 | WIPERMAP | CARGLASS (gpu wait) |
+|---|---|---|---|---|---|---|---|
+| cockpit parked | -0.44 (0.40) | -0.73 (0.93) | +0.04 / +0.08 | +0.05 | -0.19 | -0.28 | -0.07 |
+| chase parked | -0.29 (0.70) | -0.68 (1.20) | +0.11 / +0.38 | +0.10 | +0.27 | -0.05 | +0.15 |
+| cockpit driving, run 1 (lightpop meter run active) | -0.63 (0.88) | -1.50 (3.03) | -0.11 / +0.10 | +0.50 | -0.05 | -0.16 | -0.04 |
+| cockpit driving, run 2 | -0.28 (0.47) | -0.74 (2.13) | -0.39 / +0.02 | +0.33 | -0.63 | +0.19 | +0.01 |
+| chase driving, run 1 (lightpop meter run active) | -0.63 (0.74) | -1.10 (2.07) | +0.25 / -0.35 | +0.10 | +0.25 | +0.17 | -0.03 |
+| chase driving, run 2 (lightpop meter run active) | -0.47 (0.81) | -0.51 (2.78) | +0.05 / +0.23 | -0.47 | +0.01 | -0.07 | +0.10 |
+Negative = what switching it off saves. Means of 12 reps' medians; the standard error is sd / 3.5 (gpu wait 0.1-0.25 ms, frame
+0.3-0.9 ms). READ: the WHOLE rain-2 package (ground, splashes, glass, wipers, spray, streaks, my changes included) costs 0.3-0.6
+ms of render thread + GPU at 3832x2054 and 0.5-1.5 ms of whole frame (the frame column's own nulls swing +-0.6): under the
+1.0 ms budget on the GPU in every pose; on the whole frame the best estimate is under it, the driving runs' upper end (1.1-1.5,
+with lightpop's meter loading the machine) is not proven under it. Each of this round's sub-switches is inside the null spread
+(|d| <= 0.3 parked, <= 0.6 driving, nulls to +-0.4): not separable from zero. The base package on PC53 earlier the same day
+(CPU loaded by 2-5 Unity jobs, 6-8 reps): cockpit parked -0.57, chase parked -0.43, cockpit driving -0.94 - this branch is not
+dearer. Runs: scratchpad\rainglass\runs\rg_*, rg2_*; script cost.ps1.
+
+## Not done / still short of his clips
+- The parked screen is still not as COVERED as his tunnel clip (his scene is lit white overhead; ours is a dim sodium street,
+  so beads show little). Beads are round-ish domes on a grid, not his long irregular smears.
+- The bank ahead of the blade and the edge runoff are subtle at 1080p from the driver's seat; no frame-sequence proof of the
+  bank moving (stills only).
+- Lamps through wet glass: beads and the smear film pick lamps up, but no lamp HALO through wet glass (lightpop's area overlaps).
+- Chase LENS drops (PSX/Lens) untouched: round drops on the lens are the LENS FX option.
+- Falling streak depth layers come from the 3D particles' own parallax; no separate near/far layers.
+- The far broken-glass cabin copies (DamageCabin, CockpitLod) do not carry the modelled wiper parts.
+- No watched drive this round (the play check had its one showing in round 2); played frames are hidden runs.
+
+## At merge
+- No scene, bake, data, ProjectSettings or Scripts/City change. New: `Scripts/WiperPhase.cs` (+meta). Edited: `Rain2.cs`,
+  `CockpitInterior.cs`, `CockpitModel.cs`, `CarLights.cs` (one line), `WeatherFx.cs`, `TireSpray.cs`, `PSXCabinGlass.shader`,
+  `PSXCarDrops.cginc`, `PSXCarPaint.shader`, `Editor/Rain2Shots.cs`, `Editor/LifeSimSelfTest.Rain2.cs`, `tools/cockpit/cockpit_v08.py`.
+- PSXLab holds this branch's Scripts/Editor/Shaders (the measuring build); re-sync it from mountain-nm before the next build.
+
+## For the modeller's v10
+- Node names as the brief (`Wiper_Driver_Arm`, `_Blade`, `Wiper_Passenger_*`, `Wiper_Cowl`), origins on spindle / hinge.
+- integration_LHD.json `wipers` block: per wiper the node names, `full_stroke_angle_deg`, the arm axis for Blender (`arm_axis_blender`:
+  "Z" / "-Y" / {axis, sign}), the hinge axis and table (`hinge_table`: [[armDeg, hingeDeg], ...]), and `phase_offset` (share of
+  the stroke) if the arms run out of phase. The converter reads these key names (case / underscore insensitive) and stops if the
+  axis check fails.
+- `Wiper_Phase_Driver_UV0.png` / `_Passenger_` anywhere under the delivery folder: 256 x 128 grey, image top = glTF V 0, 0 =
+  never, 1..255 = s 0..1 on the upstroke.
+- Convert: `PSX_COCKPIT_SRC=<v10 folder> PSX_COCKPIT_BLEND=<LHD .blend> blender --background --python tools/cockpit/cockpit_v08.py -- <repo>`,
+  then the cockpit bundle as usual; the drawn blades turn off by themselves when the parts load.
+
+# HANDOFF - TREE COST: what the tree match really costs, and the mirrors in the trees' own far cards (agent "treecost", Opus 5.5, 11-17; branch `tree-cost` off mountain-nm ba49c506; NOT pushed, NOT merged)
 
 Brief (coordinator, 11-17 after PC51): the tree-match round reported +0.8 ms (Charlotte), +1.8 / +4.0 ms (NC 226A) and
 "+20 % plants drawn, UNEXPLAINED"; find it and bring the cost under +0.3 ms with no visible change; size the far-ring and

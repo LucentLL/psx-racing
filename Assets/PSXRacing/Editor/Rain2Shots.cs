@@ -118,6 +118,10 @@ namespace PSXRacing.EditorTools
             var curbRot = Quaternion.LookRotation(centre + right * (half - 0.35f) + fwd * 7f - curbEye);
             Vector3 bonnetEye = t.position + t.forward * 2.9f + t.right * 1.7f + Vector3.up * 1.75f;
             var bonnetRot = Quaternion.LookRotation(t.position + t.forward * 1.25f + Vector3.up * 0.72f - bonnetEye);
+            // (rainglass 11-22) the car's own glass from outside: a close rear three-quarter, as the
+            // replays' and the showroom's cameras stand (the rear window, a side window, the paint)
+            Vector3 closeEye = t.position - t.forward * 4.3f + t.right * 2.3f + Vector3.up * 1.6f;
+            var closeRot = Quaternion.LookRotation(t.position + Vector3.up * 0.95f - t.forward * 0.4f - closeEye);
 
             float keepFov = cam.fieldOfView, keepNear = cam.nearClipPlane;
             int night = TimeOfDay.Night, day = TimeOfDay.Afternoon;
@@ -133,6 +137,7 @@ namespace PSXRacing.EditorTools
                 Take(cam, "chase_idle_" + hn, chaseEye, chaseRot, rain, level, 0f);
                 Take(cam, "curb_" + hn, curbEye, curbRot, rain, level, 0f);
                 if (hour == day) Take(cam, "bonnet_" + hn, bonnetEye, bonnetRot, rain, level, 0f);
+                Take(cam, "chase_close_" + hn, closeEye, closeRot, rain, level, 0f);
 
                 // the cockpit: parked, cruising (45 mph), racing (110 mph)
                 var states = hour == night
@@ -186,7 +191,7 @@ namespace PSXRacing.EditorTools
             bool lit = h.lightsOn || Seasons.LightsOn(Seasons.CurrentWeather);
             foreach (var l in Object.FindObjectsByType<CarLights>(FindObjectsInactive.Exclude)) l.PreviewBuild(lit);
             // the cars are wet (CarLights pushes this from the live rain; a preview has none)
-            Shader.SetGlobalVector(PaintGloss.CarDropsId, new Vector4(1f, 0f, 0f, 0f));
+            Shader.SetGlobalVector(PaintGloss.CarDropsId, new Vector4(1f, 0f, Rain2.On && Rain2.CarGlass ? 1f : 0f, 0f));
         }
 
         /// <summary>The two numbers the game's driver would push for this weather.</summary>

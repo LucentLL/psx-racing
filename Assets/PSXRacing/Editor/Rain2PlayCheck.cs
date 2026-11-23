@@ -123,6 +123,42 @@ namespace PSXRacing.EditorTools
             string name = pendingShot;
             pendingShot = null;
             TakeShot(name);
+            if (pendingBig != null) { TakeShot(pendingBig, BigW, BigH); pendingBig = null; }
+        }
+
+        // (rainglass2) THE STROKE SEQUENCE: every frame of one wiper stroke and what follows it, on a
+        // fixed game clock (Time.captureDeltaTime 1/60: the readbacks take real time, the wipers and
+        // the water do not see it), `shots` frames evenly from the stroke's start to `after` seconds
+        // past its end; the middle one also at the owner's 3832 x 2054. PSX_RAIN2_SEQ=0 skips them.
+        string pendingBig;
+        const int BigW = 3832, BigH = 2054;
+        IEnumerator StrokeSeq(string name, int shots, float after)
+        {
+            if (Env("PSX_RAIN2_SEQ", "1") == "0" || !Rain2.On) yield break;
+            int s0 = CockpitInterior.WiperStrokes;
+            for (float w = 0f; CockpitInterior.WiperStrokes == s0 && w < 8f; w += Time.unscaledDeltaTime) { Frame(); yield return null; }
+            if (CockpitInterior.WiperStrokes == s0) { Rain2PlayCheck.Line($"  SEQ {name}: no stroke started in 8 s"); yield break; }
+            Time.captureDeltaTime = 1f / 60f;
+            float t0 = Time.time;
+            float stroke = Shader.GetGlobalVector("_CabinWipe").y;
+            float total = stroke + after;
+            Rain2PlayCheck.Line($"  SEQ {name}: stroke {stroke:0.00} s, {shots} frames over {total:0.00} s (game clock 1/60), wipe2 {Shader.GetGlobalVector("_CabinWipe2")}");
+            int k = 0;
+            while (k < shots)
+            {
+                // ten frames across the stroke itself, the rest spread over what follows
+                int inStroke = Mathf.Min(10, shots - 1);
+                float due = k <= inStroke - 1 ? k * stroke / (inStroke - 1) : stroke + (k - inStroke + 1) * after / (shots - inStroke);
+                if (Time.time - t0 + 1e-4f >= due)
+                {
+                    if (k == shots / 3) pendingBig = name + "_" + k.ToString("00") + "_4k";
+                    yield return Shot(name + "_" + k.ToString("00"));
+                    k++;
+                    continue;
+                }
+                yield return null;
+            }
+            Time.captureDeltaTime = 0f;
         }
 
         const float HangSeconds = 420f;
@@ -274,6 +310,7 @@ namespace PSXRacing.EditorTools
                 yield return null;
             }
             yield return Shot("cruise_cockpit");
+            yield return StrokeSeq("seqc", 14, 1.0f);
             ChaseCamera.PreviewView(ChaseCamera.View.Chase);
             for (float t = 0f; t < 4f; t += Time.unscaledDeltaTime) { Frame(); top = Mathf.Max(top, car.speedKmh); yield return null; }
             yield return Shot("cruise_chase");
@@ -315,6 +352,16 @@ namespace PSXRacing.EditorTools
                     ChaseCamera.PreviewView(ChaseCamera.View.Cockpit);
                     for (float t = 0f; t < 2.5f; t += Time.unscaledDeltaTime) { raceT += Time.unscaledDeltaTime; Frame(); top = Mathf.Max(top, car.speedKmh); yield return null; }
                     yield return Shot("race_cockpit");
+                    yield return StrokeSeq("seqr", 12, 0.6f);
+                    // and stopped: the wipers run on for five seconds, the dropped water runs DOWN
+                    if (Env("PSX_RAIN2_SEQ", "1") != "0" && Rain2.On)
+                    {
+                        ai.speedCapMps = 0f;   // (the AI brakes in its lane to a stop, then holds it)
+                        for (float t = 0f; t < 14f && Mathf.Abs(car.forwardSpeed) > 1.0f; t += Time.unscaledDeltaTime) { raceT += Time.unscaledDeltaTime; Frame(); yield return null; }
+                        ai.driving = false;
+                        Rain2PlayCheck.Line($"  stopped: {car.speedKmh / 1.609f:0} mph");
+                        yield return StrokeSeq("seqp", 14, 1.6f);
+                    }
                     break;
                 }
                 yield return null;
@@ -383,7 +430,9 @@ namespace PSXRacing.EditorTools
             while (pendingShot != null) yield return null;
         }
 
-        void TakeShot(string name)
+        void TakeShot(string name) => TakeShot(name, W, H);
+
+        void TakeShot(string name, int W, int H)
         {
             string path = System.IO.Path.Combine(outDir, "play_" + name + ".png");
             if (System.IO.File.Exists(path)) System.IO.File.Delete(path);
@@ -413,7 +462,7 @@ namespace PSXRacing.EditorTools
                 DestroyImmediate(tex);
                 var car = CityMode.Instance != null ? CityMode.Instance.player : null;
                 Rain2PlayCheck.Line($"  shot play_{name}.png  {(car != null ? (car.speedKmh / 1.609f).ToString("0") + " mph" : "")} view {ChaseCamera.Current} " +
-                                    $"splashes {Rain2Driver.LiveSplashes} wipe {Shader.GetGlobalVector("_CabinWipe")}");
+                                    $"splashes {Rain2Driver.LiveSplashes} wipe {Shader.GetGlobalVector("_CabinWipe")} s {CockpitInterior.WiperS:0.00}");
             }
             cam.targetTexture = target;
             rt.Release();

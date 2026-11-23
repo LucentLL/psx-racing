@@ -89,6 +89,15 @@ Shader "PSX/Lens"
             float4 _PSXLens;
             // x: frame aspect (width / height), y: its reciprocal
             float4 _PSXLensAspect;
+            // (RAINGLASS2, 2026-11-22) w: 1 = the lens drops as water, not bubbles
+            // (Rain2.LensDrops, PSX_RAIN2_LENSDROPS; a global, 0 without rain 2)
+            float4 _PSXRain2Glass2;
+            #define DROP2_R       0.62    // radius x this: small drops, as a lens a hand from the bumper gets
+            #define DROP2_REFRACT 1.3     // a flat drop shows what is just round it, barely turned over
+            #define DROP2_RIM     0.14    // a faint rim, not a soap bubble's ring
+            #define DROP2_HL_AMT  0.08
+            #define DROP2_SLIDE   0.95    // cells a drop runs over its life at full flow (one cell at most, see LensDropLayer)
+            #define DROP2_TAIL    0.55    // the share of that run left behind it as a thinning wet trail
 
             // Below this a term is not drawn at all (LensFx.MinDrawn).
             #define LENS_MIN          0.001
@@ -239,11 +248,33 @@ Shader "PSX/Lens"
                 // first and then running (t squared): a drop clings, then goes.
                 float2 away = base - frameCentre;
                 away /= max(length(away), 1e-4);
-                float2 centre = base + away * (DROP_SLIDE * size * flow * t * t);
+                bool w2 = _PSXRain2Glass2.w > 0.5;
+                float run = (w2 ? DROP2_SLIDE : DROP_SLIDE) * size * flow * t * t;
+                float2 centre = base + away * run;
 
                 float2 q = (p - centre) / r;
+                if (w2)
+                {
+                    // (RAINGLASS2) water, not a bubble: smaller, an outline that wanders, a
+                    // little flattened at random, and a running drop drags a thin wet tail
+                    // back toward where it started (never past it: the cell search holds)
+                    r *= DROP2_R;
+                    float2 d = p - centre;
+                    float al = dot(d, away);
+                    float tail = min(max(-al, 0.0), run * DROP2_TAIL);
+                    d += away * tail;
+                    float thin = 1.0 - 0.35 * smoothstep(0.0, 1.0, tail / max(r * 3.0, 1e-5));
+                    float2 side = float2(-away.y, away.x);
+                    float ac = dot(d, side) / thin;
+                    d = away * dot(d, away) + side * ac;
+                    q = d / r;
+                    q.x *= 1.0 + 0.30 * (h1.x - 0.5);
+                    q.y *= 1.0 + 0.30 * (h1.y - 0.5);
+                    q += 0.12 * sin(q.yx * float2(2.3, 2.9) + h1.zw * 6.2832);
+                }
                 float a = alive * saturate(t / DROP_FADE_IN) * (1.0 - end)
                         * (1.0 - smoothstep(DROP_EDGE, 1.0, length(q)));
+                if (w2) a *= 0.85;
                 if (a > best.a)
                 {
                     best.a = a;
@@ -280,7 +311,8 @@ Shader "PSX/Lens"
             float3 LensDropColour(LensDrop d, float invAspect)
             {
                 float qd = length(d.q);
-                float2 look = d.centre - d.q * (d.r * DROP_REFRACT);
+                bool w2 = _PSXRain2Glass2.w > 0.5;
+                float2 look = d.centre - d.q * (d.r * (w2 ? DROP2_REFRACT : DROP_REFRACT));   // (d.r is already the smaller radius)
                 float2 luv = float2(look.x * invAspect, look.y);
                 float o = d.r * DROP_BLUR;
                 float2 ox = float2(o * invAspect, 0.0);
@@ -288,10 +320,10 @@ Shader "PSX/Lens"
                 float3 seen = LensTap(luv) + LensTap(luv + ox) + LensTap(luv - ox)
                             + LensTap(luv + oy) + LensTap(luv - oy);
                 seen *= 0.2 * DROP_GAIN;
-                seen *= 1.0 - DROP_RIM * smoothstep(DROP_RIM_FROM, 1.0, qd);
+                seen *= 1.0 - (w2 ? DROP2_RIM : DROP_RIM) * smoothstep(DROP_RIM_FROM, 1.0, qd);
                 float lum = dot(seen, float3(0.2126, 0.7152, 0.0722));
                 float2 h = d.q - DROP_HL;
-                seen += DROP_HL_AMT * exp(-DROP_HL_SHARP * dot(h, h)) * (lum + 0.1);
+                seen += (w2 ? DROP2_HL_AMT : DROP_HL_AMT) * exp(-DROP_HL_SHARP * dot(h, h)) * (lum + 0.1);
                 return seen;
             }
 

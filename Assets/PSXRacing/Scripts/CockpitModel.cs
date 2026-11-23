@@ -72,6 +72,29 @@ namespace PSXRacing
         }
         [System.Serializable] public class MirrorDef { public string part; public Vector3 centre; public int uRight, vUp; public float width, height; }
         [System.Serializable] public class SurfaceDef { public Color vinyl, abs, headliner, leather; }
+        /// <summary>
+        /// (rainglass 11-22) One modelled wiper of the v10 cockpit (Cockpit_Wipers_Codex_Brief_2026-11-22.md):
+        /// the converter's reading of the Wiper_&lt;Side&gt;_Arm / _Blade nodes and the integration
+        /// file's wipers block. Model frame (LHD, authored metres, Unity axes). The arm's part is
+        /// written in its own pivot frame (origin on the spindle, <see cref="armRot"/> its rest
+        /// rotation); the game turns it by <see cref="armSign"/> x s x <see cref="strokeDeg"/> about
+        /// <see cref="armAxis"/> (a unit vector in that frame). The blade, when it has a part, rides
+        /// the arm: rest pivot and rotation in the model frame, turned about its own local
+        /// <see cref="bladeAxis"/> by the table (arm angle -&gt; hinge angle, degrees, linear).
+        /// </summary>
+        [System.Serializable]
+        public class WiperDef
+        {
+            public string key, armPart, bladePart;
+            public Vector3 armPivot, armAxis;
+            public Quaternion armRot;
+            public float strokeDeg, armSign = 1f;
+            /// <summary>This arm's lag behind the stroke, as a share of the stroke's time (0 = in phase).</summary>
+            public float phaseLag;
+            public Vector3 bladePivot, bladeAxis;
+            public Quaternion bladeRot;
+            public float[] hingeArmDeg, hingeDeg;
+        }
 
         [System.Serializable]
         public class Layout
@@ -98,6 +121,8 @@ namespace PSXRacing
             /// (dipped) and toward the driver's door.</summary>
             public float nearPassenger, nearDoor;
             public SurfaceDef surfaces;
+            /// <summary>(v10) The modelled wipers, driver first; empty or null before v10.</summary>
+            public WiperDef[] wipers;
 
             /// <summary>The cargo's frame for an RHD cabin: the passenger seat
             /// mirrored to +x's other side (the cargo itself is never drawn

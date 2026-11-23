@@ -98,6 +98,106 @@ namespace PSXRacing.EditorTools
                       CockpitInterior.WiperFill(1f, 1f) < CockpitInterior.WiperFill(1f, 0f),
                       "a wiped screen beads up again sooner in harder rain and at speed");
 
+                // ---- (rainglass 11-22) the wipers' stroke, phase maps and modelled nodes
+                bool keepMap = Rain2.WiperMap;
+                try
+                {
+                    Rain2.WiperMap = true;
+                    float s0 = CockpitInterior.StrokeS(0f, 1f), sq = CockpitInterior.StrokeS(0.25f, 1f), sMid = CockpitInterior.StrokeS(0.5f, 1f),
+                          sEnd = CockpitInterior.StrokeS(1f, 1f), sNear0 = CockpitInterior.StrokeS(0.02f, 1f), sNearTop = CockpitInterior.StrokeS(0.48f, 1f);
+                    Check(s0 == 0f && sEnd == 0f && Mathf.Abs(sMid - 1f) < 1e-4f && Mathf.Abs(sq - 0.5f) < 1e-4f && sNear0 < 0.02f && sNearTop > 0.98f,
+                          "the stroke value s: 0 at park, 1 at the top, eased at both ends (slow off park and at the top)",
+                          $"s(0) {s0:0.000} s(.02) {sNear0:0.000} s(.25) {sq:0.000} s(.48) {sNearTop:0.000} s(.5) {sMid:0.000} s(1) {sEnd:0.000}");
+                    bool dwell = true;
+                    foreach (float r in new[] { 0.6f, 0.75f, 1f })
+                    {
+                        CockpitInterior.WiperTiming(r, out float st, out float pe);
+                        if (pe - st < 0.15f) dwell = false;
+                    }
+                    Check(dwell, "every wiper setting rests at park between strokes (at least 0.15 s)");
+                    // the placeholder maps from the drawn arcs
+                    float mu = 1.45f, mv = 0.72f, reach = Mathf.Min(0.46f * mu, 1.02f * mv);
+                    var wv = new Vector4(0.10f * mu, 0.52f * mu, -0.04f * mv, reach);
+                    var av = new Vector4(CockpitInterior.WiperParkDeg * Mathf.Deg2Rad, CockpitInterior.WiperSweepDeg * Mathf.Deg2Rad, 0.20f, 0.011f * mu);
+                    WiperPhase.Analytic(wv, av, mu, mv, out float[] pd, out float[] pp);
+                    int swept = 0, rising = 0, tested = 0;
+                    for (int i = 0; i < pd.Length; i++) if (!float.IsNaN(pd[i]) || !float.IsNaN(pp[i])) swept++;
+                    // along a ring round the driver's spindle the phase grows with the angle
+                    float prev = -1f; bool mono = true;
+                    for (float ang = 8f; ang < 98f; ang += 6f)
+                    {
+                        float th = ang * Mathf.Deg2Rad, rr = reach * 0.7f;
+                        float qx = wv.x + Mathf.Cos(th) * rr, qy = wv.z + Mathf.Sin(th) * rr;
+                        int x = Mathf.FloorToInt(qx / mu * WiperPhase.W), y = Mathf.FloorToInt(qy / mv * WiperPhase.H);
+                        if (x < 0 || y < 0 || x >= WiperPhase.W || y >= WiperPhase.H) continue;
+                        float ph0 = pd[y * WiperPhase.W + x];
+                        if (float.IsNaN(ph0)) continue;
+                        tested++;
+                        if (ph0 <= prev) mono = false; else rising++;
+                        prev = ph0;
+                    }
+                    float share = 100f * swept / pd.Length;
+                    Check(share > 35f && share < 95f && mono && tested >= 6,
+                          "the placeholder phase maps: the blades sweep most of the screen and the phase grows along the stroke",
+                          $"swept {share:0}% of the pane; ring samples {tested}, rising {rising}");
+                    var tex = WiperPhase.Pack(pd, pp, mu, mv, true);
+                    var px = tex.GetPixels32();
+                    // inside a swept texel the edge channel reads > 0.5, outside < 0.5
+                    int agree = 0, n = 0;
+                    for (int i = 0; i < pd.Length; i += 7)
+                    {
+                        n++;
+                        bool inside = !float.IsNaN(pd[i]);
+                        if (inside == (px[i].b > 127)) agree++;
+                    }
+                    Check(tex.width == WiperPhase.W && tex.height == WiperPhase.H && !tex.isDataSRGB && agree >= n * 0.995f,
+                          "the phase texture: 256 x 128, linear, its edge field agrees with the swept area",
+                          $"{tex.width}x{tex.height} sRGB {tex.isDataSRGB} agree {agree}/{n}");
+                    Object.DestroyImmediate(tex);
+                    // a v10 layout's wipers block reads, and the hinge table interpolates
+                    var lay = JsonUtility.FromJson<CockpitModel.Layout>("{\"wipers\":[{\"key\":\"driver\",\"armPart\":\"wiper_driver_arm\",\"armPivot\":{\"x\":-0.4,\"y\":0.9,\"z\":1.1},\"armAxis\":{\"x\":0,\"y\":1,\"z\":0},\"armRot\":{\"x\":0,\"y\":0,\"z\":0,\"w\":1},\"strokeDeg\":92.5,\"armSign\":-1,\"hingeArmDeg\":[0,5,10],\"hingeDeg\":[0,-1,-3]}]}");
+                    Check(lay != null && lay.wipers != null && lay.wipers.Length == 1 && lay.wipers[0].strokeDeg == 92.5f && lay.wipers[0].armSign == -1f
+                          && Mathf.Abs(CockpitInterior.Hinge(lay.wipers[0].hingeArmDeg, lay.wipers[0].hingeDeg, 7.5f) + 2f) < 1e-4f
+                          && CockpitInterior.Hinge(lay.wipers[0].hingeArmDeg, lay.wipers[0].hingeDeg, 40f) == -3f,
+                          "a v10 cockpit's wipers block reads (CockpitModel.WiperDef) and the blade's hinge table interpolates, held at its ends");
+                    // the converter keeps Wiper_* arms and blades as their own parts
+                    string convPath = System.IO.Path.Combine(Application.dataPath, "../tools/cockpit/cockpit_v08.py");
+                    string conv = System.IO.File.Exists(convPath) ? System.IO.File.ReadAllText(convPath) : null;
+                    if (conv == null) Line("  (the cockpit converter is not in this project copy - a sandbox: its check runs in the repo)");
+                    else Check(conv.Contains("def wiper_parts(") && conv.Contains("o.name.startswith(\"Wiper_\")") && conv.Contains("WIPER AXIS CHECK FAILED"),
+                          "the cockpit converter writes Wiper_* arms and blades as separate rotating parts and checks their axis convention");
+                }
+                finally { Rain2.WiperMap = keepMap; }
+
+                // ---- (rainglass2 11-22) the round-2 switches reach the shaders, and off is off
+                {
+                    bool kb = Rain2.Bank2, kc = Rain2.Cover, kl = Rain2.Clear, kd = Rain2.LensDrops, kg = Rain2.CarBeads, ko = Rain2.On;
+                    try
+                    {
+                        Rain2.On = true; Rain2.Bank2 = Rain2.Cover = Rain2.Clear = Rain2.LensDrops = Rain2.CarBeads = true;
+                        Rain2.Push(1f, 1f);
+                        var g2 = Shader.GetGlobalVector("_PSXRain2Glass2"); var g3 = Shader.GetGlobalVector("_PSXRain2Glass3");
+                        Rain2.Bank2 = false; Rain2.Cover = Rain2.Clear = Rain2.LensDrops = Rain2.CarBeads = false;
+                        Rain2.Push(1f, 1f);
+                        var o2 = Shader.GetGlobalVector("_PSXRain2Glass2"); var o3 = Shader.GetGlobalVector("_PSXRain2Glass3");
+                        Rain2.On = false; Rain2.Bank2 = Rain2.Cover = Rain2.Clear = Rain2.LensDrops = Rain2.CarBeads = true;
+                        Rain2.Push(1f, 1f);
+                        var f2 = Shader.GetGlobalVector("_PSXRain2Glass2");
+                        Check(g2 == Vector4.one && g3.x == 1f && o2 == Vector4.zero && o3.x == 0f && f2 == Vector4.zero,
+                              "the window-rain round-2 switches (BANK2, COVER, CLEAR, LENSDROPS, CARBEADS) reach the shaders; off, or rain 2 off, is fe3ce8a6's picture",
+                              $"on {g2}/{g3.x} off {o2}/{o3.x} rain2 off {f2}");
+                        string sd = System.IO.Path.Combine(Application.dataPath, "PSXRacing/Shaders");
+                        string cab = System.IO.File.ReadAllText(System.IO.Path.Combine(sd, "PSXCabinGlass.shader"));
+                        string lens = System.IO.File.ReadAllText(System.IO.Path.Combine(sd, "PSXLens.shader"));
+                        Check(cab.Contains("_PSXRain2Glass2") && cab.Contains("R2G_BANK2_M") && cab.Contains("depoFresh") && lens.Contains("_PSXRain2Glass2.w"),
+                              "the cabin glass draws the wiper's bank and its dropped lump; the lens reads its drop switch");
+                    }
+                    finally
+                    {
+                        Rain2.Bank2 = kb; Rain2.Cover = kc; Rain2.Clear = kl; Rain2.LensDrops = kd; Rain2.CarBeads = kg; Rain2.On = ko;
+                    }
+                }
+
                 // ---- the spray
                 Check(TireSpray.PoolIn > TireSpray.PoolOut && TireSpray.TailFull > TireSpray.TailFrom && TireSpray.TailCapacity >= TireSpray.Capacity,
                       "the tyres' pool has a way in above its way out; the rooster tail has room");
