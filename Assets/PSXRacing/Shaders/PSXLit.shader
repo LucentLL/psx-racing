@@ -520,9 +520,10 @@ Shader "PSX/Lit"
             #define FALL2_THRU_SKY 0.30
             #define FALL2_THRU_SUN 0.22
             // the shadowed side's warmer target (linear: green and blue pulled down) and the luminance band it fades over
-            #define FALL2_WARM_DARK float3(1.0, 0.55, 0.5)
+            #define FALL2_WARM_DARK float3(1.0, 0.45, 0.35)
+            #define FALL2_GOLD_GAIN 1.25
             #define FALL2_WARM_LO 0.04
-            #define FALL2_WARM_HI 0.20
+            #define FALL2_WARM_HI 0.24
             float4 _RoadLeaves;
             float4 _PSXFallPhase;   // global (SeasonDress): x 1 = live, y the fall's phase 0 early .. 0.5 peak .. 1 late
             // A leaf texel in another colour AT ITS OWN LUMINANCE (owner
@@ -2234,11 +2235,11 @@ Shader "PSX/Lit"
                 float2 ruv = (uv - _MainTex_ST.zw) / _MainTex_ST.xy;
                 float2 rm = float2(ruv.x * _RoadLeaves.y, ruv.y * _RoadLeaves.z);
                 float dEdge = min(rm.x, _RoadLeaves.y - rm.x);
-                float dens = lerp(0.60, 0.05, saturate((dEdge - 0.25) / 1.3)) * lerp(0.35, 1.35, saturate(_PSXFallPhase.y));
+                float dens = lerp(0.65, 0.03, saturate((dEdge - 0.25) / 1.0)) * lerp(0.35, 1.35, saturate(_PSXFallPhase.y));
                 const float RLCell = 0.35;
                 float2 rc = floor(rm / RLCell), rf = frac(rm / RLCell);
-                float4 rh = frac(sin(float4(dot(rc, float2(127.1, 311.7)), dot(rc, float2(269.5, 183.3)),
-                                            dot(rc, float2(419.2, 371.9)), dot(rc, float2(97.3, 157.1)))) * 43758.5453);
+                float rh0 = frac(sin(dot(rc, float2(127.1, 311.7))) * 43758.5453);
+                float4 rh = frac(rh0 * float4(1.0, 37.719, 91.313, 13.591) + float4(0.0, 0.217, 0.613, 0.389));
                 float ang = rh.w * 6.2832;
                 float2 q = rf - (0.3 + 0.4 * rh.yz);
                 q = float2(q.x * cos(ang) + q.y * sin(ang), -q.x * sin(ang) + q.y * cos(ang));
@@ -2261,7 +2262,19 @@ Shader "PSX/Lit"
                 // world-space noise, a soft edge, the layer at its own scale.
                 {
                     float2 wq = i.wpos.xz / max(_BlendParams.y, 1.0);
-                    float bn = PSXBlendNoise(wq) * 0.65 + PSXBlendNoise(wq * 2.7 + 17.3) * 0.35;
+                    float bn;
+                    // FALL 2's verge (_BlendParams.w 1): one octave on a sine-free hash - the verge is a
+                    // big share of a chase frame and two octaves of PSXBlendNoise cost ~0.5 ms there
+                    if (_BlendParams.w > 0.5)
+                    {
+                        float2 i0 = floor(wq), f = frac(wq);
+                        f = f * f * (3.0 - 2.0 * f);
+                        float4 hx = float4(i0.x, i0.x + 1.0, i0.x, i0.x + 1.0), hy = float4(i0.y, i0.y, i0.y + 1.0, i0.y + 1.0);
+                        float4 h4 = frac(frac(hx * 0.1031 + hy * 0.11369) * (hx * 0.13787 + hy * 0.09113 + 33.33) * 19.19);
+                        bn = lerp(lerp(h4.x, h4.y, f.x), lerp(h4.z, h4.w, f.x), f.y);
+                    }
+                    else
+                        bn = PSXBlendNoise(wq) * 0.65 + PSXBlendNoise(wq * 2.7 + 17.3) * 0.35;
                     float bm = smoothstep(1.0 - _BlendParams.z - 0.12, 1.0 - _BlendParams.z + 0.12, bn);
                     float4 bt = PSXMainTex(_BlendTex, i.wpos.xz * _BlendParams.x);
                     tex.rgb = lerp(tex.rgb, bt.rgb * _Color.rgb * _BlendTint.rgb, bm);
@@ -2381,7 +2394,7 @@ Shader "PSX/Lit"
                     if (_LeafTulip.a > 0.0)
                     {
                         if (frac(i.lodD.y * 7.31 + 0.27) < _LeafTulip.a)
-                            tex.rgb = lerp(tex.rgb, LeafRecolour(_LeafTulip.rgb * lerp(1.0, FALL2_WARM_DARK, fallWarm), lumV), 0.85);
+                            tex.rgb = lerp(tex.rgb, LeafRecolour(_LeafTulip.rgb * lerp(1.0, FALL2_WARM_DARK, fallWarm), lumV), 0.85) * lerp(1.0, FALL2_GOLD_GAIN, fallOn);
                         float hv = frac(i.lodD.y * 13.7 + 0.61) - 0.5;
                         tex.rgb *= 1.0 + hv * float3(0.16, 0.03, -0.16);
                     }

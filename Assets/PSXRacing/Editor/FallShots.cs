@@ -113,7 +113,14 @@ namespace PSXRacing.EditorTools
             {
                 var m = AssetDatabase.LoadAssetAtPath<Material>(AssetDatabase.GUIDToAssetPath(guid));
                 if (m == null || m.name.StartsWith("TM_") || !m.HasProperty("_LeafFall") || m.GetVector("_LeafFall").x < 0.5f) continue;
-                var v = m.GetVector("_LeafFall"); v.y = g; m.SetVector("_LeafFall", v); EditorUtility.SetDirty(m); n++;
+                var v = m.GetVector("_LeafFall"); var tg = m.GetColor("_LeafTarget"); v.y = g * (tg.g > 0.45f && tg.b < 0.1f ? 1.15f : 1f); m.SetVector("_LeafFall", v); EditorUtility.SetDirty(m); n++;
+            }
+            foreach (var guid in AssetDatabase.FindAssets("t:Material", new[] { "Assets/PSXRacing/Materials" }))
+            {
+                var m = AssetDatabase.LoadAssetAtPath<Material>(AssetDatabase.GUIDToAssetPath(guid));
+                if (m == null || !m.HasProperty("_BlendParams")) continue;
+                var bp = m.GetVector("_BlendParams");
+                if (Mathf.Abs(bp.z - 0.58f) < 0.001f && bp.w < 0.5f) { bp.w = 1f; m.SetVector("_BlendParams", bp); EditorUtility.SetDirty(m); Debug.Log("[FallTune] verge one-octave: " + m.name); }
             }
             AssetDatabase.SaveAssets();
             Debug.Log($"[FallTune] {n} fall leaf materials at brightness x{g}");
@@ -155,6 +162,39 @@ namespace PSXRacing.EditorTools
             if (input != null) { input.inputEnabled = false; input.enabled = false; }
             var body = car.GetComponent<Rigidbody>();
             int n = 0;
+            // PSX_FS_FINDVISTA=1: where the land falls away beside the road (an overlook): the drop from the
+            // road to the lowest ground 60-240 m to each side, every 40 m, the best ten logged
+            if (System.Environment.GetEnvironmentVariable("PSX_FS_FINDVISTA") == "1")
+            {
+                var best = new System.Collections.Generic.List<(float drop, int idx, int side)>();
+                for (int i = 0; i < rm.path.waypoints.Length; i += 10)
+                {
+                    var p0 = rm.path.GetPoint(i);
+                    var rgt = rm.path.GetRotation(i) * Vector3.right;
+                    for (int side = -1; side <= 1; side += 2)
+                    {
+                        float low = float.MaxValue;
+                        foreach (float d in new[] { 60f, 120f, 180f, 240f })
+                        {
+                            var q = p0 + rgt * (side * d);
+                            if (Physics.Raycast(q + Vector3.up * 600f, Vector3.down, out var h2, 1500f, ~0, QueryTriggerInteraction.Ignore)) low = Mathf.Min(low, h2.point.y);
+                        }
+                        if (low < float.MaxValue) best.Add((p0.y - low, i, side));
+                    }
+                }
+                best.Sort((a, b) => b.drop.CompareTo(a.drop));
+                var sbv = new StringBuilder("  VISTAS (road m, side, drop m):");
+                var used = new System.Collections.Generic.List<int>();
+                foreach (var b in best)
+                {
+                    bool near = false; foreach (var u in used) near |= Mathf.Abs(u - b.idx) < 60;
+                    if (near) continue;
+                    used.Add(b.idx);
+                    sbv.Append($" {b.idx * rm.path.spacing:0}{(b.side > 0 ? "R" : "L")}:{b.drop:0}");
+                    if (used.Count >= 12) break;
+                }
+                FallShots.log.AppendLine(sbv.ToString());
+            }
             foreach (var raw in FallShots.spots.Split(';'))
             {
                 var f = raw.Trim().Split('@');
@@ -194,19 +234,23 @@ namespace PSXRacing.EditorTools
         // live; B = its run-time pieces off (the phase / glow / road leaves global, the leaf recolour's
         // strength, the verge's leaf patches); and a null A/A to show the noise. Editor numbers.
         System.Collections.Generic.List<(Material m, float w)> leafMats;
-        System.Collections.Generic.List<Material> blendMats;
+        System.Collections.Generic.List<Material> blendMats, roadMats;
+        string piece;
         Vector4 phaseOn;
 
         void Collect()
         {
             leafMats = new System.Collections.Generic.List<(Material, float)>();
             blendMats = new System.Collections.Generic.List<Material>();
+            roadMats = new System.Collections.Generic.List<Material>();
+            piece = System.Environment.GetEnvironmentVariable("PSX_FS_COSTPIECE") ?? "all";
             var seen = new System.Collections.Generic.HashSet<Material>();
             void Add(Material m)
             {
                 if (m == null || !seen.Add(m)) return;
                 if (m.HasProperty("_LeafFall") && m.GetVector("_LeafFall").x > 0.5f) leafMats.Add((m, m.GetVector("_LeafVivid").w));
                 if (m.HasProperty("_BlendTint") && m.IsKeywordEnabled("PSX_GROUNDBLEND") && m.GetColor("_BlendTint") != Color.white) blendMats.Add(m);
+                if (m.HasProperty("_RoadLeaves") && m.GetVector("_RoadLeaves").x > 0.5f) roadMats.Add(m);
             }
             foreach (var f in FindObjectsByType<MeshForest>(FindObjectsInactive.Exclude))
                 if (f.variants != null)
@@ -224,9 +268,11 @@ namespace PSXRacing.EditorTools
 
         void SetSide(bool on)
         {
-            Shader.SetGlobalVector("_PSXFallPhase", on ? phaseOn : new Vector4(0f, phaseOn.y, 0f, 0f));
-            foreach (var (m, w) in leafMats) { var lv = m.GetVector("_LeafVivid"); lv.w = on ? w : 0f; m.SetVector("_LeafVivid", lv); }
-            foreach (var m in blendMats) { if (on) m.EnableKeyword("PSX_GROUNDBLEND"); else m.DisableKeyword("PSX_GROUNDBLEND"); }
+            bool all = piece == "all";
+            if (all || piece == "glow") Shader.SetGlobalVector("_PSXFallPhase", on ? phaseOn : new Vector4(0f, phaseOn.y, 0f, 0f));
+            if (all || piece == "recolour") foreach (var (m, w) in leafMats) { var lv = m.GetVector("_LeafVivid"); lv.w = on ? w : 0f; m.SetVector("_LeafVivid", lv); }
+            if (all || piece == "verge") foreach (var m in blendMats) { if (on) m.EnableKeyword("PSX_GROUNDBLEND"); else m.DisableKeyword("PSX_GROUNDBLEND"); }
+            if (piece == "road") foreach (var m in roadMats) { var r = m.GetVector("_RoadLeaves"); r.x = on ? 1f : 0f; m.SetVector("_RoadLeaves", r); }
         }
 
         IEnumerator CostAB()
@@ -271,7 +317,7 @@ namespace PSXRacing.EditorTools
             double Sd(System.Collections.Generic.List<double> l) { double m = Mean(l), s = 0; foreach (var x in l) s += (x - m) * (x - m); return System.Math.Sqrt(s / System.Math.Max(1, l.Count - 1)); }
             FallShots.log.AppendLine($"  COST (editor, 3832x2054, {rounds} ABBA rounds x {per} renders): frame A {sumA / rounds:0.00} ms; " +
                 $"FALL2 run-time pieces A-B {Mean(dAB):+0.00;-0.00} +- {Sd(dAB) / System.Math.Sqrt(rounds):0.00} ms (sd {Sd(dAB):0.00}); null A-A {Mean(dAA):+0.00;-0.00} +- {Sd(dAA) / System.Math.Sqrt(rounds):0.00} ms; " +
-                $"{leafMats.Count} fall leaf materials, {blendMats.Count} verge leaf-patch materials");
+                $"{leafMats.Count} fall leaf materials, {blendMats.Count} verge leaf-patch materials, {roadMats.Count} road materials; piece '{piece}'");
             rt.Release(); Destroy(rt); Destroy(one);
         }
 
