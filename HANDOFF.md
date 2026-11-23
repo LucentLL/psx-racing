@@ -9,7 +9,7 @@
   (Everything else on the LANES2 roads moves label only: 9 SJOG new / 8 gone, 13 KINK new / 12 gone within 100 m, Steele Creek, Monroe, N Graham, Beatties Ford, Randolph, South Blvd.)
 - City audit (Uptown box): c96b5178 24 FAIL, branch 24 FAIL, same set; the billboard density line passes again (161 placed) with SERVICE off. LifeSimSelfTest: 93 / 93, same set.
 - BUILD STEPS for these defaults: (1) copy by path charlotte_city.bytes (LAN2 - needed, LANES2 is on), charlotte_deadends.txt + .meta (needed, STDBULBS), charlotte_lotent.bytes (re-made at e49d59c1), charlotte_service.bytes + .meta (not read with SERVICE off; keep for the opt-in); (2) service_ways.mjs is NOT needed; lanes2.mjs only if another branch changes charlotte_city.bytes; CityAudit.LotEntranceBake again only if City code or data changes before the build (run it with no PSX_CITY_* env); (3) city tile re-bake (~40 min) + city map tiles; (4) no scene pass, no kit step; (5) no env needed.
-- Round 2 (PARKEND, SEAMROADS, the six STRIP places, the 13 bike joints, billboards): scratchpadoadsmerge\ROUND2.md.
+- Round 2 (PARKEND, SEAMROADS, the six STRIP places, the 13 bike joints, billboards): scratchpad\roadsmerge\ROUND2.md.
 
 Owner context: the hoods / lanes / minor work was promised for PC43 and never merged ("these issues cannot get through the quality gate audits"). Worktree `C:\Users\mcgee\PSX Racing-roadsmerge`, sandbox PSXRoadA (WebGL, atomic lock). Scratch: `scratchpad\roadsmerge\` (PROGRESS.md, gate.ps1 / job.ps1 / chain*.ps1, stripends.mjs, mouthdist.mjs, out\, sheets\).
 
