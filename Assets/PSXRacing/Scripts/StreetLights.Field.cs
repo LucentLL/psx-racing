@@ -44,14 +44,18 @@ namespace PSXRacing
         public const int FieldRes = 256;          // texels a side
         public const float FieldTexelM = 2f;      // 512 m across
         const float FieldSnapM = 32f;             // the window moves in these steps
+        /// <summary>OPTION (owner to judge, 2026-11-23): PSX_LIGHT_ROWS=1 = distinct pools with darker gaps between
+        /// the lamps (the light-look round's "rows option": pool 16 m, pool gain 2.8, glow 0.15). Default OFF: the
+        /// city night as it was. Declared before the three fields it sets (static initialisers run in order).</summary>
+        public static readonly bool Rows = System.Environment.GetEnvironmentVariable("PSX_LIGHT_ROWS") == "1";
         /// <summary>The pool's horizontal radius on the street (m).</summary>
-        public static float FieldPoolM = 28f;
+        public static float FieldPoolM = Rows ? 16f : 28f;
         /// <summary>The scattered glow's radius (m).</summary>
         public static float FieldGlowM = 40f;
         /// <summary>The pool per lamp, x the lamp's own intensity (2.0 x gain).</summary>
-        public static float FieldPoolGain = 1.8f;
+        public static float FieldPoolGain = Rows ? 2.8f : 1.8f;
         /// <summary>The glow per lamp, x the lamp's own intensity.</summary>
-        public static float FieldGlowGain = 0.30f;
+        public static float FieldGlowGain = Rows ? 0.15f : 0.30f;
         /// <summary>Uptown (the Square, Trade x Tryon) - inside it the heads
         /// give <see cref="UptownGain"/> the light; metres, world XZ.</summary>
         public static Vector2 UptownCentre = new Vector2(-2259f, 4782f);
@@ -78,12 +82,17 @@ namespace PSXRacing
         public static Vector3 CityBounce = new Vector3(0.075f, 0.069f, 0.063f);
 
         public static bool FieldEnabled = System.Environment.GetEnvironmentVariable("PSX_LAMPFIELD") != "0";
+        /// <summary>(lightlook) the field's lamp colour in this scene (sRGB) in
+        /// place of the bulb's: a stage whose only field lamps are its tunnels'
+        /// sodium heads (TunnelLamps). Null: the city's bulb.</summary>
+        public static Color? FieldHueOverride;
         public static bool FieldActive { get; private set; }
         public static int FieldLamps { get; private set; }
         /// <summary>Of <see cref="FieldLamps"/>, the mercury-vapour heads (the 1990s city).</summary>
         public static int FieldMercuryLamps { get; private set; }
 
         static int fieldVersion;
+        static Vector3 builtShape = new Vector3(-1f, -1f, -1f);
 
         // ---- city-build-hitches (2026-10-29): the field rebuilt only when it changes ----
         /// <summary>Every tile stood up or dropped, every tree frame's lamps,
@@ -143,7 +152,11 @@ namespace PSXRacing
             float span = FieldRes * FieldTexelM;
             var origin = new Vector2(Mathf.Round(eye.x / FieldSnapM) * FieldSnapM - span * 0.5f,
                                      Mathf.Round(eye.z / FieldSnapM) * FieldSnapM - span * 0.5f);
-            if (!mayRebuild && fieldTex != null && builtStreetOn == StreetOn) origin = builtOrigin;
+            // (lightlook) the pool's shape changed (a look option, a tool's A/B): rebuilt whole at once
+            Vector3 shape = new Vector3(FieldPoolM, FieldPoolGain, FieldGlowGain);
+            bool reshaped = shape != builtShape;
+            if (reshaped) { builtShape = shape; fieldVersion++; }
+            if (!mayRebuild && fieldTex != null && builtStreetOn == StreetOn && !reshaped) origin = builtOrigin;
             else if (origin != builtOrigin || builtVersion != fieldVersion || builtStreetOn != StreetOn)
             {
                 long pc = PerfClock.On ? PerfClock.Now() : 0;   // city perf round 1
@@ -154,7 +167,7 @@ namespace PSXRacing
                 // cut, a respawn, a teleport): the shown one would hold no pool
                 // round the new eye for the frames a sliced build takes.
                 bool left = NoPop && fieldTex != null && !float.IsNaN(builtOrigin.x) && FieldEyeOff(eye) > FieldSlackM;
-                if (FieldSliced && Application.isPlaying && fieldTex != null && builtStreetOn == StreetOn && StreetOn && !left)
+                if (FieldSliced && Application.isPlaying && fieldTex != null && builtStreetOn == StreetOn && StreetOn && !left && !reshaped)
                 {
                     using (BuildFieldMarker.Auto()) StepPending(origin, Mathf.Round(eye.y));
                     origin = builtOrigin;
@@ -162,12 +175,18 @@ namespace PSXRacing
                 else
                 {
                     pendOn = false;
+                    // (lightlook) a lamp change is cross-faded, never a cut or a switch
+                    bool blend = FieldBlendWanted && fieldTex != null && builtVersion != fieldVersion && builtStreetOn == StreetOn && StreetOn && !left && !reshaped;
+                    var oldTex = fieldTex; var oldO = builtOrigin; float oldY = builtBaseY;
+                    if (blend) fieldTex = FieldFreeTex();
                     builtOrigin = origin;
                     builtVersion = fieldVersion;
                     builtStreetOn = StreetOn;
                     builtBaseY = Mathf.Round(eye.y);
                     using (BuildFieldMarker.Auto())
                         FieldLamps = StreetOn ? BuildField(origin, builtBaseY) : 0;
+                    if (blend) BeginFieldBlend(oldTex, oldO, oldY);
+                    else fieldPrev = null;
                 }
                 if (PerfClock.On) PerfClock.Add(PerfClock.Slot.LampField, pc);
             }
@@ -175,13 +194,16 @@ namespace PSXRacing
             if (!FieldActive) { FieldOff(); return; }
             Shader.SetGlobalTexture(FieldTexId, fieldTex);
             Shader.SetGlobalVector(FieldSTId, new Vector4(origin.x, origin.y, 1f / span, NoPop ? 2f : 1f));
+            PushFieldBlend();
             Shader.SetGlobalVector(FieldYId, new Vector4(builtBaseY, UptownCentre.x, UptownCentre.y, 1f / Mathf.Max(1f, UptownOuterM - UptownInnerM)));
             // (the 1990s city: _PSXFieldWhite carries the mercury head now,
             // _PSXFieldWarm.w uptown's gain)
-            var w = FieldMercury; var k = FieldWarm.linear;
+            var w = FieldMercury; var k = FieldHueOverride.HasValue ? FieldHueOverride.Value.linear : FieldWarm.linear;
             Shader.SetGlobalVector(FieldWhiteId, new Vector4(w.r, w.g, w.b, UptownOuterM));
             Shader.SetGlobalVector(FieldWarmId, new Vector4(k.r, k.g, k.b, UptownGain));
             Shader.SetGlobalVector(BounceId, new Vector4(CityBounce.x, CityBounce.y, CityBounce.z, 1f));
+            // the lightlook round: the row of pools past 200 m (StreetLights.FarField.cs)
+            PushFarField(eye, mayRebuild);
         }
 
         /// <summary>NO LIGHT POPS: how far (per axis) the eye may stand from
@@ -198,6 +220,8 @@ namespace PSXRacing
         {
             FieldActive = false;
             Shader.SetGlobalVector(FieldSTId, Vector4.zero);
+            Shader.SetGlobalVector(FieldPrevSTId, Vector4.zero);
+            FarOff();
             Shader.SetGlobalVector(BounceId, Vector4.zero);
         }
 
@@ -213,7 +237,7 @@ namespace PSXRacing
             int n4 = FieldRes * FieldRes * 4;
             if (acc == null || acc.Length != n4) { acc = new float[n4]; halfs = new ushort[n4]; }
             System.Array.Clear(acc, 0, n4);
-            if (fieldTex == null) fieldTex = NewFieldTex();
+            if (fieldTex == null) fieldTex = FieldFreeTex();
             int lamps = 0, mercs = 0;
             SplatLamps(origin, baseY, 0, high, ref lamps, ref mercs, double.MaxValue);
             ConvertRows(0, FieldRes);
@@ -288,10 +312,14 @@ namespace PSXRacing
                 return;   // the upload on a frame of its own
             }
             // the upload, and the swap
-            if (fieldBack == null) fieldBack = NewFieldTex();
-            fieldBack.SetPixelData(halfs, 0);
-            fieldBack.Apply(false, false);
-            (fieldTex, fieldBack) = (fieldBack, fieldTex);
+            // (lightlook) uploaded into a texture neither shown nor being faded from; a lamp change is cross-faded
+            var target = FieldFreeTex();
+            target.SetPixelData(halfs, 0);
+            target.Apply(false, false);
+            bool blendP = FieldBlendWanted && fieldTex != null && pendVersion != builtVersion;
+            var oldTexP = fieldTex; var oldOP = builtOrigin; float oldYP = builtBaseY;
+            fieldTex = target;
+            if (blendP) BeginFieldBlend(oldTexP, oldOP, oldYP);
             builtOrigin = pendOrigin;
             builtBaseY = pendBaseY;
             builtVersion = pendVersion;

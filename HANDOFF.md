@@ -91,6 +91,146 @@ WHY THE SERVICE WAYS MOVE THE GATE: their asphalt is drawn in the roads mesh (85
 - Frame cost in a player.
 - The service file and LAN2 were made from pre-LANES2 widths: a mouth on one of the 22 widened edges starts under the new pavement (harmless) - re-run service_ways.mjs when the export is next run.
 
+# HANDOFF - LIGHTLOOK: lamps as points to the vanishing point, the road lit past 200 m, steady far car lamps, sodium tunnel lamps, no new pops (agent "lightlook", Opus 5.5, 11-23; branch `light-look` off 992312c8; NOT pushed, NOT merged)
+
+Owner 11-22 (two clips of another game, reference only): "These videos are also decent references for how street lights can be handled at speed." The pop round removed the switching; this round is the LOOK, plus that round's leftovers. One switch: `PSX_LIGHT_LOOK=0` = 992312c8's lights. Sub-switches `PSX_LIGHT_LOOK_<NAME>=0`: POINTS, FARPOOLS, CARPOINTS, TUNNELS, BEAMS, FIELDBLEND; and `PSX_RAIN2_LAMPGLOW=0`. All default ON.
+
+## What changed (Scripts/LightLook.cs holds the switches; `_PSXLightLook` global pushed from StreetLights.OnBeginCamera, every camera)
+1. Lamp points (PSX/Halo, POINTS): for every lamp halo (street heads, signals, sign luminaires, the far city's lamp dots) the core never falls under 1.5 real framebuffer px of radius; the halo's size is softly capped at 0.12 of the picture height (no ballooning beside the car); CityFar's far lamp dots get a streamed lamp's size, linear bulb colour and halo (they were a third the size and paler); with the far city drawn, a streamed halo is held whole to the squeeze's start, drawn just inside the far plane at its own pixel size, and fades over exactly the band the far dot comes up over (it used to fade at 0.92 of the far plane, a dim ring at the hand-over). Shader-only.
+2. Far lamp field (FARPOOLS, `StreetLights.FarField.cs` + PSXLamps.cginc): the same splat of the same lamps in a 2 km window of 8 m texels (256 sq), stepping 128 m, sliced builds; taken exactly where the near field lets go (the complement of its 160-200 m eye fade), so brightness and colour agree at the hand-over by construction; gone by min(900 m, far plane - 60 m) so a tile's lamps arriving at the ring's edge never show (editor/web 2-tile ring: 440 m; PC baked ring 4: 900 m).
+3. Car lamp points (CARPOINTS, PSX/Glow `_LensLook`, CarLights): a lens under 7 px half-size morphs into a camera-facing point (core never under 1.6 px, its light thinned but kept at least 30 %) with a soft halo 0.75 m (head) / 0.40 m (tail) in the world, so far traffic is steady points and an oncoming pair grows out of a point; near, the lens is its own quad as before. Lamp-map bodies (lamps on the paint) get the far point only (mode 2, gone by 5 px). A spawned car's points come up over 1.5 s (MPB `_LensBirth`).
+4. Headlight hand-overs (BEAMS, CarLights): rank band 45 -> 90 m, distance fade 150-210 -> 140-240 m (2-3 %/frame at I-77 closing speeds). Still 4 cars' beams on PC (no extra cones; no cheap far-car road pool was built - see shortfalls).
+5. Tunnels (TUNNELS, `Scripts/TunnelLamps.cs`, code only, no scene data): two rows of high-pressure sodium heads along each stage bore (catalogue tunnel spans, the WeatherShelter pattern): 8 m pitch, 0.55 of the half-width each side, 0.35 m under the 5.2 m ceiling; one NightGlow (one halo draw), registered as field lamps so the near/far fields wash walls and road the whole bore length; the field's hue is sodium in that scene (`StreetLights.FieldHueOverride`); pool gain 0.10. Night only (follows the street lamps). Little Switzerland: 48 heads. NightGlow gains `lampColour` / `poolGain`.
+6. Lamps through wet glass (`PSX_RAIN2_LAMPGLOW`, PSXCabinGlass.shader, Rain2 `_PSXRain2Glass3.y`): what is bright in the frame copy blooms into a soft cross in the water film (8 taps, only on wet glass, gone where the blade cleared it).
+7. Leftovers: (a) every lamp change inside the near or far field is cross-faded over 1 s (FIELDBLEND, `StreetLights.Blend.cs`: three textures per field, PSXLamps.cginc mixes the two windows re-based to absolute head height; one shared sampler state for all field textures - PSX/Lit HD is at D3D11's 16); window steps alone are not faded (identical data). (b) Gillespie Gap replay beam fades: 4.0 -> 1.0/min (BEAMS).
+- Tools: `Editor/LightLookShots.cs` (3832x2054 frames of the camera stack through halation + PSX/Blit, one per variant at the same pose, taken in a late LateUpdate), LightPopCheck: PSX_LIGHTPOP_SHOTS / NOMETER / WEATHER / TUNNELSHOTS / LIGHTLOOK_DIAG; meter holds the far field too; `tools/lightlook-cost.ps1`.
+
+## Proof (scratch `C:\Users\mcgee\AppData\Local\Temp\claude\be91fcb74e64226b\40ca151a-c5be-4aaa-9ea2-b8dd0e7c98a9\scratchpad\lightlook\`)
+- `lightlook_sheet.png`: his clip | 992312c8 | this round at N Tryon (chase, cockpit), Providence Rd (chase, cockpit), Uptown, I-77 (chase, cockpit), rain cockpit x2, the Little Switzerland tunnel x3. City rows: same frame, switch flipped in-process. Tunnel rows: separate processes (lamps are made at scene load).
+- `lightlook_rows_option.png`: OPTION, not default (coordinator steer 3): FieldPoolM 16 / FieldPoolGain 2.8 / FieldGlowGain 0.15 - distinct pools with darker gaps. Static fields; settable live.
+- Clips (before | after, 30 s, 1920 wide, < 28 MB): `clips\tryon_chase.mp4`, `tryon_cockpit.mp4`, `uptown_chase.mp4`, `i77s_chase.mp4`, `i77s_cockpit.mp4` (meter frames at 960x516, separate drives).
+- Pop table `pop_table.txt`: after = 0/km on all 8 city segments (I-77 chase 0, target met), races 0, GG replay 4.0 -> 1.0/min, UptownLoop replay 3.0 -> 3.0/min (street-lamp-table rank steps after one cut; table untouched this round).
+- Cost (editor perf probe, park, 3832x2054 offscreen, night, 20 x 30 frames, in-process A/B with a null A/A; d = look off minus on): gpu wait uptown chase -0.16 (sd .95), cockpit -0.34 (.42), I-77 chase -0.24 (.49), cockpit -0.19 (.49); A/A -0.07 / +0.17 / -0.18 / +0.12. Frame totals within noise (+1.95 sd 5.5, +0.14, -0.15, -0.16; A/A +0.10, -0.27, -0.22, -0.05). Estimate +0.2-0.35 ms GPU, under the +0.4 target. EDITOR numbers; re-measure in a player.
+- Self-test (LifeSimSelfTest, hidden, PSXPerf): 104 FAIL, the identical set to 992312c8's (light-pop head, same tree).
+
+## What still falls short (honest)
+- Our streets have fewer lamps than his: N Tryon has heads on one side ~100 m apart in places; the "lit road with no source" in sheet v1 was lamps BEHIND the camera (28 m pools, 40 m glow). The rows option narrows that; lamp density is Scripts/City (not touched).
+- The near road still reads flat and over-lit against his clip (the city-night pass's 28 m pool / 0.30 glow); the option sheet shows the fix; default left alone.
+- High-mast and tall poles under their own head are lit bright (field's vertical model, existing); with the far field, far masts now show it too.
+- I-77 road beyond ~150 m stays dark: its masts are taller than the field's 16 m reach (by design: no light through decks).
+- No cheap far-car beam pool was built; beams stay 4 cars on PC with softer hand-overs.
+- Wet-glass bloom is subtle in the frames (the frame copy is taken before transparents: halos are not in it).
+- Tunnels lit at night only; the real Parkway bores are unlit (this is the owner's reference look); daytime tunnel lighting not done. Brock (Blowing Rock) tunnels not shot.
+- Editor far plane 500 m (2-tile ring): the PC baked ring-4 picture (1 km, far field to 900 m) is unverified.
+- Android / WebGL not run: without separate samplers (GLES) the 3 new field textures are 3 more sampler2Ds.
+
+## For the merge / a PC build
+- New files with metas: Scripts/LightLook.cs, StreetLights.FarField.cs, StreetLights.Blend.cs, TunnelLamps.cs, Editor/LightLookShots.cs (all with committed metas). Shared files: StreetLights.cs (OnBeginCamera, Set/MarkField/Free), StreetLights.Field.cs (PushField, BuildField, StepPending, FieldOff), NightGlow.cs (Register, MakeHalo, BirthIfSeen), CarLights.cs (lens materials, sprite rules, hand-over constants, UpdateLensBirth), Rain2.cs, LightPopCheck.cs, LightPopMeter.cs, PSXHalo/PSXGlow/PSXCabinGlass.shader, PSXLamps.cginc.
+- Nothing under Scripts/City: no line gate, no city re-bake, NO scene pass (tunnel lamps are code-only). A player build picks it up as code + shaders.
+- Player A/B: `PSXRacing.exe -perftour "routes=uptown&probe=park&offscreen=3832x2054&hour=Night&weather=Clear&view=chase&pv=look_off=set:LightLook.On:0;aa=set:LightLook.On:1&pcfg=20,8,30" -perfout <dir>`.
+
+# HANDOFF - TIER1: FOUR SMALL ITEMS LANDED (one-way traffic + its self-test, race-card arrows, missing / orphan metas, the arch tables); S1 HELD (agent "tier1", branch `tier1-1123` off 992312c8, 2026-11-23 00:30-02:50; NOT pushed, NOT merged)
+
+Items 4, 5, 9 and 10 of the owner's ranked list (Open_Tasks_Ranked_2026-11-17.md). Sandbox PSXCity (WebGL); every play
+run HIDDEN (batch). Scratch `C:\Users\mcgee\AppData\Local\Temp\claude\be91fcb74e64226b\40ca151a-c5be-4aaa-9ea2-b8dd0e7c98a9\scratchpad\tier1\`
+(PROGRESS.md, out\). No Scripts/City change; no player build.
+
+## 1. Traffic one-way fix (DONE: merged, self-test added, one hole closed, the head-on found and fixed; ONE open flag)
+- fd61250c merges `ai-pass` (a6afce6f): the code merged clean; HANDOFF.md conflicted only (both sections kept). The
+  switches stay as aipass left them: PSX_TRAFFIC_ONEWAY, PSX_TRAFFIC_BIRTH_CLEAR and PSX_AI_PASS_WINDOW ON;
+  PSX_AI_PASS_RIVALPULL opt-in; PSX_AI_PASS_IN_TRAFFIC 1. The owner's 11-16 rule is untouched (racers prefer the right
+  lane and may pass in the oncoming one).
+- HOLE FOUND AND CLOSED (3424c8e5, `Scripts/TrafficSystem.cs`, PSX_TRAFFIC_ONEWAY_HOLD default ON, =0 = as aipass left
+  it): aipass turned an oncoming car off where its road becomes one-way ONLY out of the camera's view; a car in view
+  drove on down the one-way street. Now it slows to a stop 12 m short (a driver waiting to turn off) and leaves once
+  unseen; out of view it is taken off anywhere within 120 m of a one-way stretch.
+- THE SELF-TEST (3424c8e5, 00a69cb3): `Editor/OneWayLegal.cs` judges every traffic car from outside: its place on the
+  city map (the edge whose pavement holds it, at its height, not in a junction's first/last 10 m) and its heading,
+  against the street's legal direction. A divided road's carriageways are one-way edges with a same-name twin. Where
+  streets fork, a car is wrong only if no street holding it allows its heading. It runs in EVERY city race of
+  race-play-check through `LaneUseWatch` (note "ONE-WAY LEGAL", check "no traffic car against a one-way street's legal
+  direction") and in free roam through `Editor/OneWayTrafficCheck.cs` (17:15, a ghost driven 50 s along three one-way
+  streets near uptown and one divided road). Runner: `tools\oneway-check.ps1 -Sandbox <sb>` (both halves; the races
+  must also cover 3 one-way streets and 1 divided road).
+- Results (hidden, PSXCity): FREE ROAM PASS: E 4th St, E 12th St, E 5th St, the divided E Trade St; 0 wrong of 16,696
+  samples on one-way streets round them (E 3rd-6th, 11th, Brevard, College, Caldwell, McDowell, I-277 among them).
+  RACES (MEDIUM traffic): CltC1 s3 (twice), CltC2 s1, UptownLoop s0, TryonSprint MEDIUM s0 (three times), s1 (twice), s2
+  (twice), LIGHT s1, CltS1 s2: 0 wrong-way samples in all but one run, over 18+ one-way streets and 9 divided roads. The first run's only 2 flags were Tryon St cars at the
+  N Church St fork (node 9907): the checker's mistake, fixed by the fork rule (00a69cb3).
+  NEGATIVE CONTROL: CltC1 s3 with PSX_TRAFFIC_ONEWAY=0: WRONG WAY 553 samples (FAIL) and 50 one-way meets. The test
+  catches the bug.
+- OPEN FLAG (the self-test's only FAIL after the fix): TryonSprint MEDIUM s1 (final code), one taxi for 0.75 s (3
+  samples) at (-557, 6341) on N Tryon St's divided stretch, judged against the SW-bound carriageway e10847 while it
+  drove NE; the race route there is the NE-bound carriageway e10930 (no oncoming birth on it). Either the strip laid
+  the car over the other carriageway's pavement or the checker missed e10930 under it: not resolved. Report:
+  out\ow4\race_oneway_races.txt lines 77-82.
+- THE HEAD-ON: aipass's (TryonSprint MEDIUM s0, 180SX at 30 s) did not come back in three re-runs of that seed. Its
+  class did, on seed 1 (out\ow3): the FD at 150 km/h with the player's RX-7 level on its right (1.6 m across) tried a
+  pass, gave it up, steered right on the held 0.55 give-way brake, was pushed left by the car beside it (heading -5
+  deg while steering +0.3) and met a taxi nose to nose at 45.5 m/s (retired). Each head-on now logs the racers within
+  15 m (that is how the car beside it showed up). FIX (e95df365, `Scripts/AIDriver.cs`, PSX_AI_SHUT_BRAKE default ON,
+  =0 the hold as before): when a racer alongside on the right shuts the way back, the hold goes to the full pedal, so
+  the car drops behind the one beside it. After: TryonSprint MEDIUM s1, s0, s2 and CltC1 s3: 0 head-ons, 0
+  oncoming-stream hits (hard same-direction traffic hits 1 / 0 / 2 / 0, as before). Four races are thin proof; the
+  runs are not deterministic (one seed raced 343 s and 295 s).
+- Race FAIL lines seen, all classes aipass's base and final matrices also had: position flicker, a progress fall, a
+  stay over the centreline > 20 s (22-26 s), 3 retirements on UptownLoop, one undrawn rail.
+
+## 2. Providence Rd Sprint S1 (NOT SHIPPED: needs Scripts/City) and the D1/D3 card arrows (DONE)
+- S1 re-raced hidden at time scale 1 (s1.json from tracks-lane-B 17085911; its checkpoint chain made with
+  checkpoints.mjs: 8 gates, every leg PASS). Sanctioned seed 0: the Supra ROLLED at ~672 m (130 km/h, 5 m right of the
+  centre, no steering input; up vector -0.81), 12 m before the Fenton Pl mouth (node 11448, e10501 -> e10502); the
+  Viper hit it and RETIRED. Sanctioned seed 1: the Charger RETIRED into a CityPost at 2218 m and the Skyline was stuck at
+  2216 m, both at the Colville Rd mouth (node 17211, 2207 m); the 180SX spun at 800 m. MEDIUM seed 2: 7/7 home.
+  So cars still spin and roll at side-street mouths in 2 of 3 races, the fault lane B saw at 700-730 m. FANLIP is on,
+  and the line gate's box runs there are clean (Fenton/Altondale: 0 failing places; Colville: 1 paint KINK only), so
+  the cause is something the gate does not measure (the collider, or the fan's cross-slope at speed). That is
+  Scripts/City work, so S1 stays out. Its files wait in scratch `tier1\s1_held\` (CityTracks/s1.json + meta GUID
+  276240a7..., CityCheckpoints/s1.json + meta). `_order.txt` is untouched.
+- D1/D3 ARROWS (c0c39bc8, `Scripts/RouteMap.cs` Chevron; PSX_MAP_ARROW_OLD=1 = the old head): the heads did point the
+  right way, but at 1.7 long on a 2.0 base they were all but equilateral, so on a diagonal line a back corner read as
+  the point. Now they are slender heads with a notch (2.0 long, 1.5 wide). Every card's arrows change, not only the
+  drags'. Sheet: out\self\cards_arrows_before_after.png (old and new heads, fresh processes).
+- Door audit (in the LifeSim self-test): ALL 63/63, MAIN 33/33, CITY 30/30 venue doors (S1 not added).
+
+## 3. Metas (DONE)
+- 9d0a1c86: the 21 tracked assets with no tracked .meta get the GUIDs PSXLab already uses (read only):
+  CityRefSpots.Heads / .Junctions / .Tex4, CityRoadMeshHash, PoplarProbe, ReflectionMapCheck, VolCloudsCheck, 7
+  Scripts/City partial files and 7 *_dem_wide.bytes. 267 orphan metas are removed (generated Materials, CityProps,
+  Generated and the Pizzeria scene: no tracked file references them; Unity deleted these same metas when the owner
+  opened the checkout on 10-16). Assets/StreamingAssets.meta stays gitignored on purpose (.gitignore:70). Adding .meta
+  files under Scripts/City does not move the city bake's hash (CityTileBake hashes *.cs only).
+- `tools/meta-scan.py <worktree>`: 0 assets without a meta, 0 orphans, 0 duplicate GUIDs (exit 0).
+- GUID audit (`tools/guid-audit.py`, the build's step): PSXLab OK (18,754 shipped assets). PSXCity: 1 dangling, in
+  Materials/CityFacadeGlass.mat as the WebGL city scene build writes it (3 RenderTexture GUIDs); unrelated to metas.
+
+## 4. Arch tables (DONE as a re-bake; the tyres at full lock are NOT a table problem)
+- 012f72a8: ArchProbe.Bake + BakeExact on mountain-nm's car data (copied into PSXCity first: 708 of its 1,978 tracked
+  car files were stale). ArchCeilings is byte-identical. ArchHubs: +2 rows (Ford RS200 '84 on audi_saloon, RS200 rally
+  '85 on bmw_e30), -8 rows no catalogue sheet uses, every other row byte-identical. Arch sweep: catalogue rows on the
+  blunt field 2 -> 0 of 320; gate ok (no row seated high). Of the 15 cars the cars-1116 note named, 13 already had
+  exact rows at 992312c8. ChaseSilhouettes.Table re-emitted: the 40 rows CamFrameProbe called stale (width up to 1.2 %,
+  roof line up to 5 cm), byte-identical to the cars-1116 full emit.
+- Full lock + full bump as drawn (new `Editor/ArchLockBumpCheck.cs`: full lock both ways, 1 m drop, ArchProbe.DrawnClip
+  every tick), before -> after, deepest reach through the body: Ruf BTR '86 162 -> 162 mm, RS200 '84 70 -> 71, RS200
+  rally 17 -> 19, Civic EG 44 -> 44, Viper GTS 43 -> 43, Evo VI 4 -> 4. A steered tyre swinging through the side of
+  its arch is not held by any table: the drawn-steer hold that does that (`steer-exact` 5d93c5e8,
+  CarBodyLean.SteerInArch) was never merged. Sheet: out\item4\arch_lockbump_before_after.png.
+
+## Self-test
+LifeSim self-test, PSXCity, tier1 against base 992312c8 (same sandbox, fresh processes, each with its own arch
+tables): 92 FAIL lines in both, the same 92 (sandbox state: LakeLure and deck-run scenes not built there, WebGL lists,
+shaders). No new failure. Checkpoint self-test: ALL PASS.
+
+## For the PC build
+- Scripts, Editor and tools only, plus Resources/ArchHubs.bytes. No scene pass, no city re-bake, no data copies.
+- The new metas pin PSXLab's own GUIDs, so a /MIR of Scripts and Editor into PSXLab changes nothing there.
+
+## What the owner will notice
+In city races, traffic no longer comes down a one-way street at you, even where you can see it. On the race cards the
+arrows clearly point from the white start to the red finish. The Providence Road Sprint is still not in the list:
+cars still roll at two of its side-street mouths. And the rival that drove into a taxi nose to nose beside your car now brakes and tucks in behind it.
+
 # HANDOFF - LIGHTPOP: no street lamp, headlight, cone, halo or lamp-field pool switches on or off (agent "lightpop", Opus 5.5, 11-22/23; branch `light-pop` off 62a90355, mountain-nm 1b1f2100 merged in; NOT pushed, NOT merged)
 
 Owner 11-22 after PC52: "now I constantly see light pop-in. Streetlights, headlights. It is very offputting and distracting while driving or watching replays".
@@ -792,6 +932,87 @@ CITY NUMBERS (CityAudit.RunSplits; 1,941 carriageway ends at 971 SPLT nodes; J1'
   their fat grass lens; through lanes OSM tags as turn bays no longer vanish at a driveway; lane-change tapers are
   longer. Many spots still bulge or kink where the road has no room or curves (listed above) - not ready to be the
   default.
+
+# AI LANE USE: THE PASS WINDOW; NO WRONG-WAY TRAFFIC ON ONE-WAY STREETS - HEAD-ONS 2 -> 1 IN 8, NOT 0 (agent "aipass", branch `ai-pass`, 2026-11-17 06:20-08:05; NOT pushed, NOT merged)
+
+Base: mountain-nm f60fcc76. The owner, 11-17: "I don't like racers being forced to stay in a particular lane. They should
+prefer staying in the 'right' lane, but passing around cars in the oncoming lane is an iconic part of street racing"; and
+his standing rule, no head-ons. Wrapped up early on the coordinator's word (the owner left the PC at ~08:30): one matrix
+before and one after, both lane use ON. No OFF arm, no frame strips, no self-test, no watched race.
+Scratch: `scratchpad\aipass\` (HANDBACK.md, PROGRESS.md, out\ = matrix_*.txt and race_*.txt, table.py).
+
+## HEAD-ONS ARE NOT PROVEN 0
+Final code, 8 street races with traffic: 1 head-on (TryonSprint MEDIUM seed 0, 180SX at 29.9 s, 11.3 m/s into an oncoming
+taxi). It was not a pass into the oncoming lane: a lane-internal pass/follow on North Tryon's four lanes at 100-110 km/h, the
+car yawing left 6 deg while steering right with the brake held at 0.55, from +1.9 m to -0.7 m in 2 s. The same seed's same
+moment gave 3 of the race's 5 near misses (two other rivals). Cause not found (a side push from a rival alongside fits the
+trail; not proven). PSX_AI_PASS_IN_TRAFFIC=0 would not have stopped it.
+
+## What was wrong (base ON matrix A0on)
+1. THE RACE STRIP DROVE THE WRONG WAY DOWN ONE-WAY STREETS. TrafficSystem lays oncoming lanes along the whole route; a
+   checkpoint rival's own routed road says one-way there, so it kept no guard (AIDriver.TwoWayHere false). CltC2 LIGHT: the
+   Supra met an oncoming taxi at 26.2 m/s on a one-way street (retired). CltC1: oncoming cars on one-way streets in front of
+   rivals for 293 s (143 meets), 5 near misses, the Viper (19.7 m/s) and FD (10.9 m/s) into oncoming cars braking for them
+   (not counted head-ons: under 3 m/s toward the car). Tryon has 454 one-way waypoints (1.8 km), C2 214.
+2. POWER SLIDE FROM SLOW BESIDE ONCOMING TRAFFIC: CltC2 MEDIUM, the FD braked to 22 km/h, full throttle in first, turned 35 deg
+   across the road in a second, 12.1 m/s into an oncoming van (body slip allowed to 0.75 rad when slow).
+3. PASSES JUDGED BY PRESENCE (130 m / 5 s guard, fixed curvature, unseen car at 28 m/s): no sight distance, no queue check,
+   no closing-speed sum; the follow brake held a car where it was, out in the other lane, up to 19 s.
+4. Routed roads looked for oncoming cars only +-240 m round the car (AheadOnRoad's 60-waypoint window).
+5. Traffic born at the window's edge only 22 m clear of a racer (oncoming births in front of rivals).
+6. Found in the intermediate matrix B1: a routed road's line steps up to 4.8 m in one tick where a one-way meets a two-way
+   (Skyline at 175 km/h, 5 m/s sideways over the line, 41 m/s into a car); a dodge round a rival dead ahead resolved LEFT and
+   under the follow brake's full pedal (no ABS) a 180SX slid 2 m past its mark over the line into a taxi.
+
+## What changed (all in Scripts/AIDriver.cs and Scripts/TrafficSystem.cs; harness in Editor/)
+- AIDriver, PSX_AI_PASS_WINDOW (ON; needs PSX_AI_PASS_ONCOMING ON; =0 the checkpoint round's lane use):
+  PassMargin/PassWindowOpen: a pass over the centreline starts only if its whole time (to a length + air past the car or the
+  head of its queue, closing + 2 m/s2, + the swing back) leaves 1.6 s to every oncoming car in or near its line (their speed
+  counted), clears anything standing in the line, fits the SIGHT (SightAhead: bend past the verge, crest, the route's
+  junction turn; a car at the street's speed beyond it, 8 m/s from a side street at a junction), never from under 7 m/s into
+  a moving queue, never over 6.5 s; held while 0.9 s remains, given up with a 1.5 s retry wait; a pass more than half by
+  completes instead of braking back. With traffic: no stay over the line without a pass that holds (prefer the right lane),
+  none when blind; the one-way guard (strip oncoming cars on a road the own map calls one-way are met as oncoming); oncoming
+  cars searched where they are up the road; traction with oncoming near (rear slip 0.12 rad, body 0.2); the dodge stays in
+  its lane and resolves right; steer before brake (brake held to 0.55 drifting toward the line near it); the car being
+  passed stays the block; the line glides 2.5 m/s.
+- TrafficSystem: PSX_TRAFFIC_ONEWAY (ON): per waypoint the route's own edge; no oncoming car born on a one-way street, one
+  about to drive onto it turns off out of the camera's view. PSX_TRAFFIC_BIRTH_CLEAR (ON): no car born where a racer would meet
+  or close on it within 6 s + 40 m.
+- Opt-in, NOT raced: PSX_AI_PASS_RIVALPULL=1 (rival passes planned on 0.4 m/s2: aimed at the give-ups); PSX_AI_PASS_IN_TRAFFIC=0
+  (no pass over the line while the race has traffic; default 1).
+- Harness: LaneUseWatch head-on detail, oncoming-stream hits, one-way meets, pass-window cost and refusals, give-ups by reason,
+  over-line passes, frame strips (PSX_PASS_SHOTS, never run); RacePlayCheck: trail before every head-on, reflection probes off
+  headless (0.9 GB of RenderTexture stacks a race); cp-job -Agent/-TimeScale.
+
+## Proof: the matrix (hidden, -nographics, x2, 8-car fields, laps 2, course preload; seeds 0-3)
+Same 8 races both arms: TryonSprint MEDIUM s0 / LIGHT s1, CltX1 MEDIUM s0 / LIGHT s2, CltC2 MEDIUM s1 / LIGHT s3, CltX1Rev
+MEDIUM s2, CltC1 MEDIUM s3. Both ON. BEFORE = base f60fcc76 (+ diagnostics); AFTER = final behaviour (43cc66cf; HEAD only adds
+the two opt-ins and counters).
+| total of 8 races | BEFORE | AFTER |
+| head-ons (RacePlayCheck rule) | 2 (C2 MED FD 12.1, C2 LIGHT Supra 26.2) | 1 (Tryon MED 180SX 11.3) |
+| nose-to-nose hits on oncoming cars (incl. slowing ones) | 4 | 1 |
+| near misses (<0.6 m air, >=10 m/s closing) | 7 | 5 (4 in one 2-s moment, Tryon MED) |
+| traffic hits by rivals (hard) | 7 (4) | 3 (2) |
+| passes begun / done / given up | 438 / 228 / 189 | 421 / 189 / 214 |
+| left passes on two-way roads | 214 | 148 |
+| seconds over the centreline / longest stay | 1089 / 19.0 | 678 / 20.5 (X1 LIGHT Charger: FAILs the 20 s check) |
+| one-way meets (C1) | 143 (293 s) | 0 |
+| rivals home / retired | 52 / 4 | 53 / 3 |
+| held behind traffic, avg s (C2 MED / X1 LIGHT / Tryon LIGHT) | 2 / 0 / 5 | 29 / 12 / 11 |
+| rivals' mean time s (Tryon M, Tryon L, X1 M, X1 L, C2 M, C2 L, X1R, C1) | 244 214 155 106 441 426 119 418 | 240 223 116 149 488 388 110 358 |
+Cost of the window: 12-64 us a judgement, 0.2-2.3 s of CPU over a whole 2-9 minute race for all 7 rivals (under 4 ms a
+game-second, ~0.07 ms a 60 fps frame); one 80 ms single-call spike in C2 MEDIUM (an editor stall, not traced).
+Honest read: the wrong-way traffic is gone and every head-on cause found is fixed at its cause, hits halved; but head-ons are
+1 not 0, passes on two-way roads fell by a third, give-ups rose, and racers wait longer behind traffic on C2 and X1.
+
+## What the coordinator must do at merge
+- Shared files: Scripts/AIDriver.cs (UpdateAvoidance, FixedUpdate, AheadOnRoad; new pass-window block before HeldPassOk),
+  Scripts/TrafficSystem.cs (Init -> MapOneWay, TrySpawn, Recycle), Editor/RacePlayCheck.cs (OnHit, CamerasOff),
+  Editor/LaneUseWatch.cs, tools/city/tracks/cp-job.ps1. No Scripts/City change: no re-bake, no scene pass, no data files.
+- The defaults are the coordinator's call (see HANDBACK.md): proven = PSX_TRAFFIC_ONEWAY, PSX_TRAFFIC_BIRTH_CLEAR; the window
+  cut hits and near misses but did not reach 0.
+
 # CHECKPOINT RACES: STAGE 1 FIXED, STAGE 2 BUILT; NO BARRICADES ANYWHERE; RACERS PASS IN THE ONCOMING LANE (agent "cpfix", branch `city-checkpoints`, 2026-11-17 01:40-06:20; NOT pushed, NOT merged)
 
 Base: city-checkpoints 6d2e07cc (stage 1, whose independent check FAILED with 4 blockers) + mountain-nm 749e05de (PC50) merged
