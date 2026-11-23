@@ -295,6 +295,32 @@ namespace PSXRacing
             }
         }
 
+        /// <summary>(P0 11-23: "Charlotte levels aren't loading, falling through ground") After
+        /// <paramref name="after"/> s of racing: every car within 2 m of its road's height and with ground
+        /// under it. Writes &lt;id&gt;_onroad.txt (a line per car, then ONROAD OK / ONROAD FAIL).</summary>
+        IEnumerator OnRoadAfter(string id, RaceManager rm, TrackPath path, float after)
+        {
+            float t0 = Time.time;
+            while (Time.time - t0 < after) yield return null;
+            if (rm == null || path == null) yield break;
+            var sb = new StringBuilder();
+            int bad = 0, n = 0;
+            foreach (var c in rm.allCars)
+            {
+                if (c == null || !c.gameObject.activeInHierarchy) continue;
+                n++;
+                var p = c.transform.position;
+                float py = path.GetPoint(path.NearestIndex(p, -1, path.Count)).y;
+                bool ground = Physics.Raycast(p + Vector3.up * 3f, Vector3.down, out var g, 8f, ~(1 << 2), QueryTriggerInteraction.Ignore);
+                bool on = p.y - py > -2f && ground;
+                if (!on) bad++;
+                sb.AppendLine(c.name + " " + (p.y - py).ToString("+0.00;-0.00", CultureInfo.InvariantCulture) + " m against the path, ground " + (ground ? g.collider.name : "NONE") + (on ? " ok" : " OFF THE ROAD"));
+            }
+            sb.AppendLine((bad == 0 && n > 0 ? "ONROAD OK " : "ONROAD FAIL ") + bad + " of " + n + " cars off their road " + after.ToString("0", CultureInfo.InvariantCulture) + " s after the green");
+            Post(id + "_onroad.txt", sb.ToString());
+            Say(id + " " + sb.ToString().Replace('\n', '|'));
+        }
+
         IEnumerator StageTour(int hour, int weather)
         {
             if (hour < 0) hour = TimeOfDay.Noon;
@@ -327,7 +353,15 @@ namespace PSXRacing
                 RaceHandoff.CalendarDay = day;
                 RaceHandoff.TrackIndex = venue;
                 RaceHandoff.TrafficLevel = TrafficLevels.None;
-                RaceHandoff.Solo = true;
+                // &field=1 (P0 11-23, a Charlotte race start with no ground): the arcade's field of rivals
+                // and &traffic=0..4 its traffic, as an event race lines up; else the time trial, alone
+                bool fieldRun = ShotLink.Query(Request() ?? "", "field") == "1";
+                RaceHandoff.Solo = !fieldRun;
+                if (fieldRun)
+                {
+                    ArcadeMode.FillField(spec, ArcadeMode.RivalsAt(TrackCatalog.At(venue)));
+                    if (int.TryParse(ShotLink.Query(Request() ?? "", "traffic") ?? "", out int tl)) RaceHandoff.TrafficLevel = (TrafficLevels)tl;
+                }
                 float l0 = Time.realtimeSinceStartup;
                 SceneGate.Load(scene);
                 car = null;
@@ -346,6 +380,8 @@ namespace PSXRacing
                 if (car == null || path == null) { Say("FAIL " + id + ": the stage never came up"); Post(id + "_summary.txt", "FAIL the stage never came up"); continue; }
                 float loadS = Time.realtimeSinceStartup - l0;
                 if (!string.IsNullOrEmpty(viewArg) && System.Enum.TryParse(viewArg, true, out ChaseCamera.View v)) ChaseCamera.PreviewView(v);
+                // (P0) every car of the grid on its road 10 s after the green: <id>_onroad.txt
+                StartCoroutine(OnRoadAfter(id, RaceManager.Instance, path, 10f));
 
                 if (!envDone)
                 {
