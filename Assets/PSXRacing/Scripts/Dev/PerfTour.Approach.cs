@@ -118,6 +118,7 @@ namespace PSXRacing
                 // the start: wait for the ring round the first camera place
                 float startD = Mathf.Min(dists[0] + 40f, tg.path.Count - 1);
                 if (chase != null) chase.enabled = false;
+                glide = true;
                 Place(tg, startD, cam, fov);
                 float t0 = Time.realtimeSinceStartup;
                 while (Time.realtimeSinceStartup - t0 < 90f)
@@ -316,6 +317,11 @@ namespace PSXRacing
 
         /// <summary>The camera at <paramref name="d"/> metres from the target down
         /// the road, the player's car 12 m behind it (lamps off).</summary>
+        /// <summary>The measuring flight: down a glide slope over the road, aimed at the patch, so no
+        /// kerb crest, parked prop or tree between it and the patch hides it (road-level frames are the
+        /// clips' and the night sheet's).</summary>
+        public static float GlideDeg = 4f;
+        bool glide;
         void Place(ApTarget tg, float d, Camera cam, float fov)
         {
             int i = Mathf.Clamp(Mathf.RoundToInt(d), 0, tg.path.Count - 1);
@@ -325,6 +331,12 @@ namespace PSXRacing
             var dir = look + Vector3.up * 1.2f - eye;
             if (i < 45) dir = t;
             dir.y = Mathf.Clamp(dir.y, -0.1f, 0.05f) - 0.035f * new Vector2(dir.x, dir.z).magnitude;
+            if (glide)
+            {
+                eye = new Vector3(p.x, Mathf.Max(p.y + EyeH, tg.patch.y + d * Mathf.Tan(GlideDeg * Mathf.Deg2Rad)), p.z);
+                var aim = tg.hasHead && !tg.car ? Vector3.Lerp(tg.patch, tg.head, 0.35f) : tg.patch;
+                dir = aim - eye;
+            }
             cam.transform.SetPositionAndRotation(eye, Quaternion.LookRotation(dir.normalized, Vector3.up));
             cam.ResetProjectionMatrix();
             cam.fieldOfView = fov;
@@ -365,6 +377,9 @@ namespace PSXRacing
             // the target lamp: the field street lamp nearest the first 60 m of road
             Vector3 c0 = new Vector3(at.x, cl[0].y, at.y);
             tg.hasHead = !tg.car && StreetLights.NearestFieldLamp(c0, 60f, out tg.head);
+            // none there (a freeway's masts stand apart): the first lamp within 30 m of the road on from it
+            for (int k = 0; !tg.hasHead && !tg.car && k < Mathf.Min(cl.Count, 500); k += 5)
+                tg.hasHead = StreetLights.NearestFieldLamp(cl[k], 30f, out tg.head);
             int iP = 0;
             {
                 float best = float.MaxValue;
@@ -497,18 +512,30 @@ namespace PSXRacing
                 var sp = cam.WorldToScreenPoint(tg.head);
                 if (sp.z > 0f && sp.x >= 0 && sp.y >= 0 && sp.x < W && sp.y < H)
                 {
-                    int cx = (int)sp.x, cy = (int)sp.y, R = 60, nCore = 0, nGlow = 0;
+                    // rings round the head: each ring's mean over the background (the median of 128-160 px);
+                    // the glare's radius is the outermost ring still 12 codes over it; the core, the pixels
+                    // at 235+ within 24 px
+                    int cx = (int)sp.x, cy = (int)sp.y, R = 160, nCore = 0;
                     float pk = 0f;
+                    int[] edges = { 0, 3, 6, 12, 24, 48, 96, 128 };
+                    var ringSum = new float[7]; var ringN = new int[7];
+                    var bg = new List<float>();
                     for (int y = Mathf.Max(0, cy - R); y <= Mathf.Min(H - 1, cy + R); y++)
                         for (int x = Mathf.Max(0, cx - R); x <= Mathf.Min(W - 1, cx + R); x++)
                         {
-                            if ((x - cx) * (x - cx) + (y - cy) * (y - cy) > R * R) continue;
+                            int r2 = (x - cx) * (x - cx) + (y - cy) * (y - cy);
+                            if (r2 > R * R) continue;
                             float l = Luma(apPix[y * W + x]);
-                            if (l > pk) pk = l;
-                            if (l >= 235f) nCore++;
-                            if (l >= 110f) nGlow++;
+                            float r = Mathf.Sqrt(r2);
+                            if (r < 24f) { if (l > pk) pk = l; if (l >= 235f) nCore++; }
+                            if (r >= 128f) { if (((x + y) & 3) == 0) bg.Add(l); continue; }
+                            for (int k = 0; k < 7; k++) if (r >= edges[k] && r < edges[k + 1]) { ringSum[k] += l; ringN[k]++; break; }
                         }
-                    peak = pk; core = Mathf.Sqrt(nCore / Mathf.PI); glow = Mathf.Sqrt(nGlow / Mathf.PI);
+                    bg.Sort();
+                    float bgv = bg.Count > 0 ? bg[bg.Count / 2] : 0f;
+                    float rad = 0f;
+                    for (int k = 0; k < 7; k++) if (ringN[k] > 0 && ringSum[k] / ringN[k] - bgv > 12f) rad = edges[k + 1];
+                    peak = pk; core = Mathf.Sqrt(nCore / Mathf.PI); glow = rad;
                     // the cone: the air under the head, against the air 4 m either side of it
                     if (!tg.car)
                     {
