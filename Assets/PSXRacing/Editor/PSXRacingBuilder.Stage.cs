@@ -7565,6 +7565,11 @@ namespace PSXRacing.EditorTools
             var mat = MakeMat(MeshPrefix + "Tunnel", tex, affine: 0f, tint: new Color(0.62f, 0.60f, 0.58f));
             // PC: the bore and the portal's rock as the cuts' rock (PSX_ROCKFACE)
             if (MountainStage) SetRockFace(mat);
+            // (parkwaytunnel) the rock bore's vertex colour is its ambient's share
+            // (PSXRacingBuilder.Tunnel2.cs); the c96b5178 tube has none
+            if (mat.HasProperty("_HouseTint")) { mat.SetFloat("_HouseTint", Tunnel2 ? 1f : 0f); EditorUtility.SetDirty(mat); }
+            if (Tunnel2 && MountainStage && mat.IsKeywordEnabled("PSX_ROCKFACE")) mat.SetVector("_RockParams", new Vector4(1f / 4.5f, 1f / 15f, 1.0f, 0.35f));
+            t2Tris = 0; t2Stones = 0;
             portalStoneTris = 0;
             var phys = GetOrCreatePhysMat("WallPhys", 0.05f, 0.05f);
             var root = new GameObject("Tunnels");
@@ -7576,7 +7581,8 @@ namespace PSXRacing.EditorTools
                 BuildOneTunnel(pts, run.from, run.len, root.transform, mat, phys, no++);
                 metres += run.len * (int)Spacing;
             }
-            Log($"Stage tunnels: {no} tube(s), {metres} m bored, {wallSolidCount - solids0} wall solid(s), portals in stone {portalStoneTris} tris.");
+            Log($"Stage tunnels: {no} tube(s), {metres} m bored, {wallSolidCount - solids0} wall solid(s), portals in stone {portalStoneTris} tris." +
+                (Tunnel2 ? $" TUNNEL2: {t2Tris} tris drawn, {t2Stones} stones." : " (PSX_TUNNEL2=0)"));
         }
 
         static void BuildOneTunnel(List<Vector3> pts, int from, int stations, Transform parent,
@@ -7606,7 +7612,7 @@ namespace PSXRacing.EditorTools
                 ring[k, 3] = verts.Count; verts.Add(new Vector3(r.x, y0R, r.z)); uvs.Add(new Vector2(u, TunnelH / TunnelTexM * 2f + halfW * 2f / TunnelTexM));
                 dist += Spacing;
 
-                if (k > 0)
+                if (k > 0 && !Tunnel2)
                 {
                     // Every face turned INWARD: the player is inside the tube.
                     Vector3 inwardL = right, inwardR = -right, down = Vector3.down;
@@ -7686,6 +7692,14 @@ namespace PSXRacing.EditorTools
 
             // The portals: a rock face across the mouth with the tube's
             // opening left in it. Facing OUT of the mountain at each end.
+            // (parkwaytunnel) PSX_TUNNEL2: the arch bore, coursed-stone portals,
+            // wall lamps, the hill over it and the name signs instead
+            // (PSXRacingBuilder.Tunnel2.cs); the wall solids above are shared.
+            if (Tunnel2)
+            {
+                BuildTunnel2Parts(pts, from, stations, parent, mat, phys, no, halfW);
+                return;
+            }
             Portal(pts, WrapIdx(from, n), -1f, halfW, verts, uvs, tris);
             Portal(pts, WrapIdx(from + stations - 1, n), 1f, halfW, verts, uvs, tris);
             PortalColliders(pts, WrapIdx(from, n), -1f, halfW, parent, phys);

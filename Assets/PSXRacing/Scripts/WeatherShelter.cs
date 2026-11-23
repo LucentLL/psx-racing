@@ -82,6 +82,8 @@ namespace PSXRacing
         /// tube's walls stand TunnelWallOut past the road's edge and its roof
         /// TunnelH over the centreline.</summary>
         const float BoreWallOut = 1.1f, BoreH = 5.2f;
+        /// <summary>(parkwaytunnel) the arch bore's crown, 1.6 + 4.3 m (PSX_TUNNEL2).</summary>
+        const float BoreH2 = 6.0f;
         /// <summary>Stations per bore box: 8 m, short enough that a box round
         /// a piece of a curving bore stays in the rock beside it.</summary>
         const int BoreStep = 2;
@@ -134,7 +136,7 @@ namespace PSXRacing
                     {
                         Vector3 w = pts[k] + right * side;
                         b.Encapsulate(new Vector3(w.x, pts[k].y - 0.5f, w.z));
-                        b.Encapsulate(new Vector3(w.x, pts[k].y + BoreH, w.z));
+                        b.Encapsulate(new Vector3(w.x, pts[k].y + (TunnelLamps.Tunnel2 ? BoreH2 : BoreH), w.z));
                     }
                 }
                 var go = new GameObject("Bore");

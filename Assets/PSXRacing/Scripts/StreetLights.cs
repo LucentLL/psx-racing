@@ -212,6 +212,7 @@ namespace PSXRacing
             public bool on;
             public bool field;       // a lit city street's lamp: lights through the LampField
             public bool mercury;     // ...a mercury-vapour head (the field's A channel)
+            public bool allDay;      // (parkwaytunnel) a street-kind lamp lit at every hour (the tunnels' wall lamps)
             public float ground;     // the ground under the head (the lamp cone's foot), once known
             public bool groundKnown;
             public bool used;
@@ -266,7 +267,7 @@ namespace PSXRacing
             e.intensity = intensity;
             e.kind = kind;
             e.on = true;
-            e.field = false; e.mercury = false;
+            e.field = false; e.mercury = false; e.allDay = false;
             e.groundKnown = false;
             Registered++;
             // (city-build-hitches: a lamp is not on the field until MarkField says so)
@@ -286,6 +287,15 @@ namespace PSXRacing
             e.pos = pos;
             e.intensity = intensity;
             e.on = on;
+        }
+
+        /// <summary>(parkwaytunnel) A street-kind lamp lit at every hour, not on the
+        /// hour's switch: a tunnel's wall lamps burn by day (owner 2026-11-23).
+        /// Slot-table light only (never the lamp field).</summary>
+        public static void SetAllDay(int handle, bool allDay)
+        {
+            if (!Valid(handle, out int slot)) return;
+            entries[slot].allDay = allDay;
         }
 
         /// <summary>Mark a registered street lamp as a LIT CITY STREET's
@@ -344,7 +354,7 @@ namespace PSXRacing
             if (entries[slot].field && (!FieldCull || OnFieldWindow(entries[slot].pos))) fieldVersion++;   // city-build-hitches
             if (entries[slot].field) FarTouched(entries[slot].pos);   // (lightlook: the far field)
             entries[slot].used = false;
-            entries[slot].field = false; entries[slot].mercury = false;
+            entries[slot].field = false; entries[slot].mercury = false; entries[slot].allDay = false;
             entries[slot].owner = null;
             freeSlots.Add(slot);
             Registered--;
@@ -659,7 +669,7 @@ namespace PSXRacing
         /// hour's switch, a tail lamp on its own, and neither at zero.</summary>
         static bool Lit(ref Entry e, bool streetOn)
         {
-            return (e.kind == Kind.Street ? streetOn : e.on) && e.intensity > 0f;
+            return (e.kind == Kind.Street ? (streetOn || e.allDay) : e.on) && e.intensity > 0f;
         }
 
         /// <summary>The edge-of-reach fade: 1 inside MaxReach - FadeBandM, 0
