@@ -20,7 +20,10 @@ namespace PSXRacing.EditorTools
     /// FAR (the fog magenta from PSX_FH_FAR metres, the far haze off: every
     /// pixel of something that far). A column counts when its skyline - the
     /// first land under at least 8 rows of sky - has far land in the 4 rows
-    /// under it and sky in the 4 over it (2 rows of gap each side). Its land
+    /// under it and sky in the 4 over it (2 rows of gap each side). The JUDGED
+    /// columns are those whose land the haze paints at least half of (a third
+    /// frame per weather and hour, its fog colour magenta): lit land darker or
+    /// brighter than its sky is the light's business, the haze is this check's. Its land
     /// and sky luminances (sRGB decoded, Rec. 709) go into 16-column bins; the
     /// row is the whole frame's ratio and the worst bin's (bins of 6+ columns).
     ///
@@ -41,6 +44,10 @@ namespace PSXRacing.EditorTools
         /// <summary>A clear day's limit (aerial haze is lighter than its sky): reported, looser.</summary>
         public const float LimitClearDay = 1.35f;
         public const string ReportName = "farhaze_check.txt";
+        /// <summary>Far land darker than this (linear luminance, about sRGB code 14)
+        /// is not judged by ratio: a night sky of code 4 over land of code 8 is
+        /// "2x" and invisible, and the dither alone moves it.</summary>
+        public const float DarkFloor = 0.004f;
 
         static string Env(string k, string d) { var v = System.Environment.GetEnvironmentVariable(k); return string.IsNullOrEmpty(v) ? d : v; }
 
@@ -69,7 +76,7 @@ namespace PSXRacing.EditorTools
             Directory.CreateDirectory(outDir);
             var rep = new System.Text.StringBuilder();
             rep.AppendLine($"# far haze check, tag {tag}, PSX_FARHAZE2 {(Env("PSX_FARHAZE2", "1") != "0" ? "on" : "off")}, dynamic sky {Env("PSX_FH_DYN", "1")}, limit {Limit} (clear day {LimitClearDay})");
-            rep.AppendLine("# venue spot view weather hour | cols ratio worst | skyL landL | verdict");
+            rep.AppendLine("# venue spot view weather hour | far land: cols ratio worst | FOGGED far land (judged): cols ratio worst | skyL landL (fogged) | verdict");
             int fails = 0, rows = 0;
 
             var venues = new List<string>();
@@ -110,6 +117,9 @@ namespace PSXRacing.EditorTools
                     var sun = GameObject.Find("Sun")?.GetComponent<Light>();
                     var globals = Object.FindFirstObjectByType<PSXGlobals>();
                     var forest = Object.FindFirstObjectByType<MeshForest>();
+                    // PSX_FH_FOREST=0: no mesh forest (a sandbox without the store packs
+                    // draws its impostors as white cards, which read as glowing far land)
+                    if (forest != null && Env("PSX_FH_FOREST", "1") == "0") { forest.enabled = false; forest.gameObject.SetActive(false); forest = null; }
                     var output = Object.FindFirstObjectByType<PSXCameraOutput>();
                     var dressing = Object.FindFirstObjectByType<SeasonDress>();
                     if (path == null || globals == null || sun == null) { rep.AppendLine($"{id}: scene parts missing - skipped"); continue; }
@@ -179,14 +189,23 @@ namespace PSXRacing.EditorTools
                                 string name = $"{stem}_{wx.Trim()}_{hr.Trim()}";
                                 Color32[] px = Shoot(cam, forest, eye, rot, outDir, name, out _, out _);
                                 if (px == null) { rep.AppendLine(name + ": no frame"); continue; }
-                                Measure(px, skyM, farMk, w, h, out int cols, out float ratio, out float worst, out float sl, out float ll);
+                                // THE FOG'S SHARE of this weather and hour: the same frame with
+                                // the fog colour magenta (and no cap): what the haze paints
+                                globals.fogColor = new Color(1f, 0f, 1f, 1f);
+                                globals.Apply();
+                                Shader.SetGlobalVector("_PSXFarHaze", Vector4.zero);
+                                Shader.SetGlobalVector("_PSXAerial", Vector4.zero);
+                                Color32[] fogMk = Shoot(cam, forest, eye, rot, outDir, name + "_fogmask", out _, out _);
+                                File.Delete(Path.Combine(outDir, name + "_fogmask.png"));
+                                Measure(px, skyM, farMk, null, w, h, out int cols, out float ratio, out float worst, out _, out _);
+                                Measure(px, skyM, farMk, fogMk, w, h, out int fcols, out float fratio, out float fworst, out float sl, out float ll);
                                 bool clearDay = wx.Trim() == "clear" && hr.Trim() == "noon";
                                 float lim = clearDay ? LimitClearDay : Limit;
-                                string verdict = cols < 6 ? "n/a (no far skyline)" : worst > lim ? "FAIL" : "ok";
+                                string verdict = fcols < 6 ? "n/a (no fogged far skyline)" : ll < DarkFloor ? "ok (dark)" : fworst > lim ? "FAIL" : "ok";
                                 if (verdict == "FAIL") fails++;
                                 rows++;
-                                rep.AppendLine(string.Format(CultureInfo.InvariantCulture, "{0} {1} {2} {3} {4} | {5} {6:0.00} {7:0.00} | {8:0.000} {9:0.000} | {10}",
-                                    id, Mathf.RoundToInt(m), view, wx.Trim(), hr.Trim(), cols, ratio, worst, sl, ll, verdict));
+                                rep.AppendLine(string.Format(CultureInfo.InvariantCulture, "{0} {1} {2} {3} {4} | {5} {6:0.00} {7:0.00} | {8} {9:0.00} {10:0.00} | {11:0.000} {12:0.000} | {13}",
+                                    id, Mathf.RoundToInt(m), view, wx.Trim(), hr.Trim(), cols, ratio, worst, fcols, fratio, fworst, sl, ll, verdict));
                                 if (!keep.Contains(id) && !(wx.Trim() == "clear" && hr.Trim() == "noon"))
                                     File.Delete(Path.Combine(outDir, name + ".png"));
                             }
@@ -257,7 +276,7 @@ namespace PSXRacing.EditorTools
         static bool IsFar(Color32 c) => c.r > c.g + 70 && c.b > c.g + 70;
 
         /// <summary>Column by column, top down (texture rows run bottom up).</summary>
-        internal static void Measure(Color32[] px, Color32[] sky, Color32[] far, int w, int h,
+        internal static void Measure(Color32[] px, Color32[] sky, Color32[] far, Color32[] fogged, int w, int h,
                                      out int cols, out float ratio, out float worst, out float skyL, out float landL)
         {
             const int Bin = 16, Gap = 2, Band = 4, MinSky = 8;
@@ -280,7 +299,7 @@ namespace PSXRacing.EditorTools
                 {
                     int rl = yS + Gap + k, rs = yS - Gap - 1 - k;
                     int il = (h - 1 - rl) * w + x, isk = (h - 1 - rs) * w + x;
-                    if (IsSky(sky[il]) || !IsFar(far[il]) || !IsSky(sky[isk])) ok = false;
+                    if (IsSky(sky[il]) || !IsFar(far[il]) || !IsSky(sky[isk]) || (fogged != null && !IsFar(fogged[il]))) ok = false;
                     l += Lum(px[il]); s += Lum(px[isk]);
                 }
                 if (!ok) continue;

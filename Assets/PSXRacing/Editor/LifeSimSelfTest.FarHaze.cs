@@ -34,7 +34,7 @@ namespace PSXRacing.EditorTools
                     foreach (bool dyn in new[] { false, true })
                     {
                         var v = TimeOfDay.FarHazeVector(h, w, dyn);
-                        if (v.x < 0.5f || v.w <= 0f || (v.z != 1f && v.z != 3f)) onEverywhere = false;
+                        if (v.x < 0.5f || v.w <= 0f || (v.z != 0f && v.z != 2f)) onEverywhere = false;
                         bool clearDay = w == Weather.Clear && (h == TimeOfDay.Morning || h == TimeOfDay.Noon || h == TimeOfDay.Afternoon);
                         if (v.y > (clearDay ? TimeOfDay.FarHazeCapClearDay : 1.0f) + 1e-4f) { allCapped = false; worst = TimeOfDay.At(h).name + " " + w + " cap " + v.y; }
                     }

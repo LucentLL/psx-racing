@@ -687,7 +687,7 @@ namespace PSXRacing
         /// transparent twin, the water) and PSX/Sky's band to no more than
         /// <see cref="FarHazeCap"/> x the luminance of the dome straight behind
         /// it. x on (PSX_FARHAZE2=0 = the old picture), y the cap, z the sky
-        /// map's LOD (about 128 texels round: the photographs are 1024 wide,
+        /// map's LOD (about 256 texels round: the photographs are 1024 wide,
         /// the dynamic sky's map 256), w the sine of the lowest elevation read.
         /// </summary>
         public static bool FarHaze2 => System.Environment.GetEnvironmentVariable("PSX_FARHAZE2") != "0";
@@ -695,15 +695,20 @@ namespace PSXRacing
         /// (aerial haze); in overcast, rain, fog, snow, at dawn, dusk and night
         /// the haze is at most the sky's own brightness.</summary>
         public const float FarHazeCapClearDay = 1.20f, FarHazeCap = 1.0f;
-        const float FarHazeMinElevDeg = 3f;
+        /// <summary>The lowest elevation the sky is read at: a photograph has its
+        /// own photographed horizon under ~2 degrees; the dynamic sky's map has
+        /// none, and its dusk and overcast dome darkens right down to the
+        /// horizon, so it is read nearly there (measured, FarHazeCheck: at 3
+        /// degrees a rain dusk ridge still stood 3x its sky).</summary>
+        const float FarHazeMinElevPhoto = 2f, FarHazeMinElevDynamic = 1f;
         static readonly int FarHazeId = Shader.PropertyToID("_PSXFarHaze");
 
         public static Vector4 FarHazeVector(int index, Weather weather, bool dynamicSky)
         {
             if (!FarHaze2) return Vector4.zero;
             bool clearDay = weather == Weather.Clear && (index == Morning || index == Noon || index == Afternoon);
-            return new Vector4(1f, clearDay ? FarHazeCapClearDay : FarHazeCap, dynamicSky ? 1f : 3f,
-                               Mathf.Sin(FarHazeMinElevDeg * Mathf.Deg2Rad));
+            return new Vector4(1f, clearDay ? FarHazeCapClearDay : FarHazeCap, dynamicSky ? 0f : 2f,
+                               Mathf.Sin((dynamicSky ? FarHazeMinElevDynamic : FarHazeMinElevPhoto) * Mathf.Deg2Rad));
         }
 
         public static bool ToneEnabled => System.Environment.GetEnvironmentVariable("PSX_TONE") != "0";

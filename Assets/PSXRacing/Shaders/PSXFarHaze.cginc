@@ -22,7 +22,7 @@
 // _PSXFarHaze (TimeOfDay.FarHazeVector, every hour applied): x 1 = on
 // (PSX_FARHAZE2=0: 0, the old picture exactly), y the cap (1 in overcast, rain,
 // fog, snow, dawn, dusk and night; a little over 1 for clear-air daylight),
-// z the sky map's LOD (a ~128-texel-wide mip of either map), w the sine of the
+// z the sky map's LOD (a ~256-texel-wide mip of either map), w the sine of the
 // lowest elevation the sky is read at (under it a panorama is ground or its
 // photographed horizon). Zero in any scene that never applied an hour.
 //
