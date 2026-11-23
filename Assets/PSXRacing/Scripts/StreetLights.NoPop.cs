@@ -153,7 +153,7 @@ namespace PSXRacing
                 if (e.owned && e.owner == null) continue;
                 if (!Lit(ref e, streetOn)) continue;
                 MeterNote(chosenHandle[h], chosenRank[h]);
-                Emit(ref n, slot, chosenRank[h] * DistanceFade((e.pos - eye).magnitude));
+                Emit(ref n, slot, Mathf.Min(chosenRank[h], DistanceFade((e.pos - eye).magnitude)));
             }
             Finish(n);
         }
@@ -191,7 +191,7 @@ namespace PSXRacing
                 ref Entry e = ref entries[slot];
                 if (e.owned && e.owner == null) continue;
                 if (!Lit(ref e, streetOn)) continue;
-                Emit(ref n, slot, kv.Value * DistanceFade((e.pos - eye).magnitude));
+                Emit(ref n, slot, NoPop ? Mathf.Min(kv.Value, DistanceFade((e.pos - eye).magnitude)) : kv.Value * DistanceFade((e.pos - eye).magnitude));
             }
             Finish(n);
         }

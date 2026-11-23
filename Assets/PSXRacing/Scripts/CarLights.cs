@@ -1139,12 +1139,12 @@ namespace PSXRacing
                     var l = noPop && !meterB ? sorted[scoredIdx[c]] : sorted[c];
                     // NO LIGHT POPS: the car's rank weight times its own distance fade
                     float rank = noPop && !meterB ? Mathf.Clamp01((carCut - scoredScore[c]) / HeadRankBandM) : (n < LegacyLights ? 1f : 0f);
-                    float w = noPop && !meterB ? rank * scoredFade[c] : rank;
+                    float w = noPop && !meterB ? Mathf.Min(rank, scoredFade[c]) : rank;
                     if (meterB)
                     {
                         // the meter's frame-before: the weights it had, faded for today's distance
                         rank = MeterPrev.TryGetValue(System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(l), out float pr) ? pr : 0f;
-                        w = rank * (noPop ? HeadFade(l, eyeNow) : 1f);
+                        w = noPop ? Mathf.Min(rank, HeadFade(l, eyeNow)) : rank;
                     }
                     else if (MeterOn) MeterRank[System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(l)] = rank;
                     if (w <= 0f) continue;

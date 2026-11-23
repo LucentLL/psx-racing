@@ -53,7 +53,7 @@ namespace PSXRacing
         static readonly string[] CauseName = { "street lamp table", "tail lamp table", "lamp field", "headlight table",
                                                "lamp halos", "car lenses", "car beam cones", "lamp cones", "mixed", "NOISE (no light changed)" };
         /// <summary>A lamp's or car's weight moved less than this: no evidence.</summary>
-        const float MinWeightStep = 0.02f;
+        const float MinWeightStep = 0.05f;
 
         // ---- the segment being measured ----
         string seg;
