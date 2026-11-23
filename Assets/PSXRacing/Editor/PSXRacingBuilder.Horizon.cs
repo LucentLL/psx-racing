@@ -377,8 +377,10 @@ namespace PSXRacing.EditorTools
         static Color[] BroadFor(int d)
         {
             if (d != (int)Season.Fall || !Fall2) return CanopyBroad[d];
-            Color[] hue = { Fall2Gold, Fall2Orange, Fall2Scarlet, Fall2Copper, Fall2Amber };
-            float[] lum = { 0.100f, 0.088f, 0.072f, 0.062f, 0.097f };
+            // (his far ridges: gold 32 %, orange 24 %, rust-brown 33 %, red ~0: the first after-frames read
+            // half orange with the scarlet crown in - gold leads, no scarlet)
+            Color[] hue = { Fall2Gold, Fall2Amber, Fall2Gold, Fall2Orange, Fall2Copper };
+            float[] lum = { 0.105f, 0.098f, 0.100f, 0.085f, 0.062f };
             var o = new Color[5];
             for (int i = 0; i < 5; i++) { var t = hue[i].linear; o[i] = t * (lum[i] / Lum(t)); o[i].a = 1f; }
             return o;

@@ -191,7 +191,7 @@ namespace PSXRacing.EditorTools
         static readonly Color[] Fall2Cells =
         {
             Fall2Gold, Fall2Orange, Fall2Scarlet, Fall2Amber, Fall2Gold, Fall2Crimson,
-            Fall2Copper, Fall2Scarlet, Fall2Copper, Fall2Gold, Fall2Orange, Fall2Amber,
+            Fall2Copper, Fall2Gold, Fall2Copper, Fall2Gold, Fall2Gold, Fall2Amber,
         };
 
         /// <summary>PSX/Lit's LeafRecolour on the CPU: the texel in the target's hue at its own linear

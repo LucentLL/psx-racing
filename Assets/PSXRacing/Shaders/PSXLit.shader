@@ -2425,7 +2425,7 @@ Shader "PSX/Lit"
                             tex.rgb = lerp(tex.rgb, LeafRecolour(float3(0.636, 1.0, 0.182), lumF), gk);
                         }
                         if (late > 0.0)
-                            tex.rgb = lerp(tex.rgb, LeafRecolour(float3(1.0, 0.292, 0.074), lumF) * 0.82, late * 0.65);
+                            tex.rgb = lerp(tex.rgb, LeafRecolour(float3(1.0, 0.292, 0.074), lumF) * 0.72, saturate(late * 1.25) * 0.85);
                     }
                 }
                 clip(tex.a - _Cutoff);
