@@ -1018,7 +1018,10 @@ namespace PSXRacing
         public const float HeadBirthM = 120f, HeadBirthS = 1.5f;
         const int CarsCap = MaxLights / 2;
         /// <summary>Cars whose beams light the world: eight on PC, four on a phone.</summary>
-        static int CarsMax => PlatformProfile.PC ? CarsCap : LegacyLights / 2;
+        static int CarsMax => PlatformProfile.PC ? Mathf.Clamp(HeadCarsPC, 1, CarsCap) : LegacyLights / 2;
+        /// <summary>Cars whose beams light the world on PC (the perf probe's
+        /// set:CarLights.HeadCarsPC:4 A/B).</summary>
+        public static int HeadCarsPC = 8;
         float bornAt = -100f;
         static readonly int[] scoredIdx = new int[CarsCap + 1];
         static readonly float[] scoredScore = new float[CarsCap + 1];

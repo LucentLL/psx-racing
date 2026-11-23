@@ -198,6 +198,13 @@ float PSXLampImage(float3 R, float3 l, float dist, float lensR, float rough)
 #define LAMP_LENS_POINT  0.12
 
 float  _PSXLampCount;
+// THE LEADING TAIL LAMPS (the lightpop round, 2026-11-22): how many of the
+// table's first entries are point lamps when every point comes before every
+// street lamp, else the whole count. With the lamp field on, a street entry
+// gives a surface NO diffuse (the field's pool is its light), so a
+// diffuse-only walk (specOn 0) stops after the points - the same picture for
+// a fraction of the loop, which pays for the PC's sixteen street slots.
+float  _PSXLampPoints;
 float4 _PSXLampPos[PSX_MAX_LAMPS];    // xyz lamp head (world), w = pool radius (m)
 float4 _PSXLampColor[PSX_MAX_LAMPS];  // rgb = LINEAR colour x intensity x edge fade, w = kind (0 street: aimed down, 1 point/omni)
 
@@ -220,6 +227,7 @@ void PSXLampsCore(float3 wpos, float3 N, float3 V, float power, float specOn, fl
     float fieldOn = step(0.5, _PSXLampFieldST.w);
     if (_PSXLampCount < 0.5) return;
     int count = (int)_PSXLampCount;
+    if (specOn < 0.5 && fieldOn > 0.5) count = (int)_PSXLampPoints;
     for (int j = 0; j < PSX_MAX_LAMPS; j++)
     {
         if (j >= count) break;

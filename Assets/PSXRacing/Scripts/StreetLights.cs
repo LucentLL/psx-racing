@@ -104,7 +104,10 @@ namespace PSXRacing
         /// fade has already taken the lamp (the meter: eight slots on Uptown's
         /// race loop moved the cut a lamp at a time, 30 hand-overs a km).</summary>
         public const int StreetCapPC = MaxLamps - PointCap;
-        public static int StreetCapNow => NoPop && PlatformProfile.PC ? StreetCapPC : StreetCap;
+        public static int StreetCapNow => NoPop && PlatformProfile.PC ? Mathf.Clamp(StreetSlotsPC, 1, StreetCapPC) : StreetCap;
+        /// <summary>Street slots on PC under NoPop (the perf probe's
+        /// set:StreetLights.StreetSlotsPC:8 A/B).</summary>
+        public static int StreetSlotsPC = StreetCapPC;
         /// <summary>Metres, at the edge of <see cref="MaxReach"/>, over which a
         /// lamp fades in by distance: full brightness at MaxReach - FadeBandM,
         /// none at MaxReach. A band tied to the lamp's own distance, never to
@@ -787,10 +790,19 @@ namespace PSXRacing
             Send(n);
         }
 
+        static readonly int PointsId = Shader.PropertyToID("_PSXLampPoints");
+
         static void Send(int n)
         {
             PushedCount = n;
             Shader.SetGlobalFloat(CountId, n);
+            // the leading point lamps (PSXLamps.cginc: a diffuse-only walk with
+            // the field on stops there); the whole count when they are mixed
+            int lead = 0;
+            while (lead < n && gColor[lead].w > 0.5f) lead++;
+            int pts = lead;
+            for (int i = lead; i < n; i++) if (gColor[i].w > 0.5f) { pts = n; break; }
+            Shader.SetGlobalFloat(PointsId, pts);
             Shader.SetGlobalVectorArray(PosId, gPos);
             Shader.SetGlobalVectorArray(ColorId, gColor);
         }
