@@ -12302,7 +12302,7 @@ namespace PSXRacing.EditorTools
             Check(gfx.Contains("26c3a241d27b43d1a8b9585a3a9b7713"),
                   "PSX/Beam is in GraphicsSettings' always-included shaders");
             Check(CarLights.MaxLights == 16 && CarLights.LegacyLights == 8,
-                  "sixteen headlight slots in the table (eight cars on PC since the lightpop round; eight lamps elsewhere and with PSX_LIGHT_NOPOP=0)");
+                  "sixteen headlight slots in the table (room for eight cars: CarLights.HeadCarsPC; four cars fill eight, as before)");
             Check(CarLights.BeamRange >= 60f && CarLights.BeamRange <= 100f,
                   "a halogen low beam reaches 60-100 m", CarLights.BeamRange);
             Check(CarLights.Halogen.r > CarLights.Halogen.g && CarLights.Halogen.g > CarLights.Halogen.b,
