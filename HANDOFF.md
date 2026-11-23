@@ -1,5 +1,16 @@
 # HANDOFF - ROADSMERGE: the three 11-15 Charlotte street branches landed on PC57 code (agent "roadsmerge", Opus 5.5, 2026-11-23; branch `charlotte-land1115` off mountain-nm 992312c8; NOT pushed, NOT merged)
 
+## OPTION B (the coordinator, 11-23 later) - THIS IS THE STATE OF THE BRANCH; the tables below are the round before it
+- c21fa28f: PSX_CITY_PARKING, PSX_CITY_STRIPS, PSX_CITY_SERVICE, PSX_CITY_SERVICE_AISLES DEFAULT OFF (=1 opts in). ON: LANES2, MEDIANSTRETCH, VALLEY, STDBULBS, BULBCURB, BULBDRIVES, OLDNOPAN, WALKCLEAR (and SERVICE_MEDIAN's logic when SERVICE=1). OFF: STRIP, SHOULDER2, STRIPS_ALL.
+- 3378494a: mountain-nm c96b5178 merged (HANDOFF.md resolved by hand: this section on top of c96b5178's file). e49d59c1: charlotte_lotent.bytes re-made for these defaults.
+- LINE GATE optb (e49d59c1, whole city, committed baseline): SHIFT 2761 (-3) SJOG 2775 (+1) KINK 3232 (+1) WIDTH 627 (-3) CONT 1724 (-2) SURFACE 261 JUNCTION 656 (-1) MEDIAN 73 (-3) STEP 3951 BARRIER 1629 (-1) BRIDGE 12 | ALL 17,701 (-11 vs 992312c8). FAILED by SJOG +1, KINK +1 - both on LANES2 roads, both pre-existing:
+  - SJOG: Monroe Rd e16892 s1-22 (35.17374, -80.75700): the centre yellow swings 13.7 deg and back, 6.2 m in 47 m. The line model's relay there (cause "relay(span 1.04 m over 28 m)") is in 992312c8 too, read then as a lane-drop taper on the same edge; with Monroe Rd's lane count from LANES2 it reads as an S-jog.
+  - KINK: N Graham St e16661 s156 (35.24176, -80.83431): the pavement edge turns 12.1 deg at a split end ("map:split-end"); 992312c8 has the same point as a centre-yellow kink of 4.8 deg and a pavement-edge kink of 4.4 deg.
+  (Everything else on the LANES2 roads moves label only: 9 SJOG new / 8 gone, 13 KINK new / 12 gone within 100 m, Steele Creek, Monroe, N Graham, Beatties Ford, Randolph, South Blvd.)
+- City audit (Uptown box): c96b5178 24 FAIL, branch 24 FAIL, same set; the billboard density line passes again (161 placed) with SERVICE off. LifeSimSelfTest: 93 / 93, same set.
+- BUILD STEPS for these defaults: (1) copy by path charlotte_city.bytes (LAN2 - needed, LANES2 is on), charlotte_deadends.txt + .meta (needed, STDBULBS), charlotte_lotent.bytes (re-made at e49d59c1), charlotte_service.bytes + .meta (not read with SERVICE off; keep for the opt-in); (2) service_ways.mjs is NOT needed; lanes2.mjs only if another branch changes charlotte_city.bytes; CityAudit.LotEntranceBake again only if City code or data changes before the build (run it with no PSX_CITY_* env); (3) city tile re-bake (~40 min) + city map tiles; (4) no scene pass, no kit step; (5) no env needed.
+- Round 2 (PARKEND, SEAMROADS, the six STRIP places, the 13 bike joints, billboards): scratchpadoadsmerge\ROUND2.md.
+
 Owner context: the hoods / lanes / minor work was promised for PC43 and never merged ("these issues cannot get through the quality gate audits"). Worktree `C:\Users\mcgee\PSX Racing-roadsmerge`, sandbox PSXRoadA (WebGL, atomic lock). Scratch: `scratchpad\roadsmerge\` (PROGRESS.md, gate.ps1 / job.ps1 / chain*.ps1, stripends.mjs, mouthdist.mjs, out\, sheets\).
 
 ## Merges (all three merged clean; typecheck OK after each)
