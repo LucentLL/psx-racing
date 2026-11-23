@@ -85,7 +85,9 @@ namespace PSXRacing
                 var rb = ts.Obstacles[i];
                 if (rb == null) return 1e6f;
                 Vector3 pos = rb.position;
-                int oi = path.NearestIndex(pos, nearestIdx, 60);
+                // (PASS WINDOW: searched round where it is up the road, not only 240 m round this car - a car 300 m
+                // off, closing at 50 m/s, was nobody's oncoming car)
+                int oi = PassWindowOn ? RoadIndexNear(pos) : path.NearestIndex(pos, nearestIdx, 60);
                 Vector3 wp = path.GetPoint(oi), tan = path.GetTangent(oi), d = pos - wp;
                 if (Mathf.Abs(d.y) > 4f) return 1e6f;
                 float lat = Vector3.Dot(d, Vector3.Cross(Vector3.up, tan).normalized);
@@ -1150,7 +1152,13 @@ namespace PSXRacing
             float dt = Time.fixedDeltaTime;
             nearestIdx = path.NearestIndex(transform.position, nearestIdx);
             if (driving) UpdateOpenLine(dt);
-            lineOffset = LineOffset();
+            // THE LINE GLIDES (PASS WINDOW, aipass): on a routed road the line is per waypoint - the grid's offset on a
+            // one-way, its own lanes' middle on a two-way - and at the join it stepped up to 4.8 m in one tick, with the
+            // give-way offset unchanged: a Skyline at 175 km/h swung 5 m/s sideways and over the centreline into a car
+            // (Tryon, MEDIUM). Stepped from where it was at LineSlewMps (the first tick snaps).
+            float lineNow = LineOffset();
+            lineOffset = PassWindowOn && lineSeeded && driving ? Mathf.MoveTowards(lineOffset, lineNow, LineSlewMps * dt) : lineNow;
+            lineSeeded = true;
             {
                 // for the harness (LaneUseWatch): a two-way road here, and metres right of this car's line
                 var tsd = TrafficSystem.Instance;
@@ -1281,6 +1289,14 @@ namespace PSXRacing
             float fast = Mathf.InverseLerp(SlideFreeMps, SlideTidyMps, speed);
             tol = Mathf.Lerp(tol, FastSlideTolRad, fast);
             float maxBody = Mathf.Lerp(MaxBodySlipRad, FastBodySlipRad, fast);
+            // ...and with an oncoming car up the road, no power slide from slow at all (PASS WINDOW, aipass): an FD
+            // braked to 22 km/h behind traffic, went to full throttle in first, turned 35 degrees across the road in a
+            // second and met an oncoming van at 12 m/s (CltC2, MEDIUM). Traction first; the slide is for an empty road.
+            if (oncomingNear && PassWindowOn)
+            {
+                tol = Mathf.Min(tol, OncomingSlipTolRad);
+                maxBody = Mathf.Min(maxBody, OncomingBodySlipRad);
+            }
             if (speed > SlideEaseMinMps)
             {
                 float rearSlip = Mathf.Abs(car.rearSlipAngle);
@@ -1328,6 +1344,16 @@ namespace PSXRacing
             {
                 throttle = 0f;
                 brake = Mathf.Max(brake, trafficBrake);
+            }
+            // STEER BEFORE BRAKE beside oncoming traffic (PASS WINDOW, aipass): drifting toward the centreline, near it
+            // or over it, with an oncoming car up the road, the brake is held where the fronts still turn the car back
+            // (a rear-end at a few m/s is the lesser crash than a head-on - and the follow brake's full pedal had a
+            // 180SX at 99 km/h going straight on, 2 m past its mark, into a taxi)
+            if (PassWindowOn && oncomingNear && brake > SteerBrakeCap && speed > 5f && car.Body != null)
+            {
+                Vector3 pr = RightAt(nearestIdx);
+                float vLat = Vector3.Dot(car.Body.linearVelocity, pr);
+                if (DebugRoadLat < SteerBrakeLineM && vLat < -SteerBrakeDriftMps) brake = SteerBrakeCap;
             }
             // THE HAIRPIN FLICK (drifters only): a pull of the handbrake at the
             // turn-in of a tight bend, the throttle then holding the slide.
@@ -1418,6 +1444,294 @@ namespace PSXRacing
         public int PassesHeld { get; private set; }
         Rigidbody countedPass;
 
+
+        // ---- THE PASS WINDOW (aipass 11-17). The checkpoint round's lane use judged a pass by PRESENCE: nothing
+        // oncoming within 130 m or 5 s of closing (OncomingAhead), the road under 1/70 curvature for the run, an unseen
+        // car assumed at 28 m/s - and in five street races with traffic it met 3 cars head-on. A pass over the centreline
+        // of a two-way road is now started only when the WHOLE of it fits:
+        // - its TIME: from here until this car's centre is a length and the return air past the car being passed (or the
+        //   head of the queue that car is in), at the closing it has plus what it gains (PassAccel), and the swing back;
+        // - every ONCOMING car up this road, its own speed counted: it meets this car no sooner than that time plus
+        //   PassStartGapS; a car STANDING in the pass's line (a queue, a wreck) lies beyond the pass's run;
+        // - the SIGHT up the road (SightAhead: the line of sight round a bend past the verge, over a crest, and the route's
+        //   own turn at a junction): a car just out of sight at the street's traffic speed must meet it no sooner either;
+        // - never pulled out from a crawl into a moving queue (PassMinMps), never longer than PassMaxS.
+        // Once out it is held while the margin stays over PassKeepGapS (no swinging out and back) and given up the moment
+        // it is not - back to its own lane, braking to drop in behind; a pass given up or refused mid-swing waits
+        // PassRetryS before the next try. With traffic on the road a car is not over the line without a pass that holds.
+        // PSX_AI_PASS_WINDOW=0: the checkpoint round's judgement (HeldPassOk, the guard) as it was.
+        static int passWindowSwitch = -1;
+        public static bool PassWindowOn
+        {
+            get
+            {
+                if (passWindowSwitch < 0) passWindowSwitch = System.Environment.GetEnvironmentVariable("PSX_AI_PASS_WINDOW") == "0" ? 0 : 1;
+                return passWindowSwitch == 1 && PassOncoming;
+            }
+        }
+        /// <summary>Seconds of gap a pass must leave to the first thing that would meet it, to start / to go on.</summary>
+        const float PassStartGapS = 1.6f, PassKeepGapS = 0.9f;
+        /// <summary>An oncoming car this far (m) beyond the sides of the pass's line can move into it, and is met.</summary>
+        const float PassLaneBufM = 1.4f;
+        /// <summary>The longest pass (s), the slowest a car pulls out at (m/s) past a car that is moving, and the closing
+        /// a pass gains on the car being passed (m/s2).</summary>
+        const float PassMaxS = 6.5f, PassMinMps = 7f, PassAccel = 2.0f, PassAccelRival = 0.4f;
+        static readonly bool RivalPullOn = System.Environment.GetEnvironmentVariable("PSX_AI_PASS_RIVALPULL") == "1";
+        static readonly bool PassInTrafficOn = System.Environment.GetEnvironmentVariable("PSX_AI_PASS_IN_TRAFFIC") != "0";
+        /// <summary>The pass ends with this car's centre a length plus air (m, + s of its speed) past the car's centre,
+        /// then the swing back takes PassSwingS. A car within PassQueueGapM (+ s of speed) beyond the one passed is in its
+        /// queue: the pass takes that one too, or is not made.</summary>
+        const float PassCarLenM = 4.6f, PassReturnAirM = 4f, PassReturnAirS = 0.2f, PassSwingS = 0.8f, PassQueueGapM = 10f, PassQueueGapS = 0.4f;
+        /// <summary>Air (m) a pass's run leaves short of a car standing in its line, and the wait (s) before another try
+        /// after a pass is given up.</summary>
+        const float PassStandAirM = 15f, PassRetryS = 1.5f;
+        /// <summary>Rear slip (rad) past which the throttle eases, and body slip past which it is cut, with an oncoming
+        /// car up the road (FixedUpdate).</summary>
+        const float OncomingSlipTolRad = 0.12f, OncomingBodySlipRad = 0.2f;
+        /// <summary>A dodge round a rival with traffic on the road keeps the car's centre this far inside its own
+        /// lane's inner limit (UpdateAvoidance's racer loop).</summary>
+        const float DodgeLaneAirM = 0.5f;
+        /// <summary>How fast the line moves across the road where the road's lane facts change (m/s).</summary>
+        const float LineSlewMps = 2.5f;
+        /// <summary>A car turning in from a side street at the route's turn comes at this speed (m/s): the pass
+        /// window's sight at a junction.</summary>
+        const float JunctionInMps = 8f;
+        bool lineSeeded;
+        /// <summary>The car being passed stays the block while no more than this further than the nearest one.</summary>
+        const float PassKeepBlockM = 6f;
+        /// <summary>STEER BEFORE BRAKE beside oncoming traffic (FixedUpdate): drifting toward the line within this many
+        /// metres of it (or over it) at this lateral speed, the give-way brake is held to this share so the front
+        /// tyres can still turn the car back (no ABS: a locked front goes where it points).</summary>
+        const float SteerBrakeLineM = 1.4f, SteerBrakeDriftMps = 0.4f, SteerBrakeCap = 0.55f;
+        /// <summary>A pass line whose car side comes within this of the centreline (or over it) is over the line.</summary>
+        const float OverLineM = 0.2f;
+        /// <summary>The line of sight (SightAhead): sampled every SightStepM to SightMaxM, from an eye this high over the
+        /// road to a car's roof in the other lane, blocked past the road's half-width plus SightVergeM (the verge, then a
+        /// wall, a building, the trees) or under the road's own surface on a crest.</summary>
+        const float SightStepM = 8f, SightMaxM = 360f, SightEyeH = 1.1f, SightTargetH = 1.2f, SightVergeM = 2.5f;
+        /// <summary>For the harness: the pass window's work this race (evaluations, ms, worst ms) and its refusals by
+        /// reason (oncoming, standing, bend, crest, junction, end, queue, crawl, long, retry).</summary>
+        public static int PassJudgeCount;
+        public static double PassJudgeMs, PassJudgeWorstMs;
+        public static readonly System.Collections.Generic.Dictionary<string, int> PassRefused = new System.Collections.Generic.Dictionary<string, int>();
+        public static void ResetPassStats() { PassJudgeCount = 0; PassJudgeMs = 0; PassJudgeWorstMs = 0; PassRefused.Clear(); AbortWhy.Clear(); }
+        static readonly System.Diagnostics.Stopwatch passWatch = new System.Diagnostics.Stopwatch();
+        float passRetryAt = -99f, sightAt = -99f, sightM; string sightWhy = "";
+        float designOncoming = -1f;
+        /// <summary>The fastest an unseen oncoming car comes (m/s): the venue's limit at the level's top cruise.</summary>
+        float DesignOncomingMps
+        {
+            get
+            {
+                if (designOncoming > 0f) return designOncoming;
+                var def = TrackCatalog.At(RaceHandoff.TrackIndex);
+                var ts = TrafficSystem.Instance;
+                int lvl = ts != null ? ts.Level : TrafficLevels.Medium;
+                designOncoming = (def != null ? def.speedLimitKmh : 80f) / 3.6f * TrafficLevels.CruiseMax[Mathf.Clamp(lvl, 0, TrafficLevels.Count - 1)];
+                return designOncoming;
+            }
+        }
+        Vector3 RightAt(int i) => Vector3.Cross(Vector3.up, path.GetTangent(i)).normalized;
+        /// <summary>The waypoint of this car's road nearest <paramref name="pos"/>, searched round where it lies up the
+        /// road (this car's index plus its distance ahead), so a car 500 m off is found where it is.</summary>
+        int RoadIndexNear(Vector3 pos)
+        {
+            float z = transform.InverseTransformPoint(pos).z;
+            int guess = nearestIdx + Mathf.RoundToInt(z / path.spacing);
+            if (path.HasEnds) guess = Mathf.Clamp(guess, 0, path.Count - 1);
+            int a = path.NearestIndex(pos, guess, 30);
+            // round a bend the straight line is shorter than the road: look on from the window's far edge once
+            if (Mathf.Abs(a - guess) >= 29 && z > 0f) a = path.NearestIndex(pos, path.HasEnds ? Mathf.Min(a + 30, path.Count - 1) : a + 30, 30);
+            return a;
+        }
+        /// <summary>Metres of the other lane this car can see up its road (cached 0.2 s), and what ends it: "bend",
+        /// "crest", "junction" (a routed road's turn zone), "end" or "clear".</summary>
+        float SightAhead(out string why)
+        {
+            if (Time.time - sightAt < 0.2f) { why = sightWhy; return sightM; }
+            sightAt = Time.time;
+            int st = Mathf.Max(1, Mathf.RoundToInt(SightStepM / path.spacing));
+            float stepM = st * path.spacing;
+            int n = Mathf.CeilToInt(SightMaxM / stepM);
+            var ts = TrafficSystem.Instance;
+            float laneC = ts != null ? LaneCentreHere(ts) : 1.8f;
+            float side = RoadHalfHere() + SightVergeM;
+            Vector3 eye = transform.position + Vector3.up * SightEyeH;
+            float s = n * stepM; why = "clear";
+            for (int k = 1; k <= n; k++)
+            {
+                int ik = nearestIdx + k * st;
+                if (path.HasEnds && ik >= path.Count) { s = Mathf.Max(0f, (path.Count - 1 - nearestIdx) * path.spacing); why = "end"; break; }
+                ik = path.Wrap(ik);
+                if (path.Routed && path.junction[ik]) { s = k * stepM; why = "junction"; break; }
+                Vector3 tk = path.GetPoint(ik) - RightAt(ik) * laneC + Vector3.up * SightTargetH;
+                string lost = null;
+                for (int j = 1; j < k && lost == null; j++)
+                {
+                    int ij = path.Wrap(nearestIdx + j * st);
+                    Vector3 q = Vector3.Lerp(eye, tk, j / (float)k);
+                    Vector3 pj = path.GetPoint(ij);
+                    if (Mathf.Abs(Vector3.Dot(q - pj, RightAt(ij))) > side) lost = "bend";
+                    else if (q.y < pj.y - 0.1f) lost = "crest";
+                }
+                if (lost != null) { s = (k - 1) * stepM; why = lost; break; }
+            }
+            sightM = s; sightWhy = why;
+            return s;
+        }
+
+        /// <summary>THE PASS WINDOW's judgement: seconds of gap left at the end of a pass on <paramref name="line"/> (m
+        /// right of the centreline) of the car <paramref name="z"/> m ahead going <paramref name="theirSpeed"/> - to the
+        /// first thing that would meet it. NaN when the pass cannot be made at all (<paramref name="why"/> says why).
+        /// <paramref name="wantRel"/>: how much faster this car would go than it.</summary>
+        float PassMargin(Rigidbody target, float z, float theirSpeed, float wantRel, float line, out string why)
+        {
+            passWatch.Restart();
+            float r = PassMarginCore(target, z, theirSpeed, wantRel, line, out why);
+            passWatch.Stop();
+            double ms = passWatch.Elapsed.TotalMilliseconds;
+            PassJudgeCount++; PassJudgeMs += ms; if (ms > PassJudgeWorstMs) PassJudgeWorstMs = ms;
+            return r;
+        }
+        float PassMarginCore(Rigidbody target, float z, float theirSpeed, float wantRel, float line, out string why)
+        {
+            why = "clear";
+            float mine = Mathf.Max(car.forwardSpeed, 0f);
+            var ts = TrafficSystem.Instance;
+            var rm = RaceManager.Instance;
+            // THE QUEUE the car is in: a car going this way within PassQueueGapM (+ s) beyond it, in its lane - the pass
+            // takes the whole queue (the lane past the last car is the room to come back to)
+            float headZ = z, headSpeed = theirSpeed;
+            int hti = target != null ? RoadIndexNear(target.position) : nearestIdx;
+            float headLat = target != null ? Vector3.Dot(target.position - path.GetPoint(hti), RightAt(hti)) : line + 2.5f;
+            for (int pass = 0; pass < 6; pass++)
+            {
+                float gapMax = PassQueueGapM + PassQueueGapS * mine + PassCarLenM;
+                float bestZ = float.PositiveInfinity, bestV = 0f, bestLat = headLat;
+                int n = ts != null ? ts.Obstacles.Count : 0;
+                int m = rm != null ? rm.allCars.Count : 0;
+                for (int i = 0; i < n + m; i++)
+                {
+                    Rigidbody rb; Vector3 pos;
+                    if (i < n) { rb = ts.Obstacles[i]; if (rb == null) continue; pos = rb.position; }
+                    else { var c = rm.allCars[i - n]; if (c == null || c == car || c.Body == null || !c.gameObject.activeInHierarchy) continue; rb = c.Body; pos = c.transform.position; }
+                    if (rb == target) continue;
+                    Vector3 lo = transform.InverseTransformPoint(pos);
+                    if (lo.z <= headZ + 0.5f || lo.z > headZ + gapMax || Mathf.Abs(lo.y) > 4f) continue;
+                    float along = Vector3.Dot(rb.linearVelocity, transform.forward);
+                    if (along < -1f) continue;                                   // coming at us: the oncoming check below
+                    int qi = RoadIndexNear(pos);
+                    float lat = Vector3.Dot(pos - path.GetPoint(qi), RightAt(qi));
+                    if (Mathf.Abs(lat - headLat) > 2.2f) continue;               // not in that car's lane
+                    if (lo.z < bestZ) { bestZ = lo.z; bestV = Mathf.Max(along, 0f); bestLat = lat; }
+                }
+                if (float.IsPositiveInfinity(bestZ)) break;
+                headZ = bestZ; headSpeed = bestV; headLat = bestLat;
+                if (headZ > 250f) break;
+            }
+            // pulled out from a crawl only round a car that is standing for good (a wreck, a jam's stopped car)
+            if (mine < PassMinMps && headSpeed > 1.5f) { why = "crawl"; return float.NaN; }
+            // ITS TIME: the closing it has, plus what it gains, to a length and the air past the queue's head
+            float relDist = Mathf.Max(headZ, 0f) + PassCarLenM + PassReturnAirM + PassReturnAirS * mine;
+            float v0 = Mathf.Max(mine - headSpeed, 0f);
+            float vMax = Mathf.Max(wantRel, v0);
+            if (vMax < 0.5f) { why = "nothing to gain"; return float.NaN; }
+            // what it gains: PassAccel of closing. (Not raced, PSX_AI_PASS_RIVALPULL=1: a rival pass planned on the
+            // closing there is - 0.4 m/s2, the rival pulls too - and a traffic pass on the car's own pull less the faster
+            // it goes; aimed at the given-up rival passes, the weave. Held back: the coordinator's 08:30 wrap-up left no
+            // matrix for it.)
+            float accel = PassAccel;
+            if (RivalPullOn)
+            {
+                bool rivalTarget = target != null && target.GetComponent<CarController>() != null;
+                accel = rivalTarget ? PassAccelRival : PassAccel * Mathf.Clamp(1f - mine / 50f, 0.3f, 1f);
+            }
+            float t;
+            float t1 = (vMax - v0) / accel, d1 = v0 * t1 + 0.5f * accel * t1 * t1;
+            if (d1 >= relDist) t = (-v0 + Mathf.Sqrt(v0 * v0 + 2f * accel * relDist)) / accel;
+            else t = t1 + (relDist - d1) / vMax;
+            if (t > PassMaxS) { why = "long"; return float.NaN; }
+            float tOcc = t + PassSwingS;
+            float vAvg = headSpeed + relDist / Mathf.Max(t, 0.1f);
+            float runM = vAvg * tOcc;
+            float margin = float.PositiveInfinity;
+            // EVERY ONCOMING CAR up this road (its speed, not only that it is there), and anything standing in the line
+            if (ts != null && path != null)
+            {
+                float myS = nearestIdx * path.spacing + Vector3.Dot(transform.position - path.GetPoint(nearestIdx), path.GetTangent(nearestIdx));
+                float total = path.TotalLength;
+                for (int i = 0; i < ts.Obstacles.Count; i++)
+                {
+                    var rb = ts.Obstacles[i];
+                    if (rb == null || rb == target) continue;
+                    float ahead = ts.ObstacleS.Count == ts.Obstacles.Count ? AheadOnRoad(ts, i, myS) : transform.InverseTransformPoint(rb.position).z;
+                    if (ahead > 1e5f) continue;
+                    if (!path.HasEnds) { if (ahead > total * 0.5f) ahead -= total; else if (ahead < -total * 0.5f) ahead += total; }
+                    if (ahead < -3f || ahead > runM + 900f) continue;
+                    int oi = RoadIndexNear(rb.position);
+                    float lat = Vector3.Dot(rb.position - path.GetPoint(oi), RightAt(oi));
+                    float half = i < ts.ObstacleHalfW.Count ? ts.ObstacleHalfW[i] : 1f;
+                    float along = Vector3.Dot(rb.linearVelocity, path.GetTangent(oi));
+                    bool otherStream = i < ts.ObstacleDir.Count && ts.ObstacleDir[i] < 0;
+                    if (along < -1f && !rb.useGravity)
+                    {
+                        // coming in the pass's line, or near enough it to move into it (PassLaneBufM); a car in an outer
+                        // oncoming lane of a wide street is not met (it held every pass on North Tryon's four lanes)
+                        if (Mathf.Abs(lat - line) > half + MyHalfW + PassLaneBufM) continue;
+                        float w = -along;
+                        float mg = (ahead - runM - w * tOcc) / (vAvg + w);
+                        if (mg < margin) { margin = mg; why = "oncoming"; }
+                    }
+                    else if ((Mathf.Abs(along) <= 1f || rb.useGravity) && (otherStream || Mathf.Abs(lat - line) < half + MyHalfW + 0.5f))
+                    {
+                        if (Mathf.Abs(lat - line) >= half + MyHalfW + 0.5f) continue;
+                        float mg = (ahead - runM - PassStandAirM) / Mathf.Max(vAvg, 1f);
+                        if (mg < margin) { margin = mg; why = "standing"; }
+                    }
+                }
+            }
+            // THE SIGHT: a car just out of sight at the street's traffic speed (only where traffic can come)
+            if (ts != null && ts.Level != TrafficLevels.None)
+            {
+                float s = SightAhead(out string lim);
+                float w = DesignOncomingMps;
+                float mg = lim == "clear" ? (s - runM - w * tOcc) / (vAvg + w) : lim == "end" ? (s - runM) / Mathf.Max(vAvg, 1f)
+                         // at the route's turn: done before it, and a car turning in from the side street at a turn's
+                         // speed met no sooner (at the street's speed from there it held most passes on CltC2)
+                         : lim == "junction" ? Mathf.Min((s - runM) / Mathf.Max(vAvg, 1f), (s - runM - JunctionInMps * tOcc) / (vAvg + JunctionInMps))
+                         : (s - runM - w * tOcc) / (vAvg + w);
+                if (mg < margin) { margin = mg; why = lim; }
+            }
+            return margin;
+        }
+        /// <summary>The pass window for a car this one would pass on <paramref name="line"/>: true when the pass may be
+        /// started (or, already this car's pass, go on). Counts the refusal's reason for the harness.</summary>
+        bool PassWindowOpen(Rigidbody target, float z, float theirSpeed, float wantRel, float line, bool committed)
+        {
+            // PSX_AI_PASS_IN_TRAFFIC=0 (not raced; for the coordinator): no pass over the line while the race has traffic
+            // (a stage or sanctioned race without traffic keeps them); the rest of the window's lane rules stay
+            var tsW = TrafficSystem.Instance;
+            if (!PassInTrafficOn && tsW != null && tsW.Level != TrafficLevels.None) { Refuse("off in traffic"); return false; }
+            if (!committed && Time.time < passRetryAt) { Refuse("retry"); return false; }
+            // judged at most every PassJudgeEveryS for the same car (the answer moves slowly; the cost is per call)
+            if (target == winTarget && committed == winCommitted && Time.time - winAt < PassJudgeEveryS) return winOk;
+            float mg = PassMargin(target, z, theirSpeed, wantRel, line, out string why);
+            bool ok = !float.IsNaN(mg) && mg >= (committed ? PassKeepGapS : PassStartGapS);
+            if (!ok) Refuse(why);
+            winTarget = target; winCommitted = committed; winAt = Time.time; winOk = ok;
+            LastPassMargin = mg; LastPassWhy = why;
+            return ok;
+        }
+        Rigidbody winTarget; bool winCommitted, winOk; float winAt = -99f;
+        const float PassJudgeEveryS = 0.1f;
+        /// <summary>For the harness: the last pass window's margin (s; NaN = no pass) and what set it.</summary>
+        public float LastPassMargin { get; private set; } = float.NaN;
+        public string LastPassWhy { get; private set; } = "";
+        static void Refuse(string why)
+        {
+            PassRefused.TryGetValue(why ?? "?", out int k);
+            PassRefused[why ?? "?"] = k + 1;
+        }
 
         /// <summary>May a pass of a rival <paramref name="gap"/> m ahead, at <paramref name="want"/> m/s faster, be
         /// started: done within HeldPassMaxS, the road over that run straight enough to see through, and on a two-way
@@ -1568,7 +1882,22 @@ namespace PSXRacing
                 // met cars with 2.0-2.2 m between centres - every head-on in
                 // sixteen measured races (2026-11-02).
                 leftLimit = (OncomingNear(twoWay, OncomingNearS) ? OncomingNearInnerM : OwnLaneInnerM) - lineOffset;
+            // A ROAD ITS OWN MAP CALLS ONE-WAY, with the race strip's oncoming stream on it all the same (the strip lays
+            // oncoming lanes along the whole route: CltC2 at MEDIUM, 12 such meets in a race): those cars are met as
+            // oncoming cars, right of the line (aipass, PASS WINDOW)
+            else if (PassWindowOn && twoWay != null && twoWay.TwoWay && path.Routed && !TwoWayHere(twoWay) && OncomingAhead(twoWay, OncomingGuardM))
+                leftLimit = (OncomingNear(twoWay, OncomingNearS) ? OncomingNearInnerM : OwnLaneInnerM) - lineOffset;
+            // THE PASS WINDOW's lane (aipass): with traffic on a two-way road, not over the line without a pass that
+            // holds - where it cannot see far enough to be there (a car at the street's speed would meet it within
+            // PassStartGapS and the swing back), or a pass was just given up
+            bool windowRoad = PassWindowOn && twoWay != null && TwoWayHere(twoWay) && twoWay.Level != TrafficLevels.None && !OnDeck;
+            if (windowRoad && float.IsNegativeInfinity(leftLimit) && Mathf.Abs(openLine) < 0.1f)
+            {
+                float needSee = (Mathf.Max(car.forwardSpeed, 0f) + DesignOncomingMps) * (PassStartGapS + PassSwingS);
+                if (Time.time < passRetryAt || SightAhead(out _) < needSee) leftLimit = OwnLaneInnerM - lineOffset;
+            }
             DebugLeftLimit = leftLimit;
+            bool passApproved = false;
             var rm = RaceManager.Instance;
             if (rm != null)
             {
@@ -1591,7 +1920,12 @@ namespace PSXRacing
                     // left, arbitrarily but consistently — a car that dithered
                     // between the two would weave.
                     float dir = local.x >= 0f ? -1f : 1f;
+                    // With traffic on a two-way road (PASS WINDOW): a rival dead ahead resolves RIGHT, and the dodge
+                    // stays in this car's own lane (the left was a dodge toward the oncoming lane: a 180SX dodging a
+                    // rival at 99 km/h under full braking slid 2 m past its mark over the line, into a taxi, Tryon)
+                    if (windowRoad && Mathf.Abs(local.x) < 0.3f) dir = 1f;
                     float pull = dir * AvoidMaxM * closeness;
+                    if (windowRoad && pull < 0f) pull = Mathf.Max(pull, OwnLaneInnerM + DodgeLaneAirM - lineOffset);
                     // Held on this side of the centreline with something coming:
                     // what it cannot steer round, it slows for.
                     bool held = pull < leftLimit;
@@ -1667,9 +2001,22 @@ namespace PSXRacing
                     {
                         Vector3 lh = transform.InverseTransformPoint(o.transform.position);
                         float want = lastFreeSpeed - o.forwardSpeed;
-                        if (lh.z > 3f && lh.z < HeldLookM && Mathf.Abs(lh.x) < HeldLaneM && want > HeldMarginMps &&
-                            ((countedPass == o.Body && float.IsNegativeInfinity(leftLimit)) || HeldPassOk(lh.z, want)))   // oncoming near: the pass is given up (back to the lane)
-                            heldWant = want;
+                        if (lh.z > 3f && lh.z < HeldLookM && Mathf.Abs(lh.x) < HeldLaneM && want > HeldMarginMps)
+                        {
+                            bool ok;
+                            if (PassWindowOn)
+                            {
+                                // THE PASS WINDOW, on the line round it (its lat in this car's road frame)
+                                int hi = path.NearestIndex(o.transform.position, nearestIdx);
+                                float hLat = Vector3.Dot(o.transform.position - path.GetPoint(hi), RightAt(hi));
+                                float hLine = hLat - HalfAcrossOf(o) - PassAir(want) - MyHalfW;
+                                bool committedH = passRb == o.Body && passSide < 0;
+                                ok = PassWindowOpen(o.Body, lh.z, o.forwardSpeed, want, hLine, committedH);
+                                if (!ok && committedH) passRetryAt = Time.time + PassRetryS;
+                            }
+                            else ok = (countedPass == o.Body && float.IsNegativeInfinity(leftLimit)) || HeldPassOk(lh.z, want);   // oncoming near: the pass is given up (back to the lane)
+                            if (ok) heldWant = want;
+                        }
                     }
                     if ((op != null && op.retired) || Mathf.Abs(o.forwardSpeed) < (OnDeck ? DeckStoppedMps : StoppedRacerMps) || closingOnIt || heldWant > 0f)
                     {
@@ -1740,7 +2087,7 @@ namespace PSXRacing
                 }
 
                 // The one to deal with: the nearest ahead, in this corridor.
-                int block = -1;
+                int block = -1, passBlock = -1;
                 for (int i = 0; i < obs.Count; i++)
                 {
                     var o = obs[i];
@@ -1763,7 +2110,14 @@ namespace PSXRacing
                     bool bothStand = mySpeed < StandBlockMps && o.rb != null && o.rb.linearVelocity.sqrMagnitude < 1f;
                     if (o.closing <= 0.3f && !bothStand && !o.held) continue;
                     if (block < 0 || o.z < obs[block].z) block = i;
+                    if (o.rb != null && o.rb == passRb) passBlock = i;
                 }
+                // THE CAR IT IS PASSING stays the one to deal with while it is in the way and no more than
+                // PassKeepBlockM further than the nearest (PASS WINDOW): two cars side by side in the lanes either side
+                // of this car's line swapped as the nearest every few ticks, and the racer swapped between a pass and
+                // the follow brake with them (Tryon, MEDIUM)
+                if (PassWindowOn && passBlock >= 0 && block >= 0 && passBlock != block && obs[passBlock].z < obs[block].z + PassKeepBlockM)
+                    block = passBlock;
                 if (block >= 0)
                 {
                     var bo = obs[block];
@@ -1785,13 +2139,16 @@ namespace PSXRacing
                     // between centres - a head-on at 10-33 m/s (Gillespie,
                     // Blue Ridge, Blowing Rock: every head-on measured).
                     if (bo.oncoming) air = Mathf.Max(air, OncomingMeetAirM);
-                    bool Clear(float line)
+                    // THE PASS WINDOW (aipass): the left line over the centreline of a two-way road only through it
+                    bool overLeftNow = false, winLeftNow = false;
+                    bool Clear(float line, bool isLeft = false)
                     {
                         // On the tarmac - or, on the right, the paved verge.
                         if (line < -tarmacEdge || line > vergeEdge) return false;
+                        if (isLeft && overLeftNow) { if (!winLeftNow) return false; }
                         // Not over our own lane's inner edge with anything
                         // coming (leftLimit): that pass waits, and we follow.
-                        if (line - lineOffset < leftLimit) return false;
+                        else if (line - lineOffset < leftLimit) return false;
                         for (int i = 0; i < obs.Count; i++)
                         {
                             if (i == block) continue;
@@ -1811,11 +2168,20 @@ namespace PSXRacing
                     // on NC 226A - that was 0.1 m of air; this is 0.3-0.8).
                     float left = bo.lat - bo.half - air - myHalf;
                     float right = bo.lat + bo.half + air + myHalf;
+                    overLeftNow = PassWindowOn && heldTwoWay && !OnDeck && !bo.oncoming && left - myHalf < OverLineM;
+                    if (overLeftNow)
+                    {
+                        bool committedB = passRb == bo.rb && passSide < 0;
+                        float theirs = mySpeed - bo.closing;
+                        winLeftNow = PassWindowOpen(bo.rb, bo.z, theirs, Mathf.Max(bo.want, lastFreeSpeed - theirs), left, committedB);
+                        // a pass this car was swinging out for, given up: back in, and a wait before the next try
+                        if (!winLeftNow && committedB) passRetryAt = Time.time + PassRetryS;
+                    }
                     // ...and nothing SOLID down it either: a city route's
                     // "road" can be both carriageways with a median between,
                     // and a racer passed a spun rival at 120 km/h along the
                     // median's barrier, into it (UptownLoop).
-                    bool leftOk = Clear(left) && ShoulderClear(left, passEnd);
+                    bool leftOk = Clear(left, true) && ShoulderClear(left, passEnd);
                     // THE RIGHT-HAND SIDE, on the shoulder where the tarmac runs
                     // out: only past a car going OUR way (a car coming at us in
                     // our lane is dodged, not passed, and the tarmac is enough
@@ -1842,10 +2208,12 @@ namespace PSXRacing
                     else if (rightOk) pick = right;
                     if (!float.IsNaN(pick))
                     {
+                        passApproved = overLeftNow && winLeftNow && pick == left;
                         DebugPassSide = pick < bo.lat ? -1 : 1;
                         // the harness's pass: a candidate until the car has really moved out for it (end of tick)
                         candPass = bo.rb; candSide = DebugPassSide; candHeld = bo.held;
                         candOncoming = DebugPassSide < 0 && twoWay != null && TwoWayHere(twoWay);
+                        candOver = candOncoming && pick == left && left - myHalf < OverLineM;
                         passRb = bo.rb;
                         passSide = DebugPassSide;
                         if (pick > tarmacEdge) { usedVerge = true; DebugOnVerge = true; }
@@ -2001,6 +2369,7 @@ namespace PSXRacing
             // 132 km/h came back across onto it). Level with a car, the line
             // may not come nearer to it than the clearance.
             bool alongsideHold = false;
+            float alongsideZ = 0f;
             float roadHalf = RoadHalfHere();
             if (obs.Count > 0)
             {
@@ -2031,6 +2400,7 @@ namespace PSXRacing
                         wanted = keep;
                         slew = TrafficSlew;
                         alongsideHold = side < 0f;
+                        if (alongsideHold) alongsideZ = o.z;
                         // Out on its RIGHT, on the verge, going by: that is the
                         // right-hand pass in progress, and the verge is this
                         // car's until it is past (the clamp below).
@@ -2059,15 +2429,32 @@ namespace PSXRacing
             // coming: a pass already out there comes back at the traffic slew.
             // (Gillespie/Mount Mitchell: a rival on the centreline passing
             // another met an oncoming Camry head-on at 42 m/s.)
+            // (a pass through an open PASS WINDOW is judged by it, the meeting gap and the sight, not by the guard)
+            if (passApproved)
+            {
+                DebugLeftLimit = float.NegativeInfinity;
+                leftLimit = float.NegativeInfinity;
+            }
+            // ...and with traffic on the road, PREFER THE RIGHT LANE: over the line with no pass that holds (the follow
+            // held the car where it was - out in the other lane - for up to 19 s), back to its own lane. Not off a
+            // hairpin's open line, and not into a rival level with it on its right (it stays out until it can come in).
+            else if (windowRoad && float.IsNegativeInfinity(leftLimit) && Mathf.Abs(openLine) < 0.1f && !RivalBesideRight())
+                leftLimit = OwnLaneInnerM - lineOffset;
             if (wanted < leftLimit && alongsideHold && car.forwardSpeed > DropBehindMinMps)
             {
                 // Out in the other lane, level with the car being passed, and
                 // something coming: not into its door - off the throttle and on
                 // the brakes to drop in BEHIND it, then the follow above takes
                 // the car back into the lane.
-                throttleLift = 1f;
-                trafficBrake = Mathf.Max(trafficBrake, 0.9f);
-                Why("abort", throttleLift, trafficBrake);
+                // ...unless it is already more than half by (PASS WINDOW, aipass): then on and in front of it, which
+                // is the shorter way out of the other lane (the brake from there left it level for longer)
+                if (!(PassWindowOn && alongsideZ < -PassCarLenM * 0.5f))
+                {
+                    throttleLift = 1f;
+                    trafficBrake = Mathf.Max(trafficBrake, 0.9f);
+                    Why("abort", throttleLift, trafficBrake);
+                }
+                else Why("complete", 0f, 0f);
             }
             else if (wanted < leftLimit)
             {
@@ -2120,16 +2507,26 @@ namespace PSXRacing
                     countedPass = candPass; passLostT = 0f; PassesBegun++;
                     if (candOncoming) PassesOncoming++;
                     if (candHeld) PassesHeld++;
+                    countedOver = candOver; countedSide = candSide;
+                    if (candOver) PassesOverLine++;
                 }
             }
             if (countedPass != null)
             {
                 Vector3 cl = transform.InverseTransformPoint(countedPass.position);
-                if (cl.z < -2f) { PassesDone++; lastDone = countedPass; countedPass = null; passLostT = 0f; }
+                if (cl.z < -2f) { PassesDone++; if (countedOver) PassesOverLineDone++; lastDone = countedPass; countedPass = null; passLostT = 0f; }
                 else if (passRb != countedPass && Mathf.Abs(avoidBias) < 0.5f)
                 {
                     passLostT += dt;
-                    if (passLostT > 1f || cl.z > 80f) { PassesAborted++; countedPass = null; passLostT = 0f; }
+                    if (passLostT > 1f || cl.z > 80f)
+                    {
+                        PassesAborted++; countedPass = null; passLostT = 0f;
+                        if (PassWindowOn) passRetryAt = Mathf.Max(passRetryAt, Time.time + PassRetryS);
+                        // for the harness: why it was given up (over the line: the window's last word)
+                        string why = countedOver ? "over the line, " + (LastPassWhy ?? "?") : countedSide < 0 ? "left, own side" : "right";
+                        AbortWhy.TryGetValue(why, out int k);
+                        AbortWhy[why] = k + 1;
+                    }
                 }
                 else passLostT = 0f;
             }
@@ -2137,6 +2534,26 @@ namespace PSXRacing
         }
         float passLostT;
         Rigidbody candPass, lastDone; int candSide; bool candHeld, candOncoming;
+        bool candOver, countedOver; int countedSide;
+        /// <summary>For the harness: passes begun with the car over the centreline (through the pass window, or on
+        /// the guard's say with the window off: a left line whose car side is over it) and of those, done.</summary>
+        public int PassesOverLine { get; private set; }
+        public int PassesOverLineDone { get; private set; }
+        /// <summary>For the harness: passes given up, by reason (static, reset with the pass window's stats).</summary>
+        public static readonly System.Collections.Generic.Dictionary<string, int> AbortWhy = new System.Collections.Generic.Dictionary<string, int>();
+        /// <summary>A rival level with this car on its right (the start's two abreast, a pass side by side).</summary>
+        bool RivalBesideRight()
+        {
+            var rm = RaceManager.Instance;
+            if (rm == null) return false;
+            foreach (var other in rm.allCars)
+            {
+                if (other == null || other == car || !other.gameObject.activeInHierarchy) continue;
+                Vector3 lo = transform.InverseTransformPoint(other.transform.position);
+                if (lo.x > 0.5f && lo.x < 4f && lo.z > -5f && lo.z < 6f && Mathf.Abs(lo.y) < 3f) return true;
+            }
+            return false;
+        }
 
         /// <summary>
         /// Put the car back on the road when it can no longer get there itself.

@@ -21,10 +21,9 @@ param(
     [string]$Venue = "I485West", [int]$Seconds = 900, [int]$MaxMinutes = 0, [string]$Hour = "morning",
     [string]$Weather = "", [string]$Traffic = "NONE", [int]$Field = 8, [int]$Laps = 0, [string]$CpRaces = "1",
     [string]$CpTest = "", [switch]$Shots, [string]$Label = "cp", [string]$Out = "", [string]$Extra = "", [string]$Matrix = "", [switch]$Release,
-    [switch]$NoWatch
+    [switch]$NoWatch, [string]$Agent = "cpfix", [double]$TimeScale = 1
 )
 $ErrorActionPreference = "Stop"
-$Agent = "cpfix"
 $wt = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..")).Path
 $Sandbox = $Sandbox.TrimEnd('\')
 if (-not $Out) { $Out = Join-Path $Sandbox "CpJob" }
@@ -122,7 +121,7 @@ try {
         $env:PSX_RACE_SHOTTAG = $Label
         if ($Extra) { foreach ($kv in $Extra.Split(';')) { $p = $kv.Split('='); if ($p.Count -eq 2) { Set-Item -Path ("Env:" + $p[0].Trim()) -Value $p[1].Trim() } } }
         $a = @("-ExecutionPolicy", "Bypass", "-File", "$wt\tools\race-play-check.ps1", "-Venue", $Venue, "-Seconds", "$Seconds",
-               "-Finish", "-Traffic", $Traffic, "-Hour", $Hour)
+               "-Finish", "-Traffic", $Traffic, "-Hour", $Hour, "-TimeScale", "$TimeScale")
         if ($NoWatch) { $a += "-NoWatch" }
         if ($MaxMinutes -gt 0) { $a += @("-MaxMinutes", "$MaxMinutes") }
         # several races in ONE editor session ("Venue:TRAFFIC:seed;..."): each race's report appended, one SUMMARY

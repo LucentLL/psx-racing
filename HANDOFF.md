@@ -699,6 +699,87 @@ CITY NUMBERS (CityAudit.RunSplits; 1,941 carriageway ends at 971 SPLT nodes; J1'
   their fat grass lens; through lanes OSM tags as turn bays no longer vanish at a driveway; lane-change tapers are
   longer. Many spots still bulge or kink where the road has no room or curves (listed above) - not ready to be the
   default.
+
+# AI LANE USE: THE PASS WINDOW; NO WRONG-WAY TRAFFIC ON ONE-WAY STREETS - HEAD-ONS 2 -> 1 IN 8, NOT 0 (agent "aipass", branch `ai-pass`, 2026-11-17 06:20-08:05; NOT pushed, NOT merged)
+
+Base: mountain-nm f60fcc76. The owner, 11-17: "I don't like racers being forced to stay in a particular lane. They should
+prefer staying in the 'right' lane, but passing around cars in the oncoming lane is an iconic part of street racing"; and
+his standing rule, no head-ons. Wrapped up early on the coordinator's word (the owner left the PC at ~08:30): one matrix
+before and one after, both lane use ON. No OFF arm, no frame strips, no self-test, no watched race.
+Scratch: `scratchpad\aipass\` (HANDBACK.md, PROGRESS.md, out\ = matrix_*.txt and race_*.txt, table.py).
+
+## HEAD-ONS ARE NOT PROVEN 0
+Final code, 8 street races with traffic: 1 head-on (TryonSprint MEDIUM seed 0, 180SX at 29.9 s, 11.3 m/s into an oncoming
+taxi). It was not a pass into the oncoming lane: a lane-internal pass/follow on North Tryon's four lanes at 100-110 km/h, the
+car yawing left 6 deg while steering right with the brake held at 0.55, from +1.9 m to -0.7 m in 2 s. The same seed's same
+moment gave 3 of the race's 5 near misses (two other rivals). Cause not found (a side push from a rival alongside fits the
+trail; not proven). PSX_AI_PASS_IN_TRAFFIC=0 would not have stopped it.
+
+## What was wrong (base ON matrix A0on)
+1. THE RACE STRIP DROVE THE WRONG WAY DOWN ONE-WAY STREETS. TrafficSystem lays oncoming lanes along the whole route; a
+   checkpoint rival's own routed road says one-way there, so it kept no guard (AIDriver.TwoWayHere false). CltC2 LIGHT: the
+   Supra met an oncoming taxi at 26.2 m/s on a one-way street (retired). CltC1: oncoming cars on one-way streets in front of
+   rivals for 293 s (143 meets), 5 near misses, the Viper (19.7 m/s) and FD (10.9 m/s) into oncoming cars braking for them
+   (not counted head-ons: under 3 m/s toward the car). Tryon has 454 one-way waypoints (1.8 km), C2 214.
+2. POWER SLIDE FROM SLOW BESIDE ONCOMING TRAFFIC: CltC2 MEDIUM, the FD braked to 22 km/h, full throttle in first, turned 35 deg
+   across the road in a second, 12.1 m/s into an oncoming van (body slip allowed to 0.75 rad when slow).
+3. PASSES JUDGED BY PRESENCE (130 m / 5 s guard, fixed curvature, unseen car at 28 m/s): no sight distance, no queue check,
+   no closing-speed sum; the follow brake held a car where it was, out in the other lane, up to 19 s.
+4. Routed roads looked for oncoming cars only +-240 m round the car (AheadOnRoad's 60-waypoint window).
+5. Traffic born at the window's edge only 22 m clear of a racer (oncoming births in front of rivals).
+6. Found in the intermediate matrix B1: a routed road's line steps up to 4.8 m in one tick where a one-way meets a two-way
+   (Skyline at 175 km/h, 5 m/s sideways over the line, 41 m/s into a car); a dodge round a rival dead ahead resolved LEFT and
+   under the follow brake's full pedal (no ABS) a 180SX slid 2 m past its mark over the line into a taxi.
+
+## What changed (all in Scripts/AIDriver.cs and Scripts/TrafficSystem.cs; harness in Editor/)
+- AIDriver, PSX_AI_PASS_WINDOW (ON; needs PSX_AI_PASS_ONCOMING ON; =0 the checkpoint round's lane use):
+  PassMargin/PassWindowOpen: a pass over the centreline starts only if its whole time (to a length + air past the car or the
+  head of its queue, closing + 2 m/s2, + the swing back) leaves 1.6 s to every oncoming car in or near its line (their speed
+  counted), clears anything standing in the line, fits the SIGHT (SightAhead: bend past the verge, crest, the route's
+  junction turn; a car at the street's speed beyond it, 8 m/s from a side street at a junction), never from under 7 m/s into
+  a moving queue, never over 6.5 s; held while 0.9 s remains, given up with a 1.5 s retry wait; a pass more than half by
+  completes instead of braking back. With traffic: no stay over the line without a pass that holds (prefer the right lane),
+  none when blind; the one-way guard (strip oncoming cars on a road the own map calls one-way are met as oncoming); oncoming
+  cars searched where they are up the road; traction with oncoming near (rear slip 0.12 rad, body 0.2); the dodge stays in
+  its lane and resolves right; steer before brake (brake held to 0.55 drifting toward the line near it); the car being
+  passed stays the block; the line glides 2.5 m/s.
+- TrafficSystem: PSX_TRAFFIC_ONEWAY (ON): per waypoint the route's own edge; no oncoming car born on a one-way street, one
+  about to drive onto it turns off out of the camera's view. PSX_TRAFFIC_BIRTH_CLEAR (ON): no car born where a racer would meet
+  or close on it within 6 s + 40 m.
+- Opt-in, NOT raced: PSX_AI_PASS_RIVALPULL=1 (rival passes planned on 0.4 m/s2: aimed at the give-ups); PSX_AI_PASS_IN_TRAFFIC=0
+  (no pass over the line while the race has traffic; default 1).
+- Harness: LaneUseWatch head-on detail, oncoming-stream hits, one-way meets, pass-window cost and refusals, give-ups by reason,
+  over-line passes, frame strips (PSX_PASS_SHOTS, never run); RacePlayCheck: trail before every head-on, reflection probes off
+  headless (0.9 GB of RenderTexture stacks a race); cp-job -Agent/-TimeScale.
+
+## Proof: the matrix (hidden, -nographics, x2, 8-car fields, laps 2, course preload; seeds 0-3)
+Same 8 races both arms: TryonSprint MEDIUM s0 / LIGHT s1, CltX1 MEDIUM s0 / LIGHT s2, CltC2 MEDIUM s1 / LIGHT s3, CltX1Rev
+MEDIUM s2, CltC1 MEDIUM s3. Both ON. BEFORE = base f60fcc76 (+ diagnostics); AFTER = final behaviour (43cc66cf; HEAD only adds
+the two opt-ins and counters).
+| total of 8 races | BEFORE | AFTER |
+| head-ons (RacePlayCheck rule) | 2 (C2 MED FD 12.1, C2 LIGHT Supra 26.2) | 1 (Tryon MED 180SX 11.3) |
+| nose-to-nose hits on oncoming cars (incl. slowing ones) | 4 | 1 |
+| near misses (<0.6 m air, >=10 m/s closing) | 7 | 5 (4 in one 2-s moment, Tryon MED) |
+| traffic hits by rivals (hard) | 7 (4) | 3 (2) |
+| passes begun / done / given up | 438 / 228 / 189 | 421 / 189 / 214 |
+| left passes on two-way roads | 214 | 148 |
+| seconds over the centreline / longest stay | 1089 / 19.0 | 678 / 20.5 (X1 LIGHT Charger: FAILs the 20 s check) |
+| one-way meets (C1) | 143 (293 s) | 0 |
+| rivals home / retired | 52 / 4 | 53 / 3 |
+| held behind traffic, avg s (C2 MED / X1 LIGHT / Tryon LIGHT) | 2 / 0 / 5 | 29 / 12 / 11 |
+| rivals' mean time s (Tryon M, Tryon L, X1 M, X1 L, C2 M, C2 L, X1R, C1) | 244 214 155 106 441 426 119 418 | 240 223 116 149 488 388 110 358 |
+Cost of the window: 12-64 us a judgement, 0.2-2.3 s of CPU over a whole 2-9 minute race for all 7 rivals (under 4 ms a
+game-second, ~0.07 ms a 60 fps frame); one 80 ms single-call spike in C2 MEDIUM (an editor stall, not traced).
+Honest read: the wrong-way traffic is gone and every head-on cause found is fixed at its cause, hits halved; but head-ons are
+1 not 0, passes on two-way roads fell by a third, give-ups rose, and racers wait longer behind traffic on C2 and X1.
+
+## What the coordinator must do at merge
+- Shared files: Scripts/AIDriver.cs (UpdateAvoidance, FixedUpdate, AheadOnRoad; new pass-window block before HeldPassOk),
+  Scripts/TrafficSystem.cs (Init -> MapOneWay, TrySpawn, Recycle), Editor/RacePlayCheck.cs (OnHit, CamerasOff),
+  Editor/LaneUseWatch.cs, tools/city/tracks/cp-job.ps1. No Scripts/City change: no re-bake, no scene pass, no data files.
+- The defaults are the coordinator's call (see HANDBACK.md): proven = PSX_TRAFFIC_ONEWAY, PSX_TRAFFIC_BIRTH_CLEAR; the window
+  cut hits and near misses but did not reach 0.
+
 # CHECKPOINT RACES: STAGE 1 FIXED, STAGE 2 BUILT; NO BARRICADES ANYWHERE; RACERS PASS IN THE ONCOMING LANE (agent "cpfix", branch `city-checkpoints`, 2026-11-17 01:40-06:20; NOT pushed, NOT merged)
 
 Base: city-checkpoints 6d2e07cc (stage 1, whose independent check FAILED with 4 blockers) + mountain-nm 749e05de (PC50) merged

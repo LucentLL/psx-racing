@@ -305,6 +305,9 @@ namespace PSXRacing.EditorTools
             while (true)
             {
                 foreach (var c in Camera.allCameras) if (c != null) c.enabled = false;
+                // the cars' reflection probes render on their own (SubmitRenderRequest): with no device each one logged
+                // "RenderTexture.Create failed" and a stack every frame, 0.9 GB of raceplay.log a race (aipass 11-17)
+                foreach (var cr in Object.FindObjectsByType<CarReflections>()) if (cr != null) cr.enabled = false;
                 yield return new WaitForSecondsRealtime(0.5f);
             }
         }
@@ -1142,6 +1145,9 @@ namespace PSXRacing.EditorTools
             if (kind == "traffic")
             {
                 bool isPlayer = who.GetComponentInParent<CarController>() == rm.playerCar;
+                // aipass: a hit on a car of the ONCOMING stream from its front, whatever its speed (a queued or slowing
+                // oncoming car met nose to nose is not a head-on below: it is not coming at 3 m/s)
+                LaneUseWatch.TrafficHit(who.GetComponentInParent<CarController>(), lastHitOther != null ? lastHitOther.GetComponentInParent<Rigidbody>() : null, speed);
                 if (isPlayer) trafficHitsPlayer++;
                 else { trafficHitsRivals++; if (speed >= 10f) hardTrafficHitsRivals++; }
                 // HEAD-ON: the traffic car was coming at us.
@@ -1150,6 +1156,10 @@ namespace PSXRacing.EditorTools
                 {
                     headOns++;
                     headOnLines.Add($"HEAD-ON {who.name} at {Time.time - t0:0}s, {speed:0.0} m/s into {what}");
+                    // aipass 11-17: every head-on's context, whatever its speed (the trail below is only for 15 m/s+)
+                    LaneUseWatch.HeadOn(who.GetComponentInParent<CarController>(), orb, speed);
+                    if (speed < 15f && trail.TryGetValue(who.name, out var trh))
+                        RacePlayCheck.Note($"    before {who.name}'s head-on: " + string.Join(" | ", trh));
                 }
             }
             if (speed < 10f) return;
