@@ -41,7 +41,13 @@ namespace PSXRacing.City
         /// a 12.1 deg pavement-edge kink at a split end (N Graham St e16661). Their tapers and splits come from the base TAPR /
         /// SPLT. To take an edge off this list the joint needs a real taper to spec (L = W x S at 45 mph+, W x S^2 / 60 below).
         /// PSX_CITY_LANES2SKIP=0: no edge skipped.</summary>
-        public static readonly int[] Skip = { 16891, 10508, 16661, 17691, 17692, 8442, 8443, 8444, 7151, 7152, 7153 };   // + Monroe Rd west (e8445 edge kink 3.0 -> 4.2 deg) and east (e7076 2.9 -> 3.5 deg)
+        public static readonly int[] Skip = {
+            16891, 10508,                                   // Monroe Rd at e16892 (centre yellow S-jog 6.2 m in 47 m)
+            8442, 8443, 8444, 7151, 7152, 7153,             // Monroe Rd west / east (edge kinks e8445 3.0 -> 4.2, e7076 2.9 -> 3.5 deg)
+            9450, 9451, 15264, 15265, 15266, 16661, 16695, 16696, 16697, 17691, 17692, 20287,   // N Graham St, the whole run (e16661 split-end kink 4.4 -> 12.1 deg)
+            5717, 5718, 18896, 18897,                       // South Blvd, the whole run (E Tremont Ave e17312 kink at the limit)
+            1451, 15240, 15241,                             // West Blvd, the whole run (S Tryon St e12863 lane-line kink)
+        };
         public static bool SkipOn = System.Environment.GetEnvironmentVariable("PSX_CITY_LANES2SKIP") != "0";
         public static string Report => Rows == null ? (On ? "LANES2: no LAN2 section in the data" : "LANES2: OFF (PSX_CITY_LANES2=0)") : $"LANES2: {Rows.Count} edges take today's lane count from section LAN2";
 
