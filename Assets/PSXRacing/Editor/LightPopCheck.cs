@@ -243,13 +243,15 @@ namespace PSXRacing.EditorTools
         IEnumerator TunnelShots(CarController car)
         {
             var def = TrackCatalog.At(RaceHandoff.TrackIndex);
-            if (def == null || def.tunnels == null || def.tunnels.Length == 0 || car == null) { LightPopCheck.Line("FAIL no tunnels here"); yield break; }
+            if (def == null || car == null) { LightPopCheck.Line("FAIL no venue / car"); yield break; }
             TrackCatalog.EnsureStage(def);
+            // (tunnel2) a venue with no tunnel: absolute metres only ("a<m>"), against a span at 0
+            var spans = def.tunnels != null && def.tunnels.Length > 0 ? def.tunnels : new[] { Vector2.zero };
             var pts = def.stagePts;
             var auto = car.GetComponent<AIDriver>();
             if (auto != null) Destroy(auto);
             int n = pts.Length, no = 0;
-            foreach (var span in def.tunnels)
+            foreach (var span in spans)
             {
                 // (parkwaytunnel) PSX_LIGHTPOP_TUNNELOFFS: metres from the entry
                 // portal ("-90,12,60" default); an "r" prefix stands that far

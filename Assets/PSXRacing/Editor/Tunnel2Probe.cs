@@ -64,6 +64,38 @@ namespace PSXRacing.EditorTools
             if (Application.isBatchMode) EditorApplication.Exit(code);
         }
 
+        /// <summary>The stretch check on the ROAD of every built stage scene (PSX_T2_STAGES, default every scened
+        /// stage): the road, its shoulders and kerbs, by kind. Writes PSXRacing_tunnel2_probe.txt.</summary>
+        public static void RoadsAll()
+        {
+            var sb = new StringBuilder("ROAD STRETCH, every stage scene as built (texels; > 1.5 : 1 = stretched)
+");
+            try
+            {
+                string only = Env("PSX_T2_STAGES", "");
+                foreach (var def in TrackCatalog.Scened)
+                {
+                    if (!def.stage || def.IsSprintVariant || def.Reversed) continue;
+                    if (only.Length > 0 && System.Array.IndexOf(only.Split(','), def.id) < 0) continue;
+                    if (!TrackCatalog.TryIndexOf(def.id, out int v)) continue;
+                    int s = TrackCatalog.SceneIndex(v);
+                    var scenes = EditorBuildSettings.scenes;
+                    if (s < 0 || s >= scenes.Length || !File.Exists(scenes[s].path)) { sb.AppendLine(def.id + ": no scene"); continue; }
+                    string rep = Stretch(def, scenes[s].path, true, out _);
+                    sb.AppendLine("=== " + def.id + " (" + File.GetLastWriteTime(scenes[s].path).ToString("MM-dd HH:mm") + ")");
+                    foreach (var line in rep.Split('
+'))
+                    {
+                        string t = line.Trim();
+                        if (t.StartsWith("Road") || t.StartsWith("Kerb") || t.StartsWith("Shoulder")) sb.AppendLine("  " + t);
+                    }
+                }
+            }
+            catch (System.Exception e) { sb.AppendLine("THREW " + e); }
+            File.WriteAllText(Path.Combine(ProjectDir, "PSXRacing_tunnel2_probe.txt"), sb.ToString());
+            if (Application.isBatchMode) EditorApplication.Exit(0);
+        }
+
         /// <summary>Diagnosis: every drawn triangle over a patch beside the road (PSX_T2_DUMP = "fromM,toM,latMin,latMax",
         /// lat + right of the forward path): who it is, its height over the road there, how steep.</summary>
         public static void Dump()
@@ -531,7 +563,7 @@ namespace PSXRacing.EditorTools
                     kinds[k] = (e.area + s.area, e.bad + s.badArea, Mathf.Max(e.worst, s.worstAniso), s.mat);
                 }
                 var list = new List<KeyValuePair<string, (double area, double bad, float worst, string mat)>>(kinds);
-                list.RemoveAll(e => e.Value.bad < 20.0 || e.Value.bad / e.Value.area < 0.02);
+                list.RemoveAll(e => (e.Value.bad < 20.0 || e.Value.bad / e.Value.area < 0.02) && !e.Key.StartsWith("Road") && !e.Key.StartsWith("Kerb"));
                 list.Sort((a, b) => b.Value.bad.CompareTo(a.Value.bad));
                 L(sb, "  WHOLE STAGE, other offenders (listed, not fixed): kind, stretched area > 1.5:1");
                 for (int i = 0; i < list.Count && i < 20; i++)
