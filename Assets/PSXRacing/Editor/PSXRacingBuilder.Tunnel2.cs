@@ -299,7 +299,11 @@ namespace PSXRacing.EditorTools
             var go = new GameObject(name);
             go.transform.SetParent(parent, false);
             go.AddComponent<MeshFilter>().sharedMesh = mesh;
-            go.AddComponent<MeshRenderer>().sharedMaterial = mat;
+            var mr = go.AddComponent<MeshRenderer>();
+            mr.sharedMaterial = mat;
+            // the small parts cast no sun shadow (a pass each, nothing to see)
+            if (name.StartsWith("TunnelLamp") || name.StartsWith("TunnelSign"))
+                mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             go.isStatic = true;
             t2Tris += t.Count / 3;
             return go;
@@ -827,7 +831,7 @@ namespace PSXRacing.EditorTools
             Vector3 faceN = -travel;
             Vector3 across = Vector3.Cross(faceN, Vector3.up).normalized;   // the panel's +x as the driver reads it (his right)
             var post = T2Mat("TunnelSignPost", StageRockTexPath, new Color(0.24f, 0.16f, 0.10f), false, Vector4.zero, false);
-            var panel = MakeMat(MeshPrefix + "TunnelSign" + no, texPath, affine: 0f);
+            var panel = MakeMat(MeshPrefix + "TunnelSign", texPath, affine: 0f);
             var v = new List<Vector3>(); var uv = new List<Vector2>(); var t = new List<int>();
             // the post: a 0.1 m square timber, the panel's bottom at postH - panelH + 0.1
             Block(v, uv, t, foot - across * 0.05f - faceN * 0.12f - Vector3.up * 0.3f, across * 0.1f, Vector3.up * (postH + 0.3f), faceN * 0.1f, foot, across, faceN);
