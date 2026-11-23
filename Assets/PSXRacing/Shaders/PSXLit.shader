@@ -155,11 +155,17 @@ Shader "PSX/Lit"
         // each by its own number, turns to this colour at the texel's own
         // luminance - the tulip tree's clear yellow on the broad crowns
         [HideInInspector] _LeafTulip ("Leaf tulip", Color) = (0,0,0,0)
+        // FALL 2 (the fallcolour round): x 1 = a fall leaf the season's phase moves (_PSXFallPhase)
+        [HideInInspector] _LeafFall ("Leaf fall", Vector) = (0,0,0,0)
+        // FALL 2 leaves on a stage's road: x 1 on, y the road's width (m), z its texture's metres along a v unit
+        [HideInInspector] _RoadLeaves ("Road leaves", Vector) = (0,0,0,0)
         // A SECOND GROUND LAYER (PSX_GROUNDBLEND, the mountain stages on PC):
         // _BlendTex in world-space patches over the main texture.
         // _BlendParams: x its repeats a metre, y the patches' size (m), z cover 0..1
         [HideInInspector] _BlendTex ("Blend layer", 2D) = "white" {}
         [HideInInspector] _BlendParams ("Blend params", Vector) = (0.25, 14, 0.45, 0)
+        // the second layer's own tint over _Color (FALL 2's leaf patches; white = as before)
+        [HideInInspector] _BlendTint ("Blend tint", Color) = (1,1,1,1)
         // THE ROAD CUT'S ROCK (PSX_ROCKFACE, the mountain stages on PC): a
         // photoscanned cliff projected in world space on the face's own plane
         // at two scales, stained, streaked, mossed on what faces up, with its
@@ -511,6 +517,18 @@ Shader "PSX/Lit"
             float4 _LeafVivid;
             float4 _LeafTarget;
             float4 _LeafTulip;
+            float4 _LeafFall;
+            // FALL 2's leaf light (see the foliage light): the crown shade's floor, the sky and the sun let through
+            #define FALL2_AO_FLOOR 0.55
+            #define FALL2_THRU_SKY 0.30
+            #define FALL2_THRU_SUN 0.22
+            // the shadowed side's warmer target (linear: green and blue pulled down) and the luminance band it fades over
+            #define FALL2_WARM_DARK float3(1.0, 0.45, 0.35)
+            #define FALL2_GOLD_GAIN 1.25
+            #define FALL2_WARM_LO 0.04
+            #define FALL2_WARM_HI 0.24
+            float4 _RoadLeaves;
+            float4 _PSXFallPhase;   // global (SeasonDress): x 1 = live, y the fall's phase 0 early .. 0.5 peak .. 1 late
             // A leaf texel in another colour AT ITS OWN LUMINANCE (owner
             // 2026-11-11, the title's drone: the poplars "not following the
             // same lighting as the other trees"). The recolour this replaced,
@@ -527,6 +545,7 @@ Shader "PSX/Lit"
             }
             sampler2D _BlendTex;
             float4 _BlendParams;
+            float4 _BlendTint;
             float PSXBlendHash(float2 p) { return frac(sin(dot(p, float2(127.1, 311.7))) * 43758.5453); }
             float PSXBlendNoise(float2 p)
             {
@@ -790,6 +809,9 @@ Shader "PSX/Lit"
             // The horizon ring (PSXFogRing.cginc): the fog's colour by bearing.
             // After SkyReflect, whose _PSXSkyRotation it is turned by.
             #include "PSXFogRing.cginc"
+            // THE FAR HAZE v2 (PSXFarHaze.cginc): no fog brighter than the sky behind it.
+            #define PSX_FARHAZE_FOG
+            #include "PSXFarHaze.cginc"
         #ifdef PSX_FACADE
             // THE FACADE'S MATERIALS (Uptown B1b, 2026-10-04). The owner on the
             // B1 facades: "that white coating washed out faded look that cars
@@ -1709,6 +1731,18 @@ Shader "PSX/Lit"
                     // the rest of the crown all round it
                     float rOut = length(wpos.xz - float2(unity_ObjectToWorld._m03, unity_ObjectToWorld._m23));
                     float crownAO = lerp(0.38, 1.0, saturate(hUp / 16.0)) * lerp(0.5, 1.0, saturate(rOut / 5.0));
+                    // FALL 2 (the fallcolour round; _LeafFall on the fall leaves only): A TURNED LEAF
+                    // GLOWS. His pictures' canopy is lit through the leaf - 5-13 % of it darker than
+                    // L 0.30, where ours was 56-71 % under a clear noon (scratchpad fallcolour
+                    // measure1): a crown's inside is not a cave, light comes down through the leaves
+                    // above. The crown's own shade kept but shallower, and a share of the hour's sky
+                    // and sun passed THROUGH the canopy onto every leaf whichever way it faces (the
+                    // sun's share by the canopy factor, so dusk and overcast stay their own).
+                    if (_LeafFall.x > 0.5 && _PSXFallPhase.x > 0.5)
+                    {
+                        crownAO = lerp(FALL2_AO_FLOOR, 1.0, crownAO);
+                        amb += (_PSXSkyAmbient.rgb * FALL2_THRU_SKY + _PSXLightColor.rgb * (FALL2_THRU_SUN * canopy)) * crownAO;
+                    }
                     amb *= crownAO;
                     ndl *= sqrt(crownAO);
                 #ifdef PSX_LODFADE
@@ -1763,6 +1797,10 @@ Shader "PSX/Lit"
                 o.fog = max(o.fog, wireFade);
             #endif
                 o.ring = PSXFogRing(wpos - _WorldSpaceCameraPos, _PSXSkyRotation);
+                // ...never brighter than the sky behind it (PSXFarHaze.cginc), the blue distance too
+                bool farAir = _PSXAerial.w > 0.5;
+                o.ring = PSXFarHazeRing(o.ring, wpos - _WorldSpaceCameraPos, max(o.fog, farAir && dist > _PSXAerial.x ? 1.0 : 0.0),
+                                        farAir ? _PSXAerialCol.rgb : float3(0, 0, 0));
             #ifdef PSX_ATLAS
                 float4 cell = floor(v.color * 255.0 + 0.5);
                 float px = max(_AtlasPx, 1.0);
@@ -2197,6 +2235,45 @@ Shader "PSX/Lit"
                 }
               #endif
             #endif
+            // FALL 2: LEAVES ON THE ROAD (his pictures: leaves drift along the road's edge and lie
+            // scattered across the lanes). A stage road's u runs edge to edge (0..1) and its v along
+            // (_RoadLeaves.z metres a unit): in 35 cm cells, a leaf in a cell by a hash, thick within
+            // a metre of each edge and sparse in the lanes, an ellipse at its own turn and size in
+            // the canopy's colours. Past where a pixel covers ~8 cm the leaves turn into their mean
+            // tint (no shimmer). Only while the fall dress is on (_PSXFallPhase.x), more as it ends.
+            [branch] if (_RoadLeaves.x > 0.5 && _PSXFallPhase.x > 0.5)
+            {
+                float2 ruv = (uv - _MainTex_ST.zw) / _MainTex_ST.xy;
+                float2 rm = float2(ruv.x * _RoadLeaves.y, ruv.y * _RoadLeaves.z);
+                float dEdge = min(rm.x, _RoadLeaves.y - rm.x);
+                float dens = lerp(0.65, 0.03, saturate((dEdge - 0.25) / 1.0)) * lerp(0.35, 1.35, saturate(_PSXFallPhase.y));
+                const float RLCell = 0.35;
+                float pix = max(fwidth(rm.x), fwidth(rm.y));
+                float nearK = saturate(1.6 - pix * 12.0);
+                float3 farMix = lerp(tex.rgb, float3(0.38, 0.15, 0.03), dens * 0.16);
+                // (the leaves themselves only where they can be drawn: past ~13 cm a pixel, the mean tint alone)
+                [branch] if (nearK > 0.0)
+                {
+                    float2 rc = floor(rm / RLCell), rf = frac(rm / RLCell);
+                    float2 rp = frac(rc * float2(0.1031, 0.11369));
+                    rp += dot(rp, rp.yx + 33.33);
+                    float rh0 = frac((rp.x + rp.y) * rp.x * 19.19);
+                    float4 rh = frac(rh0 * float4(1.0, 37.719, 91.313, 13.591) + float4(0.0, 0.217, 0.613, 0.389));
+                    float ang = rh.w * 6.2832;
+                    float ca = cos(ang), sa = sin(ang);
+                    float2 q = rf - (0.3 + 0.4 * rh.yz);
+                    q = float2(q.x * ca + q.y * sa, -q.x * sa + q.y * ca);
+                    float sz = 0.20 + 0.10 * frac(rh.x * 7.13);   // half-length in cells (7-10 cm)
+                    float e = dot(q / float2(sz, sz * 0.55), q / float2(sz, sz * 0.55));
+                    float leafIn = (rh.x < dens) ? saturate((1.0 - e) * 6.0) : 0.0;
+                    float pick = frac(rh.y * 5.31 + rh.z * 2.17);
+                    float3 leafCol = pick < 0.28 ? float3(0.55, 0.30, 0.02) : pick < 0.52 ? float3(0.50, 0.15, 0.010)
+                                   : pick < 0.68 ? float3(0.40, 0.040, 0.020) : pick < 0.86 ? float3(0.25, 0.090, 0.030) : float3(0.16, 0.080, 0.030);
+                    leafCol *= 0.8 + 0.4 * frac(rh.z * 3.7);
+                    farMix = lerp(farMix, lerp(tex.rgb, leafCol, leafIn), nearK);
+                }
+                tex.rgb = farMix;
+            }
             #ifdef PSX_GROUNDBLEND
                 // THE SECOND LAYER, in patches (owner 2026-11-08: the ground "not
                 // anywhere nearly as detailed as the asset pack displayed" - the
@@ -2204,10 +2281,25 @@ Shader "PSX/Lit"
                 // world-space noise, a soft edge, the layer at its own scale.
                 {
                     float2 wq = i.wpos.xz / max(_BlendParams.y, 1.0);
-                    float bn = PSXBlendNoise(wq) * 0.65 + PSXBlendNoise(wq * 2.7 + 17.3) * 0.35;
+                    float bn;
+                    // FALL 2's verge (_BlendParams.w 1): one octave on a sine-free hash - the verge is a
+                    // big share of a chase frame and two octaves of PSXBlendNoise cost ~0.5 ms there
+                    if (_BlendParams.w > 0.5)
+                    {
+                        float2 i0 = floor(wq), f = frac(wq);
+                        f = f * f * (3.0 - 2.0 * f);
+                        float4 hx = float4(i0.x, i0.x + 1.0, i0.x, i0.x + 1.0), hy = float4(i0.y, i0.y, i0.y + 1.0, i0.y + 1.0);
+                        float4 h4 = frac(frac(hx * 0.1031 + hy * 0.11369) * (hx * 0.13787 + hy * 0.09113 + 33.33) * 19.19);
+                        bn = lerp(lerp(h4.x, h4.y, f.x), lerp(h4.z, h4.w, f.x), f.y);
+                    }
+                    else
+                        bn = PSXBlendNoise(wq) * 0.65 + PSXBlendNoise(wq * 2.7 + 17.3) * 0.35;
                     float bm = smoothstep(1.0 - _BlendParams.z - 0.12, 1.0 - _BlendParams.z + 0.12, bn);
-                    float4 bt = PSXMainTex(_BlendTex, i.wpos.xz * _BlendParams.x);
-                    tex.rgb = lerp(tex.rgb, bt.rgb * _Color.rgb, bm);
+                    [branch] if (bm > 0.0)
+                    {
+                        float4 bt = PSXMainTex(_BlendTex, i.wpos.xz * _BlendParams.x);
+                        tex.rgb = lerp(tex.rgb, bt.rgb * _Color.rgb * _BlendTint.rgb, bm);
+                    }
                 }
             #endif
                 // THE LAND AT DISTANCE (see _HorizonMacro): the floor turns into
@@ -2308,8 +2400,14 @@ Shader "PSX/Lit"
                     float lum = dot(tex.rgb, float3(0.2126, 0.7152, 0.0722));
                     tex.rgb = max(lerp(lum.xxx, tex.rgb, _LeafVivid.x), 0.0) * _LeafVivid.y;
                     float lumV = lum * _LeafVivid.y;   // (the saturation step keeps luminance)
+                    // FALL 2: the turned leaf's shadowed side runs warmer and redder than its lit side
+                    // (gold to copper, orange to rust, scarlet to blood red - his pictures' "brown" is
+                    // copper h 48-55, ours went olive h 64-78), and the leaf a little brighter (_LeafFall.y;
+                    // a far card's sheet already holds it: its copy carries 1)
+                    float fallOn = _LeafFall.x > 0.5 ? 1.0 : 0.0;
+                    float fallWarm = fallOn * (1.0 - smoothstep(FALL2_WARM_LO, FALL2_WARM_HI, lumV));
                     if (_LeafVivid.w > 0.0)
-                        tex.rgb = lerp(tex.rgb, LeafRecolour(_LeafTarget.rgb, lumV), _LeafVivid.w);
+                        tex.rgb = lerp(tex.rgb, LeafRecolour(_LeafTarget.rgb * lerp(1.0, FALL2_WARM_DARK, fallWarm), lumV), _LeafVivid.w);
                 #ifdef PSX_LODFADE
                     // EACH TREE ITS OWN (lodD.y: the instance's own number, the
                     // same at every level - the impostor shares the mesh's
@@ -2318,11 +2416,36 @@ Shader "PSX/Lit"
                     if (_LeafTulip.a > 0.0)
                     {
                         if (frac(i.lodD.y * 7.31 + 0.27) < _LeafTulip.a)
-                            tex.rgb = lerp(tex.rgb, LeafRecolour(_LeafTulip.rgb, lumV), 0.85);
+                            tex.rgb = lerp(tex.rgb, LeafRecolour(_LeafTulip.rgb * lerp(1.0, FALL2_WARM_DARK, fallWarm), lumV), 0.85) * lerp(1.0, FALL2_GOLD_GAIN, fallOn);
                         float hv = frac(i.lodD.y * 13.7 + 0.61) - 0.5;
                         tex.rgb *= 1.0 + hv * float3(0.16, 0.03, -0.16);
                     }
                 #endif
+                    if (fallOn > 0.5 && _LeafFall.y > 0.0) tex.rgb *= _LeafFall.y;
+                    // FALL 2: EARLY, PEAK AND LATE FALL (the calendar's day, Seasons.FallPhase). The
+                    // build paints the peak; before it a share of the crowns has not turned yet (the
+                    // tree's own number, as the tulip share: the same at every level and on its far
+                    // card) and the rest is half turned; after it the colour goes russet and dull.
+                    // A draw with no instance number (the far chunk cards) takes the same mean.
+                    if (_LeafFall.x > 0.5 && _PSXFallPhase.x > 0.5)
+                    {
+                        float ph = _PSXFallPhase.y;
+                        float lumF = dot(tex.rgb, float3(0.2126, 0.7152, 0.0722));
+                        float early = saturate(1.0 - ph * 2.0);
+                        float late = saturate(ph * 2.0 - 1.0);
+                        if (early > 0.0)
+                        {
+                        #ifdef PSX_LODFADE
+                            float still = step(frac(i.lodD.y * 3.71 + 0.13), early * 0.8);
+                            float gk = saturate(still + early * 0.3);
+                        #else
+                            float gk = early * 0.8 + early * 0.3 * (1.0 - early * 0.8);
+                        #endif
+                            tex.rgb = lerp(tex.rgb, LeafRecolour(float3(0.636, 1.0, 0.182), lumF), gk);
+                        }
+                        if (late > 0.0)
+                            tex.rgb = lerp(tex.rgb, LeafRecolour(float3(1.0, 0.292, 0.074), lumF) * 0.72, saturate(late * 1.25) * 0.85);
+                    }
                 }
                 clip(tex.a - _Cutoff);
             #ifdef PSX_LODFADE

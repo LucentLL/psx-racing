@@ -135,6 +135,8 @@ Shader "PSX/Water"
             #define GROUND_REFLECT     0.35
             #include "PSXSkyReflect.cginc"
             #include "PSXFogRing.cginc"
+            #define PSX_FARHAZE_FOG
+            #include "PSXFarHaze.cginc"   // the far water never brighter than the sky behind it
 
             // ---- the look, in #defines like PSX/Lit's ----
             #define SCROLL_A      float2( 0.021,  0.013)  // tiles per second, the two sheets
@@ -377,7 +379,7 @@ Shader "PSX/Water"
                 // THE ONE CURVE on the water's radiance, as on every lit
                 // surface (a no-op with the tone off), then the haze - the
                 // sky's colour, neither exposed nor curved (C3).
-                float3 fogCol = PSXFogTone(PSXFogTowardSun(_PSXFogColor.rgb * PSXFogRing(-V, _PSXSkyRotation), V));
+                float3 fogCol = PSXFogTone(PSXFogTowardSun(_PSXFogColor.rgb * PSXFarHazeRing(PSXFogRing(-V, _PSXSkyRotation), -V, i.fog, 0), V));
                 col = lerp(PSXTone(col), fogCol, i.fog);
                 // The alpha: the emitter mask on the PSX camera's own frame;
                 // opaque on any other camera's render texture (PSXTone.cginc).

@@ -93,6 +93,8 @@ Shader "PSX/Cabin"
             #include "PSXSunShadow.cginc"
             #include "PSXSkyReflect.cginc"
             #include "PSXFogRing.cginc"
+            #define PSX_FARHAZE_FOG
+            #include "PSXFarHaze.cginc"   // no fog brighter than the sky behind it
 
             #define CABIN_F0       0.04   // plastic, vinyl, leather: a dielectric's face-on reflectance
             #define CABIN_SKY_KEEP 0.35   // the sky a cabin surface can see is mostly its own roof
@@ -205,7 +207,7 @@ Shader "PSX/Cabin"
                 lit += (spec * _PSXSunModel * expo + sheen * (1.0 - saturate(_PSXNight)));
                 float3 outC = PSXTone(lit);
                 if (_PSXCabOut > 0.5)
-                    outC = lerp(outC, PSXFogTone(PSXFogTowardSun(_PSXFogColor.rgb * PSXFogRing(-V, _PSXSkyRotation), V)), i.fog);
+                    outC = lerp(outC, PSXFogTone(PSXFogTowardSun(_PSXFogColor.rgb * PSXFarHazeRing(PSXFogRing(-V, _PSXSkyRotation), -V, i.fog, 0), V)), i.fog);
                 return fixed4(outC, 0.0);
             }
             ENDCG

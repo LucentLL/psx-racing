@@ -729,8 +729,8 @@ fixed4 fragHD(v2f_hd i) : SV_Target
 
     // ---- together ----
     float edge = saturate(downM / HD_SHORE_SOFT_M);
-    float3 fogCol = PSXFogTone(PSXFogTowardSun(_PSXFogColor.rgb * PSXFogRing(-V, _PSXSkyRotation), V));
     float fog = i.swell.w;
+    float3 fogCol = PSXFogTone(PSXFogTowardSun(_PSXFogColor.rgb * PSXFarHazeRing(PSXFogRing(-V, _PSXSkyRotation), -V, fog, 0), V));
     float3 col;
     float emit;
     if (scene)

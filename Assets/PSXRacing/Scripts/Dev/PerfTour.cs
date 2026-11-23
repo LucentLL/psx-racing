@@ -114,6 +114,8 @@ namespace PSXRacing
             t.tag = ShotLink.Query(url, "tag") ?? "run";
             t.viewArg = ShotLink.Query(url, "view") ?? "";
             t.shotsArg = ShotLink.Query(url, "shots") ?? "";
+            // &approach=...: the city-night round's approach curves (PerfTour.Approach.cs)
+            t.approachArg = ShotLink.Query(url, "approach") ?? "";
             t.abArg = ShotLink.Query(url, "ab") ?? "";
             // a mountain stage instead of the city (PerfTour.Stage.cs)
             t.stageArg = ShotLink.Query(url, "stage") ?? "";
@@ -277,7 +279,12 @@ namespace PSXRacing
             Post("env.txt", env.ToString());
             Say("free roam up: " + env.ToString().Replace("\n", " | "));
 
-            if (!string.IsNullOrEmpty(shotsArg)) yield return Shots(mode);
+            string nshots = ShotLink.Query(Request() ?? "", "nshots");
+            string clipArg = ShotLink.Query(Request() ?? "", "clip");
+            if (!string.IsNullOrEmpty(clipArg)) yield return Clip(mode, clipArg);
+            else if (!string.IsNullOrEmpty(nshots)) yield return NightShots(mode, nshots);
+            else if (!string.IsNullOrEmpty(approachArg)) yield return Approach(mode);
+            else if (!string.IsNullOrEmpty(shotsArg)) yield return Shots(mode);
             else
                 foreach (var id in routesArg.Split(','))
                 {
@@ -319,7 +326,7 @@ namespace PSXRacing
         // ------------------------------------------------------------------
         //  the routes
         // ------------------------------------------------------------------
-        static Vector2 LL(double lat, double lon)
+        public static Vector2 LL(double lat, double lon)
         {
             const double Lat0 = 35.18456015184093, Lon0 = -80.81770185962013;
             double mLon = 111320.0 * System.Math.Cos(Lat0 * System.Math.PI / 180.0);
@@ -329,7 +336,7 @@ namespace PSXRacing
         /// <summary>A road followed node to node from the nearest point of a
         /// named road heading toward a target, the straightest way on that keeps
         /// the name (HitchProbe's FollowRoad, as a route).</summary>
-        static CityMap.Route FollowRoad(CityMap map, string id, Vector2 from, Vector2 toward, string nameHas, float maxM)
+        public static CityMap.Route FollowRoad(CityMap map, string id, Vector2 from, Vector2 toward, string nameHas, float maxM)
         {
             CityMap.Edge e = null; float bestD = float.MaxValue; bool fwd = true;
             foreach (var c in map.edges)

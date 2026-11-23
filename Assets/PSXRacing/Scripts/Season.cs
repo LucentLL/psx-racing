@@ -63,6 +63,28 @@ namespace PSXRacing
             day <= 0 ? Season.Fall : OfMonth(LifeRules.MonthOf(day));
 
         /// <summary>
+        /// FALL 2 (the fallcolour round, 2026-11-23): how far into the fall a
+        /// day is, 0 (1 September: most crowns still green) .. 0.5 (PEAK, 8-22
+        /// October on the Parkway, the owner's pictures) .. 1 (30 November:
+        /// russet and brown, the last leaves). Day 0 (no LifeSim) is the peak.
+        /// PSX/Lit reads it as _PSXFallPhase on the fall leaves the FALL 2
+        /// build made (_LeafFall); the other seasons never see it.
+        /// </summary>
+        public static float FallPhase(int day)
+        {
+            if (day <= 0) return 0.5f;
+            var d = LifeRules.DateOf(day);
+            if (d.Month < 9 || d.Month > 11) return 0.5f;
+            float doy = d.DayOfYear;   // 1999: 1 Sep = 244, 8 Oct = 281, 22 Oct = 295, 30 Nov = 334
+            if (doy < 281f) return 0.5f * Mathf.InverseLerp(244f, 281f, doy);
+            if (doy <= 295f) return 0.5f;
+            return 0.5f + 0.5f * Mathf.InverseLerp(295f, 334f, doy);
+        }
+
+        /// <summary>FALL 2 at run time (PSX_FALL2=0: the leaves the build made, at their peak colours).</summary>
+        public static bool Fall2Live => System.Environment.GetEnvironmentVariable("PSX_FALL2") != "0";
+
+        /// <summary>
         /// THE DAY'S HEADLINE at home (Charlotte): what the date line prints.
         /// Since 2026-10-25 this is not a roll but the CLIMATE's day
         /// (<see cref="Climate"/>): snow if any fell, rain if it rained, fog,

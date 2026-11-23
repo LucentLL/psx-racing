@@ -108,6 +108,11 @@ Shader "PSX/Sky"
             // ends in its own 1 - exp(-x) (PSXAtmosphere.cginc), its only
             // curve above the horizon band.
             #include "PSXTone.cginc"
+            // THE FAR HAZE v2 (PSXFarHaze.cginc): the band is never brighter than
+            // the dome a few degrees over it - the same sky row the land's fog
+            // is held to, so land, band and dome stay one paint.
+            float _PSXSkyRotation;
+            #include "PSXFarHaze.cginc"
             // The EMITTER MASK in the sky: the sun's disc, and nothing else, so
             // a bright noon sky no longer haloes onto itself and over the
             // skyline. Taken from the scene's own light (the direction the
@@ -332,7 +337,12 @@ Shader "PSX/Sky"
                 float adapt = PSXAdaptGain();
                 float3 upper = col * (adapt * keep);
                 if (_Dynamic < 0.5) upper = PSXToneSky(upper);
-                col = lerp(upper, PSXToneSky((bandCol * PSXFogRing(dir, _Rotation) + sunHaze) * adapt), hz * hz * (1.0 - saturate(_PSXHorizonBandCut)));
+                float3 bandRing = bandCol * PSXFogRing(dir, _Rotation);
+                float bandW = hz * hz * (1.0 - saturate(_PSXHorizonBandCut));
+                if (_PSXFarHaze.x > 0.5 && bandW > 0.0)
+                    bandRing *= PSXFarHazeKeep(dot(bandRing, PSX_FARHAZE_LUM), dot(PSXSkyBehind(dir), PSX_FARHAZE_LUM),
+                                               dot(sunHaze, PSX_FARHAZE_LUM));
+                col = lerp(upper, PSXToneSky((bandRing + sunHaze) * adapt), bandW);
                 // THE CITY'S GLOW (above), over the band and the sky alike
                 col += CityGlow(dir) * adapt;
                 // And below is the ground colour, not a mirror of the sky —

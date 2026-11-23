@@ -86,6 +86,8 @@ Shader "PSX/Decal"
             float4 _PSXSkyAmbient;
 
             fixed4 _PSXFogColor;
+            float _PSXSkyRotation;
+            #include "PSXFarHaze.cginc"   // no fog brighter than the sky behind it
             float _PSXFogNear;
             float _PSXFogFar;
             // Bends the band so it closes late instead of evenly;
@@ -158,7 +160,7 @@ Shader "PSX/Decal"
                 c.rgb *= i.light;
                 // (The haze is the sky's colour: adapted, never exposed nor
                 // curved, C3; the one curve goes on the mark or the smoke.)
-                c.rgb = lerp(PSXTone(c.rgb), PSXFogTone(_PSXFogColor.rgb), i.fog);
+                c.rgb = lerp(PSXTone(c.rgb), PSXFogTone(_PSXFogColor.rgb * PSXFarHazeScale(_PSXFogColor.rgb, i.wpos - _WorldSpaceCameraPos, i.fog)), i.fog);
                 return c;
             }
             ENDCG

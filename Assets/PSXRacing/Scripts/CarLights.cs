@@ -53,7 +53,7 @@ namespace PSXRacing
     /// twenty years out of period, and the warm slightly-yellow light is the
     /// single cheapest thing that dates the night scenes correctly.
     /// </summary>
-    public class CarLights : MonoBehaviour
+    public partial class CarLights : MonoBehaviour
     {
         public CarController car;
         public BoxCollider box;
@@ -1183,6 +1183,7 @@ namespace PSXRacing
                 if (MeterOn && !MeterHold) MeterRank.Clear();
                 bool meterB = MeterHold && MeterPrev != null;
                 int carsTaken = noPop && !meterB ? scoredCount : sorted.Count;
+                for (int c = 0; c < sorted.Count; c++) sorted[c].tableW = 0f;   // (NIGHT 3: the pools take the rest)
                 Vector3 eyeNow = cam != null ? cam.transform.position : Vector3.zero;
                 for (int c = 0; c < carsTaken; c++)
                 {
@@ -1199,6 +1200,7 @@ namespace PSXRacing
                     else if (MeterOn) MeterRank[System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(l)] = rank;
                     if (w <= 0f) continue;
                     var cw = col * w;
+                    int nWas = n;
                     for (int i = 0; i < 2 && n < (noPop ? MaxLights : LegacyLights); i++)
                     {
                         if (l.HeadOut(i)) continue;   // R1a part 2a: a lamp a hit broke gives no light
@@ -1210,8 +1212,12 @@ namespace PSXRacing
                         gColor[n] = new Vector4(cw.r, cw.g, cw.b, glint);
                         n++;
                     }
+                    if (n > nWas) l.tableW = w;
                 }
+                // NIGHT 3: every other lit car's beam on the road (CarLights.Pools.cs)
+                PushPools(cam, cosOuter, cosInner, col);
             }
+            else PoolsOff();
             for (int i = n; i < MaxLights; i++)
                 gPos[i] = gFwd[i] = gRight[i] = gColor[i] = Vector4.zero;
             PushedCount = n;

@@ -29,6 +29,10 @@ float4 _PSXMoonDir;
 float _PSXCloudCover;
 float4 _PSXCloudWind;
 float _PSXDynExposure;
+// NIGHT 3 (the city-night round, StreetLights.Night3.cs): the lit city's night sky x this from
+// the zenith down to a few degrees over the horizon (0 = unset: x 1). His frames: a black sky over
+// Uptown, the glow kept low over the city.
+float _PSXN3Sky;
 float4 _PSXZenith;       // the single-scattered zenith (DynamicSky, CPU): the light the
                          // multiple-scattering stand-in lends the low sky
 
@@ -569,6 +573,7 @@ float3 PSXDynamicSkyT(float3 dir, out float cloudT)
 
     // Exposure and a soft shoulder: the display's range.
     col *= _PSXDynExposure;
+    if (_PSXN3Sky > 0.001) col *= lerp(1.0, _PSXN3Sky, saturate(dir.y * 12.0));
     return 1.0 - exp(-col);
 }
 
