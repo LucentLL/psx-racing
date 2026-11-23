@@ -36,9 +36,16 @@ namespace PSXRacing.EditorTools
 
         struct Light { public Vector3 p; public float gain; public string src; }
 
+        /// <summary>Both placements in one run: CityMeshes.Lamps3 off (before) and on (after).</summary>
         public static void Run()
         {
-            string tag = System.Environment.GetEnvironmentVariable("PSX_LAMPAUDIT_TAG") ?? "run";
+            bool was = CityMeshes.Lamps3;
+            try { CityMeshes.Lamps3 = false; RunTag("before"); CityMeshes.Lamps3 = true; RunTag("after"); }
+            finally { CityMeshes.Lamps3 = was; }
+        }
+
+        static void RunTag(string tag)
+        {
             var sb = new StringBuilder();
             var ci = CultureInfo.InvariantCulture;
             var map = CityMap.Get();

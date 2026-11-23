@@ -4769,6 +4769,13 @@ namespace PSXRacing.City
         /// more than <see cref="LampNudgeShare"/> of the gap to its neighbour.</summary>
         static readonly float[] LampNudges = { 0f, 4f, -4f, 8f, -8f };
         const float LampNudgeShare = 0.3f;
+        /// <summary>LAMPS 3 (the city-night round, 2026-11-23; PSX_CITY_LAMPS3=0: the placement as it was):
+        /// a lamp at every junction mouth, the stations even between them, and a refused station tried
+        /// further along (to 0.45 of the gap) before the street is left dark there. In the tile bake's
+        /// fingerprint (a PSX_CITY_ switch).</summary>
+        public static bool Lamps3 = System.Environment.GetEnvironmentVariable("PSX_CITY_LAMPS3") != "0";
+        static readonly float[] LampNudges3 = { 0f, 4f, -4f, 8f, -8f, 12f, -12f, 16f, -16f, 20f, -20f };
+        const float Lamps3NudgeShare = 0.45f;
         const int LampSalt = 41;
         /// <summary>Post, arm and head box, metres: a 0.26 m square pole, a
         /// 0.12 m arm, a cobra head 0.75 long, 0.18 deep and 0.40 wide, and the
@@ -4883,12 +4890,26 @@ namespace PSXRacing.City
             if (run < LampMinRunM) { LampTrace?.Invoke(e.index, -1f, -1); return; }
             int count = Mathf.Max(1, Mathf.RoundToInt(run / gap));
             float step = run / count;
+            // LAMPS 3 (the city-night round): a lamp at each junction mouth the road opens on (its fan's
+            // clearance), the rest evenly between; half a step from a node the road runs on through
+            float endA = 0.5f, nudgeShare = LampNudgeShare;
+            if (Lamps3)
+            {
+                endA = trims.patch[e.a] ? 0f : 0.5f;
+                float endB = trims.patch[e.b] ? 0f : 0.5f;
+                int nIn = Mathf.Max(0, Mathf.RoundToInt(run / gap - endA - endB));
+                float slots = endA + nIn + endB;
+                if (slots < 0.5f) { endA = 0.5f; slots = 1f; nIn = 0; }   // a short run between two junctions: one, in its middle
+                step = run / slots;
+                count = nIn + 1;
+                nudgeShare = Lamps3NudgeShare;
+            }
             int phase = Hash01(e.index, 1, LampSalt) < 0.5f ? 0 : 1;
             float speed = LampSpeedKmh(e);
             StructureEnds(map, trims, e, lampEnds);
             for (int k = 0; k < count; k++)
             {
-                float s0 = lo + (k + 0.5f) * step;
+                float s0 = lo + (k + endA) * step;
                 // (street dress) on a dressed Uptown street a lamp stands in the middle of a gap between two trees
                 if (StreetDressOn) s0 = Mathf.Clamp(LampBetweenTrees(map, trims, e, s0), lo, hi);
                 var p0 = e.PointAt(s0);
@@ -4900,9 +4921,9 @@ namespace PSXRacing.City
                 for (int attempt = 0; attempt < (outsideOnly ? 1 : 2) && !placed; attempt++)
                 {
                     int side = attempt == 0 ? first : -first;
-                    foreach (float dS in LampNudges)
+                    foreach (float dS in Lamps3 ? LampNudges3 : LampNudges)
                     {
-                        if (Mathf.Abs(dS) > LampNudgeShare * step) continue;
+                        if (Mathf.Abs(dS) > nudgeShare * step) continue;
                         float s = s0 + dS;
                         if (s < lo || s > hi) continue;
                         int r = TryLamp(map, trims, tm, e, s, side, height, kind, speed);
