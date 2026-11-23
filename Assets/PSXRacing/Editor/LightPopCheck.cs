@@ -49,6 +49,8 @@ namespace PSXRacing.EditorTools
             RaceHandoff.FromLifeSim = true;
             RaceHandoff.TrackIndex = v;
             RaceHandoff.TimeOfDayIndex = TimeOfDay.Night;
+            // (parkwaytunnel) PSX_LIGHTPOP_HOUR: an hour index 0-6 (default Night)
+            if (int.TryParse(Env("PSX_LIGHTPOP_HOUR", ""), out int hourIx)) RaceHandoff.TimeOfDayIndex = Mathf.Clamp(hourIx, 0, TimeOfDay.Count - 1);
             // (lightlook) PSX_LIGHTPOP_WEATHER: Rain etc. (default Clear)
             RaceHandoff.WeatherOverride = System.Enum.TryParse(Env("PSX_LIGHTPOP_WEATHER", "Clear"), true, out Weather wx) ? (int)wx : (int)Weather.Clear;
             RaceHandoff.StartFuelPct = 100f;
@@ -247,19 +249,29 @@ namespace PSXRacing.EditorTools
             int n = pts.Length, no = 0;
             foreach (var span in def.tunnels)
             {
-                foreach (float off in new[] { -90f, 12f, 60f })
+                // (parkwaytunnel) PSX_LIGHTPOP_TUNNELOFFS: metres from the entry
+                // portal ("-90,12,60" default); an "r" prefix stands that far
+                // from the EXIT portal facing back the other way (r-90 = 90 m
+                // past the exit, looking at it). PSX_LIGHTPOP_VIEWS picks views.
+                foreach (string offRaw in LightPopCheck.Env("PSX_LIGHTPOP_TUNNELOFFS", "-90,12,60").Split(','))
                 {
-                    float m = Mathf.Clamp(span.x + off, 0f, (n - 2) * TrackCatalog.Spacing);
+                    string ot = offRaw.Trim();
+                    bool back = ot.StartsWith("r");
+                    if (back) ot = ot.Substring(1);
+                    if (!float.TryParse(ot, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float off)) continue;
+                    float m = Mathf.Clamp(back ? span.y - off : span.x + off, 0f, (n - 2) * TrackCatalog.Spacing);
                     int i = Mathf.Clamp(Mathf.RoundToInt(m / TrackCatalog.Spacing), 1, n - 2);
                     Vector3 fwd = pts[i + 1] - pts[i - 1]; fwd.y = 0f; fwd.Normalize();
+                    if (back) fwd = -fwd;
                     Vector3 right = Vector3.Cross(Vector3.up, fwd);
                     var pos = pts[i] + right * (def.roadWidth * 0.25f) + Vector3.up * 0.45f;
                     var rot = Quaternion.LookRotation(fwd, Vector3.up);
-                    foreach (var view in new[] { ChaseCamera.View.Chase, ChaseCamera.View.Cockpit })
+                    foreach (var vn in LightPopCheck.Env("PSX_LIGHTPOP_VIEWS", "chase,cockpit").Split(','))
                     {
+                        var view = vn.Trim() == "cockpit" ? ChaseCamera.View.Cockpit : ChaseCamera.View.Chase;
                         ChaseCamera.PreviewView(view);
                         for (int k = 0; k < 40; k++) { car.ResetTo(pos, rot, seated: true); yield return null; }
-                        string seg = "tunnel" + no + "_" + (off < 0f ? "approach" : off < 30f ? "mouth" : "inside") + "_" + view.ToString().ToLowerInvariant();
+                        string seg = "tunnel" + no + "_" + (back ? "r" : "") + offRaw.Trim().TrimStart('r').Replace("-", "m") + "_" + view.ToString().ToLowerInvariant();
                         LightLookShotRunner.Queue(System.IO.Path.Combine(LightPopMeter.OutDir, "shots"), seg); yield return null;
                         LightPopCheck.Line("shot " + seg + " at " + pos.ToString("F0") + "; tunnel lamps " + TunnelLamps.Count + ", field lamps " + StreetLights.FieldLamps + ", registered " + StreetLights.Registered);
                     }
@@ -293,6 +305,20 @@ namespace PSXRacing.EditorTools
             // (lightlook) PSX_LIGHTPOP_TUNNELSHOTS=1: the look shots at each tunnel of the stage
             // (approach, mouth, inside) in both views, the player's car stood there; then done
             if (LightPopCheck.Env("PSX_LIGHTPOP_TUNNELSHOTS", "0") == "1") { yield return TunnelShots(car); yield break; }
+            // (parkwaytunnel) PSX_LIGHTPOP_FROMM: the player's car set down this
+            // far along the race path first (a stage tunnel's approach)
+            float fromM = EnvF("PSX_LIGHTPOP_FROMM", -1f);
+            if (fromM >= 0f && car != null && rm.path != null && rm.path.Count > 4)
+            {
+                int fi = Mathf.Clamp(Mathf.RoundToInt(fromM / rm.path.spacing), 1, rm.path.Count - 2);
+                Vector3 fp = rm.path.GetPoint(fi), ft = rm.path.GetTangent(fi); ft.y = 0f;
+                Vector3 fr = Vector3.Cross(Vector3.up, ft.normalized);
+                var frot = Quaternion.LookRotation(ft.normalized, Vector3.up);
+                for (int k = 0; k < 5; k++) { car.ResetTo(fp + fr * 1.6f + Vector3.up * 0.45f, frot, seated: true); yield return null; }
+                var fai = car.GetComponent<AIDriver>();
+                if (fai != null) fai.ReseedPath();
+                LightPopCheck.Line("set down at " + fromM.ToString("0") + " m");
+            }
             float secs = EnvF("PSX_LIGHTPOP_SECS", 40f);
             int strip = Mathf.RoundToInt(EnvF("PSX_LIGHTPOP_STRIP", 15f));
             string venue = LightPopCheck.Env("PSX_LIGHTPOP_VENUE", "race");

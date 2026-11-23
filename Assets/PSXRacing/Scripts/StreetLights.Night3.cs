@@ -283,7 +283,8 @@ namespace PSXRacing
             if (!LampCones.Enabled) air.x = 0f;
             Shader.SetGlobalVector(Night3Id, new Vector4(Night3 ? 1f : 0f, air.x, Mathf.Max(air.y, 1f), 0f));
             // the lit city's night sky (PSXAtmosphere.cginc): darker toward the zenith, by the night
-            float sky = Night3 && FieldActive ? Mathf.Lerp(1f, N3SkyMul, Mathf.Clamp01(Shader.GetGlobalFloat(NightGlobalId))) : 0f;
+            // (the city only: a stage whose only field lamps are its tunnels' keeps its sky)
+            float sky = Night3 && FieldActive && City.CityWorld.Active != null ? Mathf.Lerp(1f, N3SkyMul, Mathf.Clamp01(Shader.GetGlobalFloat(NightGlobalId))) : 0f;
             Shader.SetGlobalFloat(N3SkyId, sky);
             if (Application.isPlaying && Time.frameCount != n3AirFrame)
             {

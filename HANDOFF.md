@@ -44,6 +44,65 @@ Owner 11-23 after PC59: "I see their triangles of light appear as I drive closer
 - Copy ProjectSettings/GraphicsSettings.asset as usual (no new always-included shader).
 - Player A/B: PSX_NIGHT3=0 (light), PSX_CITY_LAMPS3=0 (placement; makes the bake stale -> live tiles).
 
+# HANDOFF - PARKWAY TUNNEL: the Little Switzerland Tunnel rebuilt to the owner's picture - semicircular arch, coursed-stone portals, lined mouth and rough rock bore, one row of amber wall lamps lit day and night, the name sign (agent "parkwaytunnel", Opus 5.5, 11-23; branch `parkway-tunnel` off c96b5178; NOT pushed, NOT merged)
+
+Owner 11-23 after PC59: "The tunnel lights, shape of the tunnel and texture of blue ridge parkway tunnels (inside or outside) still do not match." (his picture: a Parkway portal in fall rain). One switch: `PSX_TUNNEL2=0` = c96b5178's tunnels (build time for the geometry, runtime for the lamps, the eye cap and the rain box). Default ON.
+
+## Which tunnels
+Only Little Switzerland has one (catalogue `swiss_stage.json` tunnels [3992, 4180]; `brock_stage.json` has `[]`, the other seven stage files no key; PSXLab's Generated folder holds tunnel meshes for LittleSwitzerland only). Both portals; LittleSwitzerlandRev shares the scene.
+
+## What changed
+- `Editor/PSXRacingBuilder.Tunnel2.cs` (new): BuildTunnel2Parts, called from BuildOneTunnel (Stage.cs) when PSX_TUNNEL2 is on; the tube's wall solids (WallTunnel) are c96b5178's, untouched.
+  - Bore: semicircle of radius = the tube half-width (3.2 + 1.1 = 4.3 m), springing 1.6 m: crown 5.9 m (19.4 ft) over the centre, 4.5 m (14.7 ft) over the tarmac edge. Concrete footing 0.9 m the whole length; first/last 14 m cast concrete in 1.2 m boards (ConcreteBare.png); the middle blasted rock (the cut's photoscanned rock, PSX_ROCKFACE, pushed OUT 0.14-0.40 m by a world noise, never inside the wall solid). Vertex colour = the ambient's share (PSX/Lit _HouseTint): 1 at a portal to 0.10 by 26 m in.
+  - Portals: 1108 stones as geometry - 25 radiating voussoirs (keystone proud), the ring carried down the jambs in courses, coursed blocks of 5 heights and 0.45-1.25 m lengths, closers following the ring, 22 mm recessed dark joints (a mortar plane), per-stone tint, moss on top bevels and the coping, a level projecting coping, wing walls in three steps that die into the cut slope. Colliders: headwall boxes as tall as the wall ("WallPortal", 4 per tube, the self-test's count), wing boxes 1.2 m ("WallPortalWing").
+  - The hill: the 36 x 16 m rock block is gone. "TunnelCover": ground material, rises from the coping / wing tops / the cut slope at 1:0.9 into the real hill (raycast to the ground mesh where it exists, the DEM in the lattice hole), at least 1.2 m over the crown; aprons in front of each mouth fill the dropped lattice quads beside the road (0.4 m under the ground).
+  - Lamps: 21 fixtures (dark housing, emissive amber lens) on the LEFT wall of the forward bore at 2.7 m, every 9 m; `Scripts/TunnelLampRow.cs` (new) carries their heads into the scene.
+  - Sign: brown 1.5 x 1.2 m panel, white serif "Little Switzerland Tunnel" (Art/Tunnel/tunnel_sign_littleswitzerland.png, made here with the OFL KaTeX Main Bold face; nothing from his picture), on a 0.1 m timber post 6 m before each mouth, near edge 1.8 m past the tarmac; post solid.
+- `Scripts/TunnelLamps.cs`: PSX_TUNNEL2 = the wall row from TunnelLampRow, lit at EVERY hour (NightGlow.allDay), sodium, pool 8.5 m, gain 1.1; halos small (gain 0.15). The light-look round's two ceiling rows remain behind PSX_TUNNEL2=0 + PSX_LIGHT_LOOK_TUNNELS=1.
+- `Scripts/StreetLights.cs`: Entry.allDay + SetAllDay (a street-kind lamp outside the hour's switch; slot table only). `StreetLights.Cones.cs`: allDay lamps make no cone and no NightDark sum. `NightGlow.cs`: allDay (halos on by day), poolRadius.
+- `Shaders/PSXLamps.cginc` (shared): a lamp past its pool radius (dry) or its glint reach (wet) is skipped per pixel - the same picture (att and reach are exactly 0 there), less work for every lamp everywhere.
+- `Scripts/ExposureAdapt.cs`: in a stage bore (venue table) the eye opens to x1.6 at most (was up to x2.4, and x10 on an overcast hour's fill): a dark bore punctuated by lamps, less bloom at the exit.
+- `Scripts/WeatherShelter.cs`: the bore's no-rain box 6.0 m tall (the new crown).
+- Tools: `Editor/LightPopCheck.cs` PSX_LIGHTPOP_HOUR, PSX_LIGHTPOP_TUNNELOFFS ("r" = from the exit facing back), PSX_LIGHTPOP_VIEWS, PSX_LIGHTPOP_FROMM (race metered from a set metre).
+
+## Proof (PSXRec = ANDROID target: smaller / compressed textures, no forest drawn there; the coordinator re-shoots in the PC sandbox)
+- Sheet: `scratchpad\parkwaytunnel\tunnel_sheet.png` - his picture | PC59 | c96b5178 | this round: approach 30 m, portal 12 m, 8 m and 60 m inside by noon, night, rain, toward the exit, the exit portal, cockpit noon/night/rain. Before cells from fresh scenes built with PSX_TUNNEL2=0, after with ON, separate processes. Critical side-by-side first: `sidebyside_today.jpg` + `differences_today.txt`.
+- Self-test (StageLab on LittleSwitzerland, roadside / obstacle / terrain / lane / plants): identical to c96b5178's - the one standing FAIL (road -28 m at wp 1021 StandIn, a far-horizon stand-in) is in both; "every tunnel mouth is solid" ok (4 boxes); ghost barriers 9 = 9; plants through solids 0.
+- Race (RacePlayCheck, whole field of 4, hidden, 2x, 300 s): forward and reverse, ON vs OFF. Forward: 1 retirement in both (Supra into a WallColl at wp 365-366, 2.5 km before the tunnel). Reverse: 2 in both (Charger into trunks at rev wp 1685, Skyline after rival contact). No hit, stop, hop or rollover in the tunnel (fwd wp 998-1045) either way; every finisher drove through it.
+- Pops (light-pop meter, LightPopCheck race mode, the AI driving from 3800 m through the bore, 30 s chase + 30 s cockpit, hidden): ON night 0 / 0; OFF night 0 / 0; ON noon (wall lamps lit by day) chase 9 = all 'car lenses' (the rivals' brake lamps switching ahead; no lamp, halo, pool or cone class), cockpit 0. No noon OFF run to compare the lens count.
+
+## Cost (EDITOR perf tour, in-process A/B, PSXRec, 3832x2054 offscreen, noon, chase, 10 reps; the owner's game was running: noise sd 1-8 ms)
+| place | variant | d frame | d gpu wait | tris | set-pass |
+|---|---|---|---|---|---|
+| portal (30 m out) | whole tunnel off (go:Tunnels) | -0.37 (sd 0.97) | +0.06 (0.56) | 1.31>1.20 M (0.11 M) | 645>605 (40, incl. shadow / depth) |
+| portal | wall lamps off, BEFORE the per-pixel skip | -1.66 (1.01) | -2.38 (0.87) | - | - |
+| portal | wall lamps off, final | -0.82 (4.19) | +0.14 (2.53) | - | - |
+| inside (60 m) | wall lamps off, with lamp cones (v1) | -6.07 (1.36) | -6.99 (0.86) | - | - |
+| inside | wall lamps off, no cones, before the skip | -3.65 (2.60) | -2.76 (1.81) | - | - |
+| inside | wall lamps off, final | +1.35 (8.94) | +1.08 (8.30) | - | - |
+| null A/A | LightLook.On=1 | -2.70..+0.73 | -1.11..+0.18 | - | - |
+c96b5178 old tunnel at the portal: go:Tunnels -1.02 (3.01) frame, 12 set-pass, 0.02 M tris. The final lamp cost is inside the noise of this machine today: the +0.2 ms target is NOT shown; the PC build must re-measure it (inside at 4060 m and at the portal at 3962 m: pv lamps_off=go:TunnelWallLamps, tun_off=go:Tunnels).
+
+## What the next PC build must run
+1. Code: Scripts, Editor, Shaders (PSXLamps.cginc changed) and the new asset Assets/PSXRacing/Art/Tunnel/ (png + metas, Tunnel.meta); new scripts' metas committed (TunnelLampRow.cs.meta, PSXRacingBuilder.Tunnel2.cs.meta).
+2. Rebuild the LittleSwitzerland stage scene with PSX_PC_CONTENT=1 (the PC scene pass, or StageLab with PSX_LAB_IDS=LittleSwitzerland). LittleSwitzerlandRev shares it. No other scene has a tunnel; no city re-bake.
+3. Defaults ON; PSX_TUNNEL2=0 at build = c96b5178's tube, portals and rock block; at runtime = the light-look's ceiling rows (if PSX_LIGHT_LOOK_TUNNELS=1), the eye's old ceiling and the old rain box.
+
+## Not done / not verified
+- Not seen on the PC picture (PSXRec is Android: no forest, smaller textures): leaves on the portal top and verges are the fall round's / the forest's, not drawn here.
+- Watched drive not run (the owner's game was running all session). Rain stopping inside: the bore's existing shelter box raised to the crown; not checked by sound.
+- The tool's car drop at 3890-3950 m (and once at 30 m) throws the car into the air in BOTH builds (a pre-existing set-down problem of the shot tool there); the AI field drives the stretch normally.
+- ExposureAdapt still reads the tunnel table in path metres on the reverse twin (known since the intro round): the x1.6 cap in reverse applies at the wrong stretch.
+
+## What still differs from his picture
+- Lights: the row, the amber heads, the warm wash and the wet streaks are there by day and night, but each head reads as a small box with a soft halo rather than his crisp bright points, the washes are softer and shorter, and the far portal glows less than his.
+- Shape: the semicircular arch, voussoir ring, jambs, level coping and stepped wings match; the headwall is wider and lower in proportion than his, the voussoirs are more regular, and the wings die into a bare earth cut (no rock outcrops beside the mouth).
+- Texture inside: smooth grey lining then blasted rock; his lining is lighter and carries a visible lamp wash, ours is darker and plainer; the rock section (his 11-02 drive) is right in kind but its grain is the cut's photoscan, a little streaky in the crown.
+- Texture outside: grey coursed stone with dark joints and moss tints, but the blocks are more uniform in size and colour than his rough-cut mix, the moss and damp staining are faint, and the hill above is earth (here, with no forest drawn) where his has shrubs and leaves right over the coping.
+
+## What the owner will notice
+The Little Switzerland Tunnel now looks like a Parkway tunnel: a tall round stone arch in a grey stone wall with the hill over it and a brown name sign, a lined mouth, rough rock inside, and one row of amber lamps along the left wall, lit day and night, reflected on a wet road.
+
 # HANDOFF - LIGHTLOOK: lamps as points to the vanishing point, the road lit past 200 m, steady far car lamps, sodium tunnel lamps, no new pops (agent "lightlook", Opus 5.5, 11-23; branch `light-look` off 992312c8; NOT pushed, NOT merged)
 
 Owner 11-22 (two clips of another game, reference only): "These videos are also decent references for how street lights can be handled at speed." The pop round removed the switching; this round is the LOOK, plus that round's leftovers. One switch: `PSX_LIGHT_LOOK=0` = 992312c8's lights. Sub-switches `PSX_LIGHT_LOOK_<NAME>=0`: POINTS, FARPOOLS, CARPOINTS, TUNNELS, BEAMS, FIELDBLEND; and `PSX_RAIN2_LAMPGLOW=0`. All default ON.

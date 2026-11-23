@@ -43,7 +43,8 @@ namespace PSXRacing
             {
                 airBuildCursor = (airBuildCursor + 1) % all.Count;
                 var g = all[airBuildCursor];
-                if (g == null || g.coneAirGo != null || g.heads.Count == 0) continue;
+                // (a tunnel's all-day wall lamps burn under a roof: no weather in the air there)
+                if (g == null || g.coneAirGo != null || g.heads.Count == 0 || g.allDay) continue;
                 g.BuildConesAir();
                 built++;
             }

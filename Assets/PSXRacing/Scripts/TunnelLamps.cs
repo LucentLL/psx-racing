@@ -50,6 +50,15 @@ namespace PSXRacing
             madeScene = scene;
             Count = 0;
             StreetLights.FieldHueOverride = null;
+            // (parkwaytunnel) THE WALL LAMPS: the builder's row (TunnelLampRow),
+            // lit day and night. PSX_TUNNEL2=0 (or a scene built before it):
+            // the light-look round's two ceiling rows below, night only.
+            // (coordinator, 2026-11-23) The real Parkway bores are UNLIT, and the owner asked for the real
+            // tunnel ("are you not able to reference road images of Blue Ridge Tunnels?"); his stylised
+            // picture has the lamp row. Until he chooses: unlit by default, the fixtures hidden;
+            // PSX_TUNNEL_LAMPS=1 lights the row.
+            if (Tunnel2 && !WallLampsOn) { if (HideWallFixtures(scene)) return; }
+            else if (Tunnel2 && MakeWallLamps(scene)) return;
             if (!(LightLook.On && LightLook.Tunnels)) return;
             var def = RaceHUD.VenueDef();
             if (def == null || !def.stage || def.tunnels == null || def.tunnels.Length == 0) return;
@@ -87,6 +96,57 @@ namespace PSXRacing
             StreetLights.FieldHueOverride = Sodium;
             glow.Init(heads);
             Count = heads.Count;
+        }
+
+        /// <summary>(parkwaytunnel) PSX_TUNNEL2=0: the tunnels of c96b5178.</summary>
+        public static bool Tunnel2 => System.Environment.GetEnvironmentVariable("PSX_TUNNEL2") != "0";
+        /// <summary>A wall lamp's light: a 70 W low-pressure-era sodium bulkhead
+        /// 2.7 m up the wall, its pool <see cref="WallPoolM"/> across - a lit
+        /// patch of wall and road round each head and dark between them.</summary>
+        public const float WallPoolM = 8.5f, WallGain = 1.1f, WallHaloGain = 0.15f;
+        /// <summary>Wall lamps made in this scene (tests, the shots' log).</summary>
+        public static int WallCount { get; private set; }
+
+        /// <summary>PSX_TUNNEL_LAMPS=1: the wall lamp row lit (default OFF: the real tunnel is unlit).</summary>
+        public static bool WallLampsOn => System.Environment.GetEnvironmentVariable("PSX_TUNNEL_LAMPS") == "1";
+
+        /// <summary>Unlit tunnel: the builder's lamp fixtures are not drawn. True when the scene has a
+        /// wall row (a Tunnel2 scene), so the old ceiling rows are not made either.</summary>
+        static bool HideWallFixtures(UnityEngine.SceneManagement.Scene scene)
+        {
+            WallCount = 0;
+            bool any = false;
+            foreach (var r in Object.FindObjectsByType<TunnelLampRow>(FindObjectsInactive.Exclude))
+                if (r != null && r.gameObject.scene == scene) any = true;
+            if (!any) return false;
+            foreach (var mr in Object.FindObjectsByType<MeshRenderer>(FindObjectsInactive.Exclude))
+                if (mr != null && mr.gameObject.scene == scene && mr.name.StartsWith("TunnelLamp")) mr.enabled = false;
+            return true;
+        }
+
+        static bool MakeWallLamps(UnityEngine.SceneManagement.Scene scene)
+        {
+            WallCount = 0;
+            var rows = Object.FindObjectsByType<TunnelLampRow>(FindObjectsInactive.Exclude);
+            var heads = new List<Vector3>();
+            foreach (var r in rows)
+                if (r != null && r.gameObject.scene == scene && r.heads != null) heads.AddRange(r.heads);
+            if (heads.Count == 0) return false;
+            var go = new GameObject("TunnelWallLamps");
+            go.AddComponent<TunnelLamps>();
+            var glow = go.AddComponent<NightGlow>();
+            glow.lampColour = Sodium;
+            glow.poolGain = WallGain / StreetLights.StreetIntensity;
+            glow.poolRadius = WallPoolM;
+            glow.allDay = true;
+            var gains = new List<float>(heads.Count);
+            for (int i = 0; i < heads.Count; i++) gains.Add(WallHaloGain);
+            // (halo size and brightness follow the per-head gain; the pool's
+            // strength is poolGain x StreetIntensity x gain, so undo it there)
+            glow.poolGain /= WallHaloGain;
+            glow.Init(heads, gains);
+            WallCount = Count = heads.Count;
+            return true;
         }
     }
 }

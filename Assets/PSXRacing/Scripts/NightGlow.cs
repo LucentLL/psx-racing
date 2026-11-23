@@ -251,15 +251,22 @@ namespace PSXRacing
         /// <see cref="poolGain"/> (the halos keep their full brightness).</summary>
         [System.NonSerialized] public Color? lampColour;
         [System.NonSerialized] public float poolGain = 1f;
+        /// <summary>(parkwaytunnel) lit at every hour, not on the hour's switch:
+        /// the halos stay on and the lamps take the table by day too (the
+        /// tunnels' wall lamps, TunnelLamps). <see cref="poolRadius"/>: each
+        /// lamp's pool radius in metres (0 = the street lamp's).</summary>
+        [System.NonSerialized] public bool allDay;
+        [System.NonSerialized] public float poolRadius;
 
         void Register()
         {
             StreetLights.RemoveAll(this);
             for (int i = 0; i < heads.Count && i < lampHeads; i++)
             {
-                int h = StreetLights.Add(this, heads[i], StreetLights.StreetRadius, lampColour ?? (Merc(i) ? StreetLights.MercuryLamp : StreetLights.Bulb),
+                int h = StreetLights.Add(this, heads[i], poolRadius > 0f ? poolRadius : StreetLights.StreetRadius, lampColour ?? (Merc(i) ? StreetLights.MercuryLamp : StreetLights.Bulb),
                                          StreetLights.StreetIntensity * (i < gains.Count ? gains[i] : 1f) * poolGain, StreetLights.Kind.Street);
                 if (cityField) StreetLights.MarkField(h, true, Merc(i));
+                if (allDay) StreetLights.SetAllDay(h, true);
             }
         }
 
@@ -299,7 +306,7 @@ namespace PSXRacing
             mr.receiveShadows = false;
             mr.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
             mr.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
-            mr.enabled = on;
+            mr.enabled = on || allDay;
             if (Application.isPlaying && explicitHeads) BirthIfSeen(mr);
             if (!Application.isPlaying)
             {
@@ -530,7 +537,7 @@ namespace PSXRacing
         void Apply()
         {
             if (glows == null) return;
-            foreach (var r in glows) if (r != null) r.enabled = on;
+            foreach (var r in glows) if (r != null) r.enabled = on || allDay;
         }
     }
 }
