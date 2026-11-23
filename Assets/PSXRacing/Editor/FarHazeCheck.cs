@@ -360,8 +360,8 @@ namespace PSXRacing.EditorTools
         static float Lum(Color32 c) => 0.2126f * Lin(c.r) + 0.7152f * Lin(c.g) + 0.0722f * Lin(c.b);
         static bool IsSky(Color32 c) => c.g > c.r + 100 && c.g > c.b + 100;
         static bool IsFar(Color32 c) => c.r > c.g + 70 && c.b > c.g + 70;
-        /// <summary>At least about 60% of the pixel is the (magenta) haze.</summary>
-        static bool IsFogged(Color32 c) => c.r > c.g + 150 && c.b > c.g + 150;
+        /// <summary>How magenta a pixel is (the fog-share frame).</summary>
+        static float Mag(Color32 c) => (c.r + c.b) * 0.5f - c.g;
 
         /// <summary>Column by column, top down (texture rows run bottom up).</summary>
         internal static void Measure(Color32[] px, Color32[] sky, Color32[] far, Color32[] fogged, int w, int h,
@@ -371,6 +371,17 @@ namespace PSXRacing.EditorTools
             int bins = (w + Bin - 1) / Bin;
             var bs = new double[bins]; var bl = new double[bins]; var bn = new int[bins];
             double ts = 0, tl = 0; cols = 0;
+            // THE FOG'S SHARE, graded: the frame's own fully fogged magenta (its 98th
+            // percentile) is 100%; a judged pixel carries at least 60% of it
+            float fogCut = 0f;
+            if (fogged != null)
+            {
+                var m = new List<float>(fogged.Length / 4);
+                for (int i = 0; i < fogged.Length; i += 4) if (!IsSky(sky[i])) m.Add(Mag(fogged[i]));
+                m.Sort();
+                float full = m.Count > 0 ? m[(int)(m.Count * 0.98f)] : 0f;
+                fogCut = full < 60f ? float.MaxValue : 0.6f * full;
+            }
             for (int x = 0; x < w; x++)
             {
                 int run = 0, yS = -1;
@@ -387,7 +398,7 @@ namespace PSXRacing.EditorTools
                 {
                     int rl = yS + Gap + k, rs = yS - Gap - 1 - k;
                     int il = (h - 1 - rl) * w + x, isk = (h - 1 - rs) * w + x;
-                    if (IsSky(sky[il]) || !IsFar(far[il]) || !IsSky(sky[isk]) || (fogged != null && !IsFogged(fogged[il]))) ok = false;
+                    if (IsSky(sky[il]) || !IsFar(far[il]) || !IsSky(sky[isk]) || (fogged != null && Mag(fogged[il]) < fogCut)) ok = false;
                     l += Lum(px[il]); s += Lum(px[isk]);
                 }
                 if (!ok) continue;
