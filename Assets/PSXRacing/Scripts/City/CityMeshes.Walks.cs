@@ -716,7 +716,8 @@ namespace PSXRacing.City
                         int node = k == 0 ? e.a : e.b;
                         if (!WalkEndKeeps(map, trims, e, node, side, pw)) continue;
                     }
-                    float w = WalkClear(map, trims, pw, outw, ed.y + CurbH, Cs3WalkW(map, e));   // (curbs 3) a roll curb alone is CurbOnlyW
+                    float w = WalkClear(map, trims, pw, outw, ed.y + CurbH, Cs4WalkWAt(map, e, S.s));   // (curbs 3) a roll curb alone is CurbOnlyW
+                    if (WalkClearOn && Curbs3On && w > 0f && CityHouses.BoundTo(map)) w = Mathf.Min(w, CityHouses.ClearOut(pw, outw, w, 0.3f));   // (hoods 2) no walk through a building
                     if (w < Cs3WalkMin(map, e) || WalkOnPavement(map, trims, pw, outw, w, ed.y, e.index)) continue;
                     arr[k] = w;
                 }
@@ -835,7 +836,7 @@ namespace PSXRacing.City
         static bool WalkEndKeeps(CityMap map, Trims trims, CityMap.Edge e, int node, int side, Vector2 edgePt)
         {
             var arms = map.nodeEdges[node];
-            if (arms.Count < 2) return false;
+            if (arms.Count < 2) return Cs4BulbCurbAt(map, trims, e, node);   // (hoods 2) a bulb's rim carries the street's curb on round it
             if (!trims.patch[node])
             {
                 // a plain continuation (or a through road past a clipped
@@ -954,8 +955,14 @@ namespace PSXRacing.City
                     return 0;
                 }
             }
-            cw.w0 = WalkClear(map, trims, p0, cw.n0, k0.pos.y + CurbH, Cs3WalkW(map, map.edges[k0.edge]));
-            cw.w1 = WalkClear(map, trims, p1, cw.n1, k1.pos.y + CurbH, Cs3WalkW(map, map.edges[k1.edge]));
+            cw.w0 = WalkClear(map, trims, p0, cw.n0, k0.pos.y + CurbH, Cs4CornerW(map, map.edges[k0.edge]));
+            cw.w1 = WalkClear(map, trims, p1, cw.n1, k1.pos.y + CurbH, Cs4CornerW(map, map.edges[k1.edge]));
+            if (WalkClearOn && Curbs3On && CityHouses.BoundTo(map))
+            {
+                // (hoods 2) as the arms' own end sections: no walk through a building
+                cw.w0 = Mathf.Min(cw.w0, CityHouses.ClearOut(p0, cw.n0, cw.w0, 0.3f));
+                cw.w1 = Mathf.Min(cw.w1, CityHouses.ClearOut(p1, cw.n1, cw.w1, 0.3f));
+            }
             noneWhyNow = 3;
             if (cw.w0 < Cs3WalkMin(map, map.edges[k0.edge]) || cw.w1 < Cs3WalkMin(map, map.edges[k1.edge])) return 0;
             noneWhyNow = 1;
@@ -1231,7 +1238,9 @@ namespace PSXRacing.City
                 var ou = Vector2.Lerp(outA, outB, tc).normalized;
                 var ep = Vector3.LerpUnclamped(eA, eB, t);
                 float ax = ep.x + o.x + ou.x * w * 0.5f, az = ep.z + o.z + ou.y * w * 0.5f;
-                return ApronAt(map, ax, az) || (CurbOpeningAt != null && CurbOpeningAt(map, ax, az));
+                if (ApronAt(map, ax, az) || (CurbOpeningAt != null && CurbOpeningAt(map, ax, az))) return true;
+                // (hoods 2) a short driveway (a town house at the pavement's edge) does not reach the walk's middle: read it behind the curb too
+                return WalkClearOn && Curbs3On && DriveApronAt(ep.x + o.x + ou.x * 0.35f, ep.z + o.z + ou.y * 0.35f);
             }
             // wingCutU: the apron's intervals along the span [u0, u1], their
             // ends found to 6 cm (both spans either side of a joint find the
@@ -1258,7 +1267,7 @@ namespace PSXRacing.City
             bool any = false;
             for (int j = 0; j <= steps; j++)
             {
-                float t = (float)j / steps, u = t * len, d = float.MaxValue, dA = float.MaxValue;
+                float t = (float)j / steps, u = t * len, d = float.MaxValue, dA = float.MaxValue, dR = float.MaxValue;
                 for (int q = 0; q + 1 < wingCutU.Count; q += 2)
                 {
                     float u0 = wingCutU[q], u1 = wingCutU[q + 1];
@@ -1267,8 +1276,13 @@ namespace PSXRacing.City
                     if (cs3NoCutNow) dA = Mathf.Min(dA, dd); else d = Mathf.Min(d, dd);
                 }
                 // a walk's ramp end (its width to 0, at a junction mouth) eases in the same way
-                foreach (float ru in wingRampU) d = Mathf.Min(d, Mathf.Abs(ru - u));
-                float c = d == float.MaxValue ? 1f : Mathf.Lerp(CurbCutShare, 1f, LineModel.Smooth(d / CurbCutWingM));
+                foreach (float ru in wingRampU) dR = Mathf.Min(dR, Mathf.Abs(ru - u));
+                // (hoods 2) a strip street's cut comes up over the drop curb's 3 ft transition: its walk stays level across
+                // the cut (Cs4LayStrip), so no wheel riding the walk meets a dip; a walk from the curb keeps the 5 m wing
+                float taper = cs4StripNow > 0f ? Cs4CutTaperM : CurbCutWingM;
+                float c = d == float.MaxValue ? 1f : Mathf.Lerp(CurbCutShare, 1f, LineModel.Smooth(d / taper));
+                if (cs4StripNow > 0f && c < 0.999f) c = LotEntCurbShare(map, Vector3.Lerp(eA, eB, t) + o, c);   // (lots, second pass) the curb's relief at a lot's throat
+                if (dR != float.MaxValue) c = Mathf.Min(c, Mathf.Lerp(CurbCutShare, 1f, LineModel.Smooth(dR / CurbCutWingM)));
                 // a ramp end's zero width keeps the full share (it is collapsed onto the foot)
                 if (Mathf.Lerp(wA, wB, t) <= 0f) c = 1f;
                 float ak = dA == float.MaxValue ? 1f : LineModel.Smooth(dA / Cs3ApronEaseM);
@@ -1542,6 +1556,8 @@ namespace PSXRacing.City
             verge.backing = true;
             walkBackEdge = e.index;
             cs3NoCutNow = Cs3NoCut(map, e);
+            cs4StripNow = StripOf(map, e);              // (hoods 2) the planting strip of this street's section (0: the walk from the curb)
+            cs4Valley = ValleyOn && CurbOnly(map, e);   // (hoods 2) a roll-curb street is the valley gutter
             // CURB CUTS: where the walk crosses a lot entrance's apron or a
             // driveway's (ApronAt), its curb drops to a lip, so a car turns
             // in over 2 cm, not 15; read every metre, eased over one
@@ -1579,6 +1595,7 @@ namespace PSXRacing.City
             if (!anyCut) { cutT.Clear(); cutC.Clear(); cutA.Clear(); cutT.Add(0f); cutC.Add(1f); cutA.Add(1f); cutT.Add(1f); cutC.Add(1f); cutA.Add(1f); }
             // (inlet 2, 11-15) a rolled street's curb rises to a vertical face at each inlet: the breaks its transition needs
             if (Curbs2On && Inlet2On) Cs3SplitSpan(map, trims, tm, e, side, sA, sB);
+            Cs4SplitSpan(map, e, sA, sB);   // (hoods 2) where the corner's paved landing ends and the planting strip begins
             Cs3AuditDrives(map, e, side, o, eA, eB, outA, sA, sB, wA, wB);   // (tools) the driveway mouths this span crosses
             for (int j = 1; j < cutT.Count; j++)
             {
@@ -1593,19 +1610,33 @@ namespace PSXRacing.City
                 // (inlet 2) the inlet share at either end: the roll eased to the pan and vertical curb (CityMeshes.Curbs3)
                 float k0 = 0f, k1 = 0f;
                 if (Curbs2On && Inlet2On && cs3Plan.Count > 0 && w0 > 0f && w1 > 0f) { k0 = Cs3K(side, Mathf.Lerp(sA, sB, t0)); k1 = Cs3K(side, Mathf.Lerp(sA, sB, t1)); }
-                Vector3 backA, backB;
-                if (k0 > 0f || k1 > 0f)
+                Vector3 backA = default, backB = default;
+                if (k0 > 0f || k1 > 0f || cs4Valley)
                 {
                     Cs3Profile(pA, oA, w0, walkProfA, out var qa, cutC[j - 1], rl0, k0);
                     Cs3Profile(pB, oB, w1, walkProfB, out var qb, cutC[j], rl1, k1);
                     Cs3LayPiece(WalkBucket, pA, oA, qa, walkProfA, pB, oB, qb, walkProfB, rl0, rl1, Mathf.Lerp(sA, sB, t0) / WalkTexM, Mathf.Lerp(sA, sB, t1) / WalkTexM);
                     backA = walkProfA[3] + Vector3.up * RoadsideRules.EdgeDropM; backB = walkProfB[3] + Vector3.up * RoadsideRules.EdgeDropM;
                 }
+                else if (cs4StripNow > 0f && rl0 <= 0f && rl1 <= 0f &&
+                         Cs4LayStrip(tm, pA, oA, w0, cutC[j - 1], pB, oB, w1, cutC[j],
+                                     Cs4NearJunction(map, e, Mathf.Lerp(sA, sB, 0.5f * (t0 + t1))),
+                                     Mathf.Lerp(sA, sB, t0) / WalkTexM, Mathf.Lerp(sA, sB, t1) / WalkTexM, out backA, out backB))
+                {
+                    // (hoods 2) laid: the standard section - curb, planting strip, walk (CityMeshes.Curbs4)
+                }
                 else
                 {
                     WalkProfile(pA, oA, w0, walkProfA, cutC[j - 1], rl0);
                     WalkProfile(pB, oB, w1, walkProfB, cutC[j], rl1);
                     cs2FaceR = Mathf.Max(rl0, rl1);
+                    // (hoods 2) a driveway's or lot's apron is its own plain concrete panel, not the walk's jointed slab
+                    if (StripOn && Curbs3On && rl0 <= 0f && rl1 <= 0f && w0 > 0f && w1 > 0f && cutC[j - 1] <= CurbCutShare + 0.02f && cutC[j] <= CurbCutShare + 0.02f)
+                    {
+                        Cs4LayApron(tm, walkProfA, walkProfB);
+                        Cs2RenderFace(walkProfA, walkProfB, Mathf.Lerp(sA, sB, t0) / WalkTexM, Mathf.Lerp(sA, sB, t1) / WalkTexM);
+                    }
+                    else
                     LayWalk(WalkBucket, walkProfA, walkProfB, w0, w1, Mathf.Lerp(sA, sB, t0) / WalkTexM, Mathf.Lerp(sA, sB, t1) / WalkTexM);
                     backA = WalkBack(pA, oA, w0, cutC[j - 1], rl0); backB = WalkBack(pB, oB, w1, cutC[j], rl1);
                 }
@@ -1616,7 +1647,8 @@ namespace PSXRacing.City
                     // (Uptown inside the loop: granite curb straight off the asphalt, no concrete pan - S Tryon at road level)
                     // (and not in the last metres before a junction, where the arm's drawn edge runs on
                     //  past the corner's curb return into the mouth: Lexington Ave's crosswalk)
-                    if (!(StreetDressOn && Cs2GraniteDress(StreetDressOf(map, e))) && Cs2PanClearOfJunction(map, e, Mathf.Lerp(sA, sB, t0)) && Cs2PanClearOfJunction(map, e, Mathf.Lerp(sA, sB, t1)))
+                    // (hoods 2) nor on an old city house street: the asphalt runs to the curb there (Cs4NoPan)
+                    if (!Cs4NoPan(map, e) && !(StreetDressOn && Cs2GraniteDress(StreetDressOf(map, e))) && Cs2PanClearOfJunction(map, e, Mathf.Lerp(sA, sB, t0)) && Cs2PanClearOfJunction(map, e, Mathf.Lerp(sA, sB, t1)))
                         Cs2Gutter(i, pA, pB, oA, oB, Mathf.Lerp(sA, sB, t0) / 8f, Mathf.Lerp(sA, sB, t1) / 8f, rl0, rl1);
                     float lm = Vector2.Distance(new Vector2(pA.x, pA.z), new Vector2(pB.x, pB.z));
                     if (rl0 + rl1 > 1f && k0 + k1 <= 1f) Curbs2Stats.rolledM += lm; else Curbs2Stats.verticalM += lm;
@@ -1633,6 +1665,7 @@ namespace PSXRacing.City
             if (wA <= 0f || wB <= 0f) WalkStats.ramps++;
             // (street dress) the street trees' grates on this span, and the trees for CityTrees
             if (StreetDressOn && !anyCut) DressSpan(map, trims, tm, e, side, eA, eB, outA, outB, sA, sB, wA, wB);
+            cs4Valley = false; cs4StripNow = 0f;
             return true;
         }
 
@@ -1659,12 +1692,15 @@ namespace PSXRacing.City
             if (groundLog != null) groundTag = $"corner walk kind {kind} node {ring[cw.g0].node} e{ring[cw.g0].edge}-e{ring[cw.g1].edge}";
             // (curbs2) the corner's class: rolled only where every walk street at its node is
             float cr = Curbs2On && RolledNode(map, ring[cw.g0].node) ? 1f : 0f;
+            cs4CornerNoPan = Cs4NoPan(map, map.edges[ring[cw.g0].edge]) && Cs4NoPan(map, map.edges[ring[cw.g1].edge]);   // (hoods 2) two old house streets: no pan round their corner
             // (a profile keeps its nose within 0.8 of its width, so the corner's curb ring is that much wider)
             float noseW = Curbs2On ? Mathf.Lerp(CurbChamferOn ? CNoseOut : VNoseOut, RNoseOut, cr) / 0.8f + 0.01f : CurbNoseOut + 0.01f;
             cs2FaceR = cr;
             if (kind == 2)
             {
                 float u = 0f;
+                // (hoods 2) two roll-curb streets: the valley gutter round the return
+                bool valleyCorner = ValleyOn && Curbs3On && cr > 0.5f && CurbOnly(map, map.edges[ring[cw.g0].edge]) && CurbOnly(map, map.edges[ring[cw.g1].edge]);
                 for (int j = cw.g0; j != cw.g1; j = (j + 1) % nR)
                 {
                     int jn = (j + 1) % nR;
@@ -1672,6 +1708,18 @@ namespace PSXRacing.City
                     var oa = GroupOut(ring, cw, j); var ob = GroupOut(ring, cw, jn);
                     float wa = GroupW(ring, cw, j), wb = GroupW(ring, cw, jn);
                     float len = Vector2.Distance(new Vector2(a.x, a.z), new Vector2(b.x, b.z));
+                    if (valleyCorner)
+                    {
+                        cs4Valley = true;
+                        Cs3Profile(a, oa, wa, walkProfA, out var qa, 1f, cr, 0f);
+                        Cs3Profile(b, ob, wb, walkProfB, out var qb, 1f, cr, 0f);
+                        Cs3LayPiece(bk, a, oa, qa, walkProfA, b, ob, qb, walkProfB, cr, cr, u / WalkTexM, (u + len) / WalkTexM);
+                        cs4Valley = false;
+                        Vector3 vbA = walkProfA[3] + Vector3.up * RoadsideRules.EdgeDropM, vbB = walkProfB[3] + Vector3.up * RoadsideRules.EdgeDropM;
+                        EmitStrip(map, trims, tm, vbA, vbB, oa, ob, verge);
+                        u += len;
+                        continue;
+                    }
                     WalkProfile(a, oa, wa, walkProfA, 1f, cr);
                     WalkProfile(b, ob, wb, walkProfB, 1f, cr);
                     LayWalk(bk, walkProfA, walkProfB, wa, wb, u / WalkTexM, (u + len) / WalkTexM);
@@ -1888,7 +1936,7 @@ namespace PSXRacing.City
             foreach (int packed in frontSegs)
             {
                 var e = map.edges[packed >> 12];
-                if (!WalkEdge(map, e) || Cs3Residential(map, e)) continue;   // (curbs 3) a house street's frontage is lawn
+                if (!WalkEdge(map, e) || Cs3Residential(map, e) || StripOf(map, e) > 0f) continue;   // (curbs 3) a house street's frontage is lawn; (hoods 2) a strip street's too
                 int seg = packed & 0xFFF;
                 if (seg + 1 >= e.pts.Length) continue;
                 Vector2 a = e.pts[seg], b = e.pts[seg + 1], ab = b - a;

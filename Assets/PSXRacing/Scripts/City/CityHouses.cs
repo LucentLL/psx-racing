@@ -157,6 +157,23 @@ namespace PSXRacing.City
         /// <summary>(curbs 3) Bound to this map with its generated buildings?</summary>
         public static bool BoundTo(CityMap map) => mapB == map && bldB != null;
 
+        static readonly List<House> clearNear = new List<House>(32);
+        /// <summary>(hoods 2) How far out of plan point p along outw the ground is clear of every building's box
+        /// (pad metres off it), up to want: a walk is laid no wider. Of the bound world; want while none is bound.</summary>
+        public static float ClearOut(Vector2 p, Vector2 outw, float want, float pad)
+        {
+            if (mapB == null || want <= 0f) return want;
+            var q = p + outw * want;
+            CollectBox(Vector2.Min(p, q) - Vector2.one * (pad + 0.5f), Vector2.Max(p, q) + Vector2.one * (pad + 0.5f), clearNear);
+            if (clearNear.Count == 0) return want;
+            for (float d = 0.3f; d <= want + 1e-3f; d += 0.3f)
+            {
+                var sp = p + outw * d;
+                foreach (var h in clearNear) if (BoxDist(h, sp) < pad) return Mathf.Max(0f, d - 0.3f);
+            }
+            return want;
+        }
+
         /// <summary>(curbs 3) A generated building (CityBuildings: the frontage rows) within
         /// <paramref name="r"/> m of p? Of the bound world; false while none is bound.</summary>
         public static bool ProcBuildingNear(CityMap map, Vector2 p, float r)
@@ -693,6 +710,61 @@ namespace PSXRacing.City
             return d;
         }
 
+        public static bool BulbDrivesOn = System.Environment.GetEnvironmentVariable("PSX_CITY_BULBDRIVES") != "0";
+        /// <summary>Tools: driveways laid off a bulb's rim since the world was bound.</summary>
+        public static int BulbDrives;
+
+        /// <summary>
+        /// (hoods 2) The driveway of a house that stands round a dead end's
+        /// bulb: from the face that looks at the bulb's centre straight in to
+        /// the rim (the gutter lip), its road end square to the rim. Null where
+        /// the house's nearest street point is not within a bulb's own length,
+        /// or the face is more than 32 degrees off the line to the centre.
+        /// </summary>
+        static Driveway BulbDrive(CityMap map, House h)
+        {
+            if (!StreetAt(map, h.c, out var e, out float s)) return null;
+            int node = s > e.length * 0.5f ? e.b : e.a;
+            if (node < 0 || node >= trimsB.bulb.Length || !trimsB.bulb[node] || trimsB.bulbC == null) return null;
+            float trim = trimsB.TrimAt(e, node);
+            float fromEnd = node == e.b ? e.length - s : s;
+            if (fromEnd > trim + 1f) return null;                 // it fronts the street's straight part
+            var C = trimsB.bulbC[node]; float R = trimsB.bulbRad[node];
+            var toC = C - h.c;
+            if (toC.magnitude < R + 1.5f || toC.magnitude > R + DriveMaxM) return null;
+            toC.Normalize();
+            // the face that looks at the centre
+            int face = -1; float bestDot = SquareDot;
+            for (int f = 0; f < 4; f++)
+            {
+                float dt = Vector2.Dot(FaceN(h, f), toC);
+                if (dt > bestDot) { bestDot = dt; face = f; }
+            }
+            if (face < 0) return null;
+            var n = FaceN(h, face); var t = new Vector2(-n.y, n.x);
+            float depth = face < 2 ? h.hu : h.hv;
+            var T = h.c + n * depth;
+            var dirOut = (T - C).normalized;
+            var F = C + dirOut * R;
+            var dv = T - F;
+            float len = dv.magnitude;
+            if (len < 1f || len > DriveMaxM) return null;
+            if (Vector2.Dot(dv / len, dirOut) < SquareDot || Vector2.Dot(-dv / len, n) < SquareDot) return null;
+            var tan = new Vector2(dirOut.y, -dirOut.x);           // dirOut lies to the left of tan
+            if (Vector2.Dot(t, tan) < 0f) t = -t;
+            float hw = DriveW * 0.5f;
+            var d = new Driveway { foot = F, target = T, nrm = dirOut, along = tan, edge = e.index, s = Mathf.Clamp(s, 0f, e.length), len = len, owner = h.id };
+            Vector2 a = F - tan * hw, b = F + tan * hw, c2 = T + t * hw, dd = T - t * hw;
+            d.quad[0] = a; d.quad[1] = b; d.quad[2] = c2; d.quad[3] = dd;
+            if (!Convex(d.quad)) return null;
+            float fw = hw + FlareM, fr = Mathf.Min(FlareRunM, len);
+            Vector2 fa = F - tan * fw, fb = F + tan * fw, fc = F + dirOut * fr + tan * hw, fd = F + dirOut * fr - tan * hw;
+            d.flare[0] = fa; d.flare[1] = fb; d.flare[2] = fc; d.flare[3] = fd;
+            d.min = Vector2.Min(Vector2.Min(Vector2.Min(fa, fb), Vector2.Min(c2, dd)), Vector2.Min(a, b));
+            d.max = Vector2.Max(Vector2.Max(Vector2.Max(fa, fb), Vector2.Max(c2, dd)), Vector2.Max(a, b));
+            return d;
+        }
+
         /// <summary>cos 32 degrees: how far off square a driveway may run.</summary>
         const float SquareDot = 0.85f;
 
@@ -717,6 +789,12 @@ namespace PSXRacing.City
             // the faces that look toward a street, nearest street first; on
             // each, the garage end its hash picks, the other end, then nearer
             // the middle
+            // (hoods 2) a house on a cul-de-sac's bulb: its driveway runs off the bulb's rim, radially (PSX_CITY_BULBDRIVES=0: none)
+            if (BulbDrivesOn && CityMeshes.StdBulbsOn && CityMeshes.Curbs3On && trimsB != null && trimsB.bulb != null)
+            {
+                var bd = BulbDrive(mapB, h);
+                if (bd != null && Conflict(mapB, trimsB, h, bd) == null) { h.drive = bd; h.why = null; BulbDrives++; return h.drive; }
+            }
             FaceStreets(mapB, h);
             string why = null;
             float sign = Hash01((int)(h.id & 0xFFFFF), (int)(h.id >> 20), 41) < 0.5f ? -1f : 1f;

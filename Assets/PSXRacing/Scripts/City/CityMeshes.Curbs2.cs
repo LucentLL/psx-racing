@@ -380,6 +380,8 @@ namespace PSXRacing.City
         public static bool PanToneOn = System.Environment.GetEnvironmentVariable("PSX_CITY_PANTONE") != "0";
         static readonly Rect UvPanGrey = new Rect(0.00f, 0.270f, 1f, 0.090f);   // under band: weathered grey, the atlas's full width
         static Rect PanBand => PanToneOn ? UvPanGrey : UvPan;
+        /// <summary>Tools: the atlas band the gutter pan is drawn in (to find the pan's quads in a built structure mesh).</summary>
+        public static Rect PanBandForTools => PanBand;
         static readonly Rect UvSlab = new Rect(0.10f, 0.520f, 0.30f, 0.200f);   // column band: light concrete
         static readonly Rect UvCollar = new Rect(0.30f, 0.270f, 0.20f, 0.090f); // under band: weathered grey
         static readonly Rect UvIron = new Rect(0.79f, 0.020f, 0.16f, 0.080f);   // luminaire housing: black iron
@@ -461,7 +463,7 @@ namespace PSXRacing.City
         /// </summary>
         static void Cs2CornerPan(Vector3 a, Vector3 b, Vector2 oa, Vector2 ob, float u0, float u1, float cr)
         {
-            if (!Curbs2On || !CornerPanOn || cr > 0.5f || cs2Granite) return;
+            if (!Curbs2On || !CornerPanOn || cr > 0.5f || cs2Granite || cs4CornerNoPan) return;   // (hoods 2) nor round a corner of two old house streets
             float len = Vector2.Distance(new Vector2(a.x, a.z), new Vector2(b.x, b.z));
             if (len < 0.02f) return;
             // (cityinteg 2026-11-11) laid after the closing pass, on the junction's drawn surface
@@ -933,7 +935,7 @@ namespace PSXRacing.City
                     var ed = Vector3.Lerp(sp.eA, sp.eB, 0.5f);
                     var ow = Vector2.Lerp(sp.outA, sp.outB, 0.5f).normalized;
                     float w = 0.5f * (sp.wA + sp.wB);
-                    float rr = Cs2Mix(map, e, smid), dd = Mathf.Min(1.4f, w - 0.5f);
+                    float rr = Cs2Mix(map, e, smid), dd = Cs4StripAt(w, StripOf(map, e)) > 0f ? w - 0.5f * WalkStdM : Mathf.Min(1.4f, w - 0.5f);   // (hoods 2) in the walk, not the planting strip
                     var c = SlabAt(ed, ow, w, rr, dd);
                     var cw = new Vector2(c.x + o.x, c.z + o.z);
                     if (ApronAt(map, cw.x, cw.y)) continue;

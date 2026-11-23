@@ -10786,6 +10786,7 @@ namespace PSXRacing.City
                         EmitCornerWalk(map, trims, tm, corners, kind, cwk);
                         for (int j = cwk.g0; j != cwk.g1; j = (j + 1) % corners.Count) walkGroupOf.Add(j);
                     }
+                if (WalksOn && !onStructure) Cs4BulbCurb(map, trims, tm, corners, n);   // (hoods 2) a bulb's rim takes its street's curb and gutter: CityMeshes.Curbs4
                 for (int i = 0; i < corners.Count; i++)
                 {
                     var k0 = corners[i];
