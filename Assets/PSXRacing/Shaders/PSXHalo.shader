@@ -65,6 +65,25 @@
 // world's own halos whole nearly to their end, so the hand-over to the far
 // lights is not a dim ring of lamps.
 //
+// EVERY LAMP A POINT TO THE VANISHING POINT (the lightlook round, 2026-11-23;
+// LightLook.cs, _PSXLightLook.x). The owner's reference shows every lamp of a
+// road as a bright point with a soft halo, receding to the vanishing point.
+// Ours thinned out: the core is 0.16 of the halo, so at the minimum size it was
+// a pixel or less and the far ones read as faint smudges; the far city's lamp
+// dots (CityFar, own depth) were a third the size of the streamed lamps', in
+// the bulb's sRGB numbers read as linear (paler), and the streamed halos faded
+// out by 0.92 of the far plane while the far dots came up only from the
+// squeeze's start (0.997 of it, less 30 m): a dim ring of lamps at the hand-over.
+// With the look on, for a LAMP (a streamed head, a signal, or a far lamp dot):
+//   * the core never falls under LOOK_CORE_PX real framebuffer pixels of
+//     radius (e^-1), with room for the halo round it (LOOK_CORE_ROOM);
+//   * the halo's size is capped softly at LOOK_MAX_SHARE of the picture's
+//     height, so a lamp beside the car is a lamp with mist, not a disc;
+//   * a far lamp dot is the size, colour and halo of a streamed lamp;
+//   * with the far city drawn, a streamed halo is held whole to the squeeze's
+//     start, kept just inside the far plane (its pixel size unchanged), and
+//     fades over exactly the band the far dot comes up over.
+//
 // PSX/Halo is created at runtime only (NightGlow: Shader.Find), never by a
 // saved .mat, so it is in ProjectSettings' Always Included Shaders or a
 // WebGL build would not have it.
@@ -196,6 +215,14 @@ Shader "PSX/Halo"
             // HD) keeps a far lamp the size on screen it has at 480 lines, not
             // 2.25x smaller (and five times dimmer in the halation)
             #define HALO_REF_LINES 480.0
+            // THE LOOK (the header): LightLook.cs
+            float4 _PSXLightLook;
+            #define LOOK_CORE_PX    1.5     // the core's least radius (e^-1), real framebuffer pixels
+            #define LOOK_CORE_ROOM  4.0     // the quad's half-size at least this many core radii
+            #define LOOK_MAX_SHARE  0.12    // the halo's half-size at most ~this share of the picture's height
+            #define LOOK_FAR_SIZE   2.5     // a far lamp dot's size x this: a streamed lamp's (0.35 -> ~0.9)
+            #define LOOK_FAR_HALO   0.35    // ...and its soft halo a streamed lamp's (NightGlow's material)
+            #define LOOK_FAR_PLANE  0.985   // a streamed halo past this share of the far plane is drawn here
 
             struct appdata
             {
@@ -212,6 +239,7 @@ Shader "PSX/Halo"
                 float2 q : TEXCOORD0;      // -1..1 across the quad
                 float4 col : TEXCOORD1;    // rgb = tint x strength x fade
                 float core : TEXCOORD2;    // the core's sharpness (HALO_CORE_K; softer for a far tower light)
+                float halo : TEXCOORD3;    // the soft halo's amount (_HaloAmt; the look's far lamps: a streamed lamp's)
             };
 
             v2f vert (appdata v)
@@ -242,6 +270,17 @@ Shader "PSX/Halo"
                 // Toward the eye, but never through it (a far light: not at all).
                 float pull = own ? 0.0 : min(HALO_PULL, dist * 0.5);
                 vc -= vc * (pull / max(dist, 1e-3));
+                // THE LOOK (the header): which halos are lamps, and a streamed
+                // lamp near the far plane drawn just inside it at its own pixel size
+                bool lookLamp = _PSXLightLook.x > 0.5 && (!skyLight || (own && abs(v.uv1.y + 0.5) < 0.02));
+                bool lookHand = lookLamp && !skyLight && _PSXFarWorld > 0.5;
+                float lookK = 1.0;
+                if (lookHand)
+                {
+                    float lim = _ProjectionParams.z * LOOK_FAR_PLANE;
+                    float vd = length(vc);
+                    if (vd > lim) { lookK = lim / vd; vc *= lookK; }
+                }
 
                 // The smallest half-size that still reaches _MinPixels of the
                 // framebuffer out from the centre at this depth (a quad twice
@@ -274,6 +313,20 @@ Shader "PSX/Halo"
                 // a tower light held at its minimum size gets a soft core, so
                 // the dot carries colour rather than one hot pixel
                 o.core = skyLight ? lerp(HALO_CORE_K, SKY_CORE_K, saturate(minM / max(natural, 1e-3) - 0.5)) : HALO_CORE_K;
+                o.halo = _HaloAmt;
+                if (lookLamp)
+                {
+                    // the core a real point, the halo capped (the header)
+                    float fbM = 2.0 * zScale / max(_ScreenParams.y * abs(UNITY_MATRIX_P[1][1]), 1e-3);
+                    float nat = natural * lookK * (own ? LOOK_FAR_SIZE : 1.0);
+                    float maxM = LOOK_MAX_SHARE * _ScreenParams.y * fbM;
+                    nat = nat / sqrt(1.0 + (nat / maxM) * (nat / maxM));
+                    float minL = 1.5 * 2.0 * zScale / max(min(_ScreenParams.y, HALO_REF_LINES) * abs(UNITY_MATRIX_P[1][1]), 1e-3);
+                    float rc = max(nat / sqrt(HALO_CORE_K), LOOK_CORE_PX * fbM);
+                    size = max(max(nat, minL), rc * LOOK_CORE_ROOM);
+                    o.core = (size * size) / (rc * rc);
+                    if (own) o.halo = LOOK_FAR_HALO;
+                }
                 // (round 3) a top light keeps a floor in REAL pixels and a flat
                 // core there: a clear red point from 10 km and more
                 bool topLight = v.uv1.y <= -1.0 || abs(v.uv1.y + 0.6) < 0.02;
@@ -308,6 +361,8 @@ Shader "PSX/Halo"
                 float end = min(_PSXFogFar * HALO_FAR, _ProjectionParams.z * HALO_CLIP);
                 float start = min(_PSXFogFar, lerp(HALO_FULL, HALO_FULL_FAR, saturate(_PSXFarWorld)) * end);
                 float fade = 1.0 - saturate((dist - start) / max(end - start, 1.0));
+                // THE LOOK: whole to the squeeze's start, then out over the band the far dot comes up over
+                if (lookHand) fade = 1.0 - saturate((dist - sA) / FAR_FADE_IN);
                 if (own)
                 {
                     // hazed by the real distance, dimmer past _FarFall (its
@@ -367,7 +422,15 @@ Shader "PSX/Halo"
                               : (cls < 1.5 ? _PSXWinOccupancy.y : _PSXWinOccupancy.z);
                     if (cls > -0.5 && v.color.a * 4.0 >= rel) o.pos = float4(0.0, 0.0, 0.0, 1.0);
                 }
-                o.col = float4(_Color.rgb * v.color.rgb * (_Strength * fade * facing), fade * facing);
+                float3 vcol = v.color.rgb;
+                // THE LOOK: a far lamp dot's colour is the bulb's sRGB x its gain; as a
+                // streamed lamp's, linear x gain (gain = its brightest channel)
+                if (lookLamp && own)
+                {
+                    float m = max(max(vcol.r, vcol.g), max(vcol.b, 1e-3));
+                    vcol = pow(max(vcol, 0.0), 2.2) / pow(m, 1.2);
+                }
+                o.col = float4(_Color.rgb * vcol * (_Strength * fade * facing), fade * facing);
                 return o;
             }
 
@@ -378,7 +441,7 @@ Shader "PSX/Halo"
                 // linear framebuffer shows a 0.004 corner as a square).
                 float win = saturate(1.0 - r2);
                 win *= win;
-                float a = exp(-r2 * i.core) + exp(-r2 * HALO_SOFT_K) * _HaloAmt * win;
+                float a = exp(-r2 * i.core) + exp(-r2 * HALO_SOFT_K) * i.halo * win;
                 return fixed4(i.col.rgb * (a * max(PSXAdaptGain(), _GainFloor)), saturate(a * i.col.a));
             }
             ENDCG

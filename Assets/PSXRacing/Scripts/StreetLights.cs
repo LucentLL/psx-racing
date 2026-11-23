@@ -281,6 +281,7 @@ namespace PSXRacing
             if (!Valid(handle, out int slot)) return;
             ref Entry e = ref entries[slot];
             if (e.field && (e.on != on || e.intensity != intensity || e.pos != pos) && (!FieldCull || OnFieldWindow(e.pos) || OnFieldWindow(pos))) fieldVersion++;
+            if (e.field && (e.on != on || e.intensity != intensity || e.pos != pos)) { FarTouched(e.pos); FarTouched(pos); }   // (lightlook: the far field)
             if (e.pos != pos) e.groundKnown = false;
             e.pos = pos;
             e.intensity = intensity;
@@ -296,6 +297,7 @@ namespace PSXRacing
             entries[slot].field = field;
             entries[slot].mercury = mercury;
             if (!FieldCull || OnFieldWindow(entries[slot].pos)) fieldVersion++;   // city-build-hitches
+            FarTouched(entries[slot].pos);   // (lightlook: the far field)
         }
 
         public static void Remove(int handle)
@@ -340,6 +342,7 @@ namespace PSXRacing
         static void Free(int slot)
         {
             if (entries[slot].field && (!FieldCull || OnFieldWindow(entries[slot].pos))) fieldVersion++;   // city-build-hitches
+            if (entries[slot].field) FarTouched(entries[slot].pos);   // (lightlook: the far field)
             entries[slot].used = false;
             entries[slot].field = false; entries[slot].mercury = false;
             entries[slot].owner = null;
@@ -416,6 +419,8 @@ namespace PSXRacing
             // camera chose; re-choosing for its pose would light the world
             // for an eye that never draws it.
             if ((cam.cullingMask & ~(1 << 5)) == 0) return;
+            // the lightlook round's switches (LightLook.cs), every camera
+            LightLook.Push();
             // An inspector preview renders a preview scene, not this one: it
             // gets no lamps rather than the lamps nearest wherever it sits.
             if (cam.cameraType == CameraType.Preview) { PushNone(); FieldOff(); return; }
@@ -435,6 +440,7 @@ namespace PSXRacing
             if (Time.frameCount != advancedFrame && driver)
             {
                 advancedFrame = Time.frameCount;
+                TunnelLamps.EnsureVenueLamps();   // (lightlook) once per scene
                 // NO LIGHT POPS: the headlight table too, for THIS eye (a replay cut
                 // moves the camera after the cars' LateUpdate pushed it)
                 if (NoPop) { RankScored(t.position, t.forward); NightGlow.TickBirths(); CarLights.PushGlobals(); }

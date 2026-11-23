@@ -431,10 +431,12 @@ namespace PSXRacing
         bool Dark => CarController.LeftCarRules && car != null && car.Unattended;
         bool lastDark;
 
-        bool TailSpriteOn => !HasLampMap && (LitNow || braking);
+        bool TailSpriteOn => (!HasLampMap || LightLook.CarPointsAtStart) && (LitNow || braking);
         /// <summary>The head-lens sprites: with the lights, and never on a car
         /// whose headlamps are drawn on its body.</summary>
-        bool HeadSpriteOn => LitNow && !HasHeadMap;
+        bool HeadSpriteOn => LitNow && (!HasHeadMap || LightLook.CarPointsAtStart);
+        /// <summary>(lightlook) a lamp-map body's lens sprites are its far point only (PSX/Glow _LensLook 2).</summary>
+        Material HeadLensMat => HasHeadMap ? HeadFarMat : HeadMat;
 
         /// <summary>Find the map for the shell this car wears now and the
         /// renderer that draws its body; put the lamps out on a renderer that
@@ -461,8 +463,8 @@ namespace PSXRacing
             pushedRun = pushedBrake = -1f;
             for (int i = 0; i < 2; i++)
             {
-                if (tailLens[i] != null) tailLens[i].enabled = TailSpriteOn && !TailOut(i);
-                if (headLens[i] != null) headLens[i].enabled = HeadSpriteOn && !HeadOut(i);
+                if (tailLens[i] != null) { tailLens[i].sharedMaterial = TailLensMat; tailLens[i].enabled = TailSpriteOn && !TailOut(i); }
+                if (headLens[i] != null) { headLens[i].sharedMaterial = HeadLensMat; headLens[i].enabled = HeadSpriteOn && !HeadOut(i); }
             }
         }
 
@@ -516,6 +518,33 @@ namespace PSXRacing
             if (!all.Contains(this)) all.Add(this);
             bornAt = Time.unscaledTime;
             Refresh();
+            UpdateLensBirth();
+        }
+
+        // (lightlook) a car that comes into being in view (a traffic spawn, a respawn) brings its lens
+        // points up over HeadBirthS, as its beams slide into the table - with the look a far lens is a
+        // point of a few pixels, and one switched on whole was counted as a pop
+        static MaterialPropertyBlock lensBlock;
+        static readonly int LensBirthId = Shader.PropertyToID("_LensBirth");
+        bool lensBirthDone;
+        void UpdateLensBirth()
+        {
+            if (!Application.isPlaying || !LightLook.CarPointsAtStart) return;
+            float k = Mathf.Clamp01((Time.unscaledTime - bornAt) / HeadBirthS);
+            if (k >= 1f && lensBirthDone) return;
+            if (lensBlock == null) lensBlock = new MaterialPropertyBlock();
+            float v = k * k * (3f - 2f * k);
+            for (int i = 0; i < 2; i++)
+                foreach (var r in new Renderer[] { headLens[i], tailLens[i] })
+                {
+                    if (r == null) continue;
+                    if (k >= 1f) { r.SetPropertyBlock(null); continue; }
+                    lensBlock.Clear();
+                    lensBlock.SetFloat(LensBirthId, v);
+                    r.SetPropertyBlock(lensBlock);
+                }
+            lensBirthDone = k >= 1f;
+            if (k < 1f) lensBirthDone = false;
         }
 
         void OnDisable()
@@ -720,7 +749,7 @@ namespace PSXRacing
 
         void ApplyBrake()
         {
-            var mat = braking ? TailBrightMat : TailDimMat;
+            var mat = TailLensMat;
             for (int i = 0; i < 2; i++)
             {
                 if (tailLens[i] == null) continue;
@@ -768,13 +797,14 @@ namespace PSXRacing
             // place - and LateUpdate never runs outside play mode.
             UpdateTailLamp();
             UpdateOwnSpill();
+            UpdateLensBirth();
         }
 
         void Refresh()
         {
             for (int i = 0; i < 2; i++)
             {
-                if (headLens[i] != null) headLens[i].enabled = HeadSpriteOn && !HeadOut(i);
+                if (headLens[i] != null) { headLens[i].sharedMaterial = HeadLensMat; headLens[i].enabled = HeadSpriteOn && !HeadOut(i); }
                 if (beams[i] != null) beams[i].enabled = LitNow && !HeadOut(i);
                 if (tailLens[i] != null) tailLens[i].enabled = TailSpriteOn && !TailOut(i);
             }
@@ -1016,6 +1046,17 @@ namespace PSXRacing
         /// (less than the street lamps': a car turning across the view must not
         /// sweep the ranking).</summary>
         public const float HeadViewPenalty = 1f;
+        // (lightlook, 2026-11-23) THE HAND-OVERS TWICE AS SOFT: on I-77, five and more cars contest
+        // the four cars' slots and oncoming traffic closes at 60 m/s, so a 45 m rank band stepped a
+        // beam 5-10 % a frame (the pop meter counted them); a car racing away from a replay's
+        // bystander crossed the 60 m distance fade in a second. With the look the band is 90 m and
+        // the fade 140-240 m: 2-3 % a frame at those speeds, under what the eye (and the meter) can
+        // tell from driving. PSX_LIGHT_LOOK_BEAMS=0: as the pop round left them.
+        static bool SoftHand => LightLook.On && LightLook.Beams;
+        static float HeadBandNow => SoftHand ? 90f : HeadRankBandM;
+        static float HeadFullNow => SoftHand ? 140f : HeadFullM;
+        static float HeadEndNow => SoftHand ? 240f : HeadEndM;
+        static float HeadCapNow => HeadEndNow * 2f;
         /// <summary>A car just switched on (a spawn, a respawn) scores this much
         /// further, easing to nothing over <see cref="HeadBirthS"/>: it slides
         /// into the ranking instead of moving the cut in a step.</summary>
@@ -1037,7 +1078,7 @@ namespace PSXRacing
         {
             var tr = l.transform;
             float dist = (tr.position + tr.forward * HeadAimM - eye).magnitude;
-            return Mathf.Clamp01((HeadEndM - dist) / (HeadEndM - HeadFullM));
+            return Mathf.Clamp01((HeadEndNow - dist) / (HeadEndNow - HeadFullNow));
         }
 
         /// <summary>The four lowest scores of <see cref="sorted"/> into
@@ -1054,15 +1095,15 @@ namespace PSXRacing
                 Vector3 aim = tr.position + tr.forward * HeadAimM;
                 Vector3 d = aim - eye;
                 float dist = d.magnitude;
-                if (dist >= HeadEndM) continue;
+                if (dist >= HeadEndNow) continue;
                 float vf = StreetLights.ViewFactor(d, dist, HeadAimRadiusM, fwd);
                 float s = dist * (1f + (vf - 1f) * HeadViewPenalty / StreetLights.ViewPenalty);
                 float born = Application.isPlaying ? Mathf.Clamp01((now - sorted[i].bornAt) / HeadBirthS) : 1f;
                 s += HeadBirthM * (1f - born);
-                if (s >= HeadScoreCap) continue;
+                if (s >= HeadCapNow) continue;
                 if (scoredCount == cap && s >= scoredScore[cap - 1]) continue;
                 int k = scoredCount < cap ? scoredCount++ : cap - 1;
-                float fade = Mathf.Clamp01((HeadEndM - dist) / (HeadEndM - HeadFullM));
+                float fade = Mathf.Clamp01((HeadEndNow - dist) / (HeadEndNow - HeadFullNow));
                 while (k > 0 && scoredScore[k - 1] > s)
                 {
                     scoredScore[k] = scoredScore[k - 1]; scoredIdx[k] = scoredIdx[k - 1]; scoredFade[k] = scoredFade[k - 1];
@@ -1070,7 +1111,7 @@ namespace PSXRacing
                 }
                 scoredScore[k] = s; scoredIdx[k] = i; scoredFade[k] = fade;
             }
-            carCut = scoredCount > carsMax ? Mathf.Min(scoredScore[carsMax], HeadScoreCap) : HeadScoreCap;
+            carCut = scoredCount > carsMax ? Mathf.Min(scoredScore[carsMax], HeadCapNow) : HeadCapNow;
             if (scoredCount > carsMax) scoredCount = carsMax;
         }
 
@@ -1145,7 +1186,7 @@ namespace PSXRacing
                 {
                     var l = noPop && !meterB ? sorted[scoredIdx[c]] : sorted[c];
                     // NO LIGHT POPS: the car's rank weight times its own distance fade
-                    float rank = noPop && !meterB ? Mathf.Clamp01((carCut - scoredScore[c]) / HeadRankBandM) : (n < LegacyLights ? 1f : 0f);
+                    float rank = noPop && !meterB ? Mathf.Clamp01((carCut - scoredScore[c]) / HeadBandNow) : (n < LegacyLights ? 1f : 0f);
                     float w = noPop && !meterB ? Mathf.Min(rank, scoredFade[c]) : rank;
                     if (meterB)
                     {
@@ -1382,11 +1423,31 @@ namespace PSXRacing
         /// <summary>The lens, in halogen, a touch hotter than the beam so it
         /// reads as the source.</summary>
         static Material HeadMat => headMat != null ? headMat
-            : headMat = MakeMat("PSX/Glow", "Headlight", Halogen, 1.6f, true);
+            : headMat = Lens(MakeMat("PSX/Glow", "Headlight", Halogen, 1.6f, true), 1f, LensHeadHaloM, LensHeadHaloAmt);
         static Material TailDimMat => tailDim != null ? tailDim
-            : tailDim = MakeMat("PSX/Glow", "Taillight", new Color(1.00f, 0.16f, 0.10f), TailLensDim, true);
+            : tailDim = Lens(MakeMat("PSX/Glow", "Taillight", new Color(1.00f, 0.16f, 0.10f), TailLensDim, true), 1f, LensTailHaloM, LensTailHaloAmt);
         static Material TailBrightMat => tailBright != null ? tailBright
-            : tailBright = MakeMat("PSX/Glow", "Brakelight", new Color(1.00f, 0.12f, 0.06f), 2.6f, true);
+            : tailBright = Lens(MakeMat("PSX/Glow", "Brakelight", new Color(1.00f, 0.12f, 0.06f), 2.6f, true), 1f, LensTailHaloM, LensTailHaloAmt);
+
+        // ---- the lightlook round (2026-11-23): a far car's lamps a steady point (PSX/Glow _LensLook) ----
+        /// <summary>The halos round a lens with the look on (PSX/Glow): half-size
+        /// in metres (it grows with the approach as the world does) and amount.</summary>
+        public static float LensHeadHaloM = 0.75f, LensHeadHaloAmt = 0.30f, LensTailHaloM = 0.40f, LensTailHaloAmt = 0.22f;
+        static Material headFar, tailDimFar, tailBrightFar;
+        static Material Lens(Material m, float mode, float haloM, float haloAmt)
+        {
+            if (m == null) return null;
+            m.SetFloat("_LensLook", mode); m.SetFloat("_LensHaloM", haloM); m.SetFloat("_LensHaloAmt", haloAmt);
+            return m;
+        }
+        /// <summary>A lamp-map body's lens sprites: the far point only (mode 2).</summary>
+        static Material HeadFarMat => headFar != null ? headFar
+            : headFar = Lens(MakeMat("PSX/Glow", "HeadlightFar", Halogen, 1.6f, true), 2f, 0f, 0f);
+        static Material TailDimFarMat => tailDimFar != null ? tailDimFar
+            : tailDimFar = Lens(MakeMat("PSX/Glow", "TaillightFar", new Color(1.00f, 0.16f, 0.10f), TailLensDim, true), 2f, 0f, 0f);
+        static Material TailBrightFarMat => tailBrightFar != null ? tailBrightFar
+            : tailBrightFar = Lens(MakeMat("PSX/Glow", "BrakelightFar", new Color(1.00f, 0.12f, 0.06f), 2.6f, true), 2f, 0f, 0f);
+        Material TailLensMat => HasLampMap ? (braking ? TailBrightFarMat : TailDimFarMat) : (braking ? TailBrightMat : TailDimMat);
         /// <summary>The beam in the air. Same halogen; PSX/Beam fades it out
         /// by daylight on its own.</summary>
         static Material BeamMat => beamMat != null ? beamMat

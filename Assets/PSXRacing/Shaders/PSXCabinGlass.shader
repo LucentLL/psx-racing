@@ -102,6 +102,15 @@ Shader "PSX/CabinGlass"
             float4 _CabinRain2;   // x: 1 = the water looks through (needs _PSXSSRLive); y: 1 = the third bead size; z: 1 = the rainglass beads (Rain2.Beads2)
             sampler2D _PSXSSRColour;
             float _PSXSSRLive;    // 1 while this camera's frame copy is bound (SpeedBlurFeature.WetPass)
+            // (lightlook) LAMPS THROUGH WET GLASS: y = 1 (Rain2.LampGlow). What is bright
+            // behind the water (a lamp, its halo, an oncoming car's lamps) spreads into a
+            // soft cross in it, as light does in a film of water on a windscreen; where the
+            // blade has just cleared the glass there is no film and the lamp stays a point.
+            float4 _PSXRain2Glass3;
+            #define LG_R1     9.0     // the cross's inner taps, pixels at 1080 lines
+            #define LG_R2     22.0    // ...its outer taps
+            #define LG_KNEE   0.42    // only what is brighter than this in the frame copy blooms
+            #define LG_GAIN   2.0
             #define R2G_LENS    0.000016   // a drop's bend of what is behind it: metres squared (see the note at its use)
             #define R2G_MAXPX   46.0       // ...never further than this many pixels (of a 1080-line frame)
             #define R2G_SHEET   0.50       // how much of the pane a downpour's sheet covers while parked
@@ -722,6 +731,27 @@ Shader "PSX/CabinGlass"
                         if (b2 && beadTop) seen = lerp(lerp(seen, tex2Dlod(_PSXSSRColour, float4(i.pos.xy / _ScreenParams.xy, 0.0, 0.0)).rgb, 0.45),
                                                        dot(seen, float3(0.30, 0.59, 0.11)).xxx, 0.22);
                         through = seen * (wetA * (1.0 - rimK * rim * cover) * gather * bankShade);
+                        // (lightlook) the lamps bloom in the water film (the header above)
+                        if (_PSXRain2Glass3.y > 0.5)
+                        {
+                            float lgFilm = saturate(max(wetA * 0.9, sheet * 2.5) + smear * rain * 0.8 + lipL * 2.0 + (inBank ? 0.6 : 0.0));
+                            if (lgFilm > 0.02)
+                            {
+                                float2 lgC = (i.pos.xy + dpx * 0.5) / _ScreenParams.xy;
+                                float2 lgA1 = float2(LG_R1 * px1080, 0.0) / _ScreenParams.xy, lgB1 = float2(0.0, LG_R1 * px1080) / _ScreenParams.xy;
+                                float2 lgA2 = float2(LG_R2 * px1080, 0.0) / _ScreenParams.xy, lgB2 = float2(0.0, LG_R2 * px1080 * 0.6) / _ScreenParams.xy;
+                                float3 lgK = float3(LG_KNEE, LG_KNEE, LG_KNEE);
+                                float3 lgIn = max(tex2Dlod(_PSXSSRColour, float4(lgC + lgA1, 0.0, 0.0)).rgb - lgK, 0.0)
+                                             + max(tex2Dlod(_PSXSSRColour, float4(lgC - lgA1, 0.0, 0.0)).rgb - lgK, 0.0)
+                                             + max(tex2Dlod(_PSXSSRColour, float4(lgC + lgB1, 0.0, 0.0)).rgb - lgK, 0.0)
+                                             + max(tex2Dlod(_PSXSSRColour, float4(lgC - lgB1, 0.0, 0.0)).rgb - lgK, 0.0);
+                                float3 lgOut = max(tex2Dlod(_PSXSSRColour, float4(lgC + lgA2, 0.0, 0.0)).rgb - lgK, 0.0)
+                                             + max(tex2Dlod(_PSXSSRColour, float4(lgC - lgA2, 0.0, 0.0)).rgb - lgK, 0.0)
+                                             + max(tex2Dlod(_PSXSSRColour, float4(lgC + lgB2, 0.0, 0.0)).rgb - lgK, 0.0)
+                                             + max(tex2Dlod(_PSXSSRColour, float4(lgC - lgB2, 0.0, 0.0)).rgb - lgK, 0.0);
+                                through += (lgIn * 0.22 + lgOut * 0.10) * (lgFilm * LG_GAIN);
+                            }
+                        }
                         // the glint: one bright point up and to the side of each bead's crown
                         float g2 = beadTop ? (1.0 - smoothstep(0.0, 0.32, length(bB.yz - float2(-0.30, 0.38)))) * cover : glint;
                         if (lipL > 0.0 || (bank2 && inBank)) g2 = 0.0;   // (RAINGLASS2: the bank's light is its lip's, below)
