@@ -46,6 +46,8 @@ namespace PSXRacing
         [System.NonSerialized] float[] occCur;
         [System.NonSerialized] int occRow = -1;
         [System.NonSerialized] int occFrame = -1;
+        [System.NonSerialized] int occCast = -1;
+        [System.NonSerialized] float occAt;
 
         static bool OccOn => StreetLights.Night4 && lightsOn;
 
@@ -75,7 +77,19 @@ namespace PSXRacing
                 occData = new ushort[OccBins * OccRows];
             }
             Physics.SyncTransforms();
-            int total = cars * OccBins;
+            // a car within 80 m of the eye every frame; the rest every other frame (alternating by row),
+            // each eased by the time since its own last look
+            int cast = 0;
+            for (int c = 0; c < sorted.Count; c++)
+            {
+                var l = sorted[c];
+                l.occCast = -1;
+                if (l.occRow < 0) continue;
+                bool due = l.occCur == null || l.occFrame < Time.frameCount - 3 || ((l.occRow + Time.frameCount) & 1) == 0
+                           || (l.transform.position - eye).sqrMagnitude < 80f * 80f;
+                if (due) l.occCast = cast++;
+            }
+            int total = cast * OccBins;
             var cmds = new NativeArray<RaycastCommand>(total, Allocator.TempJob);
             var hits = new NativeArray<RaycastHit>(total * 2, Allocator.TempJob);
             var qp = new QueryParameters(~((1 << 2) | (1 << 10)), false, QueryTriggerInteraction.Ignore, false);
@@ -83,29 +97,35 @@ namespace PSXRacing
             for (int c = 0; c < sorted.Count; c++)
             {
                 var l = sorted[c];
-                if (l.occRow < 0) continue;
+                if (l.occCast < 0) continue;
                 l.OccOrigin(out var o, out var f, out var r);
                 for (int b = 0; b < OccBins; b++)
                 {
                     float a = ((b + 0.5f) / OccBins - 0.5f) * 2f * half;
                     var dir = f * Mathf.Cos(a) + r * Mathf.Sin(a);
-                    cmds[l.occRow * OccBins + b] = new RaycastCommand(o, dir, qp, BeamRange + 4f);
+                    cmds[l.occCast * OccBins + b] = new RaycastCommand(o, dir, qp, BeamRange + 4f);
                 }
             }
-            RaycastCommand.ScheduleBatch(cmds, hits, 32, 2).Complete();
+            if (total > 0) RaycastCommand.ScheduleBatch(cmds, hits, 32, 2).Complete();
             float now = Time.unscaledTime;
             for (int c = 0; c < sorted.Count; c++)
             {
                 var l = sorted[c];
                 if (l.occRow < 0) continue;
+                if (l.occCast < 0)
+                {
+                    // not looked at this frame: its last reaches, in this frame's row
+                    for (int b = 0; b < OccBins; b++) occData[l.occRow * OccBins + b] = Mathf.FloatToHalf(l.occCur[b]);
+                    continue;
+                }
                 var up = l.transform.up;
-                bool snap = l.occCur == null || l.occFrame < Time.frameCount - 2;
+                bool snap = l.occCur == null || l.occFrame < Time.frameCount - 3;
                 if (l.occCur == null) l.occCur = new float[OccBins];
-                float k = snap ? 1f : 1f - Mathf.Exp(-Mathf.Min(Time.unscaledDeltaTime, 0.1f) / Mathf.Max(OccEaseS, 1e-3f));
-                l.occFrame = Time.frameCount;
+                float k = snap ? 1f : 1f - Mathf.Exp(-Mathf.Min(now - l.occAt, 0.1f) / Mathf.Max(OccEaseS, 1e-3f));
+                l.occFrame = Time.frameCount; l.occAt = now;
                 for (int b = 0; b < OccBins; b++)
                 {
-                    int ci = l.occRow * OccBins + b;
+                    int ci = l.occCast * OccBins + b;
                     float reach = OccClear;
                     for (int m = 0; m < 2; m++)
                     {
