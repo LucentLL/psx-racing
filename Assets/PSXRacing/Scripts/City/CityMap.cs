@@ -957,12 +957,18 @@ namespace PSXRacing.City
                         if (k < 0 || k >= ne) continue;
                         skipNodes.Add(map.edges[k].a); skipNodes.Add(map.edges[k].b);
                     }
-                    // three hops out: a taper the exporter designed for a changed count can sit two edges away (Monroe Rd e16890)
-                    for (int hop = 0; hop < 3; hop++)
+                    // every edge with an end within 450 m of a skipped edge's end (a taper the exporter designed for the changed
+                    // count can sit five short edges away: Monroe Rd e10289), but not one at a node of a LANES2 edge still applied
+                    var keepNodes = new HashSet<int>();
+                    if (lan2 != null) foreach (var kv in lan2) if (kv.Key >= 0 && kv.Key < ne) { keepNodes.Add(map.edges[kv.Key].a); keepNodes.Add(map.edges[kv.Key].b); }
+                    var seeds = new List<Vector2>(); foreach (int nd in skipNodes) seeds.Add(map.nodes[nd]);
+                    for (int k = 0; k < ne; k++)
                     {
-                        foreach (int nd in skipNodes) foreach (int k in map.nodeEdges[nd]) skipNear.Add(k);
-                        if (hop < 2) foreach (int k in skipNear) { skipNodes.Add(map.edges[k].a); skipNodes.Add(map.edges[k].b); }
+                        var ek = map.edges[k];
+                        if (keepNodes.Contains(ek.a) || keepNodes.Contains(ek.b)) continue;
+                        foreach (var sp in seeds) if ((map.nodes[ek.a] - sp).sqrMagnitude < 450f * 450f || (map.nodes[ek.b] - sp).sqrMagnitude < 450f * 450f) { skipNear.Add(k); break; }
                     }
+                    foreach (int k in skipNear) { skipNodes.Add(map.edges[k].a); skipNodes.Add(map.edges[k].b); }
                 }
                 void ReadTapr(List<LineModel.Tapr> list, float[] offs)
                 {
