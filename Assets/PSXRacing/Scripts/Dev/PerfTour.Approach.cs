@@ -323,6 +323,13 @@ namespace PSXRacing
                 float sd = Mathf.Min(side.magnitude, Mathf.Max(1f, hw[iP] - 1.5f));
                 tg.patch = Ground(cP + (side.sqrMagnitude > 1e-4f ? side.normalized : right0) * sd);
                 tg.headGround = Ground(new Vector3(tg.head.x, cP.y, tg.head.z)).y;
+                // "~wall": the wall beside the lamp, 2.5 m up, past it away from the road
+                if (f.Length > 6 && f[6] == "wall" && side.sqrMagnitude > 1e-4f)
+                {
+                    var o = new Vector3(tg.head.x, tg.headGround + 2.5f, tg.head.z);
+                    if (Physics.Raycast(o, side.normalized, out var wh, 35f, ~(1 << 2), QueryTriggerInteraction.Ignore)) tg.patch = wh.point - side.normalized * 0.05f;
+                    else Debug.Log("[PerfTour] wall target " + tg.name + ": no wall within 35 m");
+                }
             }
             else tg.patch = Ground(cP);
             // the road between this lamp and the next one toward the camera (the darkest stretch)
