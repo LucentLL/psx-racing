@@ -4950,6 +4950,8 @@ namespace PSXRacing.City
 
         // ---- LAMPS 3: the gaps a refused station left -------------------------
         static readonly List<float> lampPlacedS = new List<float>();
+        /// <summary>Tools: the road (edge index) or junction fan (-1 - node) the last refused post met.</summary>
+        public static int LampClashWith;
         /// <summary>The longest stretch of one edge's ribbon (between two of its own lamps, or from a
         /// junction mouth to its first) that may stand dark, as a share of the class's along-road gap
         /// (after both-sides halving): past it a post is tried in the middle of the gap, then either way
@@ -5130,7 +5132,10 @@ namespace PSXRacing.City
                 if (oi != e.index && side > 0 && e.oneway && o.oneway && Vector2.Dot(d / len, tanE) < -0.7f)
                     need = LampMedianClearM;
                 if (Vector2.Distance(foot, a + d * tf) - trims.ReachAt(o, atF) < need && yF > yRef - LampBandM)
+                {
+                    LampClashWith = oi;   // (the spacing audit: which road a refused post met)
                     return yF > yRef + RoadsideRules.CarBandM ? LampRejectOverhead : LampRejectPavement;
+                }
 
                 for (int q = 0; q < 2; q++)
                 {
@@ -5152,7 +5157,10 @@ namespace PSXRacing.City
                 if (!trims.patch[nd]) continue;
                 float reach = LampFanReach(map, trims, nd) + LampPavementClearM;
                 if ((map.nodes[nd] - foot).sqrMagnitude < reach * reach && map.nodeY[nd] > yRef - LampBandM)
+                {
+                    LampClashWith = -1 - nd;   // a junction fan (the spacing audit)
                     return map.nodeY[nd] > yRef + RoadsideRules.CarBandM ? LampRejectOverhead : LampRejectPavement;
+                }
             }
             return 0;
         }

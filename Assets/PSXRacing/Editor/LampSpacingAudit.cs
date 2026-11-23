@@ -84,7 +84,13 @@ namespace PSXRacing.EditorTools
             // build every tile once: its lights, its stations' fates
             var lights = new List<Light>();
             var stations = new List<(Vector2 p, int why)>();
-            CityMeshes.LampTrace = (ei, s, w) => { if (s >= 0f) { var q = map.edges[ei].PointAt(s); stations.Add((q, w)); } };
+            var clashes = new List<(Vector2 p, int with)>();
+            CityMeshes.LampTrace = (ei, s, w) =>
+            {
+                if (s < 0f) return;
+                var q = map.edges[ei].PointAt(s); stations.Add((q, w));
+                if (w == CityMeshes.LampRejectPavement) clashes.Add((q, CityMeshes.LampClashWith));
+            };
             var clsLen = new float[6]; var clsLamps = new int[6];
             var sw = System.Diagnostics.Stopwatch.StartNew();
             int posts = 0, acorns = 0, masts = 0, poleHeads = 0, postTris = 0;
@@ -191,6 +197,22 @@ namespace PSXRacing.EditorTools
                     for (int i = 0; i < rt.cl.Count && !on; i += 3)
                         on = (new Vector2(rt.cl[i].x, rt.cl[i].z) - st.p).sqrMagnitude < 16f;
                     if (on && st.why >= 0 && st.why < why.Length) why[st.why]++;
+                }
+                var cw = new Dictionary<string, int>();
+                foreach (var c in clashes)
+                {
+                    bool on = false;
+                    for (int i = 0; i < rt.cl.Count && !on; i += 3) on = (new Vector2(rt.cl[i].x, rt.cl[i].z) - c.p).sqrMagnitude < 16f;
+                    if (!on) continue;
+                    string k = c.with < 0 ? "junction fan" : $"'{map.edges[c.with].name}' cls{map.edges[c.with].cls}{(map.edges[c.with].oneway ? " oneway" : "")}{(map.edges[c.with].link ? " link" : "")}";
+                    cw.TryGetValue(k, out int n); cw[k] = n + 1;
+                }
+                if (cw.Count > 0)
+                {
+                    var cl2 = new List<KeyValuePair<string, int>>(cw); cl2.Sort((x, y) => y.Value.CompareTo(x.Value));
+                    var t2 = new StringBuilder("   refused for pavement, met:");
+                    for (int i = 0; i < Mathf.Min(5, cl2.Count); i++) t2.Append($" {cl2[i].Key} x{cl2[i].Value};");
+                    sb.AppendLine(t2.ToString());
                 }
                 var srcs = new StringBuilder();
                 foreach (var kv in srcN) srcs.Append($" {kv.Key} {kv.Value}");
