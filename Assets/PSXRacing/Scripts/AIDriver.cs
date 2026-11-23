@@ -1353,7 +1353,12 @@ namespace PSXRacing
             {
                 Vector3 pr = RightAt(nearestIdx);
                 float vLat = Vector3.Dot(car.Body.linearVelocity, pr);
-                if (DebugRoadLat < SteerBrakeLineM && vLat < -SteerBrakeDriftMps) brake = SteerBrakeCap;
+                // ...unless the way back is shut: a racer alongside on the right, level with this car (tier1 11-23:
+                // TryonSprint MEDIUM s1, the FD at 150 km/h beside the player's RX-7 1.6 m to its right, pushed left
+                // while it steered right on the held brake, met a taxi nose to nose at 45 m/s). Steering cannot open
+                // that side; the full brake drops the car behind the one beside it, and its own lane is there.
+                // PSX_AI_SHUT_BRAKE=0: the hold as before.
+                if (DebugRoadLat < SteerBrakeLineM && vLat < -SteerBrakeDriftMps && !(ShutBrakeOn && RacerBesideRight(pr))) brake = SteerBrakeCap;
             }
             // THE HAIRPIN FLICK (drifters only): a pull of the handbrake at the
             // turn-in of a tight bend, the throttle then holding the slide.
@@ -1503,6 +1508,23 @@ namespace PSXRacing
         /// metres of it (or over it) at this lateral speed, the give-way brake is held to this share so the front
         /// tyres can still turn the car back (no ABS: a locked front goes where it points).</summary>
         const float SteerBrakeLineM = 1.4f, SteerBrakeDriftMps = 0.4f, SteerBrakeCap = 0.55f;
+        static readonly bool ShutBrakeOn = System.Environment.GetEnvironmentVariable("PSX_AI_SHUT_BRAKE") != "0";
+        /// <summary>Another racer level with this car on its right, close enough across that this car cannot steer
+        /// back into its own lane: its centre 0.5-3.2 m to the right and less than a car length ahead or behind.</summary>
+        bool RacerBesideRight(Vector3 right)
+        {
+            var rm = RaceManager.Instance;
+            if (rm == null || car == null) return false;
+            Vector3 fwd = transform.forward;
+            foreach (var o in rm.allCars)
+            {
+                if (o == null || o == car || !o.gameObject.activeInHierarchy) continue;
+                Vector3 d = o.transform.position - transform.position;
+                float across = Vector3.Dot(d, right), along = Vector3.Dot(d, fwd);
+                if (across > 0.5f && across < 3.2f && Mathf.Abs(along) < 4.6f && Mathf.Abs(d.y) < 2f) return true;
+            }
+            return false;
+        }
         /// <summary>A pass line whose car side comes within this of the centreline (or over it) is over the line.</summary>
         const float OverLineM = 0.2f;
         /// <summary>The line of sight (SightAhead): sampled every SightStepM to SightMaxM, from an eye this high over the
