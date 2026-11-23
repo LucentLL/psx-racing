@@ -4905,6 +4905,7 @@ namespace PSXRacing.City
                 nudgeShare = Lamps3NudgeShare;
             }
             int phase = Hash01(e.index, 1, LampSalt) < 0.5f ? 0 : 1;
+            lampPlacedS.Clear();
             float speed = LampSpeedKmh(e);
             StructureEnds(map, trims, e, lampEnds);
             for (int k = 0; k < count; k++)
@@ -4928,7 +4929,7 @@ namespace PSXRacing.City
                         if (s < lo || s > hi) continue;
                         int r = TryLamp(map, trims, tm, e, s, side, height, kind, speed);
                         if (why < 0) why = r;
-                        if (r == 0) { placed = true; break; }
+                        if (r == 0) { placed = true; if (Lamps3) lampPlacedS.Add(s); break; }
                     }
                 }
                 // (branchdrop 11-06) by a lane drop held to its node the branch runs on the
@@ -4939,11 +4940,59 @@ namespace PSXRacing.City
                     {
                         float s = s0 + dS;
                         if (Mathf.Abs(dS) > LampNudgeShare * step || s < lo || s > hi) continue;
-                        if (TryLamp(map, trims, tm, e, s, attempt == 0 ? first : -first, height, kind, speed, held) == 0) { placed = true; break; }
+                        if (TryLamp(map, trims, tm, e, s, attempt == 0 ? first : -first, height, kind, speed, held) == 0) { placed = true; if (Lamps3) lampPlacedS.Add(s); break; }
                     }
                 if (!placed && why > 0) tm.lampRejects[why]++;
                 LampTrace?.Invoke(e.index, s0, placed ? 0 : why);
             }
+            if (Lamps3) LampGapFill(map, trims, tm, e, lo, hi, gap, outsideOnly, height, kind, speed, min, max);
+        }
+
+        // ---- LAMPS 3: the gaps a refused station left -------------------------
+        static readonly List<float> lampPlacedS = new List<float>();
+        /// <summary>The longest stretch of one edge's ribbon (between two of its own lamps, or from a
+        /// junction mouth to its first) that may stand dark, as a share of the class's along-road gap
+        /// (after both-sides halving): past it a post is tried in the middle of the gap, then either way
+        /// of it to a third of the gap, on either side, until it holds no more such gap.</summary>
+        const float LampGapFillShare = 1.6f;
+        static void LampGapFill(CityMap map, Trims trims, TileMeshes tm, CityMap.Edge e, float lo, float hi, float gap,
+                                bool outsideOnly, float height, byte kind, float speed, Vector2 min, Vector2 max)
+        {
+            float maxGap = Mathf.Max(20f, gap * LampGapFillShare);
+            var ps = lampPlacedS;
+            for (int round = 0; round < 12; round++)
+            {
+                ps.Sort();
+                // the widest gap of this edge (a mouth counts half a gap: the next edge lights the other half)
+                float bestG = 0f, bestA = 0f, bestB = 0f;
+                float prev = lo - maxGap * 0.25f;
+                for (int i = 0; i <= ps.Count; i++)
+                {
+                    float cur = i < ps.Count ? ps[i] : hi + maxGap * 0.25f;
+                    if (cur - prev > bestG) { bestG = cur - prev; bestA = prev; bestB = cur; }
+                    prev = cur;
+                }
+                if (bestG <= maxGap) break;
+                float mid = Mathf.Clamp((bestA + bestB) * 0.5f, lo, hi);
+                var p0 = e.PointAt(mid);
+                if (p0.x < min.x || p0.x >= max.x || p0.y < min.y || p0.y >= max.y) break;   // another tile's stretch: its own pass fills it
+                bool placed = false;
+                float span = bestG / 3f;
+                for (int j = 0; !placed; j++)
+                {
+                    float d = ((j + 1) / 2) * 3f * ((j & 1) == 1 ? 1f : -1f);
+                    if (Mathf.Abs(d) > span) break;
+                    float s = mid + d;
+                    if (s < lo || s > hi) continue;
+                    for (int side = -1; side <= 1 && !placed; side += 2)
+                    {
+                        if (outsideOnly && side > 0) continue;
+                        if (TryLamp(map, trims, tm, e, s, side, height, kind, speed) == 0) { placed = true; ps.Add(s); tm.lampStations++; LampTrace?.Invoke(e.index, s, 0); }
+                    }
+                }
+                if (!placed) { ps.Add(mid); }   // nothing can stand there: leave the gap and look at the next one
+            }
+            ps.Clear();
         }
 
         /// <summary>The audits' look at why a street has no lamp where it has
