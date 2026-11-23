@@ -13,6 +13,9 @@ namespace PSXRacing.EditorTools
             // 256 would halve every tree to 64 px - chunkier than the circuit
             // trees it replaces.
             if (assetPath.Contains("/BRP/Gen/TreeAtlas")) return 512;
+            // (tunnel2, PSX_ROADUV2) a track road's texture: 256 across and as many rows as keep its texel square
+            // along 12.192 m (512 on a two-lane mountain road): capped at 256 it would halve across too
+            if (assetPath.Contains("/Art/City/city_road_track_")) return 1024;
             // The stage horizon's land (PSXRacingBuilder.Horizon): written at 512
             if (IsFarLand(assetPath)) return 512;
             if (assetPath.Contains("/Art/City/Understory/Understory_")) return 512;
