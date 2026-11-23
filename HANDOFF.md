@@ -1,3 +1,42 @@
+# HANDOFF - FALLCOLOUR: fall on the mountain stages in the owner's colours (golden yellow, flame orange, scarlet, copper), leaves that glow, a leaf carpet and leaves on the road (agent "fallcolour", branch fall-colour from c96b5178)
+
+Owner 11-23 after PC59: "Its very dull, the yellows are wrong, the oranges are wrong, the reds are wrong, the browns are wrong." Judged by our frame beside his picture, measured in OKLCH per colour class (scratch `fallcolour\leafmeasure.py`).
+
+## What was wrong (measured; scratch swatch_before.png, measure0/1.txt)
+1. DARK: his canopy has 5-13 % of its pixels under L 0.30; his PC59 frame 65 % (the editor reproduces it under a clear noon: 56-71 %). Cause: the foliage light (PSX/Lit crown AO down to 0.19, no light through the leaf). Not the grade (warm colours keep 0.96, the lift raises the floor).
+2. YELLOW/BROWN OLIVE: the NM autumn sheet itself is h 89-90; the fall tints MULTIPLIED it (gold 1,1.12,.62 = mustard). His yellow h 81, his browns copper h 48-55 (ours h 72-85, C .05).
+3. RED BRICK: the red tint darkened as it reddened (our reds L < 0.45; his scarlet L .53 C .13-.15 h 36). 4. NO ORANGE (0-2 % v his 20-30 %).
+5. GROUND: verge = summer-mown green grass (48 % green), floor grey-brown litter (C .03); his = tan straw under an orange-brown leaf carpet, leaves on the road.
+
+## What changed (switch PSX_FALL2, default ON; =0 at the SCENE BUILD = c96b5178's fall exactly: every FALL 2 material is its own new asset, the old ones untouched)
+- Leaves (`Editor/PSXRacingBuilder.MeshTrees.cs` Fall2*, `Fall2Dress`): each canopy beech recolours the autumn sheet AT ITS OWN LUMINANCE (PSX/Lit LeafRecolour) to one of his colours: 01 orange, 02 scarlet, 03 gold, 06 flame, 07 amber, 08 crimson; tulip gold share 16 % tree by tree; poplar gold, maple bushes scarlet, cherry scarlet, ferns/grasses bronze. Brightness x1.3 (golds x1.625) in `_LeafFall.y`. PSX/Lit: the shaded side of a turned leaf runs warmer (gold->copper, orange->rust: FALL2_WARM_DARK), so his copper "browns" come from the crowns' shade.
+- Leaf light (PSX/Lit foliage light, only on `_LeafFall` materials and only while the fall dress is live): crown AO floor 0.55, sky x0.30 and sun x0.22 (x the canopy factor) let through the canopy. Clear noon dark share 56 % -> 5 %.
+- Impostors, tree-match cards (copy `_LeafFall`, brightness 1 there: the sheet holds it), the far billboards (`TreeAtlas_fall2.png`, stage forests only - Charlotte keeps `TreeAtlas.png`), the far land's crowns (`PSXRacingBuilder.Horizon.cs` BroadFor / HorizonCanopyFor): the same colours. Card gains measured for the 7 new cards (`Editor/TreeMatchGains.txt`, PSX_TM_CALIB).
+- Ground: fall floor = Meadow `T_forest_ground_leaves_01_A_SM` warmed to copper with beech-litter patches; fall verge = Meadow `T_ground_meadow_grass_02_A_SM` (straw) under copper leaf patches to the asphalt (one cheap noise octave, `_BlendParams.w` 1; new `_BlendTint`, white = as before). Pack textures already tile-checked 11-08 (both axes); only material tints change. Ground blend fetch now skipped outside a patch (pixel-identical).
+- Leaves on the road (PSX/Lit `_RoadLeaves`, stage road materials): 35 cm cells, thick within a metre of each edge, sparse in the lanes, his colours; past ~13 cm a pixel only the mean tint (no shimmer).
+- Season (`Scripts/Season.cs` FallPhase, `SeasonDress` -> `_PSXFallPhase`): early (Sep: a share of the crowns still green, tree by tree), peak 8-22 Oct, late (Nov: russet and dull). Winter/spring/summer untouched (frames identical).
+- Tools: `Editor/FallShots.cs` (stage spots by road metres, chase or a staged elevated eye; cost A/B; vista finder; Tune for iteration).
+
+## Proof (scratch C:\Users\mcgee\AppData\Local\Temp\claude\be91fcb74e64226b\40ca151a-c5be-4aaa-9ea2-b8dd0e7c98a9\scratchpad\fallcolour\)
+- `fall_sheet.png`: his picture | PC59 / c96b5178 (editor, scene built from c96b5178 code) | this round: his spot (LS path 3820 m = his 4.24 km, tunnel ahead), a curve with a verge, far ridges (STAGED eye 30 m up), under the canopy in sun, afternoon + sunset, early / peak / late, summer + winter unchanged, Charlotte before | after.
+- Swatches: `swatch_before.png`, `swatch_after.png` (numbers swatch_after.txt). His spot, overcast: dark 8 % -> 0 %, mean chroma .061 -> .101 (his .107-.108); yellow 13 % h87 -> 45 % h80 L .54; orange 1 % -> 16 % h58; red 0 % -> 17 % h32 C .14; brown 74 % h85 -> 11 % h36. Clear noon under the canopy: dark 56 % -> 5 %.
+- Near / far: TreeMatchAudit LittleSwitzerland fall: c96b5178 0 / 21 pairs fail, this round 0 / 21 (after calibration).
+- Cost (editor in-process ABBA, 3832x2054, 16 rounds x 12 renders, LS chase): all FALL 2 run-time pieces (glow, phase, road leaves, recolour, verge patches) +0.07 / +0.03 / +0.01 ms at three spots (null A-A -0.04 / +0.04 / +0.16); road alone +0.04. Earlier, before the road / verge optimisations, it measured up to +0.5-1.0 ms (editor noise is large: two processes at one spot gave +0.18 and +0.90). Colour changes are material values (no cost). Re-measure in the player.
+- Self-test (PSXPerf, hidden): c96b5178 code 65 FAIL (89 FAIL lines), this round the identical set: NEW 0, GONE 0.
+
+## Still short of his pictures (honest)
+- YELLOW: hue right (h 80 v 81) but dimmer: L .54-.61 v his .64-.67. ORANGE: L .50-.54 v .58-.61. RED: matches (L .49-.58, C .14-.18, h 32-34 v 36; a touch more crimson). BROWN: now copper h 36-66 from the crowns' shade, but a smaller share than his (11-47 % v 41-46 %): our overcast canopy is flatter, less deep shade than his.
+- The far ridges read more orange (49 %) than his gold-orange-rust (32/24/33 %); far is what the near trees are (zero pop), so this follows the near mix.
+- Verge: copper leaf patches over straw, but more uniform than his drifts; no piled drifts at the road edge; road leaves are flat blobs, not leaf shapes.
+- Only Little Switzerland was rebuilt and shot; other stages get it from the scene pass (same code). Charlotte's own fall trees (its kit) are unchanged (olive/mustard): not in scope.
+- Editor shots, not the player; his PC59 frame is darker than our editor's overcast at the same spot.
+
+## For the merge / the next PC build (in order)
+1. Scene pass of every mountain stage with PSX_PC_CONTENT=1 (PSX_FALL2 unset = on): makes the FALL 2 materials, `TreeAtlas_fall2.png` (committed), the far land.
+2. `-executeMethod PSXRacing.EditorTools.TreeMatchBuild.PatchStages` WITHOUT -nographics (all stages): FOUND this round: a -nographics scene build bakes the match sheets as SOLID cards (cover 100 %, white blocks in the distance); PatchStages with a GPU bakes them right (cover 8-42 %). Same for c96b5178's cards - check what PC59 shipped.
+3. Player build as usual. No city re-bake, no tunnel files touched (TunnelLamps / tunnel builder untouched).
+- Shared-file edits: PSXLit.shader (foliage light block, LEAF VIVID block, ground blend, new road-leaves block; properties _LeafFall, _RoadLeaves, _BlendTint), PSXRacingBuilder.cs (BuildRoad: one SetVector), .Season.cs (atlas compose), .Stage.cs (two DressAtlasPath lines), .TreeMatch.cs (card _LeafFall copy), .Horizon.cs, Scripts/Season.cs, SeasonDress.cs.
+
 # HANDOFF - FAR HAZE v2: whatever fades with distance is never brighter than the sky behind it (branch far-haze, PSX_FARHAZE2)
 
 Owner 11-23 (PC60, Bat Cave, 7.97 km, heavy sky): "I'm not opposed to distant foggy objects...but they shouldn't be glowing white like a white dwarf star".

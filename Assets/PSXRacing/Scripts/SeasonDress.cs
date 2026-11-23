@@ -85,6 +85,8 @@ namespace PSXRacing
         public void Apply(int dress)
         {
             AppliedDress = Mathf.Clamp(dress, 0, Seasons.DressCount - 1);
+            // FALL 2: early / peak / late fall on the leaves that carry _LeafFall (x 0: the peak as built)
+            Shader.SetGlobalVector("_PSXFallPhase", new Vector4(Seasons.Fall2Live && AppliedDress == (int)Season.Fall ? 1f : 0f, Seasons.FallPhase(RaceHandoff.CalendarDay), 0f, 0f));
             if (entries == null || entries.Length == 0) return;
             var renderers = FindObjectsByType<Renderer>(FindObjectsInactive.Include, FindObjectsSortMode.None);
             int swapped = 0;

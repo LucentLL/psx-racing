@@ -2167,6 +2167,9 @@ namespace PSXRacing.EditorTools
                 mats[k] = MakeMat(MeshPrefix + (sl.deck ? "RoadDeck" : "Road") + (sl.edges ? "" : "Plain"),
                                   EnsureTrackRoadTex(RoadWidth, oneWay, sl.deck ? deckSurf : tarmacSurf, sl.edges),
                                   affine: 0f, wet: WetAsphalt);
+                // FALL 2: leaves on a forest stage's road in the fall dress (PSX/Lit _RoadLeaves; 0 = none)
+                mats[k].SetVector("_RoadLeaves", Fall2 && PCContent && track != null && track.stage && theme.stageForest
+                    ? new Vector4(1f, RoadWidth, TrackRoadVTile, 0f) : Vector4.zero);
             }
             mr.sharedMaterials = mats;
             if (slots.Count > 1 || plainTris.Count + plainDeckTris.Count > 0)
