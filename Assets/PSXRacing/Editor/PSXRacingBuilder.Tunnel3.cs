@@ -843,6 +843,9 @@ namespace PSXRacing.EditorTools
                 hillRock.shaderKeywords = bank.shaderKeywords;
                 hillRock.SetFloat("_RockTop", 1f);
                 if (hillRock.HasProperty("_HouseTint")) hillRock.SetFloat("_HouseTint", 0f);
+                // darker and less mossy than the cuts' faces: the dark wet ledges of the photographs
+                hillRock.color = bank.color * 0.72f;
+                var rp = bank.GetVector("_RockParams"); rp.w = Mathf.Min(rp.w, 0.45f); hillRock.SetVector("_RockParams", rp);
                 EditorUtility.SetDirty(hillRock);
                 boulderRock = hillRock;
             }
