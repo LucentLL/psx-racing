@@ -429,13 +429,45 @@ namespace PSXRacing.EditorTools
             const float Dout = 32f;
             float tile = Mathf.Max(theme.groundTile, 0.01f);
 
+            // THE GROUND AS DRAWN (not its collider: a near chunk's collider keeps the quads the tube's hole
+            // drops from its drawn mesh, and a hill laid on the collider stood over the road edge with nothing
+            // under it - the gap the probe found right of the entry): every drawn GroundN triangle near the tube
+            var gTris = new List<Vector3>();
+            {
+                var zone = new Bounds(pts[WrapIdx(from, n)], Vector3.one);
+                zone.Encapsulate(pts[WrapIdx(from + stations - 1, n)]);
+                zone.Expand(new Vector3(2f * (reach + Dout) + 20f, 400f, 2f * (reach + Dout) + 20f));
+                foreach (var mf in parent.root.GetComponentsInChildren<MeshFilter>(true))
+                {
+                    if (mf == null || !mf.name.Contains("GroundN") || mf.sharedMesh == null) continue;
+                    var mr = mf.GetComponent<MeshRenderer>();
+                    if (mr == null || !mr.enabled) continue;
+                    var gm = mf.sharedMesh; var gv = gm.vertices; var gt = gm.triangles; var xf = mf.transform.localToWorldMatrix;
+                    for (int k = 0; k + 2 < gt.Length; k += 3)
+                    {
+                        Vector3 a = xf.MultiplyPoint3x4(gv[gt[k]]), b = xf.MultiplyPoint3x4(gv[gt[k + 1]]), c = xf.MultiplyPoint3x4(gv[gt[k + 2]]);
+                        if (!zone.Contains(new Vector3(a.x, zone.center.y, a.z))) continue;
+                        gTris.Add(a); gTris.Add(b); gTris.Add(c);
+                    }
+                }
+            }
             float GroundAt(Vector3 p, out bool mesh)
             {
                 mesh = false;
-                var hits = Physics.RaycastAll(new Vector3(p.x, p.y + 600f, p.z), Vector3.down, 1400f, ~0, QueryTriggerInteraction.Ignore);
                 float best = float.NegativeInfinity;
-                foreach (var h in hits)
-                    if (h.collider != null && h.collider.name.Contains("GroundN") && h.point.y > best) { best = h.point.y; mesh = true; }
+                for (int k = 0; k + 2 < gTris.Count; k += 3)
+                {
+                    Vector3 a = gTris[k], b = gTris[k + 1], c = gTris[k + 2];
+                    float den = (b.z - c.z) * (a.x - c.x) + (c.x - b.x) * (a.z - c.z);
+                    if (Mathf.Abs(den) < 1e-6f) continue;
+                    float l1 = ((b.z - c.z) * (p.x - c.x) + (c.x - b.x) * (p.z - c.z)) / den;
+                    if (l1 < -1e-4f || l1 > 1.0001f) continue;
+                    float l2 = ((c.z - a.z) * (p.x - c.x) + (a.x - c.x) * (p.z - c.z)) / den;
+                    float l3 = 1f - l1 - l2;
+                    if (l2 < -1e-4f || l3 < -1e-4f) continue;
+                    float y = l1 * a.y + l2 * b.y + l3 * c.y;
+                    if (y > best) { best = y; mesh = true; }
+                }
                 return mesh ? best : StageLatticeY(p.x, p.z);
             }
             Vector3 Frame(float dist, out Vector3 r, out Vector3 fwd)
@@ -519,7 +551,13 @@ namespace PSXRacing.EditorTools
                         float slope = baseY + depth * 0.88f + undul;
                         y = Mathf.Max(need, Mathf.Min(land, slope));
                     }
-                    else y = Mathf.Max(land, need);
+                    else
+                    {
+                        // in front: the land or the spill, but never over the road edge - from the verge the hill
+                        // rises no faster than 2.2 : 1 (rock), so nothing hangs over the shoulder with air under it
+                        float cap = c.y + Mathf.Max(0f, ax - (roadHalf + 0.6f)) * 2.2f;
+                        y = Mathf.Max(c.y - 0.06f - Mathf.Max(0f, ax - (roadHalf + 2.5f)), Mathf.Min(Mathf.Max(land, need), cap));
+                    }
                     v[ri * C + ci] = new Vector3(p.x, y, p.z);
                     own[ri * C + ci] = !onMesh || y > g + 0.02f;
                     vis[ri * C + ci] = onMesh ? Mathf.Max(g, y) : y;
