@@ -29,15 +29,30 @@ namespace PSXRacing
         /// core, the far city's lamps matched to the streamed ones).</summary>
         public static bool Points = Env("PSX_LIGHT_LOOK_POINTS");
 
+        /// <summary>2. The road lit by the row past the near field's 200 m: the
+        /// far lamp field (StreetLights.FarField.cs).</summary>
+        public static bool FarPools = Env("PSX_LIGHT_LOOK_FARPOOLS");
+
+        /// <summary>3. A far car's lamps a steady point with a halo that grows
+        /// (PSX/Glow _LensLook; CarLights' lens materials).</summary>
+        public static bool CarPoints = Env("PSX_LIGHT_LOOK_CARPOINTS");
+        /// <summary>Read once: whether a lamp-map body gets its far-point
+        /// sprites at all (with the look off at start, none are made).</summary>
+        public static readonly bool CarPointsAtStart = On && CarPoints;
+
+        /// <summary>5. Sodium ceiling lamps in the stage tunnels (TunnelLamps).</summary>
+        public static bool Tunnels = Env("PSX_LIGHT_LOOK_TUNNELS");
+
         public static bool PointsOn => On && Points;
+        public static bool CarPointsOn => On && CarPoints;
 
         static readonly int LookId = Shader.PropertyToID("_PSXLightLook");
 
         /// <summary>The look's globals, for this camera (StreetLights.OnBeginCamera).
-        /// x = the points (0/1).</summary>
+        /// x = the lamp points, y = the car lamp points (0/1).</summary>
         public static void Push()
         {
-            Shader.SetGlobalVector(LookId, new Vector4(PointsOn ? 1f : 0f, 0f, 0f, 0f));
+            Shader.SetGlobalVector(LookId, new Vector4(PointsOn ? 1f : 0f, CarPointsOn ? 1f : 0f, 0f, 0f));
         }
     }
 }

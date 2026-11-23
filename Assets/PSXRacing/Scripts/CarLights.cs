@@ -431,10 +431,12 @@ namespace PSXRacing
         bool Dark => CarController.LeftCarRules && car != null && car.Unattended;
         bool lastDark;
 
-        bool TailSpriteOn => !HasLampMap && (LitNow || braking);
+        bool TailSpriteOn => (!HasLampMap || LightLook.CarPointsAtStart) && (LitNow || braking);
         /// <summary>The head-lens sprites: with the lights, and never on a car
         /// whose headlamps are drawn on its body.</summary>
-        bool HeadSpriteOn => LitNow && !HasHeadMap;
+        bool HeadSpriteOn => LitNow && (!HasHeadMap || LightLook.CarPointsAtStart);
+        /// <summary>(lightlook) a lamp-map body's lens sprites are its far point only (PSX/Glow _LensLook 2).</summary>
+        Material HeadLensMat => HasHeadMap ? HeadFarMat : HeadMat;
 
         /// <summary>Find the map for the shell this car wears now and the
         /// renderer that draws its body; put the lamps out on a renderer that
@@ -461,8 +463,8 @@ namespace PSXRacing
             pushedRun = pushedBrake = -1f;
             for (int i = 0; i < 2; i++)
             {
-                if (tailLens[i] != null) tailLens[i].enabled = TailSpriteOn && !TailOut(i);
-                if (headLens[i] != null) headLens[i].enabled = HeadSpriteOn && !HeadOut(i);
+                if (tailLens[i] != null) { tailLens[i].sharedMaterial = TailLensMat; tailLens[i].enabled = TailSpriteOn && !TailOut(i); }
+                if (headLens[i] != null) { headLens[i].sharedMaterial = HeadLensMat; headLens[i].enabled = HeadSpriteOn && !HeadOut(i); }
             }
         }
 
@@ -720,7 +722,7 @@ namespace PSXRacing
 
         void ApplyBrake()
         {
-            var mat = braking ? TailBrightMat : TailDimMat;
+            var mat = TailLensMat;
             for (int i = 0; i < 2; i++)
             {
                 if (tailLens[i] == null) continue;
@@ -774,7 +776,7 @@ namespace PSXRacing
         {
             for (int i = 0; i < 2; i++)
             {
-                if (headLens[i] != null) headLens[i].enabled = HeadSpriteOn && !HeadOut(i);
+                if (headLens[i] != null) { headLens[i].sharedMaterial = HeadLensMat; headLens[i].enabled = HeadSpriteOn && !HeadOut(i); }
                 if (beams[i] != null) beams[i].enabled = LitNow && !HeadOut(i);
                 if (tailLens[i] != null) tailLens[i].enabled = TailSpriteOn && !TailOut(i);
             }
@@ -1382,11 +1384,31 @@ namespace PSXRacing
         /// <summary>The lens, in halogen, a touch hotter than the beam so it
         /// reads as the source.</summary>
         static Material HeadMat => headMat != null ? headMat
-            : headMat = MakeMat("PSX/Glow", "Headlight", Halogen, 1.6f, true);
+            : headMat = Lens(MakeMat("PSX/Glow", "Headlight", Halogen, 1.6f, true), 1f, LensHeadHaloM, LensHeadHaloAmt);
         static Material TailDimMat => tailDim != null ? tailDim
-            : tailDim = MakeMat("PSX/Glow", "Taillight", new Color(1.00f, 0.16f, 0.10f), TailLensDim, true);
+            : tailDim = Lens(MakeMat("PSX/Glow", "Taillight", new Color(1.00f, 0.16f, 0.10f), TailLensDim, true), 1f, LensTailHaloM, LensTailHaloAmt);
         static Material TailBrightMat => tailBright != null ? tailBright
-            : tailBright = MakeMat("PSX/Glow", "Brakelight", new Color(1.00f, 0.12f, 0.06f), 2.6f, true);
+            : tailBright = Lens(MakeMat("PSX/Glow", "Brakelight", new Color(1.00f, 0.12f, 0.06f), 2.6f, true), 1f, LensTailHaloM, LensTailHaloAmt);
+
+        // ---- the lightlook round (2026-11-23): a far car's lamps a steady point (PSX/Glow _LensLook) ----
+        /// <summary>The halos round a lens with the look on (PSX/Glow): half-size
+        /// in metres (it grows with the approach as the world does) and amount.</summary>
+        public static float LensHeadHaloM = 0.75f, LensHeadHaloAmt = 0.30f, LensTailHaloM = 0.40f, LensTailHaloAmt = 0.22f;
+        static Material headFar, tailDimFar, tailBrightFar;
+        static Material Lens(Material m, float mode, float haloM, float haloAmt)
+        {
+            if (m == null) return null;
+            m.SetFloat("_LensLook", mode); m.SetFloat("_LensHaloM", haloM); m.SetFloat("_LensHaloAmt", haloAmt);
+            return m;
+        }
+        /// <summary>A lamp-map body's lens sprites: the far point only (mode 2).</summary>
+        static Material HeadFarMat => headFar != null ? headFar
+            : headFar = Lens(MakeMat("PSX/Glow", "HeadlightFar", Halogen, 1.6f, true), 2f, 0f, 0f);
+        static Material TailDimFarMat => tailDimFar != null ? tailDimFar
+            : tailDimFar = Lens(MakeMat("PSX/Glow", "TaillightFar", new Color(1.00f, 0.16f, 0.10f), TailLensDim, true), 2f, 0f, 0f);
+        static Material TailBrightFarMat => tailBrightFar != null ? tailBrightFar
+            : tailBrightFar = Lens(MakeMat("PSX/Glow", "BrakelightFar", new Color(1.00f, 0.12f, 0.06f), 2.6f, true), 2f, 0f, 0f);
+        Material TailLensMat => HasLampMap ? (braking ? TailBrightFarMat : TailDimFarMat) : (braking ? TailBrightMat : TailDimMat);
         /// <summary>The beam in the air. Same halogen; PSX/Beam fades it out
         /// by daylight on its own.</summary>
         static Material BeamMat => beamMat != null ? beamMat

@@ -78,6 +78,10 @@ namespace PSXRacing
         public static Vector3 CityBounce = new Vector3(0.075f, 0.069f, 0.063f);
 
         public static bool FieldEnabled = System.Environment.GetEnvironmentVariable("PSX_LAMPFIELD") != "0";
+        /// <summary>(lightlook) the field's lamp colour in this scene (sRGB) in
+        /// place of the bulb's: a stage whose only field lamps are its tunnels'
+        /// sodium heads (TunnelLamps). Null: the city's bulb.</summary>
+        public static Color? FieldHueOverride;
         public static bool FieldActive { get; private set; }
         public static int FieldLamps { get; private set; }
         /// <summary>Of <see cref="FieldLamps"/>, the mercury-vapour heads (the 1990s city).</summary>
@@ -178,10 +182,12 @@ namespace PSXRacing
             Shader.SetGlobalVector(FieldYId, new Vector4(builtBaseY, UptownCentre.x, UptownCentre.y, 1f / Mathf.Max(1f, UptownOuterM - UptownInnerM)));
             // (the 1990s city: _PSXFieldWhite carries the mercury head now,
             // _PSXFieldWarm.w uptown's gain)
-            var w = FieldMercury; var k = FieldWarm.linear;
+            var w = FieldMercury; var k = FieldHueOverride.HasValue ? FieldHueOverride.Value.linear : FieldWarm.linear;
             Shader.SetGlobalVector(FieldWhiteId, new Vector4(w.r, w.g, w.b, UptownOuterM));
             Shader.SetGlobalVector(FieldWarmId, new Vector4(k.r, k.g, k.b, UptownGain));
             Shader.SetGlobalVector(BounceId, new Vector4(CityBounce.x, CityBounce.y, CityBounce.z, 1f));
+            // the lightlook round: the row of pools past 200 m (StreetLights.FarField.cs)
+            PushFarField(eye, mayRebuild);
         }
 
         /// <summary>NO LIGHT POPS: how far (per axis) the eye may stand from
@@ -198,6 +204,7 @@ namespace PSXRacing
         {
             FieldActive = false;
             Shader.SetGlobalVector(FieldSTId, Vector4.zero);
+            FarOff();
             Shader.SetGlobalVector(BounceId, Vector4.zero);
         }
 

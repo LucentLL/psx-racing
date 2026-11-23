@@ -244,14 +244,20 @@ namespace PSXRacing
         /// <see cref="Init(IList{Vector3}, IList{float})"/>): their pools are
         /// drawn by StreetLights' lamp field, not the slot table.</summary>
         [System.NonSerialized] public bool cityField;
+        /// <summary>(lightlook) every lamp of this set in one colour (sRGB; the
+        /// tunnels' sodium, TunnelLamps) - its light and its halos - instead of
+        /// the bulb / mercury heads; and its light on the world x
+        /// <see cref="poolGain"/> (the halos keep their full brightness).</summary>
+        [System.NonSerialized] public Color? lampColour;
+        [System.NonSerialized] public float poolGain = 1f;
 
         void Register()
         {
             StreetLights.RemoveAll(this);
             for (int i = 0; i < heads.Count && i < lampHeads; i++)
             {
-                int h = StreetLights.Add(this, heads[i], StreetLights.StreetRadius, Merc(i) ? StreetLights.MercuryLamp : StreetLights.Bulb,
-                                         StreetLights.StreetIntensity * (i < gains.Count ? gains[i] : 1f), StreetLights.Kind.Street);
+                int h = StreetLights.Add(this, heads[i], StreetLights.StreetRadius, lampColour ?? (Merc(i) ? StreetLights.MercuryLamp : StreetLights.Bulb),
+                                         StreetLights.StreetIntensity * (i < gains.Count ? gains[i] : 1f) * poolGain, StreetLights.Kind.Street);
                 if (cityField) StreetLights.MarkField(h, true, Merc(i));
             }
         }
@@ -261,6 +267,12 @@ namespace PSXRacing
             // a set with a mercury head tints each halo by its vertex colour
             // (linear) under a white material; every other set is as it was
             List<Color> tints = null;
+            if (lampColour.HasValue)
+            {
+                tints = new List<Color>(heads.Count);
+                for (int k = 0; k < heads.Count; k++) tints.Add(lampColour.Value.linear);
+            }
+            else
             for (int i = 0; i < heads.Count; i++)
                 if (Merc(i))
                 {
