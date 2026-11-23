@@ -55,10 +55,20 @@ namespace PSXRacing
         const string PrefKey = "psx.skyDynamic";
         static int cached = -1;
 
+        /// <summary>Tools (NIGHT 4's sky panoramas): -1 the player's choice, 0 photo, 1 dynamic, for
+        /// this run only - never written to the prefs (the measuring player shares the owner's).</summary>
+        public static int ToolSky
+        {
+            get => toolSky;
+            set { if (toolSky == value) return; toolSky = value; Changed++; TimeOfDay.RefreshSky(); }
+        }
+        static int toolSky = -1;
+
         public static bool Dynamic
         {
             get
             {
+                if (toolSky >= 0) return toolSky != 0;
                 if (cached < 0) cached = PlayerPrefs.GetInt(PrefKey, 0);
                 return cached != 0;
             }
