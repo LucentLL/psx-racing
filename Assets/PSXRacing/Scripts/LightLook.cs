@@ -40,8 +40,10 @@ namespace PSXRacing
         /// sprites at all (with the look off at start, none are made).</summary>
         public static readonly bool CarPointsAtStart = On && CarPoints;
 
-        /// <summary>5. Sodium ceiling lamps in the stage tunnels (TunnelLamps).</summary>
-        public static bool Tunnels = Env("PSX_LIGHT_LOOK_TUNNELS");
+        /// <summary>5. Sodium ceiling lamps in the stage tunnels (TunnelLamps). DEFAULT OFF since the merge
+        /// (2026-11-23): the real Blue Ridge Parkway bores are unlit, and the lit tunnel follows another
+        /// game's expressway tunnel in the owner's reference clip. His call: PSX_LIGHT_LOOK_TUNNELS=1 lights them.</summary>
+        public static bool Tunnels = System.Environment.GetEnvironmentVariable("PSX_LIGHT_LOOK_TUNNELS") == "1";
 
         /// <summary>4/7. The headlight table's hand-overs twice as soft (CarLights: rank band 90 m,
         /// distance fade 140-240 m).</summary>
