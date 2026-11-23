@@ -1007,6 +1007,10 @@ namespace PSXRacing
         // replay cut is right on its first frame. PSX_LIGHT_NOPOP=0: as before.
         public const float HeadAimM = 12f, HeadAimRadiusM = 25f;
         public const float HeadRankBandM = 45f, HeadFullM = 150f, HeadEndM = 210f;
+        /// <summary>No cut lies further out than this score: twice the end, so a car
+        /// with no rival for its slot (a race of four seen from a replay's bystander)
+        /// fades by its own distance alone, never by the angle its beams point at.</summary>
+        public const float HeadScoreCap = HeadEndM * 2f;
         /// <summary>A car's beams on the world: its lamps are scored by the aim
         /// point's distance times 1 + this times how far off the line of sight
         /// (less than the street lamps': a car turning across the view must not
@@ -1055,7 +1059,7 @@ namespace PSXRacing
                 float s = dist * (1f + (vf - 1f) * HeadViewPenalty / StreetLights.ViewPenalty);
                 float born = Application.isPlaying ? Mathf.Clamp01((now - sorted[i].bornAt) / HeadBirthS) : 1f;
                 s += HeadBirthM * (1f - born);
-                if (s >= HeadEndM) continue;
+                if (s >= HeadScoreCap) continue;
                 if (scoredCount == cap && s >= scoredScore[cap - 1]) continue;
                 int k = scoredCount < cap ? scoredCount++ : cap - 1;
                 float fade = Mathf.Clamp01((HeadEndM - dist) / (HeadEndM - HeadFullM));
@@ -1066,7 +1070,7 @@ namespace PSXRacing
                 }
                 scoredScore[k] = s; scoredIdx[k] = i; scoredFade[k] = fade;
             }
-            carCut = scoredCount > carsMax ? Mathf.Min(scoredScore[carsMax], HeadEndM) : HeadEndM;
+            carCut = scoredCount > carsMax ? Mathf.Min(scoredScore[carsMax], HeadScoreCap) : HeadScoreCap;
             if (scoredCount > carsMax) scoredCount = carsMax;
         }
 
