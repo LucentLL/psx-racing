@@ -302,8 +302,12 @@ float4 CarBeadLens(float3 p, float3 n, float3 down, float wind, float glass, out
         // none in a rivulet's wiped track
         float2 qm = q / CD_SCALE;
         float4 bs = CD2Bead4(qm, CD2_CELL_S, CD2_RS_MIN, CD2_RS_MAX, rain * lerp(0.60, 0.45, streakW), 1.7);
-        bs.x *= 1.0 - cd2Wipe;
         float fpm = max(length(fwidth(qm)), 1e-6);
+        // under a pixel: the layer's average (a sheen), not a speckle that crawls
+        float rM = CD2_CELL_S * 0.5 * (CD2_RS_MIN + CD2_RS_MAX);
+        float avg = saturate(rain * lerp(0.60, 0.45, streakW)) * 0.75 * 0.5 * 3.14159 * rM * rM / (CD2_CELL_S * CD2_CELL_S);
+        bs.x = lerp(avg, bs.x, saturate((rM / fpm - 0.6) / 0.9));
+        bs.x *= 1.0 - cd2Wipe;
         pxR = bs.w / fpm;
         return bs;
     }

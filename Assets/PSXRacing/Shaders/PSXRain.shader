@@ -154,7 +154,7 @@ Shader "PSX/Rain"
             // lights in the lamp table, a metre from the first puffs) is rolled off at
             // SPRAY_LAMP_CAP, so the mist is tinted red right behind a lit tail lamp, never a
             // red-white flare.
-            #define SPRAY_BASE      0.62
+            #define SPRAY_BASE      0.45
             #define SPRAY_LAMP      0.9
             #define SPRAY_LAMP_CAP  0.30
 

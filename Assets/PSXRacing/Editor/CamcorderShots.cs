@@ -687,12 +687,13 @@ namespace PSXRacing.EditorTools
 
         /// <summary>Render the camera as it stands with and without the spray, save the first as
         /// &lt;tag&gt;_spray_&lt;name&gt;.png (unless `save` is false) and log the plume against the road.</summary>
-        internal static void Measure(string name, bool save = true)
+        internal static void Measure(string name, bool save = true, int forceW = 0, int forceH = 0)
         {
             var cam = Camera.main;
             if (cam == null || SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Null) return;
             var fb = cam.targetTexture;
             int w = fb != null ? fb.width : 1280, h = fb != null ? fb.height : 720;
+            if (forceW > 0) { w = forceW; h = forceH; }
             var fmt = fb != null ? fb.graphicsFormat : UnityEngine.Experimental.Rendering.GraphicsFormat.R8G8B8A8_SRGB;
             StreetLights.Push(cam.transform.position, cam.transform.forward);
             var with = Render(cam, w, h, fmt);
@@ -752,10 +753,15 @@ namespace PSXRacing.EditorTools
                 cam.fieldOfView = 40f;
                 cam.transform.position = t.position + t.up * 1.55f - t.forward * 3.0f + t.right * 0.6f;
                 cam.transform.LookAt(t.position + t.up * 0.95f - t.forward * 1.6f);
-                Measure(item + "_rest_close");
+                Measure(item + "_rest_close", true, 1920, 1080);
                 cam.transform.position = t.position + t.up * 1.6f - t.forward * 5.5f + t.right * 3.5f;
                 cam.transform.LookAt(t.position + t.up * 0.6f);
-                Measure(item + "_rest_whole");
+                Measure(item + "_rest_whole", true, 1920, 1080);
+                // a macro of the boot lid / rear glass: half a metre away, the beads resolved at 1920
+                cam.fieldOfView = 30f;
+                cam.transform.position = t.position + t.up * 1.45f - t.forward * 2.35f + t.right * 0.25f;
+                cam.transform.LookAt(t.position + t.up * 1.0f - t.forward * 1.75f);
+                Measure(item + "_rest_macro", true, 1920, 1080);
             }
             finally
             {
