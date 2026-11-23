@@ -421,7 +421,7 @@ namespace PSXRacing.EditorTools
             float R = T2Radius(halfW), RE = R + T2RingW;
             float wallX = T2WallX(halfW), top = T2WallTopY(halfW), bottom = -2.6f;
             var sv = new List<Vector3>(); var suv = new List<Vector2>(); var sc = new List<Color>(); var st = new List<int>();
-            float Tint() => Rnd(0.40f, 0.56f) * (rnd.NextDouble() < 0.12 ? 0.82f : 1f);
+            float Tint() => Rnd(0.44f, 0.68f) * (rnd.NextDouble() < 0.15 ? 0.78f : 1f);
 
             // ---- the ring: voussoirs over the arch, radiating ----
             const int VN = 25;
@@ -674,12 +674,11 @@ namespace PSXRacing.EditorTools
         {
             int n = pts.Count;
             Physics.SyncTransforms();
-            float reach = halfW + 1f + NearCell * 1.4f, step = 1.5f;
+            float reach = halfW + 1f + NearCell * 1.6f, step = 1.5f;
             int cols = Mathf.CeilToInt(2f * reach / step) + 1;
             float wallX = T2WallX(halfW), wallTop = T2WallTopY(halfW), crownMin = T2CrownY(halfW) + 1.2f;
+            float total = (stations - 1) * Spacing;
             var v = new List<Vector3>(); var uv = new List<Vector2>(); var t = new List<int>();
-            // rings from just behind the entry headwall to just behind the exit's
-            int rings = stations;
             float GroundAt(Vector3 p, out bool mesh)
             {
                 mesh = false;
@@ -689,28 +688,63 @@ namespace PSXRacing.EditorTools
                     if (h.collider != null && h.collider.name.Contains("GroundN") && h.point.y > best) { best = h.point.y; mesh = true; }
                 return mesh ? best : StageDemY(p.x, p.z);
             }
-            for (int k = 0; k < rings; k++)
+            // the masonry's top at x (over the road at a portal): headwall, wing steps
+            float WingTop(float ax)
             {
-                int i = WrapIdx(from + k, n);
-                Vector3 c = pts[i], r = RightAt(pts, i);
-                Vector3 fwd = Vector3.Cross(r, Vector3.up).normalized;
-                // the first and last ring sit 0.6 m behind the headwall's face
-                float back = k == 0 ? 0.6f : (k == rings - 1 ? -0.6f : 0f);
-                Vector3 cc = c + fwd * back;
-                float sP = Mathf.Min(k, rings - 1 - k) * Spacing;
+                if (ax <= wallX) return wallTop - 0.05f;
+                float[] tops = { wallTop - 2.2f, wallTop - 4.0f, wallTop - 5.6f };
+                int w = Mathf.Clamp(Mathf.FloorToInt((ax - wallX) / (T2WingM / tops.Length)), 0, tops.Length - 1);
+                return Mathf.Max(tops[w], 1.2f) - 0.05f;
+            }
+            Vector3 Frame(float dist, out Vector3 r, out Vector3 fwd)
+            {
+                float fs = Mathf.Clamp(dist / Spacing, 0f, stations - 1 - 1e-4f);
+                int s = Mathf.Min(Mathf.FloorToInt(fs), stations - 2); float tt = fs - s;
+                int i0 = WrapIdx(from + s, n), i1 = WrapIdx(from + s + 1, n);
+                r = Vector3.Lerp(RightAt(pts, i0), RightAt(pts, i1), tt).normalized;
+                fwd = Vector3.Cross(r, Vector3.up).normalized;
+                return Vector3.Lerp(pts[i0], pts[i1], tt);
+            }
+            // per portal: the base height across its plane - the masonry's top
+            // over its width, the approach's ground beyond it
+            float[] baseA = new float[cols], baseB = new float[cols];
+            for (int pass = 0; pass < 2; pass++)
+            {
+                Vector3 pc = Frame(pass == 0 ? 0f : total, out Vector3 pr, out Vector3 pf);
+                Vector3 face = pf * (pass == 0 ? -1f : 1f);
                 for (int j = 0; j < cols; j++)
                 {
-                    float x = -reach + j * step;
-                    Vector3 p = cc + r * x;
+                    float x = -reach + j * step, ax = Mathf.Abs(x);
+                    float b;
+                    if (ax <= wallX + T2WingM) b = pc.y + WingTop(ax);
+                    else
+                    {
+                        Vector3 q = pc + pr * x + face * 1.5f;
+                        float g = GroundAt(q, out bool om);
+                        b = om ? g : StageGroundHeightAt(q.x, q.z);
+                    }
+                    if (pass == 0) baseA[j] = b; else baseB[j] = b;
+                }
+            }
+            // ---- over the bore: rings every 2 m from 0.6 m behind each headwall,
+            // rising from the base at 1:0.9 until under the hill ----
+            var dists = new List<float>();
+            for (float d = 0.6f; d < total - 0.6f; d += 2f) dists.Add(d);
+            dists.Add(total - 0.6f);
+            for (int k = 0; k < dists.Count; k++)
+            {
+                float dist = dists[k];
+                Vector3 c = Frame(dist, out Vector3 r, out Vector3 fwd);
+                bool nearA = dist < total * 0.5f;
+                float sP = nearA ? dist : total - dist;
+                for (int j = 0; j < cols; j++)
+                {
+                    float x = -reach + j * step, ax = Mathf.Abs(x);
+                    Vector3 p = c + r * x;
                     float g = GroundAt(p, out bool onMesh);
-                    float y = onMesh ? g - 0.3f : g;
-                    float ax = Mathf.Abs(x);
-                    // over the bore: never lower than the crown and its cover
+                    float slope = (nearA ? baseA[j] : baseB[j]) + Mathf.Max(0f, sP - 0.6f) * 1.1f;
+                    float y = Mathf.Min(onMesh ? g - 0.3f : g, slope);
                     if (ax < halfW + 1.5f) y = Mathf.Max(y, c.y + crownMin);
-                    // behind the masonry near a portal: up to its coping
-                    float wallW = Mathf.Clamp01((wallX + 1.0f - ax) / 1.5f) * Mathf.Clamp01((6f - sP) / 4f);
-                    if (wallW > 0f) y = Mathf.Max(y, Mathf.Lerp(y, c.y + wallTop - 0.05f, wallW));
-                    // the outermost columns tuck under the ground mesh
                     if ((j == 0 || j == cols - 1) && onMesh) y = g - 0.6f;
                     v.Add(new Vector3(p.x, y, p.z));
                     uv.Add(new Vector2(p.x, p.z) / 8f);
@@ -721,6 +755,46 @@ namespace PSXRacing.EditorTools
                     }
                 }
             }
+            // ---- in front of each portal, beside the road: the approach's
+            // ground 0.4 m under it (hidden where the ground mesh is; filling
+            // the hole its dropped lattice quads leave at the mouth), stitched
+            // to the cover's first ring ----
+            float x0 = RoadWidth * 0.5f + 2.5f;
+            int sideCols = Mathf.CeilToInt((reach - x0) / step) + 1;
+            for (int pass = 0; pass < 2; pass++)
+                foreach (float side in new[] { -1f, 1f })
+                {
+                    int start = v.Count, rowsN = 0;
+                    for (float s = 0.6f; s >= -16f; s -= 2f, rowsN++)
+                    {
+                        float dist = pass == 0 ? s : total - s;
+                        Vector3 c = Frame(Mathf.Clamp(dist, 0f, total), out Vector3 r, out Vector3 fwd);
+                        float beyond = pass == 0 ? Mathf.Min(0f, dist) : Mathf.Max(0f, dist - total);
+                        c += fwd * beyond;
+                        for (int j = 0; j < sideCols; j++)
+                        {
+                            float x = side * Mathf.Min(x0 + j * step, reach);
+                            Vector3 p = c + r * x;
+                            float y;
+                            int jj = Mathf.Clamp(Mathf.RoundToInt((x + reach) / step), 0, cols - 1);
+                            if (s > 0f) y = v[(pass == 0 ? 0 : dists.Count - 1) * cols + jj].y;
+                            else
+                            {
+                                float g = GroundAt(p, out bool om);
+                                y = (om ? g : StageGroundHeightAt(p.x, p.z)) - 0.4f;
+                                // never over the masonry's top in front of it
+                                if (Mathf.Abs(x) <= wallX + T2WingM) y = Mathf.Min(y, pass == 0 ? baseA[jj] : baseB[jj]);
+                            }
+                            v.Add(new Vector3(p.x, y, p.z));
+                            uv.Add(new Vector2(p.x, p.z) / 8f);
+                            if (rowsN > 0 && j > 0)
+                            {
+                                int a = start + (rowsN - 1) * sideCols + j - 1, b = start + (rowsN - 1) * sideCols + j, d = start + rowsN * sideCols + j, e = start + rowsN * sideCols + j - 1;
+                                QuadFacing(v, t, a, b, d, e, Vector3.up);
+                            }
+                        }
+                    }
+                }
             T2Mesh("TunnelCover" + no, v, uv, null, t, groundMat, parent, null);
         }
 
@@ -745,7 +819,7 @@ namespace PSXRacing.EditorTools
             // the traffic's forward at the sign: toward the portal
             Vector3 travel = Vector3.Cross(right, Vector3.up).normalized * (-awayDir);
             Vector3 trafficRight = Vector3.Cross(Vector3.up, travel).normalized;
-            float panelW = 1.25f, panelH = 1.0f, postH = 2.1f, setOff = 1.8f + panelW * 0.5f;
+            float panelW = 1.5f, panelH = 1.2f, postH = 2.5f, setOff = 1.8f + panelW * 0.5f;
             Vector3 foot = c + trafficRight * (RoadWidth * 0.5f + setOff);
             foot.y = StageGroundHeightAt(foot.x, foot.z);
             // panel faces the oncoming traffic
