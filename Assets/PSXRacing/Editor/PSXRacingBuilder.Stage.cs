@@ -8005,7 +8005,7 @@ namespace PSXRacing.EditorTools
             skyCrowns.Clear();
 
             // Both faces drawn, in every season's dress — see PSX/Lit's _Cull.
-            var mat = MakeMat(MeshPrefix + "Forest", StageGenDir + "/TreeAtlas.png", cutoff: 0.5f, twoSided: true);
+            var mat = MakeMat(MeshPrefix + "Forest", DressAtlasPath((int)Season.Fall), cutoff: 0.5f, twoSided: true);
             RegisterSeasonalTexture(MeshPrefix + "Forest", mat, DressAtlasPath, "forest", cutoff: 0.5f,
                                     twoSided: true);
             var rng = new System.Random(41);
@@ -8048,7 +8048,7 @@ namespace PSXRacing.EditorTools
                 // (the stage-accuracy pairs, 2026-11-03); from just above, a
                 // sliver over them, so PSX/Lit's _CrownFade dithers it out at
                 // grazing angles, in every season's dress.
-                crownMat = MakeMat(MeshPrefix + "ForestCrowns", StageGenDir + "/TreeAtlas.png", cutoff: 0.5f);
+                crownMat = MakeMat(MeshPrefix + "ForestCrowns", DressAtlasPath((int)Season.Fall), cutoff: 0.5f);
                 RegisterSeasonalTexture(MeshPrefix + "ForestCrowns", crownMat, DressAtlasPath, "forest", cutoff: 0.5f);
                 var crownDress = new List<Material> { crownMat };
                 foreach (var e in seasonEntries)

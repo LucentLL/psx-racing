@@ -103,7 +103,10 @@ namespace PSXRacing.EditorTools
         };
 
         static string DressAtlasPath(int dress) =>
-            StageGenDir + (dress == (int)Season.Fall ? "/TreeAtlas.png" : "/TreeAtlas_" + DressSuffix[dress] + ".png");
+            StageGenDir + (dress == (int)Season.Fall ? (Fall2 ? Fall2AtlasName : "/TreeAtlas.png") : "/TreeAtlas_" + DressSuffix[dress] + ".png");
+        /// <summary>FALL 2's fall atlas for the STAGE forests only: Charlotte's card trees keep TreeAtlas.png
+        /// (the city's own near trees are its kit's, which this round does not recolour).</summary>
+        const string Fall2AtlasName = "/TreeAtlas_fall2.png";
 
         /// <summary>Copy the extra seasons' billboards out of the pack, the way
         /// EnsureStageArt copies the fall's.</summary>
@@ -169,9 +172,10 @@ namespace PSXRacing.EditorTools
             for (int d = 0; d < Seasons.DressCount; d++)
             {
                 var files = DressTreeFiles[d] ?? (IList<string>)fall;
-                ComposeTreeAtlas(DressAtlasPath(d), files, d,
+                ComposeTreeAtlas(d == (int)Season.Fall ? StageGenDir + "/TreeAtlas.png" : DressAtlasPath(d), files, d,
                                  liftBare: d == (int)Season.Winter || d == Seasons.DressSnow);
             }
+            if (Fall2) ComposeTreeAtlas(StageGenDir + Fall2AtlasName, fall, (int)Season.Fall, recolour: true);
         }
 
         /// <param name="liftBare">Brighten the dark branch pixels of the
@@ -205,13 +209,13 @@ namespace PSXRacing.EditorTools
                                (byte)Mathf.Clamp(Mathf.RoundToInt(o.b * 255f), 0, 255), c.a);
         }
 
-        static void ComposeTreeAtlas(string atlasPath, IList<string> files, int dress, bool liftBare = false)
+        static void ComposeTreeAtlas(string atlasPath, IList<string> files, int dress, bool liftBare = false, bool recolour = false)
         {
             const int cellPx = 128, atlasPx = cellPx * 4;
             var px = new Color32[atlasPx * atlasPx];
             // FALL 2: the far billboards (the B chunks past the mesh forest's far range, and what the mirrors
             // see) in the same colours as the canopy's beeches, cell by cell
-            bool fall2 = dress == (int)Season.Fall && Fall2;
+            bool fall2 = recolour;
             var bareTone = new Color32(122, 108, 92, 255);
             float worstSlide = 0f, worstShrink = 1f;
             for (int i = 0; i < files.Count && i < 16; i++)
