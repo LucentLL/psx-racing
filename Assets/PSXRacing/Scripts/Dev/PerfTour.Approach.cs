@@ -100,7 +100,7 @@ namespace PSXRacing
             }
             var rt = new RenderTexture(W, H, 32, RenderTextureFormat.Default) { antiAliasing = 1, name = "ApproachFull" };
             var screen = new RenderTexture(W, H, 0, RenderTextureFormat.Default) { antiAliasing = 1, name = "ApproachScreen" };
-            rt.Create(); screen.Create();
+            rt.Create(); screen.Create(); apCam = cam; apRT = rt;
             var outp = cam.GetComponent<PSXCameraOutput>();
             Material blit = outp != null && outp.display != null && outp.display.material != null ? new Material(outp.display.material) : null;
             var tex = new Texture2D(W, H, TextureFormat.RGB24, false);
@@ -122,10 +122,10 @@ namespace PSXRacing
                 {
                     Place(tg, startD, cam, fov);
                     if (world.LiveTiles >= 25 && world.TreesPending == 0 && !world.TreeJobOpen && Time.realtimeSinceStartup - t0 > 8f) break;
-                    yield return null;
+                    { Pump(); yield return null; }
                 }
                 float s0 = Time.realtimeSinceStartup;
-                while (Time.realtimeSinceStartup - s0 < 8f) { Place(tg, startD, cam, fov); yield return null; }
+                while (Time.realtimeSinceStartup - s0 < 8f) { Place(tg, startD, cam, fov); { Pump(); yield return null; } }
                 // the drive: 35 m/s between the distances (the ring streams as in play), held at each
                 float d = startD;
                 foreach (float want in dists)
@@ -135,12 +135,12 @@ namespace PSXRacing
                     {
                         d = Mathf.Max(want, d - 35f * Mathf.Min(Time.unscaledDeltaTime, 0.05f));
                         Place(tg, d, cam, fov);
-                        yield return null;
+                        { Pump(); yield return null; }
                     }
                     foreach (var pv in vars)
                     {
                         foreach (var op in pv.ops) op.on();
-                        for (int i = 0; i < 24; i++) { Place(tg, d, cam, fov); yield return null; }
+                        for (int i = 0; i < 24; i++) { Place(tg, d, cam, fov); { Pump(); yield return null; } }
                         Place(tg, d, cam, fov);
                         long c0 = PerfClock.Now();
                         Capture(cam, rt, screen, blit, tex, W, H);
@@ -183,7 +183,7 @@ namespace PSXRacing
             int W = 3832, H = 2054;
             var rt = new RenderTexture(W, H, 32, RenderTextureFormat.Default) { antiAliasing = 1 };
             var screen = new RenderTexture(W, H, 0, RenderTextureFormat.Default) { antiAliasing = 1 };
-            rt.Create(); screen.Create();
+            rt.Create(); screen.Create(); apCam = cam; apRT = rt;
             var outp = cam.GetComponent<PSXCameraOutput>();
             Material blit = outp != null && outp.display != null && outp.display.material != null ? new Material(outp.display.material) : null;
             var tex = new Texture2D(W, H, TextureFormat.RGB24, false);
@@ -212,14 +212,14 @@ namespace PSXRacing
                 {
                     car.ResetTo(pos, rot, seated: true);
                     if (world.LiveTiles >= 25 && world.TreesPending == 0 && !world.TreeJobOpen && Time.realtimeSinceStartup - t0 > 10f) break;
-                    yield return null;
+                    { Pump(); yield return null; }
                 }
                 float sA = Time.realtimeSinceStartup;
-                while (Time.realtimeSinceStartup - sA < 10f) { car.ResetTo(pos, rot, seated: true); yield return null; }
+                while (Time.realtimeSinceStartup - sA < 10f) { car.ResetTo(pos, rot, seated: true); { Pump(); yield return null; } }
                 foreach (var pv in vars)
                 {
                     foreach (var op in pv.ops) op.on();
-                    for (int i = 0; i < 30; i++) { car.ResetTo(pos, rot, seated: true); yield return null; }
+                    for (int i = 0; i < 30; i++) { car.ResetTo(pos, rot, seated: true); { Pump(); yield return null; } }
                     Capture(cam, rt, screen, blit, tex, W, H);
                     var jpg = tex.EncodeToJPG(92);
                     PSXPerfTour_Post(tag + "_ns_" + f[0] + "_" + pv.name + ".jpg", jpg, jpg.Length);
@@ -255,7 +255,7 @@ namespace PSXRacing
             int W = 1920, H = 1030;
             var rt = new RenderTexture(W, H, 32, RenderTextureFormat.Default) { antiAliasing = 1 };
             var screen = new RenderTexture(W, H, 0, RenderTextureFormat.Default) { antiAliasing = 1 };
-            rt.Create(); screen.Create();
+            rt.Create(); screen.Create(); apCam = cam; apRT = rt;
             var outp = cam.GetComponent<PSXCameraOutput>();
             Material blit = outp != null && outp.display != null && outp.display.material != null ? new Material(outp.display.material) : null;
             var tex = new Texture2D(W, H, TextureFormat.RGB24, false);
@@ -274,16 +274,16 @@ namespace PSXRacing
                 {
                     Place(tg, start, cam, fov);
                     if (world.LiveTiles >= 25 && world.TreesPending == 0 && !world.TreeJobOpen && Time.realtimeSinceStartup - t0 > 8f) break;
-                    yield return null;
+                    { Pump(); yield return null; }
                 }
-                for (int i = 0; i < 60; i++) { Place(tg, start, cam, fov); yield return null; }
+                for (int i = 0; i < 60; i++) { Place(tg, start, cam, fov); { Pump(); yield return null; } }
                 Time.captureFramerate = 30;
                 int frames = Mathf.RoundToInt(secs * 30f);
                 for (int k = 0; k < frames; k++)
                 {
                     float d = start - speed * (k / 30f);
                     Place(tg, d, cam, fov);
-                    yield return null;
+                    { Pump(); yield return null; }
                     Place(tg, d, cam, fov);
                     Capture(cam, rt, screen, blit, tex, W, H);
                     var jpg = tex.EncodeToJPG(85);
@@ -296,6 +296,17 @@ namespace PSXRacing
             if (chase != null) chase.enabled = true;
             if (tg.carGo != null) Destroy(tg.carGo);
             rt.Release(); screen.Release(); Destroy(tex); if (blit != null) Destroy(blit);
+        }
+
+        // A batch-mode player draws nothing by itself: the game's view is rendered here every frame
+        // (as PerfTour.Probe's view does), so every per-frame system that runs at render time - the lamp
+        // tables, the fields, the dark-night measure, the clouds' history - runs as it does in play.
+        Camera apCam; RenderTexture apRT;
+        void Pump()
+        {
+            if (apCam == null || apRT == null) return;
+            var request = new UnityEngine.Rendering.RenderPipeline.StandardRequest { destination = apRT };
+            if (UnityEngine.Rendering.RenderPipeline.SupportsRenderRequest(apCam, request)) UnityEngine.Rendering.RenderPipeline.SubmitRenderRequest(apCam, request);
         }
 
         static string V(Vector3 v) => v.x.ToString("0") + "/" + v.y.ToString("0.0") + "/" + v.z.ToString("0");
@@ -443,9 +454,12 @@ namespace PSXRacing
         static void Capture(Camera cam, RenderTexture rt, RenderTexture screen, Material blit, Texture2D tex, int W, int H)
         {
             var was = cam.targetTexture;
-            var request = new UnityEngine.Rendering.RenderPipeline.StandardRequest { destination = rt };
-            if (UnityEngine.Rendering.RenderPipeline.SupportsRenderRequest(cam, request)) UnityEngine.Rendering.RenderPipeline.SubmitRenderRequest(cam, request);
-            else { cam.targetTexture = rt; cam.Render(); cam.targetTexture = was; }
+            for (int pass = 0; pass < 2; pass++)   // a warm-up render first (the speed blur's and the clouds' history)
+            {
+                var request = new UnityEngine.Rendering.RenderPipeline.StandardRequest { destination = rt };
+                if (UnityEngine.Rendering.RenderPipeline.SupportsRenderRequest(cam, request)) UnityEngine.Rendering.RenderPipeline.SubmitRenderRequest(cam, request);
+                else { cam.targetTexture = rt; cam.Render(); cam.targetTexture = was; }
+            }
             RenderTexture glow = null;
             if (blit != null && Halation.Wanted(blit)) glow = Halation.BuildNow(rt);
             if (blit != null) { Halation.Apply(blit, glow); Graphics.Blit(rt, screen, blit); }
