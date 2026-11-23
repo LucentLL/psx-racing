@@ -280,7 +280,9 @@ namespace PSXRacing
             Say("free roam up: " + env.ToString().Replace("\n", " | "));
 
             string nshots = ShotLink.Query(Request() ?? "", "nshots");
-            if (!string.IsNullOrEmpty(nshots)) yield return NightShots(mode, nshots);
+            string clipArg = ShotLink.Query(Request() ?? "", "clip");
+            if (!string.IsNullOrEmpty(clipArg)) yield return Clip(mode, clipArg);
+            else if (!string.IsNullOrEmpty(nshots)) yield return NightShots(mode, nshots);
             else if (!string.IsNullOrEmpty(approachArg)) yield return Approach(mode);
             else if (!string.IsNullOrEmpty(shotsArg)) yield return Shots(mode);
             else

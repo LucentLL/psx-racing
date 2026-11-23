@@ -230,6 +230,74 @@ namespace PSXRacing
             rt.Release(); screen.Release(); Destroy(tex); if (blit != null) Destroy(blit);
         }
 
+        /// <summary>&amp;clip=SPEC (an approach SPEC)[&amp;clipsecs=30]: the camera flown down the road at the
+        /// target from 1 km at a steady speed, game time stepped at 30 fps (Time.captureFramerate), every
+        /// frame written (1920 wide), once per variant: the before | after clips.</summary>
+        IEnumerator Clip(CityMode mode, string spec)
+        {
+            var world = mode.world; car = mode.player;
+            var input = car.GetComponent<PlayerCarInput>();
+            if (input != null) { input.inputEnabled = false; input.enabled = false; }
+            var cam = Camera.main;
+            var chase = cam.GetComponent<ChaseCamera>() ?? Object.FindAnyObjectByType<ChaseCamera>();
+            string url = Request() ?? "";
+            float secs = 30f; float.TryParse(ShotLink.Query(url, "clipsecs") ?? "30", NumberStyles.Float, CultureInfo.InvariantCulture, out secs);
+            var vars = new List<ProbeVariant>();
+            foreach (var raw in (ShotLink.Query(url, "apv") ?? "").Split(';'))
+            {
+                string s = raw.Trim(); int eq = s.IndexOf('=');
+                if (eq <= 0) continue;
+                var pv = new ProbeVariant { name = s.Substring(0, eq) };
+                foreach (var os in s.Substring(eq + 1).Split(',')) { var op = os.Trim().Length > 0 ? MakeOp(os.Trim(), null, null) : null; if (op != null) pv.ops.Add(op); }
+                vars.Add(pv);
+            }
+            if (vars.Count == 0) vars.Add(new ProbeVariant { name = "cur" });
+            int W = 1920, H = 1030;
+            var rt = new RenderTexture(W, H, 32, RenderTextureFormat.Default) { antiAliasing = 1 };
+            var screen = new RenderTexture(W, H, 0, RenderTextureFormat.Default) { antiAliasing = 1 };
+            rt.Create(); screen.Create();
+            var outp = cam.GetComponent<PSXCameraOutput>();
+            Material blit = outp != null && outp.display != null && outp.display.material != null ? new Material(outp.display.material) : null;
+            var tex = new Texture2D(W, H, TextureFormat.RGB24, false);
+            var tg = MakeTarget(world, world.Map, spec);
+            if (tg == null) { Say("CLIP: no target"); yield break; }
+            if (tg.carGo != null) tg.carGo.SetActive(true);
+            float fov = cam.fieldOfView;
+            float start = Mathf.Min(1000f, tg.path.Count - 2), speed = (start - 25f) / secs;
+            if (chase != null) chase.enabled = false;
+            foreach (var pv in vars)
+            {
+                foreach (var op in pv.ops) op.on();
+                Time.captureFramerate = 0;
+                float t0 = Time.realtimeSinceStartup;
+                while (Time.realtimeSinceStartup - t0 < 90f)
+                {
+                    Place(tg, start, cam, fov);
+                    if (world.LiveTiles >= 25 && world.TreesPending == 0 && !world.TreeJobOpen && Time.realtimeSinceStartup - t0 > 8f) break;
+                    yield return null;
+                }
+                for (int i = 0; i < 60; i++) { Place(tg, start, cam, fov); yield return null; }
+                Time.captureFramerate = 30;
+                int frames = Mathf.RoundToInt(secs * 30f);
+                for (int k = 0; k < frames; k++)
+                {
+                    float d = start - speed * (k / 30f);
+                    Place(tg, d, cam, fov);
+                    yield return null;
+                    Place(tg, d, cam, fov);
+                    Capture(cam, rt, screen, blit, tex, W, H);
+                    var jpg = tex.EncodeToJPG(85);
+                    PSXPerfTour_Post(tag + "_clip_" + pv.name + "_" + k.ToString("0000") + ".jpg", jpg, jpg.Length);
+                }
+                Time.captureFramerate = 0;
+                for (int i = pv.ops.Count - 1; i >= 0; i--) pv.ops[i].off();
+                Say("CLIP " + tg.name + " " + pv.name + " " + frames + " frames");
+            }
+            if (chase != null) chase.enabled = true;
+            if (tg.carGo != null) Destroy(tg.carGo);
+            rt.Release(); screen.Release(); Destroy(tex); if (blit != null) Destroy(blit);
+        }
+
         static string V(Vector3 v) => v.x.ToString("0") + "/" + v.y.ToString("0.0") + "/" + v.z.ToString("0");
 
         /// <summary>The camera at <paramref name="d"/> metres from the target down
