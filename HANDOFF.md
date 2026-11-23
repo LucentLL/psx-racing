@@ -1,3 +1,105 @@
+# HANDOFF - TIER1: FOUR SMALL ITEMS LANDED (one-way traffic + its self-test, race-card arrows, missing / orphan metas, the arch tables); S1 HELD (agent "tier1", branch `tier1-1123` off 992312c8, 2026-11-23 00:30-02:50; NOT pushed, NOT merged)
+
+Items 4, 5, 9 and 10 of the owner's ranked list (Open_Tasks_Ranked_2026-11-17.md). Sandbox PSXCity (WebGL); every play
+run HIDDEN (batch). Scratch `C:\Users\mcgee\AppData\Local\Temp\claude\be91fcb74e64226b\40ca151a-c5be-4aaa-9ea2-b8dd0e7c98a9\scratchpad\tier1\`
+(PROGRESS.md, out\). No Scripts/City change; no player build.
+
+## 1. Traffic one-way fix (DONE: merged, self-test added, one hole closed, the head-on found and fixed; ONE open flag)
+- fd61250c merges `ai-pass` (a6afce6f): the code merged clean; HANDOFF.md conflicted only (both sections kept). The
+  switches stay as aipass left them: PSX_TRAFFIC_ONEWAY, PSX_TRAFFIC_BIRTH_CLEAR and PSX_AI_PASS_WINDOW ON;
+  PSX_AI_PASS_RIVALPULL opt-in; PSX_AI_PASS_IN_TRAFFIC 1. The owner's 11-16 rule is untouched (racers prefer the right
+  lane and may pass in the oncoming one).
+- HOLE FOUND AND CLOSED (3424c8e5, `Scripts/TrafficSystem.cs`, PSX_TRAFFIC_ONEWAY_HOLD default ON, =0 = as aipass left
+  it): aipass turned an oncoming car off where its road becomes one-way ONLY out of the camera's view; a car in view
+  drove on down the one-way street. Now it slows to a stop 12 m short (a driver waiting to turn off) and leaves once
+  unseen; out of view it is taken off anywhere within 120 m of a one-way stretch.
+- THE SELF-TEST (3424c8e5, 00a69cb3): `Editor/OneWayLegal.cs` judges every traffic car from outside: its place on the
+  city map (the edge whose pavement holds it, at its height, not in a junction's first/last 10 m) and its heading,
+  against the street's legal direction. A divided road's carriageways are one-way edges with a same-name twin. Where
+  streets fork, a car is wrong only if no street holding it allows its heading. It runs in EVERY city race of
+  race-play-check through `LaneUseWatch` (note "ONE-WAY LEGAL", check "no traffic car against a one-way street's legal
+  direction") and in free roam through `Editor/OneWayTrafficCheck.cs` (17:15, a ghost driven 50 s along three one-way
+  streets near uptown and one divided road). Runner: `tools\oneway-check.ps1 -Sandbox <sb>` (both halves; the races
+  must also cover 3 one-way streets and 1 divided road).
+- Results (hidden, PSXCity): FREE ROAM PASS: E 4th St, E 12th St, E 5th St, the divided E Trade St; 0 wrong of 16,696
+  samples on one-way streets round them (E 3rd-6th, 11th, Brevard, College, Caldwell, McDowell, I-277 among them).
+  RACES (MEDIUM traffic): CltC1 s3 (twice), CltC2 s1, UptownLoop s0, TryonSprint MEDIUM s0 (three times), s1 (twice), s2
+  (twice), LIGHT s1, CltS1 s2: 0 wrong-way samples in all but one run, over 18+ one-way streets and 9 divided roads. The first run's only 2 flags were Tryon St cars at the
+  N Church St fork (node 9907): the checker's mistake, fixed by the fork rule (00a69cb3).
+  NEGATIVE CONTROL: CltC1 s3 with PSX_TRAFFIC_ONEWAY=0: WRONG WAY 553 samples (FAIL) and 50 one-way meets. The test
+  catches the bug.
+- OPEN FLAG (the self-test's only FAIL after the fix): TryonSprint MEDIUM s1 (final code), one taxi for 0.75 s (3
+  samples) at (-557, 6341) on N Tryon St's divided stretch, judged against the SW-bound carriageway e10847 while it
+  drove NE; the race route there is the NE-bound carriageway e10930 (no oncoming birth on it). Either the strip laid
+  the car over the other carriageway's pavement or the checker missed e10930 under it: not resolved. Report:
+  out\ow4\race_oneway_races.txt lines 77-82.
+- THE HEAD-ON: aipass's (TryonSprint MEDIUM s0, 180SX at 30 s) did not come back in three re-runs of that seed. Its
+  class did, on seed 1 (out\ow3): the FD at 150 km/h with the player's RX-7 level on its right (1.6 m across) tried a
+  pass, gave it up, steered right on the held 0.55 give-way brake, was pushed left by the car beside it (heading -5
+  deg while steering +0.3) and met a taxi nose to nose at 45.5 m/s (retired). Each head-on now logs the racers within
+  15 m (that is how the car beside it showed up). FIX (e95df365, `Scripts/AIDriver.cs`, PSX_AI_SHUT_BRAKE default ON,
+  =0 the hold as before): when a racer alongside on the right shuts the way back, the hold goes to the full pedal, so
+  the car drops behind the one beside it. After: TryonSprint MEDIUM s1, s0, s2 and CltC1 s3: 0 head-ons, 0
+  oncoming-stream hits (hard same-direction traffic hits 1 / 0 / 2 / 0, as before). Four races are thin proof; the
+  runs are not deterministic (one seed raced 343 s and 295 s).
+- Race FAIL lines seen, all classes aipass's base and final matrices also had: position flicker, a progress fall, a
+  stay over the centreline > 20 s (22-26 s), 3 retirements on UptownLoop, one undrawn rail.
+
+## 2. Providence Rd Sprint S1 (NOT SHIPPED: needs Scripts/City) and the D1/D3 card arrows (DONE)
+- S1 re-raced hidden at time scale 1 (s1.json from tracks-lane-B 17085911; its checkpoint chain made with
+  checkpoints.mjs: 8 gates, every leg PASS). Sanctioned seed 0: the Supra ROLLED at ~672 m (130 km/h, 5 m right of the
+  centre, no steering input; up vector -0.81), 12 m before the Fenton Pl mouth (node 11448, e10501 -> e10502); the
+  Viper hit it and RETIRED. Sanctioned seed 1: the Charger RETIRED into a CityPost at 2218 m and the Skyline was stuck at
+  2216 m, both at the Colville Rd mouth (node 17211, 2207 m); the 180SX spun at 800 m. MEDIUM seed 2: 7/7 home.
+  So cars still spin and roll at side-street mouths in 2 of 3 races, the fault lane B saw at 700-730 m. FANLIP is on,
+  and the line gate's box runs there are clean (Fenton/Altondale: 0 failing places; Colville: 1 paint KINK only), so
+  the cause is something the gate does not measure (the collider, or the fan's cross-slope at speed). That is
+  Scripts/City work, so S1 stays out. Its files wait in scratch `tier1\s1_held\` (CityTracks/s1.json + meta GUID
+  276240a7..., CityCheckpoints/s1.json + meta). `_order.txt` is untouched.
+- D1/D3 ARROWS (c0c39bc8, `Scripts/RouteMap.cs` Chevron; PSX_MAP_ARROW_OLD=1 = the old head): the heads did point the
+  right way, but at 1.7 long on a 2.0 base they were all but equilateral, so on a diagonal line a back corner read as
+  the point. Now they are slender heads with a notch (2.0 long, 1.5 wide). Every card's arrows change, not only the
+  drags'. Sheet: out\self\cards_arrows_before_after.png (old and new heads, fresh processes).
+- Door audit (in the LifeSim self-test): ALL 63/63, MAIN 33/33, CITY 30/30 venue doors (S1 not added).
+
+## 3. Metas (DONE)
+- 9d0a1c86: the 21 tracked assets with no tracked .meta get the GUIDs PSXLab already uses (read only):
+  CityRefSpots.Heads / .Junctions / .Tex4, CityRoadMeshHash, PoplarProbe, ReflectionMapCheck, VolCloudsCheck, 7
+  Scripts/City partial files and 7 *_dem_wide.bytes. 267 orphan metas are removed (generated Materials, CityProps,
+  Generated and the Pizzeria scene: no tracked file references them; Unity deleted these same metas when the owner
+  opened the checkout on 10-16). Assets/StreamingAssets.meta stays gitignored on purpose (.gitignore:70). Adding .meta
+  files under Scripts/City does not move the city bake's hash (CityTileBake hashes *.cs only).
+- `tools/meta-scan.py <worktree>`: 0 assets without a meta, 0 orphans, 0 duplicate GUIDs (exit 0).
+- GUID audit (`tools/guid-audit.py`, the build's step): PSXLab OK (18,754 shipped assets). PSXCity: 1 dangling, in
+  Materials/CityFacadeGlass.mat as the WebGL city scene build writes it (3 RenderTexture GUIDs); unrelated to metas.
+
+## 4. Arch tables (DONE as a re-bake; the tyres at full lock are NOT a table problem)
+- 012f72a8: ArchProbe.Bake + BakeExact on mountain-nm's car data (copied into PSXCity first: 708 of its 1,978 tracked
+  car files were stale). ArchCeilings is byte-identical. ArchHubs: +2 rows (Ford RS200 '84 on audi_saloon, RS200 rally
+  '85 on bmw_e30), -8 rows no catalogue sheet uses, every other row byte-identical. Arch sweep: catalogue rows on the
+  blunt field 2 -> 0 of 320; gate ok (no row seated high). Of the 15 cars the cars-1116 note named, 13 already had
+  exact rows at 992312c8. ChaseSilhouettes.Table re-emitted: the 40 rows CamFrameProbe called stale (width up to 1.2 %,
+  roof line up to 5 cm), byte-identical to the cars-1116 full emit.
+- Full lock + full bump as drawn (new `Editor/ArchLockBumpCheck.cs`: full lock both ways, 1 m drop, ArchProbe.DrawnClip
+  every tick), before -> after, deepest reach through the body: Ruf BTR '86 162 -> 162 mm, RS200 '84 70 -> 71, RS200
+  rally 17 -> 19, Civic EG 44 -> 44, Viper GTS 43 -> 43, Evo VI 4 -> 4. A steered tyre swinging through the side of
+  its arch is not held by any table: the drawn-steer hold that does that (`steer-exact` 5d93c5e8,
+  CarBodyLean.SteerInArch) was never merged. Sheet: out\item4\arch_lockbump_before_after.png.
+
+## Self-test
+LifeSim self-test, PSXCity, tier1 against base 992312c8 (same sandbox, fresh processes, each with its own arch
+tables): 92 FAIL lines in both, the same 92 (sandbox state: LakeLure and deck-run scenes not built there, WebGL lists,
+shaders). No new failure. Checkpoint self-test: ALL PASS.
+
+## For the PC build
+- Scripts, Editor and tools only, plus Resources/ArchHubs.bytes. No scene pass, no city re-bake, no data copies.
+- The new metas pin PSXLab's own GUIDs, so a /MIR of Scripts and Editor into PSXLab changes nothing there.
+
+## What the owner will notice
+In city races, traffic no longer comes down a one-way street at you, even where you can see it. On the race cards the
+arrows clearly point from the white start to the red finish. The Providence Road Sprint is still not in the list:
+cars still roll at two of its side-street mouths. And the rival that drove into a taxi nose to nose beside your car now brakes and tucks in behind it.
+
 # HANDOFF - LIGHTPOP: no street lamp, headlight, cone, halo or lamp-field pool switches on or off (agent "lightpop", Opus 5.5, 11-22/23; branch `light-pop` off 62a90355, mountain-nm 1b1f2100 merged in; NOT pushed, NOT merged)
 
 Owner 11-22 after PC52: "now I constantly see light pop-in. Streetlights, headlights. It is very offputting and distracting while driving or watching replays".
