@@ -64,13 +64,20 @@ Shader "PSX/Rain"
         // the falling rain sets its own, longer (WeatherFx).
         _NearM ("Near fade start (m)", Float) = 1.2
         _NearRamp ("Near fade span (m)", Float) = 2.0
+        // (sprayfix 2026-11-23, TireSpray.Spray2) The tyre spray drawn OVER the scene
+        // (One / OneMinusSrcAlpha, _Over 1) instead of added to it: see THE SPRAY, OVER.
+        // The defaults are the falling rain's and a99a8ef1's spray: One One, _Over 0.
+        [HideInInspector] _SrcBlend ("Src blend", Float) = 1
+        [HideInInspector] _DstBlend ("Dst blend", Float) = 1
+        [HideInInspector] _Over ("Spray over the scene", Float) = 0
     }
     SubShader
     {
         Tags { "Queue"="Transparent" "RenderType"="Transparent" "IgnoreProjector"="True" "PreviewType"="Plane" }
         Pass
         {
-            Blend One One
+            // (the target's alpha - the emitter mask - is never touched: Zero One)
+            Blend [_SrcBlend] [_DstBlend], Zero One
             ZWrite Off
             ZTest LEqual
             Cull Off
@@ -138,10 +145,23 @@ Shader "PSX/Rain"
             // "raindrops that fall are too big and white" were the drops a
             // metre or three from the lens, a dozen pixels wide at 1080 lines.
 
+            // THE SPRAY, OVER (sprayfix 2026-11-23, _Over 1: TireSpray.Spray2). Water thrown up
+            // by a tyre is a cloud that SCATTERS the light round it: however dense, it can only
+            // be as bright as that light, never brighter. Added (One One) a dozen stacked puffs
+            // were two to four times the scene's light - the white-blue jet behind a car in the
+            // owner's PC61 replay frame. Over the scene, the cloud reaches at most
+            // SPRAY_BASE x the light, and the lamps' share of that light (tail lamps are point
+            // lights in the lamp table, a metre from the first puffs) is rolled off at
+            // SPRAY_LAMP_CAP, so the mist is tinted red right behind a lit tail lamp, never a
+            // red-white flare.
+            #define SPRAY_BASE      0.45
+            #define SPRAY_LAMP      0.75
+            #define SPRAY_LAMP_CAP  0.22
+
             sampler2D _MainTex;
             float4 _MainTex_ST;
             float4 _Tint;
-            float _NearM, _NearRamp;
+            float _NearM, _NearRamp, _Over;
 
             // Scene globals pushed every frame by PSXGlobals. Declared float4,
             // not fixed4: the sun's linear colour x intensity passes 1.0 at
@@ -177,6 +197,8 @@ Shader "PSX/Rain"
                 // next to a lamp this passes 1.0, and COLOR0 is lowp on GLES.
                 float3 col : TEXCOORD1;
                 float3 wpos : TEXCOORD2;
+                // (_Over) the particle's opacity, applied in the fragment; 1 for the added rain
+                float op : TEXCOORD3;
             };
 
             v2f vert (appdata v)
@@ -217,6 +239,16 @@ Shader "PSX/Rain"
                 fade *= saturate((dist - _NearM) / max(_NearRamp, 0.01));
 
                 o.col = light * v.color.rgb * _Tint.rgb * (v.color.a * _Tint.a * fade);
+                o.op = 1.0;
+                if (_Over > 0.5)
+                {
+                    float3 lamps = PSXLampsAt(wpos) * SPRAY_LAMP + PSXHeadlightsAt(wpos) * SPRAY_LAMP;
+                    float lampY = max(lamps.r, max(lamps.g, lamps.b));
+                    lamps *= 1.0 / (1.0 + lampY / SPRAY_LAMP_CAP);
+                    float3 sprayLight = (scene * SPRAY_BASE + lamps) * PSXExposureGain();
+                    o.col = sprayLight * v.color.rgb * _Tint.rgb;
+                    o.op = saturate(v.color.a * _Tint.a * fade);
+                }
                 return o;
             }
 
@@ -225,8 +257,9 @@ Shader "PSX/Rain"
                 // Premultiplied: the texture's alpha is the streak's shape and
                 // is applied here, once. Alpha out is zero (see the header).
                 PSXOwnCarClip(i.wpos);
-                float a = tex2D(_MainTex, i.uv).a;
-                return fixed4(i.col * a, 0.0);
+                float a = tex2D(_MainTex, i.uv).a * i.op;
+                // (premultiplied: the added rain ignores the alpha; the spray over the scene uses it)
+                return float4(i.col * a, a);
             }
             ENDCG
         }

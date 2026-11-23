@@ -36,6 +36,37 @@ float4 _PSXCarRun;
 // metres x this), so a bead is a few pixels from the chase lens.
 #define CD_SCALE 0.45
 
+// ---- CARDROPS 2 (sprayfix, 2026-11-23; the owner, PC61: "these water droplets are MASSIVE. It makes
+// the car look like a Hot Wheel by scale. Similarly, these water streaks are MASSIVE. And it doesn't
+// make sense that there are streaks moving in a straight light past droplets that aren't moving").
+// The pattern above ran in metres x CD_SCALE 0.45, so a bead's 0.12-0.30 of a 4-7 cm cell was a
+// 1-4 cm DOME and a runner a 2.4 cm head on a straight 10 cm column, drawn on top of beads that did not
+// know it was there. Now (PSX_CARDROPS2, default on; _PSXCarDrops2Off.x 1 = a99a8ef1's body rain):
+//   * BEADS in the body's own metres, real size: 2-6 mm mixed and a few merged ones up to 10 mm. They
+//     keep that size on every car and panel; a bead under a pixel is drawn as its AVERAGE (a wet sheen,
+//     no crawl), so nothing grows with distance.
+//   * RIVULETS 2-5 mm wide, of varied length, wandering (two sines along their run), along the panel's
+//     own fall line parked and swung back along the air over that panel as the car goes (gravity and
+//     air projected on the panel, so a roof, a door and a boot lid each run their own way); parked they
+//     creep, pause and go.
+//   * ONE WATER: a rivulet's track is wiped of beads behind its head (it took them with it) and the
+//     beads come back further up the track as it dries - no rivulet runs through a standing bead.
+//   * Moving, the larger beads creep back along the air with the car's clock; the small ones stay.
+// Snow is unchanged.
+float4 _PSXCarDrops2Off;   // x 1: a99a8ef1's body rain; y 1: a99a8ef1's lens drop size (PSXLens)
+static float cd2Wipe;      // the rivulets' wipe at this pixel (CarDropsH -> CarBeadLens, same invocation)
+
+#define CD2_CELL_S   0.0070   // small beads: cell (m) ...
+#define CD2_RS_MIN   0.150    // ... radius as a share of it: 1.05 - 2.9 mm (2 - 6 mm across)
+#define CD2_RS_MAX   0.415
+#define CD2_CELL_L   0.0160   // the merged ones: 3.8 - 8.3 mm across on a flat panel (10 at a 35-degree slant), fewer
+#define CD2_RL_MIN   0.120
+#define CD2_RL_MAX   0.260
+#define CD2_COL_W    0.0140   // rivulet columns (m)
+#define CD2_HEAD_MIN 0.0012   // rivulet head radius (m): 2.4 - 5 mm across
+#define CD2_HEAD_MAX 0.0025
+#define CD2_TRAIL    0.55     // the track's half-width as a share of the head's (under 3 mm wide)
+
 float4 CDHash(float2 p)
 {
     float4 p4 = frac(float4(p.xyxy) * float4(0.1031, 0.1030, 0.0973, 0.1099));
@@ -86,6 +117,83 @@ float CDRunners(float2 q, float2 dir, float width, float span, float t, float de
     return max(head, trail) * on;
 }
 
+// (CARDROPS 2) one bead layer in metres, its sub-pixel average blended in by the pixel's footprint
+// (`fp`, metres per pixel). `creep`: the layer's offset (m) along `adir` (the larger beads blown back).
+float CD2Beads(float2 q, float cell, float rMin, float rMax, float density, float seed, float fp, float2 creep)
+{
+    q -= creep;
+    float2 g = q / cell;
+    float2 id = floor(g);
+    float4 h = CDHash(id + seed);
+    float2 c = (id + 0.5 + (h.xy - 0.5) * 0.5) * cell;
+    float life = frac(_Time.y * (0.05 + 0.08 * h.w) + h.z);
+    float alive = step(h.z, density) * smoothstep(0.0, 0.08, life) * (1.0 - smoothstep(0.75, 1.0, life));
+    float r = cell * lerp(rMin, rMax, h.w);
+    float dome = CDDome(q - c, r) * alive;
+    // the average: a dome's mean over its cell (half its disc's share), the alive share ~0.75
+    float rM = cell * 0.5 * (rMin + rMax);
+    float avg = saturate(density) * 0.75 * 0.5 * 3.14159 * rM * rM / (cell * cell);
+    float resolved = saturate((rM / max(fp, 1e-6) - 0.6) / 0.9);
+    return lerp(avg, dome, resolved);
+}
+
+// (CARDROPS 2) the small bead layer as a lens (CDBead4's form: x height, yz where in the bead, w radius m)
+float4 CD2Bead4(float2 q, float cell, float rMin, float rMax, float density, float seed)
+{
+    float2 g = q / cell;
+    float2 id = floor(g);
+    float4 h = CDHash(id + seed);
+    float2 c = (id + 0.5 + (h.xy - 0.5) * 0.5) * cell;
+    float life = frac(_Time.y * (0.05 + 0.08 * h.w) + h.z);
+    float alive = step(h.z, density) * smoothstep(0.0, 0.08, life) * (1.0 - smoothstep(0.75, 1.0, life));
+    float r = cell * lerp(rMin, rMax, h.w);
+    float2 n = (q - c) / r;
+    return float4(saturate(1.0 - dot(n, n)) * alive, n, r);
+}
+
+// (CARDROPS 2) Rivulets along `dir` (unit, in the panel's plane), on the clock `t` (s): returns the water
+// height; `wipe` = how much of the beads the passing rivulets have taken here (0..1).
+float CD2Rivulets(float2 q, float2 dir, float t, float density, float seed, float fp, float parked, out float wipe)
+{
+    float2 side = float2(dir.y, -dir.x);
+    float along = dot(q, dir);
+    float x = dot(q, side) / CD2_COL_W;
+    float col = floor(x);
+    float4 h = CDHash(float2(col, seed));
+    // varied length per column and per run: 6 - 30 cm a cycle
+    float span = lerp(0.06, 0.30, h.z);
+    float speed = lerp(0.6, 1.4, h.x) * lerp(0.5, 0.2, parked);
+    float tt = t * speed / span;
+    // parked: it creeps, pauses and goes (a smooth stair), moving: steadily
+    tt = lerp(tt, floor(tt * 3.0) / 3.0 + smoothstep(0.25, 0.75, frac(tt * 3.0)) / 3.0, parked);
+    float y = along / span - tt + h.y * 7.0;
+    float cyc = floor(y);
+    float4 k = CDHash(float2(col, cyc + seed * 3.1));
+    float on = step(k.x, density);
+    float f = frac(y);
+    // the wander: two sines along the run, a few mm
+    float wob = (sin(along * 41.0 + k.y * 6.28) * 0.6 + sin(along * 97.0 + k.z * 6.28) * 0.4) * 0.0022;
+    float dx = (frac(x) - 0.5 - (k.z - 0.5) * 0.4) * CD2_COL_W - wob;
+    float rHead = lerp(CD2_HEAD_MIN, CD2_HEAD_MAX, k.w);
+    float headAt = 0.92;
+    float head = CDDome(float2(dx, (f - headAt) * span), rHead);
+    // the track behind the head: a thin film, thinning with distance back, ending at a varied length
+    float back = (headAt - f) * span;                    // metres behind the head (negative ahead)
+    float len = span * lerp(0.35, 0.85, k.y);
+    float tr = step(0.0, back) * (1.0 - smoothstep(len * 0.6, len, back));
+    float halfW = max(rHead * CD2_TRAIL * lerp(1.0, 0.55, saturate(back / max(len, 1e-4))), 1e-4);
+    float trail = saturate(1.0 - abs(dx) / halfW) * tr * 0.55;
+    // the wipe: the head's own width along its track, fading as the beads come back
+    // (whole across the head's width and a little more, so no bead pixel is left inside the water)
+    float wHalf = rHead * 1.2;
+    wipe = on * (1.0 - smoothstep(wHalf, wHalf + fp + 0.0008, abs(dx))) * step(-rHead * 1.2, back)
+         * (1.0 - smoothstep(len, len * 1.6, back));
+    float hgt = max(head, trail) * on;
+    // under a pixel wide: its average, not a crawling line
+    float res = saturate((rHead / max(fp, 1e-6) - 0.5) / 1.0);
+    return lerp(hgt * saturate(rHead * 2.0 / max(fp, 1e-6)), hgt, res);
+}
+
 // The water's height (0..1) at a point of the body, and the settled snow's
 // (`snowH`). `p` and `n` in the body's frame (metres, mesh axes), `down` and
 // `air` directions in it, `up` how much the panel faces the sky (0..1),
@@ -109,7 +217,31 @@ float CarDropsH(float3 p, float3 n, float3 down, float3 air, float up, float win
     float streakW = saturate(wind * 1.5);
 
     float hRain = 0.0;
-    if (rain > 0.002)
+    cd2Wipe = 0.0;
+    if (rain > 0.002 && _PSXCarDrops2Off.x < 0.5)
+    {
+        // (CARDROPS 2) real size, one water
+        float2 qm = p.xz * topM + p.zy * sideM + p.xy * endM;
+        float fp = max(length(fwidth(qm)), 1e-6);
+        // the rivulets' way on THIS panel: its fall line parked, swung back along the air with speed
+        // two runs, cross-faded on the speed (each on its own clock, so a change of speed never
+        // sweeps the pattern): PARKED down this panel's fall line, creeping and pausing; MOVING back
+        // along the air over this panel, bent by its fall line
+        float2 md = adir * smoothstep(0.15, 0.5, alen) * 1.6 + gdir * glen * 0.5;
+        float ml = length(md);
+        float wipeP, wipeM;
+        float hRP = CD2Rivulets(qm, gdir, _Time.y, rain * 0.10 * smoothstep(0.3, 0.7, glen), 4.1, fp, 1.0, wipeP);
+        float hRM = CD2Rivulets(qm, md / max(ml, 1e-4), blowT * 2.0, rain * 0.40 * smoothstep(0.05, 0.3, ml), 7.7, fp, 0.0, wipeM);
+        float hR = max(hRP * (1.0 - streakW), hRM * streakW);
+        float wipe = max(wipeP * (1.0 - streakW), wipeM * streakW);
+        cd2Wipe = wipe;
+        float2 creep = adir * (blowT * 0.004 * streakW);
+        float hS = CD2Beads(qm, CD2_CELL_S, CD2_RS_MIN, CD2_RS_MAX, rain * lerp(0.60, 0.45, streakW), 1.7, fp, float2(0, 0));
+        float hL = CD2Beads(qm, CD2_CELL_L, CD2_RL_MIN, CD2_RL_MAX, rain * lerp(0.30, 0.08, streakW), 9.3, fp, creep);
+        float hB = max(hS, hL) * (1.0 - wipe);
+        hRain = max(hB, hR);
+    }
+    else if (rain > 0.002)
     {
         float hB = max(CDBeads(q, 0.018, rain * lerp(0.55, 0.12, streakW), 1.7, 1.0),
                        CDBeads(q, 0.032, rain * lerp(0.35, 0.08, streakW), 9.3, 1.0));
@@ -164,6 +296,21 @@ float4 CarBeadLens(float3 p, float3 n, float3 down, float wind, float glass, out
     float rain = _PSXCarDrops.x;
     float streakW = saturate(wind * 1.5);
     float dens = rain * lerp(1.0, 1.45, glass);
+    if (_PSXCarDrops2Off.x < 0.5)
+    {
+        // (CARDROPS 2) the same small beads, in metres (the larger ones creep and are left to CarDropsH),
+        // none in a rivulet's wiped track
+        float2 qm = q / CD_SCALE;
+        float4 bs = CD2Bead4(qm, CD2_CELL_S, CD2_RS_MIN, CD2_RS_MAX, rain * lerp(0.60, 0.45, streakW), 1.7);
+        float fpm = max(length(fwidth(qm)), 1e-6);
+        // under a pixel: the layer's average (a sheen), not a speckle that crawls
+        float rM = CD2_CELL_S * 0.5 * (CD2_RS_MIN + CD2_RS_MAX);
+        float avg = saturate(rain * lerp(0.60, 0.45, streakW)) * 0.75 * 0.5 * 3.14159 * rM * rM / (CD2_CELL_S * CD2_CELL_S);
+        bs.x = lerp(avg, bs.x, saturate((rM / fpm - 0.6) / 0.9));
+        bs.x *= 1.0 - cd2Wipe;
+        pxR = bs.w / fpm;
+        return bs;
+    }
     float4 b = CDBead4(q, 0.018, dens * lerp(0.55, 0.12, streakW), 1.7);
     float4 b2 = CDBead4(q, 0.032, dens * lerp(0.35, 0.08, streakW), 9.3);
     b = b.x >= b2.x ? b : b2;
@@ -188,7 +335,9 @@ float3 CarBeadShade2(float3 col, float4 bl, float2 up2, float lens, float resolv
     float pt = (1.0 - smoothstep(0.0, 0.24, length(bl.yz - up2 * 0.5))) * inB;
     float3 res = sky * (dome * lerp(0.16, 0.30, glass)) + pointL * pt;
     float3 unres = (sky * 0.08 + pointL * 0.12) * smoothstep(0.0, 0.2, lens);
-    col *= 1.0 - ring * resolved * lerp(0.22, 0.50, glass);
+    // (CARDROPS 2) the dark rim only as strong as the light that shows it: in shade a bead is barely there
+    float rimK = _PSXCarDrops2Off.x < 0.5 ? 0.5 * saturate(dot(sky + pointL, float3(0.30, 0.59, 0.11)) * 4.0) : 1.0;
+    col *= 1.0 - ring * resolved * lerp(0.22, 0.50, glass) * rimK;
     return col + lerp(unres, res, resolved) * lerp(0.5, 1.0, glass);
 }
 

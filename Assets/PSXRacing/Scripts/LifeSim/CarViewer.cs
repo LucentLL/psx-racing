@@ -447,11 +447,13 @@ namespace PSXRacing.LifeSim
             // its own Update.
             if (globals != null) globals.SendMessage("Apply", SendMessageOptions.DontRequireReceiver);
 
+            var dry = DryBegin();
             var req = new UnityEngine.Rendering.RenderPipeline.StandardRequest { destination = rt };
             if (UnityEngine.Rendering.RenderPipeline.SupportsRenderRequest(cam, req))
                 UnityEngine.Rendering.RenderPipeline.SubmitRenderRequest(cam, req);
             else
                 cam.Render();
+            DryEnd(dry);
         }
 
         /// <summary>Put a car on the turntable, in the livery it would turn up
