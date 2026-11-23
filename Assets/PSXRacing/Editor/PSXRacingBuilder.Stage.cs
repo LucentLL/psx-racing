@@ -986,6 +986,9 @@ namespace PSXRacing.EditorTools
         /// lattice can be a metre off the field on a falling verge.</summary>
         static float StageLatticeY(float x, float z)
         {
+            // (tunnel2) over a tunnel's hill (PSXRacingBuilder.Tunnel3.cs) the ground is the hill as drawn: the
+            // forest, undergrowth and scatter stand on it (registered after the ground mesh is built)
+            if (t3Grounds.Count > 0 && T3GroundAt(x, z, out float hy)) return hy;
             int gx = Mathf.FloorToInt(x / NearCell), gz = Mathf.FloorToInt(z / NearCell);
             float u = x / NearCell - gx, w = z / NearCell - gz;
             float ha = StageLatticeVertexY(gx, gz), hc = StageLatticeVertexY(gx + 1, gz + 1);

@@ -51,6 +51,19 @@ namespace PSXRacing.EditorTools
         // ---- the hill handed to the planting (FillGrid) and the stone kept clear (keep-out) ----
         sealed class T3Keep { public float ox, oz, cell; public int cols, rows; public bool[] no; }
         static readonly List<T3Keep> t3Keeps = new List<T3Keep>();
+        /// <summary>The hills as drawn (the visible surface: the hill where it shows, the ground mesh where that is
+        /// over it), read by StageLatticeY for everything planted after the tunnels.</summary>
+        static readonly List<FillGrid> t3Grounds = new List<FillGrid>();
+        static bool T3GroundAt(float x, float z, out float y)
+        {
+            foreach (var g in t3Grounds)
+            {
+                y = StageFillYAt(g, x, z);
+                if (!float.IsNaN(y)) return true;
+            }
+            y = 0f;
+            return false;
+        }
         static readonly List<Vector4> t3Boulders = new List<Vector4>();   // x, y, z, radius
         static int t3Boulder, t3HillTris, t3RockTris;
 
@@ -68,7 +81,7 @@ namespace PSXRacing.EditorTools
             return false;
         }
 
-        static void T3Reset() { t3Keeps.Clear(); t3Boulders.Clear(); t3Boulder = 0; t3HillTris = 0; t3RockTris = 0; }
+        static void T3Reset() { t3Grounds.Clear(); t3Keeps.Clear(); t3Boulders.Clear(); t3Boulder = 0; t3HillTris = 0; t3RockTris = 0; }
 
         // ------------------------------------------------------------------
         //  A rough-faced stone
@@ -452,6 +465,7 @@ namespace PSXRacing.EditorTools
 
             var v = new Vector3[R_ * C];
             var own = new bool[R_ * C];
+            var vis = new float[R_ * C];
             var u = new float[R_];
             for (int ri = 0; ri < R_; ri++)
             {
@@ -472,7 +486,6 @@ namespace PSXRacing.EditorTools
                         // behind the plane: over the masonry, beside it the hill at the wall's end height falling away
                         need = ax <= wallX + 0.05f ? y0 + T3MasonryTop(ax, halfW) - 0.06f
                                                    : y0 + stepTop - 0.06f - (ax - wallX) * 0.25f;
-                        if (-u[ri] > 1.3f && ax <= wallX) need += 0.4f;     // past the slab's back edge: over it
                         if (ax < halfW + 1.5f) need = Mathf.Max(need, c.y + crownMin);
                     }
                     else
@@ -484,9 +497,21 @@ namespace PSXRacing.EditorTools
                         float verge = c.y - 0.06f - Mathf.Max(0f, ax - (roadHalf + 2.5f)) * 1.0f;
                         need = u[ri] < 16f ? Mathf.Max(verge, Mathf.Min(spill, road)) : float.NegativeInfinity;
                     }
-                    float y = Mathf.Max(land, need);
+                    float y;
+                    if (u[ri] <= 0f)
+                    {
+                        // behind and beside a mouth: the hillside laid back from the wall's top at about 41 degrees
+                        // (a forest floor holds it), never over the land, never under the wall's top or the crown's cover
+                        float depth = Mathf.Max(0f, -u[ri] - (ax <= wallX ? 1.25f : 0f));
+                        float baseY = ax <= wallX ? y0 + T3MasonryTop(ax, halfW) - 0.06f : y0 + stepTop - 0.06f - (ax - wallX) * 0.25f;
+                        float undul = (T2Value(new Vector3(p.x, 0f, p.z) / 5.5f) - 0.5f) * 0.8f * Mathf.Clamp01(depth / 2f);
+                        float slope = baseY + depth * 0.88f + undul;
+                        y = Mathf.Max(need, Mathf.Min(land, slope));
+                    }
+                    else y = Mathf.Max(land, need);
                     v[ri * C + ci] = new Vector3(p.x, y, p.z);
                     own[ri * C + ci] = !onMesh || y > g + 0.02f;
+                    vis[ri * C + ci] = onMesh ? Mathf.Max(g, y) : y;
                 }
             }
 
@@ -499,6 +524,7 @@ namespace PSXRacing.EditorTools
             var uvs = new List<Vector2>(v.Length);
             foreach (var p in v) uvs.Add(new Vector2(p.x, p.z) / tile);
             var keepTris = new List<(Vector3 a, Vector3 b, Vector3 c, bool rock)>();
+            var visTris = new List<(Vector3 a, Vector3 b, Vector3 c, bool rock)>();
             for (int ri = 0; ri + 1 < R_; ri++)
                 for (int ci = 0; ci + 1 < C; ci++)
                 {
@@ -534,6 +560,7 @@ namespace PSXRacing.EditorTools
                         var list = rock ? rT : gT;
                         list.Add(i0); list.Add(i1); list.Add(i2);
                         if (own[i0] || own[i1] || own[i2]) keepTris.Add((v[i0], v[i1], v[i2], rock));
+                        visTris.Add((new Vector3(v[i0].x, vis[i0], v[i0].z), new Vector3(v[i1].x, vis[i1], v[i1].z), new Vector3(v[i2].x, vis[i2], v[i2].z), rock));
                     }
                     Tri(a, d, e); Tri(a, e, b);
                 }
@@ -553,9 +580,9 @@ namespace PSXRacing.EditorTools
 
             // ---- handed to the planting: the hill as a fill, the stone and the ledges kept clear ----
             var bmin = new Vector2(float.MaxValue, float.MaxValue); var bmax = new Vector2(float.MinValue, float.MinValue);
-            foreach (var t in keepTris)
+            foreach (var t in visTris)
                 foreach (var p in new[] { t.a, t.b, t.c }) { bmin = Vector2.Min(bmin, new Vector2(p.x, p.z)); bmax = Vector2.Max(bmax, new Vector2(p.x, p.z)); }
-            if (keepTris.Count == 0) return;
+            if (visTris.Count == 0) return;
             const float Cell = 1f;
             float ox = Mathf.Floor(bmin.x) - 1f, oz = Mathf.Floor(bmin.y) - 1f;
             int cols = Mathf.CeilToInt((bmax.x - ox) / Cell) + 2, rows = Mathf.CeilToInt((bmax.y - oz) / Cell) + 2;
@@ -563,7 +590,7 @@ namespace PSXRacing.EditorTools
             var has = new bool[fy.Length];
             var rockAt = new bool[fy.Length];
             for (int k = 0; k < fy.Length; k++) fy[k] = float.NegativeInfinity;
-            foreach (var t in keepTris)
+            foreach (var t in visTris)
             {
                 float x0 = Mathf.Min(t.a.x, Mathf.Min(t.b.x, t.c.x)), x1 = Mathf.Max(t.a.x, Mathf.Max(t.b.x, t.c.x));
                 float z0 = Mathf.Min(t.a.z, Mathf.Min(t.b.z, t.c.z)), z1 = Mathf.Max(t.a.z, Mathf.Max(t.b.z, t.c.z));
@@ -583,7 +610,7 @@ namespace PSXRacing.EditorTools
                         int k = rr * (cols + 1) + cc;
                         float y = l1 * t.a.y + l2 * t.b.y + l3 * t.c.y;
                         if (y > fy[k]) { fy[k] = y; has[k] = true; }
-                        if (t.rock) rockAt[k] = true;
+                        if (t.rock && (y > -1e5f)) rockAt[k] |= keepTris.Count > 0 && t.rock;
                     }
             }
             var fill = new FillGrid { ox = ox, oz = oz, cell = Cell, cols = cols, rows = rows, y = fy, drawn = new bool[cols * rows] };
@@ -612,8 +639,7 @@ namespace PSXRacing.EditorTools
                         if (x <= wallX + 0.8f && uu > -1.3f && uu < 1.6f) keep.no[rr * cols + cc] = true;
                     }
             }
-            if (stageFills == null) stageFills = new List<FillGrid>();
-            stageFills.Add(fill);
+            t3Grounds.Add(fill);
             t3Keeps.Add(keep);
 
             // ---- mossy boulders and ledges on the hill round each mouth ----
@@ -716,9 +742,7 @@ namespace PSXRacing.EditorTools
             Vector3 trafficRight = Vector3.Cross(Vector3.up, travel).normalized;
             const float panelW = 1.5f, panelH = 0.9f, corner = 0.12f, under = 1.45f;
             Vector3 foot = c + trafficRight * (RoadWidth * 0.5f + 2.5f + 0.1f);
-            float gy = StageGroundHeightAt(foot.x, foot.z);
-            float fy = StageFillY(foot.x, foot.z);
-            foot.y = Mathf.Max(gy, fy > -1e5f ? fy : gy);
+            foot.y = T3GroundAt(foot.x, foot.z, out float hy) ? hy : StageGroundHeightAt(foot.x, foot.z);
             Vector3 faceN = -travel;
             Vector3 across = Vector3.Cross(faceN, Vector3.up).normalized;
             var post = MakeMat(MeshPrefix + "TunnelSignPost3", GuardrailPostTexPath, affine: 0f, tint: new Color(0.62f, 0.52f, 0.42f));
@@ -784,10 +808,10 @@ namespace PSXRacing.EditorTools
             EditorUtility.SetDirty(stone);
             var mortar = T2Mat("TunnelPortalMortar3", StageRockTexPath, new Color(0.17f, 0.17f, 0.16f), false, Vector4.zero, false);
             // the hill's rock (no vertex colour on the hill: no house tint) and the boulders' (their own tints)
-            var hillRock = T2Mat("TunnelHillRock", StageRockTexPath, new Color(0.74f, 0.75f, 0.74f), true, new Vector4(1f / 7.5f, 1f / 23f, 0.9f, 1.4f), false);
+            var hillRock = T2Mat("TunnelHillRock", StageRockTexPath, new Color(0.56f, 0.56f, 0.54f), true, new Vector4(1f / 7.5f, 1f / 23f, 0.9f, 0.5f), false);
             hillRock.SetFloat("_RockTop", 1f);
             EditorUtility.SetDirty(hillRock);
-            var boulderRock = T2Mat("TunnelBoulderRock", StageRockTexPath, new Color(1f, 1f, 1f), true, new Vector4(1f / 7.5f, 1f / 23f, 0.9f, 1.4f), true);
+            var boulderRock = T2Mat("TunnelBoulderRock", StageRockTexPath, new Color(0.9f, 0.9f, 0.9f), true, new Vector4(1f / 7.5f, 1f / 23f, 0.9f, 0.7f), true);
             boulderRock.SetFloat("_RockTop", 1f);
             EditorUtility.SetDirty(boulderRock);
             BuildBore2(pts, from, stations, parent, rockMat, lining, no, halfW);

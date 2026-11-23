@@ -205,6 +205,15 @@ namespace PSXRacing.EditorTools
                                     keep = new Texture2D(W, H, TextureFormat.RGBA32, false);
                                     keep.SetPixels32(px); keep.Apply(false);
                                 }
+                                // where the gap is: the centre pixel's ray where it falls 2.5 m under the eye's road (or 25 m on),
+                                // as path metre and offset (+ right of the forward path)
+                                var cr = cam.ViewportPointToRay(new Vector3((sx / (float)gaps + 0.5f) / W, (sy / (float)gaps + 0.5f) / H, 0f));
+                                float tt = cr.direction.y < -0.02f ? Mathf.Min(60f, (cr.origin.y - (pts[i].y - 2.5f)) / -cr.direction.y) : 25f;
+                                Vector3 hp = cr.origin + cr.direction * tt;
+                                int bi = 1; float bd = float.MaxValue;
+                                for (int q = Mathf.Max(1, i - 40); q < Mathf.Min(n - 1, i + 40); q++) { float dd = (new Vector2(pts[q].x - hp.x, pts[q].z - hp.z)).sqrMagnitude; if (dd < bd) { bd = dd; bi = q; } }
+                                float off = Vector3.Dot(hp - pts[bi], Vector3.Cross(Vector3.up, Fwd(bi)).normalized);
+                                name += $" [at path m {bi * sp:0}, {off:+0.0;-0.0} m, y {hp.y - pts[bi].y:+0.0;-0.0}]";
                                 results.Add((name, gaps, new Vector2(sx / (float)gaps, H - sy / (float)gaps), keep));
                             }
                         }
@@ -218,7 +227,8 @@ namespace PSXRacing.EditorTools
             foreach (var res in results)
             {
                 if (kept < 40) L(sb, $"  GAP {res.name}: {res.gaps} px, centre at ({res.at.x:0}, {res.at.y:0}) from top-left");
-                if (kept < 24 && res.shot != null) File.WriteAllBytes(Path.Combine(outDir, $"{kept:00}_{res.name}.png"), res.shot.EncodeToPNG());
+                string fn = res.name.IndexOf(' ') > 0 ? res.name.Substring(0, res.name.IndexOf(' ')) : res.name;
+                if (kept < 24 && res.shot != null) File.WriteAllBytes(Path.Combine(outDir, $"{kept:00}_{fn}.png"), res.shot.EncodeToPNG());
                 kept++;
             }
             foreach (var res in results) if (res.shot != null) Object.DestroyImmediate(res.shot);
@@ -281,13 +291,18 @@ namespace PSXRacing.EditorTools
                 if (!mr.enabled || !mr.gameObject.activeInHierarchy) continue;
                 var mf = mr.GetComponent<MeshFilter>();
                 var mesh = mf != null ? mf.sharedMesh : null;
-                var mat = mr.sharedMaterial;
-                if (mesh == null || mat == null || !mesh.isReadable) continue;
+                if (mesh == null || !mesh.isReadable) continue;
                 bool near = false;
                 foreach (var z in zones) if (z.Intersects(mr.bounds)) near = true;
                 bool tunnelPart = false;
                 for (var t = mr.transform; t != null; t = t.parent) if (t.name == "Tunnels") tunnelPart = true;
                 if (!wholeStage && !near) continue;
+                var mats = mr.sharedMaterials;
+                Vector3[] w = null;
+                for (int s = 0; s < mesh.subMeshCount && s < mats.Length; s++)
+                {
+                var mat = mats[s];
+                if (mat == null) continue;
                 bool rock = mat.IsKeywordEnabled("PSX_ROCKFACE");
                 Texture tx = rock ? mat.GetTexture("_RockTex") : mat.mainTexture;
                 if (tx == null) continue;
@@ -303,13 +318,15 @@ namespace PSXRacing.EditorTools
                 float rockTop = rock && mat.HasProperty("_RockTop") ? mat.GetFloat("_RockTop") : 0f;
                 Vector2 tile = rock ? Vector2.one : mat.mainTextureScale;
                 Vector2 texel = new Vector2(tx.width, tx.height);
-                var vs = mesh.vertices;
-                var xf = mr.transform.localToWorldMatrix;
-                var w = new Vector3[vs.Length];
-                for (int i = 0; i < vs.Length; i++) w[i] = xf.MultiplyPoint3x4(vs[i]);
+                if (w == null)
+                {
+                    var vs = mesh.vertices;
+                    var xf = mr.transform.localToWorldMatrix;
+                    w = new Vector3[vs.Length];
+                    for (int i = 0; i < vs.Length; i++) w[i] = xf.MultiplyPoint3x4(vs[i]);
+                }
                 var st = new MeshStat { name = mr.gameObject.name, mat = mat.name, nearTunnel = tunnelPart || near, rock = rock, ground = IsGroundMat(mat) };
-                st.nearTunnel = near; st.name = (tunnelPart ? "Tunnels/" : "") + mr.gameObject.name;
-                for (int s = 0; s < mesh.subMeshCount; s++)
+                st.nearTunnel = near; st.name = (tunnelPart ? "Tunnels/" : "") + mr.gameObject.name + (s > 0 ? "#" + s : "");
                 {
                     var tri = mesh.GetTriangles(s);
                     for (int k = 0; k + 2 < tri.Length; k += 3)
@@ -324,8 +341,9 @@ namespace PSXRacing.EditorTools
                         {
                             // the shader's own projection (PSXLit, PSX_ROCKFACE): the zy and xy planes weighted by
                             // |n.x|^4 : |n.z|^4 at the fine scale; the xz plane where _RockTop takes the up faces
+                            // (with _RockTop the plane of the largest weight - the largest normal component)
                             float ax = Mathf.Pow(Mathf.Abs(nrm.x) + 1e-3f, 4f), az = Mathf.Pow(Mathf.Abs(nrm.z) + 1e-3f, 4f);
-                            bool top = rockTop > 0.5f && Mathf.Abs(nrm.y) > 0.70f;
+                            bool top = rockTop > 0.5f && Mathf.Abs(nrm.y) >= Mathf.Abs(nrm.x) && Mathf.Abs(nrm.y) >= Mathf.Abs(nrm.z);
                             System.Func<Vector3, Vector2> P = top ? (q => new Vector2(q.x, q.z)) : ax > az ? (q => new Vector2(q.z, q.y)) : (q => new Vector2(q.x, q.y));
                             ua = P(a) * rp.x; ub = P(b) * rp.x; uc = P(c) * rp.x;
                         }
@@ -354,6 +372,7 @@ namespace PSXRacing.EditorTools
                     }
                 }
                 if (st.area > 0) stats.Add(st);
+                }
             }
             // the references: the ground chunks and the road cut's rock near the tunnels
             float Ref(System.Func<MeshStat, bool> pick)
