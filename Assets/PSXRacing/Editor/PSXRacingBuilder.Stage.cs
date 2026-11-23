@@ -7558,6 +7558,7 @@ namespace PSXRacing.EditorTools
         static void BuildStageTunnels(List<Vector3> pts, Transform parent)
         {
             portalSpots.Clear();
+            T3Reset();   // (tunnel2) the last venue's hill keep-outs
             if (!hasTunnels) return;
             var runs = StationRuns(tunnelIn, 3);
             if (runs.Count == 0) return;
@@ -7569,6 +7570,11 @@ namespace PSXRacing.EditorTools
             // (PSXRacingBuilder.Tunnel2.cs); the c96b5178 tube has none
             if (mat.HasProperty("_HouseTint")) { mat.SetFloat("_HouseTint", Tunnel2 ? 1f : 0f); EditorUtility.SetDirty(mat); }
             if (Tunnel2 && MountainStage && mat.IsKeywordEnabled("PSX_ROCKFACE")) { mat.SetVector("_RockParams", new Vector4(1f / 4.5f, 1f / 15f, 1.0f, 0.35f)); mat.color = new Color(0.80f, 0.82f, 0.86f); }
+            // (tunnel2) the bore's rock at the cut's own scale (the stretch check: within 30 % of it), and a top-down
+            // plane for the crown (the side planes alone streaked it)
+            if (mat.HasProperty("_RockTop")) mat.SetFloat("_RockTop", Tunnel2 && Tunnel3 ? 1f : 0f);
+            if (Tunnel2 && Tunnel3 && MountainStage && mat.IsKeywordEnabled("PSX_ROCKFACE")) { mat.SetVector("_RockParams", new Vector4(1f / 6.8f, 1f / 20f, 1.2f, 0.25f)); mat.color = new Color(0.78f, 0.79f, 0.80f); }
+            EditorUtility.SetDirty(mat);
             t2Tris = 0; t2Stones = 0;
             portalStoneTris = 0;
             var phys = GetOrCreatePhysMat("WallPhys", 0.05f, 0.05f);
