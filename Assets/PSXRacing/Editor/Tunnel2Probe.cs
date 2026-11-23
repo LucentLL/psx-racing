@@ -64,6 +64,40 @@ namespace PSXRacing.EditorTools
             if (Application.isBatchMode) EditorApplication.Exit(code);
         }
 
+        /// <summary>Diagnosis: every drawn triangle over a patch beside the road (PSX_T2_DUMP = "fromM,toM,latMin,latMax",
+        /// lat + right of the forward path): who it is, its height over the road there, how steep.</summary>
+        public static void Dump()
+        {
+            var sb = new StringBuilder();
+            try
+            {
+                string venue = Env("PSX_T2_VENUE", "LittleSwitzerland");
+                TrackCatalog.TryIndexOf(venue, out int v);
+                var def = TrackCatalog.At(v);
+                EditorSceneManager.OpenScene(EditorBuildSettings.scenes[TrackCatalog.SceneIndex(v)].path, OpenSceneMode.Single);
+                TrackCatalog.EnsureStage(def);
+                var pts = def.stagePts; float sp = TrackCatalog.Spacing;
+                var a = Env("PSX_T2_DUMP", "3980,3996,3.5,14").Split(',');
+                float m0 = float.Parse(a[0], System.Globalization.CultureInfo.InvariantCulture), m1 = float.Parse(a[1], System.Globalization.CultureInfo.InvariantCulture);
+                float l0 = float.Parse(a[2], System.Globalization.CultureInfo.InvariantCulture), l1 = float.Parse(a[3], System.Globalization.CultureInfo.InvariantCulture);
+                // a grid of vertical rays over the patch: what is hit first (drawn renderers only)
+                for (float m = m0; m <= m1 + 1e-3f; m += 2f)
+                {
+                    int i = Mathf.Clamp(Mathf.RoundToInt(m / sp), 1, pts.Length - 2);
+                    Vector3 f = pts[i + 1] - pts[i - 1]; f.y = 0f; f.Normalize();
+                    Vector3 r = Vector3.Cross(Vector3.up, f).normalized;
+                    for (float l = l0; l <= l1 + 1e-3f; l += 1.5f)
+                    {
+                        Vector3 p = pts[i] + r * l;
+                        sb.AppendLine($"m {m:0} lat {l:+0.0}: " + AllHits(new Ray(p + Vector3.up * 120f, Vector3.down), 400f, 120f));
+                    }
+                }
+            }
+            catch (System.Exception e) { sb.AppendLine("THREW " + e); }
+            File.WriteAllText(Path.Combine(ProjectDir, "PSXRacing_tunnel2_probe.txt"), sb.ToString());
+            if (Application.isBatchMode) EditorApplication.Exit(0);
+        }
+
         // ------------------------------------------------------------------
         //  Gaps
         // ------------------------------------------------------------------
@@ -242,6 +276,42 @@ namespace PSXRacing.EditorTools
             foreach (var r in hidden) if (r != null) r.enabled = true;
             RenderSettings.skybox = keepSky;
             return sb.ToString();
+        }
+
+        static string AllHits(Ray ray, float maxD, float over)
+        {
+            var hits = new List<(float d, string s)>();
+            foreach (var mr in Object.FindObjectsByType<MeshRenderer>(FindObjectsSortMode.None))
+            {
+                if (!mr.enabled || !mr.gameObject.activeInHierarchy) continue;
+                if (!mr.bounds.IntersectRay(ray, out float bd) || bd > maxD) continue;
+                var mf = mr.GetComponent<MeshFilter>(); var m = mf != null ? mf.sharedMesh : null;
+                if (m == null || !m.isReadable) continue;
+                var v = m.vertices; var xf = mr.transform.localToWorldMatrix;
+                for (int s = 0; s < m.subMeshCount; s++)
+                {
+                    var t = m.GetTriangles(s);
+                    for (int k = 0; k + 2 < t.Length; k += 3)
+                    {
+                        Vector3 a = xf.MultiplyPoint3x4(v[t[k]]), b = xf.MultiplyPoint3x4(v[t[k + 1]]), c = xf.MultiplyPoint3x4(v[t[k + 2]]);
+                        Vector3 e1 = b - a, e2 = c - a, pv = Vector3.Cross(ray.direction, e2);
+                        float det = Vector3.Dot(e1, pv);
+                        if (Mathf.Abs(det) < 1e-9f) continue;
+                        float inv = 1f / det; Vector3 tv = ray.origin - a;
+                        float uu = Vector3.Dot(tv, pv) * inv; if (uu < 0f || uu > 1f) continue;
+                        Vector3 qv = Vector3.Cross(tv, e1); float vv = Vector3.Dot(ray.direction, qv) * inv;
+                        if (vv < 0f || uu + vv > 1f) continue;
+                        float d = Vector3.Dot(e2, qv) * inv;
+                        if (d <= 0f || d > maxD) continue;
+                        var n = Vector3.Cross(e1, e2).normalized;
+                        hits.Add((d, $"{mr.gameObject.name}#{s} y{over - d:+0.00;-0.00}{(Vector3.Dot(n, ray.direction) < 0f ? "" : " BACK")} n.y {Mathf.Abs(n.y):0.00}"));
+                    }
+                }
+            }
+            hits.Sort((x, y) => x.d.CompareTo(y.d));
+            var sb = new StringBuilder();
+            for (int i = 0; i < hits.Count && i < 6; i++) sb.Append(hits[i].s).Append(" | ");
+            return hits.Count == 0 ? "NOTHING" : sb.ToString();
         }
 
         /// <summary>What drawn mesh the ray crosses first (a triangle test, both faces), for a gap's diagnosis: a
