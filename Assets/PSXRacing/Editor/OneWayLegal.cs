@@ -23,7 +23,7 @@ namespace PSXRacing.EditorTools
         public const float JunctionSkipM = 10f;
         public class Street { public string name; public bool divided; public int samples, wrong; public string firstWrong; }
         public static readonly Dictionary<string, Street> Streets = new Dictionary<string, Street>();
-        public static int Samples, OnOneWay, Wrong, LeftOfDivider, OffMap;
+        public static int Samples, OnOneWay, Wrong, LeftOfDivider, OffMap, ForkExcused;
         public static readonly List<string> WrongLines = new List<string>();
         static readonly Dictionary<int, bool> twinCache = new Dictionary<int, bool>();
         static readonly HashSet<int> segs = new HashSet<int>();
@@ -32,13 +32,18 @@ namespace PSXRacing.EditorTools
         public static void Reset()
         {
             Streets.Clear(); WrongLines.Clear();
-            Samples = OnOneWay = Wrong = LeftOfDivider = OffMap = 0;
+            Samples = OnOneWay = Wrong = LeftOfDivider = OffMap = ForkExcused = 0;
         }
 
-        /// <summary>The street under a point: the edge whose pavement (+1 m) holds it at its height (2.5 m).</summary>
+        /// <summary>Every street whose pavement holds the point (filled by StreetAt): edge, s, lat.</summary>
+        public static readonly List<(int edge, float s, float lat)> Holding = new List<(int, float, float)>();
+
+        /// <summary>The street under a point: the edge whose pavement (+1 m) holds it at its height (2.5 m), the
+        /// nearest; every edge that holds it is in <see cref="Holding"/> (where two streets meet or fork, both).</summary>
         public static bool StreetAt(CityMap map, Vector3 pos, out int edge, out float s, out float lat)
         {
             edge = -1; s = 0f; lat = 0f;
+            Holding.Clear();
             if (map == null) return false;
             var p = new Vector2(pos.x, pos.z);
             segs.Clear();
@@ -60,6 +65,9 @@ namespace PSXRacing.EditorTools
                 if (la < -eM - 1f || la > eP + 1f) continue;
                 float dy = Mathf.Abs(e.YAt(at) - pos.y);
                 if (dy > 2.5f) continue;
+                int had = Holding.FindIndex(h => h.edge == ei);
+                if (had < 0) Holding.Add((ei, at, la));
+                else if (Mathf.Abs(la) < Mathf.Abs(Holding[had].lat)) Holding[had] = (ei, at, la);
                 float score = dy * 4f + (p - q).magnitude;
                 if (score < best) { best = score; edge = ei; s = at; lat = la; }
             }
@@ -113,6 +121,17 @@ namespace PSXRacing.EditorTools
             if (h.sqrMagnitude < 1e-6f) return;
             h.Normalize();
             float along = Vector2.Dot(h, e.TangentAt(s));
+            // where streets meet or fork (Holding: every edge whose pavement holds the car), the car is legal if ANY
+            // of them allows its heading - a two-way street, a one-way street it drives along, or one whose
+            // junction end it is in (N Tryon St's one-way stretch forks into N Church St at node 9907: a car on
+            // Tryon there stands on Church's pavement too)
+            bool allowed = false;
+            foreach (var (oe, os, _) in Holding)
+            {
+                if (oe == ei) continue;
+                var o = map.edges[oe];
+                if (!o.oneway || os < JunctionSkipM || os > o.length - JunctionSkipM || Vector2.Dot(h, o.TangentAt(os)) >= -0.5f) { allowed = true; break; }
+            }
             if (e.oneway)
             {
                 OnOneWay++;
@@ -120,7 +139,8 @@ namespace PSXRacing.EditorTools
                 if (!Streets.TryGetValue(key, out var st)) Streets[key] = st = new Street { name = key };
                 if (Divided(map, ei)) st.divided = true;
                 st.samples++;
-                if (along < -0.5f)
+                if (along < -0.5f && allowed) ForkExcused++;
+                if (along < -0.5f && !allowed)
                 {
                     st.wrong++; Wrong++;
                     string line = $"WRONG WAY ({tag}) {who} at {time:0.0}s on one-way '{key}' e{ei} s {s:0} lat {lat:+0.0;-0.0}: heading {Mathf.Acos(Mathf.Clamp(along, -1f, 1f)) * Mathf.Rad2Deg:0} deg off the legal direction, {new Vector2(vel.x, vel.z).magnitude * 3.6f:0} km/h at ({pos.x:0},{pos.z:0})";
@@ -139,7 +159,7 @@ namespace PSXRacing.EditorTools
         public static string Describe(int minSamples)
         {
             var sb = new StringBuilder();
-            sb.Append($"car samples {Samples} (off every street's pavement or in a junction's ends: {OffMap}), on one-way streets {OnOneWay}, WRONG WAY {Wrong}; two-way, left of the divider by 2.5 m+ (info) {LeftOfDivider}");
+            sb.Append($"car samples {Samples} (off every street's pavement or in a junction's ends: {OffMap}), on one-way streets {OnOneWay}, WRONG WAY {Wrong} (against the nearest one-way street but along another street that holds it too, not counted: {ForkExcused}); two-way, left of the divider by 2.5 m+ (info) {LeftOfDivider}");
             var list = new List<Street>(Streets.Values);
             list.Sort((a, b) => b.samples.CompareTo(a.samples));
             int n = 0;
