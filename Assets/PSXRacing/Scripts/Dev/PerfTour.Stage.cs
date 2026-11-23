@@ -360,7 +360,7 @@ namespace PSXRacing
                 if (fieldRun)
                 {
                     ArcadeMode.FillField(spec, ArcadeMode.RivalsAt(TrackCatalog.At(venue)));
-                    if (int.TryParse(ShotLink.Query(Request() ?? "", "traffic") ?? "", out int tl)) RaceHandoff.TrafficLevel = (TrafficLevels)tl;
+                    if (int.TryParse(ShotLink.Query(Request() ?? "", "traffic") ?? "", out int tl)) RaceHandoff.TrafficLevel = tl;
                 }
                 float l0 = Time.realtimeSinceStartup;
                 SceneGate.Load(scene);
