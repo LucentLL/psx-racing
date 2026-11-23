@@ -156,7 +156,8 @@ namespace PSXRacing
             int lamps = 0, mercs = 0;
             float reach = Mathf.Max(N3PoolM, N3GlowM) + N3TexelM;
             // NIGHT 4: what each lamp's head can see (StreetLights.Night4.cs), found once a lamp
-            if (StreetOn) N4UpdateVis();
+            // (by day too, as tiles stream: nothing is left to find when the lamps come on at dusk)
+            N4UpdateVis();
             if (StreetOn)
                 for (int i = 0; i < high; i++)
                 {
