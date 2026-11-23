@@ -1236,6 +1236,8 @@ namespace PSXRacing.City
             Debug.Log($"[City] parsed in {LastParseMs:0} ms, elevation solved in {clock.ElapsedMilliseconds} ms ({CityElevation.SeatedStationCount} ramp stations seated on their mainlines, found in {CityElevation.SeatPrepMs} ms); twin decks: {DeckPairs.LastReport}; {CityElevation.TwinHoldReport}");
             // (lot entrances, 11-15) every lot a way in: the data's entrances paved through to their lots, the rest derived
             CityMeshes.InstallLotEntrances(map);
+            // (service ways, 11-15) the extract's access drives, alleys and loose aisles as pavement and curb cuts: no node or edge added
+            CityMeshes.InstallServiceWays(map);
             return map;
         }
 

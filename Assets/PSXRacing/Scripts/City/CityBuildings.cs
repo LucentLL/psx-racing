@@ -162,6 +162,7 @@ namespace PSXRacing.City
             }
             FrontageReport = $"frontage boxes: {placed} placed; low-rise rule (PSX_CITY_LRFRONTAGE {(FrontageRuleOn ? "on" : "off")}): {frontRemoved} removed within {HouseClearM:0} m of a mapped house, {frontLowered} lowered to two storeys";
             Debug.Log($"[City] buildings placed: {placed} (+{landmarks} restaurants, {towers} pack towers on real lots, {map.footprints.Length} footprints; {map.stations.Length} filling stations claimed {stationCells} cells); {FrontageReport}");
+            CityMeshes.ServiceClearBuildings(map, byTile);   // (service ways, 11-15) no invented box on a service way
             return byTile;
         }
 
