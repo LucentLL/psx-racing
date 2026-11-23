@@ -36,6 +36,13 @@ namespace PSXRacing.City
         /// <summary>The rows of the map last parsed, by edge (null: no LAN2 section, or switched off).</summary>
         public static Dictionary<int, Row> Rows { get; private set; }
         public static bool Applied(int edge) => Rows != null && Rows.ContainsKey(edge);
+        /// <summary>(roadsmerge 11-23, fallback 2 of the coordinator) Edges that keep the MAP's lane count: at these joints
+        /// LANES2's new count made the line model relay the centre line into an S-jog (Monroe Rd e16892: 6.2 m in 47 m) and
+        /// a 12.1 deg pavement-edge kink at a split end (N Graham St e16661). Their tapers and splits come from the base TAPR /
+        /// SPLT. To take an edge off this list the joint needs a real taper to spec (L = W x S at 45 mph+, W x S^2 / 60 below).
+        /// PSX_CITY_LANES2SKIP=0: no edge skipped.</summary>
+        public static readonly int[] Skip = { 16891, 10508, 16661, 17691, 17692 };
+        public static bool SkipOn = System.Environment.GetEnvironmentVariable("PSX_CITY_LANES2SKIP") != "0";
         public static string Report => Rows == null ? (On ? "LANES2: no LAN2 section in the data" : "LANES2: OFF (PSX_CITY_LANES2=0)") : $"LANES2: {Rows.Count} edges take today's lane count from section LAN2";
 
         /// <summary>Section LAN2's edge rows; leaves the reader at the taper list that follows them.</summary>

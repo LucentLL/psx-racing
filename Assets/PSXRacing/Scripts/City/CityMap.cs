@@ -769,6 +769,9 @@ namespace PSXRacing.City
                 // the edges below take their section from them. PSX_CITY_LANES2=0: not read.
                 Dictionary<int, CityLanes2.Row> lan2 = null; long lan2TaperAt = -1;
                 if (CityLanes2.On && Has("LAN2")) { Open("LAN2"); lan2 = CityLanes2.ReadRows(r); lan2TaperAt = r.BaseStream.Position; }
+                // (roadsmerge 11-23) LANES2's skip list: these edges keep the map's lane count, and the tapers / splits at their
+                // nodes come from the base TAPR / SPLT (CityLanes2.Skip; PSX_CITY_LANES2SKIP=0: none skipped)
+                if (lan2 != null && CityLanes2.SkipOn) foreach (int k in CityLanes2.Skip) lan2.Remove(k);
                 CityLanes2.Loaded(lan2);
 
                 // EDGE holds each edge's record and its point COUNT; the
@@ -944,28 +947,57 @@ namespace PSXRacing.City
                 // after its edge rows, in TAPR's own layout
                 bool taprLan2 = lan2 != null && lan2TaperAt >= 0;
                 long lan2SplitAt = -1;
-                if (taprLan2 || Has("TAPR"))
+                // (roadsmerge) the edges whose tapers come from the base TAPR: the skipped edges and every edge at their nodes
+                HashSet<int> skipNear = null; HashSet<int> skipNodes = null;
+                if (taprLan2 && CityLanes2.SkipOn && CityLanes2.Skip.Length > 0 && Has("TAPR"))
                 {
-                    if (taprLan2) r.BaseStream.Position = lan2TaperAt; else Open("TAPR");
+                    skipNear = new HashSet<int>(); skipNodes = new HashSet<int>();
+                    foreach (int k in CityLanes2.Skip)
+                    {
+                        if (k < 0 || k >= ne) continue;
+                        skipNodes.Add(map.edges[k].a); skipNodes.Add(map.edges[k].b);
+                    }
+                    foreach (int nd in skipNodes) foreach (int k in map.nodeEdges[nd]) skipNear.Add(k);
+                }
+                void ReadTapr(List<LineModel.Tapr> list, float[] offs)
+                {
                     int nt = r.ReadInt32();
-                    map.tapr = new LineModel.Tapr[nt];
                     for (int i = 0; i < nt; i++)
-                        map.tapr[i] = new LineModel.Tapr
+                        list.Add(new LineModel.Tapr
                         {
                             edge = r.ReadInt32(), end = r.ReadByte(), side = r.ReadByte(), src = r.ReadByte(), flags = r.ReadByte(),
                             dw = r.ReadSingle(), len = r.ReadSingle() * LayoutScale,
                             room = r.ReadSingle() * LayoutScale, off = r.ReadSingle(),
-                        };
+                        });
                     int no = r.ReadInt32();
-                    taprOff = new float[ne];
                     for (int i = 0; i < no; i++)
                     {
                         int ei = r.ReadInt32();
                         float o0 = r.ReadSingle(), o1 = r.ReadSingle();
                         r.ReadSingle(); r.ReadSingle();   // t0, t1: since the WP-10 review the offset holds along the edge
-                        if (ei >= 0 && ei < ne) taprOff[ei] = 0.5f * (o0 + o1);
+                        if (ei >= 0 && ei < ne) offs[ei] = 0.5f * (o0 + o1);
                     }
+                }
+                if (taprLan2 || Has("TAPR"))
+                {
+                    if (taprLan2) r.BaseStream.Position = lan2TaperAt; else Open("TAPR");
+                    var list = new List<LineModel.Tapr>();
+                    taprOff = new float[ne];
+                    ReadTapr(list, taprOff);
                     if (taprLan2) lan2SplitAt = r.BaseStream.Position; else Close("TAPR");
+                    if (skipNear != null)
+                    {
+                        long keep = r.BaseStream.Position;
+                        Open("TAPR");
+                        var baseList = new List<LineModel.Tapr>(); var baseOff = new float[ne];
+                        ReadTapr(baseList, baseOff);
+                        Close("TAPR");
+                        r.BaseStream.Position = keep;
+                        list.RemoveAll(x => skipNear.Contains(x.edge));
+                        foreach (var x in baseList) if (skipNear.Contains(x.edge)) list.Add(x);
+                        foreach (int k in skipNear) taprOff[k] = baseOff[k];
+                    }
+                    map.tapr = list.ToArray();
                 }
                 // TAGN (WP-10): the OSM control nodes (signals, stops, give
                 // ways) resolved on the RAW ways, and where they lie now:
@@ -990,15 +1022,30 @@ namespace PSXRacing.City
                 if (lan2SplitAt >= 0 || Has("SPLT"))
                 {
                     if (lan2SplitAt >= 0) r.BaseStream.Position = lan2SplitAt; else Open("SPLT");
-                    int nsp = r.ReadInt32();
-                    map.splt = new LineModel.Split[nsp];
-                    for (int i = 0; i < nsp; i++)
-                        map.splt[i] = new LineModel.Split
-                        {
-                            node = r.ReadInt32(), u = r.ReadInt32(), a = r.ReadInt32(), b = r.ReadInt32(),
-                            offA = r.ReadSingle() * LayoutScale, offB = r.ReadSingle() * LayoutScale, rate = r.ReadSingle(),
-                        };
+                    List<LineModel.Split> ReadSplt()
+                    {
+                        int nsp = r.ReadInt32();
+                        var l = new List<LineModel.Split>(nsp);
+                        for (int i = 0; i < nsp; i++)
+                            l.Add(new LineModel.Split
+                            {
+                                node = r.ReadInt32(), u = r.ReadInt32(), a = r.ReadInt32(), b = r.ReadInt32(),
+                                offA = r.ReadSingle() * LayoutScale, offB = r.ReadSingle() * LayoutScale, rate = r.ReadSingle(),
+                            });
+                        return l;
+                    }
+                    var spl = ReadSplt();
                     Close(lan2SplitAt >= 0 ? "LAN2" : "SPLT");
+                    // (roadsmerge) a split at a skipped edge's node keeps the base's offsets
+                    if (lan2SplitAt >= 0 && skipNodes != null && Has("SPLT"))
+                    {
+                        long keep = r.BaseStream.Position;
+                        Open("SPLT"); var baseSpl = ReadSplt(); Close("SPLT");
+                        r.BaseStream.Position = keep;
+                        spl.RemoveAll(x => skipNodes.Contains(x.node));
+                        foreach (var x in baseSpl) if (skipNodes.Contains(x.node)) spl.Add(x);
+                    }
+                    map.splt = spl.ToArray();
                 }
                 // BRST (plan B1): the bridges' OSM outlines, the water spans a
                 // culvert claims (owner Q8), the twin-deck overrides. Layout:
