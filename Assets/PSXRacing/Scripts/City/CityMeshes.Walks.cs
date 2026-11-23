@@ -721,7 +721,7 @@ namespace PSXRacing.City
                     // a slip lane beside the street) the section is the plain walk as before the strip: the strip street's curb
                     // was otherwise laid into the other arm's travelled way (line gate MEDIAN +4: Monroe Rd, Statesville Rd, N Tryon
                     // St, Perimeter Pkwy, Brownstone St). PSX_CITY_STRIPCLEAR=0: as hoods 2 left it.
-                    if (StripClearOn && StripOf(map, e) > 0f && wWant > WalkWOf(map, e) + 0.01f && Cs4SectionOnPavement(map, trims, pw, outw, wWant, ed.y, e.index)) wWant = WalkWOf(map, e);
+                    if (StripClearOn && StripOf(map, e) > 0f && wWant > WalkWOf(map, e) + 0.01f && WalkOnPavement(map, trims, pw, outw, wWant, ed.y, e.index)) wWant = WalkWOf(map, e);
                     float w = WalkClear(map, trims, pw, outw, ed.y + CurbH, wWant);   // (curbs 3) a roll curb alone is CurbOnlyW
                     if (WalkClearOn && Curbs3On && w > 0f && CityHouses.BoundTo(map)) w = Mathf.Min(w, CityHouses.ClearOut(pw, outw, w, 0.3f));   // (hoods 2) no walk through a building
                     if (w < Cs3WalkMin(map, e) || WalkOnPavement(map, trims, pw, outw, w, ed.y, e.index)) continue;
@@ -814,14 +814,6 @@ namespace PSXRacing.City
         /// another road (a split, a clipped mouth) passed it: GRASS ON TOP of
         /// a link's lane at W 5th, a curb in East 7th Street's.
         /// </summary>
-        /// <summary>(roadsmerge) the strip section's walk slab anywhere on another road: six points across it and 0.6 m past
-        /// its back (the slab between two sections is interpolated, so a near miss at a section is a hit between them).</summary>
-        static bool Cs4SectionOnPavement(CityMap map, Trims trims, Vector2 p, Vector2 outw, float w, float y, int own)
-        {
-            for (int k = 0; k <= 5; k++) if (OnPavement(map, trims, p + outw * (WalkWOf(map, map.edges[own]) * 0.5f + (w + 0.6f - WalkWOf(map, map.edges[own]) * 0.5f) * (k / 5f)), y, own, own)) return true;
-            return false;
-        }
-
         static bool WalkOnPavement(CityMap map, Trims trims, Vector2 p, Vector2 outw, float w, float y, int own)
         {
             return OnPavement(map, trims, p + outw * (0.5f * w), y, own, own) || OnPavement(map, trims, p + outw * (w - 0.05f), y, own, own);
