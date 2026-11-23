@@ -883,12 +883,14 @@ namespace PSXRacing.EditorTools
                     float z = oz + (gz + (((h >> 10) & 1023u) / 1023f)) * CoverPitch;
                     if (!StageCorridor(x, z, CoverBand + 4f, out RoadFoot f)) continue;
                     if (StageKeepOut(x, z)) continue;
-                    if (f.d < roadHalf + 0.9f || f.d > CoverBand) continue;
+                    bool ob = T3OverBore(f, x, z);
+                    if ((!ob && f.d < roadHalf + 0.9f) || f.d > CoverBand) continue;
                     if (BridgeAt(f.station) > 0.35f) continue;
-                    float keep = Mathf.Lerp(0.95f, 0.55f, Mathf.InverseLerp(roadHalf + 3f, CoverBand, f.d));
+                    float keep = ob ? 0.95f : Mathf.Lerp(0.95f, 0.55f, Mathf.InverseLerp(roadHalf + 3f, CoverBand, f.d));
                     if (((h >> 20) & 1023u) / 1023f > keep) continue;
                     float lat = StageLatticeY(x, z), top = StageBankTopY(f);
-                    if (OnGradedRoadside(f) && top > lat + 0.3f && !OnRockTop(f)) continue;   // a cut face (its top may grow)
+                    if (ob) top = lat;
+                    if (!ob && OnGradedRoadside(f) && top > lat + 0.3f && !OnRockTop(f)) continue;   // a cut face (its top may grow)
                     float gy = Mathf.Max(Mathf.Max(lat, top), StageFillY(x, z));
                     int vi = kit.cover[(int)((h >> 5) % (uint)kit.cover.Length)];
                     float sc = Mathf.Lerp(1.5f, 2.6f, ((h >> 3) & 255u) / 255f);
@@ -937,10 +939,12 @@ namespace PSXRacing.EditorTools
                         float z = oz + (gz + (((h >> 10) & 1023u) / 1023f)) * L.pitch;
                         if (!StageCorridor(x, z, L.far + 4f, out RoadFoot f)) continue;
                         if (StageKeepOut(x, z)) continue;
-                        if (f.d < roadHalf + L.near || f.d > L.far) continue;
+                        bool ob = T3OverBore(f, x, z);
+                        if ((!ob && f.d < roadHalf + L.near) || f.d > L.far) continue;
                         if (BridgeAt(f.station) > 0.35f) continue;
                         float lat = StageLatticeY(x, z), top = StageBankTopY(f);
-                        bool graded = OnGradedRoadside(f) && !OnRockTop(f);
+                        if (ob) top = lat;
+                        bool graded = !ob && OnGradedRoadside(f) && !OnRockTop(f);
                         if (graded && (L.kind >= 2 || top > lat + 0.3f)) continue;
                         float gy = Mathf.Max(Mathf.Max(lat, top), StageFillY(x, z));
                         float hx = (StageLatticeY(x + 1f, z) - StageLatticeY(x - 1f, z)) * 0.5f;
@@ -973,9 +977,10 @@ namespace PSXRacing.EditorTools
             if ((h >> 24) % 10u >= 7u) return false;            // 70% of trees get one
             if (!StageCorridor(x, z, ForestBand + 10f, out RoadFoot f)) return false;
             if (StageKeepOut(x, z)) return false;
-            if (f.d < RoadWidth * 0.5f + 4.5f || f.d > 90f) return false;
-            if (BridgeAt(f.station) > 0.35f || (OnGradedRoadside(f) && !OnRockTop(f))) return false;
-            gy = Mathf.Max(Mathf.Max(StageLatticeY(x, z), StageBankTopY(f)), StageFillY(x, z));
+            bool ob = T3OverBore(f, x, z);
+            if ((!ob && f.d < RoadWidth * 0.5f + 4.5f) || f.d > 90f) return false;
+            if (BridgeAt(f.station) > 0.35f || (!ob && OnGradedRoadside(f) && !OnRockTop(f))) return false;
+            gy = ob ? StageLatticeY(x, z) : Mathf.Max(Mathf.Max(StageLatticeY(x, z), StageBankTopY(f)), StageFillY(x, z));
             return true;
         }
 
@@ -1005,9 +1010,10 @@ namespace PSXRacing.EditorTools
                 float ux = wx + Mathf.Cos(ang) * r, uz = wz + Mathf.Sin(ang) * r;
                 if (!StageCorridor(ux, uz, ForestBand + 10f, out RoadFoot f2)) continue;
                 if (StageKeepOut(ux, uz)) continue;
-                if (f2.d < roadHalf + UnderClearM || f2.d > ForestBand) continue;
-                if (BridgeAt(f2.station) > 0.35f || (OnGradedRoadside(f2) && !OnRockTop(f2))) continue;
-                float gy = Mathf.Max(Mathf.Max(StageLatticeY(ux, uz), StageBankTopY(f2)), StageFillY(ux, uz));
+                bool ob = T3OverBore(f2, ux, uz);
+                if ((!ob && f2.d < roadHalf + UnderClearM) || f2.d > ForestBand) continue;
+                if (BridgeAt(f2.station) > 0.35f || (!ob && OnGradedRoadside(f2) && !OnRockTop(f2))) continue;
+                float gy = ob ? StageLatticeY(ux, uz) : Mathf.Max(Mathf.Max(StageLatticeY(ux, uz), StageBankTopY(f2)), StageFillY(ux, uz));
                 bool bush = kit.bushes.Length > 0 && (kit.smallBeech.Length == 0 || (h & 0x10000u) != 0);
                 int[] pool = bush ? kit.bushes : kit.smallBeech;
                 int vi = pool[(int)((h >> 20) % (uint)pool.Length)];

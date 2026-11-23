@@ -8194,7 +8194,8 @@ namespace PSXRacing.EditorTools
                         if (d <= 90f && storyRoll < ForestUnderstory)
                             h *= 0.5f + (float)(storyRoll / ForestUnderstory) * 0.2f;
 
-                        bool deckOver = f > 0.4f && roadY - ground > h + 3.5f;
+                        // (tunnel2) on the hill over a bore the road's margins do not apply (like a tree under a deck)
+                        bool deckOver = (f > 0.4f && roadY - ground > h + 3.5f) || T3OverBore(foot, wx, wz);
 
                         // NO BILLBOARD ACROSS THE LANE AT A HEIGHT A CAR OR ITS
                         // CAMERA REACHES. A card is a flat plane sixteen metres

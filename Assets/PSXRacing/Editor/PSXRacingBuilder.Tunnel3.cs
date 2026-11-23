@@ -81,6 +81,17 @@ namespace PSXRacing.EditorTools
             return false;
         }
 
+        /// <summary>Is (x, z) on the hill OVER a bore (its nearest road is in the tube, metres under it)? The
+        /// planting's road margins (the lanes, the shoulder, the graded roadside, the low crowns) are for a road
+        /// in the open; over the tube the hill is a hillside like any other.</summary>
+        static bool T3OverBore(in RoadFoot f, float x, float z)
+        {
+            if (!Tunnel3 || t3Grounds.Count == 0 || tunnelIn == null) return false;
+            int st = Mathf.Clamp(Mathf.RoundToInt(f.station), 0, tunnelIn.Length - 1);
+            if (!tunnelIn[st] || !T3GroundAt(x, z, out float y)) return false;
+            return y > f.roadY + T2CrownY(RoadWidth * 0.5f + TunnelWallOut) + 0.8f;
+        }
+
         static void T3Reset() { t3Grounds.Clear(); t3Keeps.Clear(); t3Boulders.Clear(); t3Boulder = 0; t3HillTris = 0; t3RockTris = 0; }
 
         // ------------------------------------------------------------------
@@ -186,8 +197,8 @@ namespace PSXRacing.EditorTools
                 T3Stone(sv, suv, sc, st, P, outline, Rnd(0.06f, 0.11f), 0.04f, T3StoneColour(rnd, mossQ), 0.8f, face, rnd);
                 // its soffit into the bore (seen looking up at the mouth), just inside the lining's line
                 int b = sv.Count;
-                Vector2 i0 = Pt(a0s[q], R - 0.01f), i1 = Pt(a0s[q + 1], R - 0.01f);
-                sv.Add(P(i0.x, i0.y, -0.03f)); sv.Add(P(i1.x, i1.y, -0.03f)); sv.Add(P(i1.x, i1.y, -0.62f)); sv.Add(P(i0.x, i0.y, -0.62f));
+                Vector2 i0 = Pt(a0s[q], R - 0.015f), i1 = Pt(a0s[q + 1], R - 0.015f);
+                sv.Add(P(i0.x, i0.y, 0.05f)); sv.Add(P(i1.x, i1.y, 0.05f)); sv.Add(P(i1.x, i1.y, -0.62f)); sv.Add(P(i0.x, i0.y, -0.62f));
                 var cs = T3StoneColour(rnd, 0f) * 0.78f; cs.a = 1f;
                 for (int k = 0; k < 4; k++) sc.Add(cs);
                 foreach (var p in new[] { sv[b], sv[b + 1], sv[b + 2], sv[b + 3] }) suv.Add(new Vector2(p.x + p.z, p.y) / 1.9f);
@@ -273,7 +284,7 @@ namespace PSXRacing.EditorTools
                         // its return into the bore
                         int b = sv.Count;
                         float xr = s * (R - 0.01f);
-                        sv.Add(P(xr, levels[k], -0.03f)); sv.Add(P(xr, levels[k + 1], -0.03f)); sv.Add(P(xr, levels[k + 1], -0.62f)); sv.Add(P(xr, levels[k], -0.62f));
+                        sv.Add(P(xr, levels[k], 0.05f)); sv.Add(P(xr, levels[k + 1], 0.05f)); sv.Add(P(xr, levels[k + 1], -0.62f)); sv.Add(P(xr, levels[k], -0.62f));
                         var cs = T3StoneColour(rnd, 0f) * 0.78f; cs.a = 1f;
                         for (int m = 0; m < 4; m++) sc.Add(cs);
                         foreach (var p in new[] { sv[b], sv[b + 1], sv[b + 2], sv[b + 3] }) suv.Add(new Vector2(p.x + p.z, p.y) / 1.9f);
@@ -414,8 +425,8 @@ namespace PSXRacing.EditorTools
             float roadHalf = RoadWidth * 0.5f;
             float wallX = T3WallX(halfW), stepX = T3StepX(halfW), stepTop = T3StepTop(halfW);
             float crownMin = T2CrownY(halfW) + 1.2f;
-            float reach = halfW + 1f + NearCell * 2f;
-            const float Dout = 26f;
+            float reach = halfW + 1f + NearCell * 2.5f;
+            const float Dout = 32f;
             float tile = Mathf.Max(theme.groundTile, 0.01f);
 
             float GroundAt(Vector3 p, out bool mesh)
@@ -504,7 +515,7 @@ namespace PSXRacing.EditorTools
                         // (a forest floor holds it), never over the land, never under the wall's top or the crown's cover
                         float depth = Mathf.Max(0f, -u[ri] - (ax <= wallX ? 1.25f : 0f));
                         float baseY = ax <= wallX ? y0 + T3MasonryTop(ax, halfW) - 0.06f : y0 + stepTop - 0.06f - (ax - wallX) * 0.25f;
-                        float undul = (T2Value(new Vector3(p.x, 0f, p.z) / 5.5f) - 0.5f) * 0.8f * Mathf.Clamp01(depth / 2f);
+                        float undul = ((T2Value(new Vector3(p.x, 0f, p.z) / 5.5f) - 0.5f) * 1.2f + (T2Value(new Vector3(p.x, 3.7f, p.z) / 2.3f) - 0.5f) * 0.5f) * Mathf.Clamp01(depth / 2f);
                         float slope = baseY + depth * 0.88f + undul;
                         y = Mathf.Max(need, Mathf.Min(land, slope));
                     }
@@ -536,7 +547,7 @@ namespace PSXRacing.EditorTools
                     if (f0 != f1 && Mathf.Abs(u[ri]) > 3f && Mathf.Abs(u[ri + 1]) > 3f) continue;   // (the far ends of the two mouths' rows)
                     int a = ri * C + ci, b = a + 1, d = a + C, e = d + 1;
                     bool any = own[a] || own[b] || own[d] || own[e];
-                    if (!any)
+                    if (!any && false)
                     {
                         // a cell under the ground is kept only beside one that shows (the seam's overlap)
                         bool nb = false;
@@ -822,6 +833,10 @@ namespace PSXRacing.EditorTools
             PortalColliders3(pts, iA, -1f, halfW, parent, phys);
             PortalColliders3(pts, iB, 1f, halfW, parent, phys);
             var ground = AssetDatabase.LoadAssetAtPath<Material>(MatDir + "/" + MeshPrefix + "Ground.mat");
+            // the hill's steep faces and its boulders in the road cuts' own rock (BuildStageBanks' material: the
+            // neighbour's look and scale exactly)
+            var bank = AssetDatabase.LoadAssetAtPath<Material>(MatDir + "/" + MeshPrefix + "Bank.mat");
+            if (bank != null && bank.IsKeywordEnabled("PSX_ROCKFACE")) { hillRock = bank; boulderRock = bank; }
             if (ground != null) BuildHill3(pts, from, stations, parent, no, halfW, ground, hillRock, boulderRock);
             else Log("Tunnel hill: no ground material " + MeshPrefix + "Ground");
             string sign = T3SignTexPath(track.id);

@@ -364,6 +364,15 @@ namespace PSXRacing.EditorTools
                         float tr = aa + bb, det = Mathf.Sqrt(Mathf.Max(0f, (aa - bb) * (aa - bb) + 4f * ab * ab));
                         float s1 = Mathf.Sqrt(Mathf.Max(0f, (tr + det) * 0.5f)), s2 = Mathf.Sqrt(Mathf.Max(0f, (tr - det) * 0.5f));
                         float aniso = s2 > 1e-6f ? s1 / s2 : 99f;
+                        if (rock)
+                        {
+                            // what the shader draws is the BLEND of its planes, each stretched 1 / |n . axis| on this
+                            // facet, weighted |n . axis|^4 (PSXLit PSX_ROCKFACE; the up plane only with _RockTop)
+                            float nx = Mathf.Abs(nrm.x) + 1e-3f, ny = Mathf.Abs(nrm.y) + 1e-3f, nz = Mathf.Abs(nrm.z) + 1e-3f;
+                            float wx = Mathf.Pow(nx, 4f), wz = Mathf.Pow(nz, 4f), wy = rockTop > 0.5f ? Mathf.Pow(ny, 4f) : 0f;
+                            float wsum = wx + wy + wz;
+                            aniso = (wx / nx + wy / ny + wz / nz) / wsum;
+                        }
                         float dens = Mathf.Sqrt(s1 * s2);
                         st.area += area;
                         if (aniso > 1.5f) st.badArea += area;
