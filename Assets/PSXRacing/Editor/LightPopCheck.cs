@@ -210,7 +210,7 @@ namespace PSXRacing.EditorTools
                         if (nextShot < shotAt.Count && Time.time - g0 >= shotAt[nextShot])
                         {
                             LightLookShots.Take(Camera.main, System.IO.Path.Combine(LightPopMeter.OutDir, "shots"), segName + "_" + shotAt[nextShot].ToString("00") + "s");
-                            LightPopCheck.Line("shot " + segName + " " + shotAt[nextShot].ToString("0") + " s at " + car.transform.position.ToString("F0") + " " + car.speedKmh.ToString("0") + " km/h");
+                            LightPopCheck.Line("shot " + segName + " " + shotAt[nextShot].ToString("0") + " s at " + car.transform.position.ToString("F0") + " " + car.speedKmh.ToString("0") + " km/h; far plane " + (Camera.main != null ? Camera.main.farClipPlane.ToString("0") : "-") + " m, field lamps " + StreetLights.FieldLamps + ", far field lamps " + StreetLights.FarLamps + ", registered " + StreetLights.Registered + ", tunnel lamps " + TunnelLamps.Count);
                             nextShot++;
                         }
                         top = Mathf.Max(top, car.speedKmh);
@@ -231,6 +231,39 @@ namespace PSXRacing.EditorTools
                     LightPopCheck.Line(line + "\n    top " + top.ToString("0") + " km/h, " + nudges + " nudges past held-up traffic");
                     Time.captureFramerate = 0;
                 }
+            }
+        }
+
+        // ------------------------------------------------------------------
+        IEnumerator TunnelShots(CarController car)
+        {
+            var def = TrackCatalog.At(RaceHandoff.TrackIndex);
+            if (def == null || def.tunnels == null || def.tunnels.Length == 0 || car == null) { LightPopCheck.Line("FAIL no tunnels here"); yield break; }
+            TrackCatalog.EnsureStage(def);
+            var pts = def.stagePts;
+            var auto = car.GetComponent<AIDriver>();
+            if (auto != null) Destroy(auto);
+            int n = pts.Length, no = 0;
+            foreach (var span in def.tunnels)
+            {
+                foreach (float off in new[] { -90f, 12f, 60f })
+                {
+                    float m = Mathf.Clamp(span.x + off, 0f, (n - 2) * TrackCatalog.Spacing);
+                    int i = Mathf.Clamp(Mathf.RoundToInt(m / TrackCatalog.Spacing), 1, n - 2);
+                    Vector3 fwd = pts[i + 1] - pts[i - 1]; fwd.y = 0f; fwd.Normalize();
+                    Vector3 right = Vector3.Cross(Vector3.up, fwd);
+                    var pos = pts[i] + right * (def.roadWidth * 0.25f) + Vector3.up * 0.45f;
+                    var rot = Quaternion.LookRotation(fwd, Vector3.up);
+                    foreach (var view in new[] { ChaseCamera.View.Chase, ChaseCamera.View.Cockpit })
+                    {
+                        ChaseCamera.PreviewView(view);
+                        for (int k = 0; k < 40; k++) { car.ResetTo(pos, rot, seated: true); yield return null; }
+                        string seg = "tunnel" + no + "_" + (off < 0f ? "approach" : off < 30f ? "mouth" : "inside") + "_" + view.ToString().ToLowerInvariant();
+                        LightLookShots.Take(Camera.main, System.IO.Path.Combine(LightPopMeter.OutDir, "shots"), seg);
+                        LightPopCheck.Line("shot " + seg + " at " + pos.ToString("F0") + "; tunnel lamps " + TunnelLamps.Count + ", field lamps " + StreetLights.FieldLamps + ", registered " + StreetLights.Registered);
+                    }
+                }
+                if (++no >= 2) break;
             }
         }
 
@@ -256,6 +289,9 @@ namespace PSXRacing.EditorTools
             while (rm.State == RaceManager.RaceState.Countdown && Time.realtimeSinceStartup - t0 < 480f) yield return null;
             LightPopCheck.Line("race " + SceneManager.GetActiveScene().name + ": green after " + (Time.realtimeSinceStartup - t0).ToString("0") +
                                " s; " + rm.allCars.Count + " cars; hour " + TimeOfDay.All[RaceHandoff.TimeOfDayIndex].name);
+            // (lightlook) PSX_LIGHTPOP_TUNNELSHOTS=1: the look shots at each tunnel of the stage
+            // (approach, mouth, inside) in both views, the player's car stood there; then done
+            if (LightPopCheck.Env("PSX_LIGHTPOP_TUNNELSHOTS", "0") == "1") { yield return TunnelShots(car); yield break; }
             float secs = EnvF("PSX_LIGHTPOP_SECS", 40f);
             int strip = Mathf.RoundToInt(EnvF("PSX_LIGHTPOP_STRIP", 15f));
             string venue = LightPopCheck.Env("PSX_LIGHTPOP_VENUE", "race");

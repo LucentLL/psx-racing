@@ -102,6 +102,10 @@ namespace PSXRacing
         /// highlight over the bead's upper half and a dark lower rim, not white speckle
         /// (PSX_RAIN2_CARBEADS).</summary>
         public static bool CarBeads = Env("PSX_RAIN2_CARBEADS", true);
+        /// <summary>(lightlook, 2026-11-23) A lamp seen through the wet windscreen blooms into a soft
+        /// star in the water and tightens where the wiper has cleared it (PSXCabinGlass.shader,
+        /// _PSXRain2Glass3.y; also off with PSX_LIGHT_LOOK=0) (PSX_RAIN2_LAMPGLOW).</summary>
+        public static bool LampGlow = Env("PSX_RAIN2_LAMPGLOW", true);
 
         static bool Env(string name, bool fallback)
         {
@@ -166,7 +170,7 @@ namespace PSXRacing
         public static readonly int PoolBandId = Shader.PropertyToID("_PoolBand");
         /// <summary>(rainglass2) x Bank2, y Cover, z Clear, w LensDrops: 1 = on (all 0 without rain 2).</summary>
         static readonly int Glass2Id = Shader.PropertyToID("_PSXRain2Glass2");
-        /// <summary>(rainglass2) x CarBeads.</summary>
+        /// <summary>(rainglass2) x CarBeads; (lightlook) y LampGlow.</summary>
         static readonly int Glass3Id = Shader.PropertyToID("_PSXRain2Glass3");
 
         /// <summary>How hard it is raining on the open road right now, 0..1
@@ -210,7 +214,7 @@ namespace PSXRacing
         public static void PushGlass2()
         {
             Shader.SetGlobalVector(Glass2Id, On ? new Vector4(Bank2 ? 1f : 0f, Cover ? 1f : 0f, Clear ? 1f : 0f, LensDrops ? 1f : 0f) : Vector4.zero);
-            Shader.SetGlobalVector(Glass3Id, On ? new Vector4(CarBeads ? 1f : 0f, 0f, 0f, 0f) : Vector4.zero);
+            Shader.SetGlobalVector(Glass3Id, On ? new Vector4(CarBeads ? 1f : 0f, LampGlow && LightLook.On ? 1f : 0f, 0f, 0f) : Vector4.zero);
         }
 
         /// <summary>The cover mask (Rain2Driver): world metres to its uv, or off.</summary>
