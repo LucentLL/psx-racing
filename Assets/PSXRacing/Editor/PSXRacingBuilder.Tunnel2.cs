@@ -180,6 +180,28 @@ namespace PSXRacing.EditorTools
                 }
             }
 
+            // (tunnel2) THE SLIT AT THE FOOT: the verge's outer edge and the footing meet on one line, a ribbon's
+            // chord against a ring's, and the gap between showed the background along both walls (the gap probe;
+            // his circle on the left road edge inside the bore). A dark lip under the verge, from 0.9 m inside the
+            // wall line out under the footing, closes it from every eye.
+            if (Tunnel3)
+                foreach (float side in new[] { -1f, 1f })
+                {
+                    int prev = -1;
+                    for (int k = 0; k < rings; k++)
+                    {
+                        Vector3 c = cen[k], r = rgt[k];
+                        float y = c.y - 0.32f + (side < 0f ? bankL[k] : bankR[k]);
+                        Vector3 wIn = c + r * (side * (R - 0.9f)), wOut = c + r * (side * (R + 0.25f));
+                        int b = cV.Count;
+                        cV.Add(new Vector3(wIn.x, y, wIn.z)); cV.Add(new Vector3(wOut.x, y, wOut.z));
+                        cUV.Add(new Vector2(k / 2.4f, 0f)); cUV.Add(new Vector2(k / 2.4f, 0.48f));
+                        cC.Add(new Color(0.05f, 0.05f, 0.05f, 1f)); cC.Add(new Color(0.05f, 0.05f, 0.05f, 1f));
+                        if (prev >= 0) QuadFacing(cV, cT, prev, prev + 1, b + 1, b, Vector3.up);
+                        prev = b;
+                    }
+                }
+
             // ---- the arch profile from the footing's top, left to right ----
             // (x across, y over the road's centre, and the inward normal)
             var prof = new List<Vector2>();

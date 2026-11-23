@@ -147,19 +147,21 @@ namespace PSXRacing.EditorTools
                             int i = Mathf.Clamp(Mathf.RoundToInt(m / sp), 1, n - 2);
                             Vector3 f = Fwd(i) * dir, r = Vector3.Cross(Vector3.up, f).normalized;
                             bool insideBore = m > span.x + 0.5f && m < span.y - 0.5f;
-                            var poses = new List<(string v, Vector3 eye, Vector3 look, float fov)>();
+                            // (the eye's own metre decides inside / outside: a chase camera is 6 m behind its car)
+                            bool EyeIn(float em) => em > span.x + 0.3f && em < span.y - 0.3f;
+                            var poses = new List<(string v, Vector3 eye, Vector3 look, float fov, bool eyeIn)>();
                             foreach (float lane in new[] { 1.6f, -1.6f })
                             {
                                 Vector3 car = pts[i] + r * lane;
-                                poses.Add(("chase" + (lane > 0 ? "R" : "L"), car - f * 6f + Vector3.up * 2.0f, car + f * 4f + Vector3.up * 1.0f, 60f));
-                                poses.Add(("cockpit" + (lane > 0 ? "R" : "L"), car + Vector3.up * 1.15f - r * 0.35f, car + f * 30f + Vector3.up * 1.0f, 65f));
+                                poses.Add(("chase" + (lane > 0 ? "R" : "L"), car - f * 6f + Vector3.up * 2.0f, car + f * 4f + Vector3.up * 1.0f, 60f, EyeIn(m - dir * 6f)));
+                                poses.Add(("cockpit" + (lane > 0 ? "R" : "L"), car + Vector3.up * 1.15f - r * 0.35f, car + f * 30f + Vector3.up * 1.0f, 65f, EyeIn(m)));
                             }
                             if (!insideBore && Mathf.Abs(Mathf.Round(d / 30f) * 30f - d) < 0.1f)
                                 foreach (float side in new[] { 1f, -1f })
                                 {
                                     Vector3 car = pts[i] + r * 1.6f;
                                     Vector3 eye = pts[i] + r * side * (def.roadWidth * 0.5f + 3f) + Vector3.up * 5f;
-                                    poses.Add(("replay" + (side > 0 ? "R" : "L"), eye, car + Vector3.up * 0.8f, 45f));
+                                    poses.Add(("replay" + (side > 0 ? "R" : "L"), eye, car + Vector3.up * 0.8f, 45f, false));
                                 }
                             foreach (var p in poses)
                             {
@@ -174,7 +176,7 @@ namespace PSXRacing.EditorTools
                                 RenderTexture.active = null;
                                 var px = tex.GetPixels32();
                                 int gaps = 0; long sx = 0, sy = 0;
-                                bool camIn = insideBore;
+                                bool camIn = p.eyeIn;
                                 for (int y = 0; y < H; y += 1)
                                     for (int x = 0; x < W; x += 1)
                                     {
