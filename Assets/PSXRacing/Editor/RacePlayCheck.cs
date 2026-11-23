@@ -362,6 +362,9 @@ namespace PSXRacing.EditorTools
             float until = Time.realtimeSinceStartup + (rm.Checkpoints != null ? 60f : 15f);
             while (rm.State == RaceManager.RaceState.Countdown && Time.realtimeSinceStartup < until) yield return null;
             RacePlayCheck.Check(rm.State == RaceManager.RaceState.Racing, "the race goes live", rm.State);
+            // (P0 11-23, PC61: "Charlotte levels aren't loading, falling through ground") every grid car
+            // still on its road 10 s after the green
+            StartCoroutine(OnRoadCheck(10f));
             RacePlayCheck.Note($"  road grip x{Seasons.RoadGripMult:0.00}, road {rm.path.roadWidth:0.0} m, two-way {(TrafficSystem.Instance != null && TrafficSystem.Instance.TwoWay)}");
             // PSX_RACE_VIEW=COCKPIT (race-play-check.ps1 -View Cockpit): the
             // race from the driver's seat, forced for the session and never
@@ -736,6 +739,29 @@ namespace PSXRacing.EditorTools
 
         /// <summary>A DOWN deck run's grid on the roof, settled: every car on
         /// the roof floor (not under it, not dropping), clear of the others.</summary>
+        /// <summary>After <paramref name="after"/> s: every car within 2 m of its road's height (the path's,
+        /// at its nearest point) and with ground under it (a ray down from 3 m over it).</summary>
+        IEnumerator OnRoadCheck(float after)
+        {
+            float tEnd = Time.time + after;
+            while (Time.time < tEnd) yield return null;
+            int bad = 0, n = 0;
+            foreach (var c in rm.allCars)
+            {
+                if (c == null || !c.gameObject.activeInHierarchy) continue;
+                n++;
+                var p = c.transform.position;
+                int i = rm.path.NearestIndex(p, -1, rm.path.Count);
+                float py = rm.path.GetPoint(i).y;
+                bool ground = Physics.Raycast(p + Vector3.up * 3f, Vector3.down, out var g, 8f, ~(1 << 2), QueryTriggerInteraction.Ignore);
+                float dy = p.y - py;
+                bool on = dy > -2f && ground;
+                if (!on) bad++;
+                RacePlayCheck.Note($"ON ROAD {c.name}: {dy:+0.00;-0.00} m against the path, ground {(ground ? g.collider.name + " at " + (p.y - g.point.y).ToString("0.00") + " m under" : "NONE")} ({(on ? "ok" : "OFF THE ROAD")})");
+            }
+            RacePlayCheck.Check(bad == 0 && n > 0, "every car is on its road 10 s after the green", bad + " of " + n + " off");
+        }
+
         IEnumerator RoofGridCheck()
         {
             yield return new WaitForSeconds(1.5f);
