@@ -156,7 +156,8 @@ namespace PSXRacing.EditorTools
                                 poses.Add(("chase" + (lane > 0 ? "R" : "L"), car - f * 6f + Vector3.up * 2.0f, car + f * 4f + Vector3.up * 1.0f, 60f, EyeIn(m - dir * 6f)));
                                 poses.Add(("cockpit" + (lane > 0 ? "R" : "L"), car + Vector3.up * 1.15f - r * 0.35f, car + f * 30f + Vector3.up * 1.0f, 65f, EyeIn(m)));
                             }
-                            if (!insideBore && Mathf.Abs(Mathf.Round(d / 30f) * 30f - d) < 0.1f)
+                            // (a replay camera stands beside the road, never inside a portal's masonry: none on the planes)
+                            if (!insideBore && Mathf.Abs(d) > 1f && Mathf.Abs(Mathf.Round(d / 30f) * 30f - d) < 0.1f)
                                 foreach (float side in new[] { 1f, -1f })
                                 {
                                     Vector3 car = pts[i] + r * 1.6f;
@@ -214,7 +215,8 @@ namespace PSXRacing.EditorTools
                                 for (int q = Mathf.Max(1, i - 40); q < Mathf.Min(n - 1, i + 40); q++) { float dd = (new Vector2(pts[q].x - hp.x, pts[q].z - hp.z)).sqrMagnitude; if (dd < bd) { bd = dd; bi = q; } }
                                 float off = Vector3.Dot(hp - pts[bi], Vector3.Cross(Vector3.up, Fwd(bi)).normalized);
                                 name += $" [at path m {bi * sp:0}, {off:+0.0;-0.0} m, y {hp.y - pts[bi].y:+0.0;-0.0}]";
-                                if (results.Count < 8) name += " first mesh on the ray: " + FirstHit(cr, 300f);
+                                if (results.Count < 8) name += " first mesh on the ray: " + FirstHit(cr, 300f) +
+                                    "; straight down there: " + FirstHit(new Ray(new Vector3(hp.x, hp.y + 200f, hp.z), Vector3.down), 400f);
                                 results.Add((name, gaps, new Vector2(sx / (float)gaps, H - sy / (float)gaps), keep));
                             }
                         }
