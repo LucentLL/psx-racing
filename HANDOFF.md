@@ -33,7 +33,7 @@ Owner 11-23 after PC59: "I see their triangles of light appear as I drive closer
 - The rendered approach curves are confounded (haze past ~250 m, junction surfaces off the roads' layer, crests); the flatness is proven at the light term (texel readback), not yet by a clean rendered curve. Next: render the patch with roads + ground layers (halos moved to their own layer) and a flatter eye.
 - Pavements and plazas of pale concrete under a lamp stay brighter than his (166 vs 33-45); faces of pale mid-rises stay beige-ish near lamps; the sky near the horizon over open lots reads 31.
 - Some streets still have >60 m dark stretches (median-side refusals, junction fans, ramps beside I-77; I-77 between interchanges is unlit except masts). Median-mounted twin davits on divided roads and freeways would close them; not done (they need the audits' 0.8 m pavement clearance relaxed for barrier mounts).
-- Car pools: every lit car's road pool is in and handed over by table weight; I did not measure the hand-over numerically (the oncoming-car curve is flat within 1-4 codes at 290-110 m in both variants).
+- Car pools: every lit car's road pool is in and handed over by table weight; I did not measure the hand-over cleanly (the oncoming-car patch reads the same ~36-40 background value at 450-110 m in every variant: the same confound as above).
 - Rain glints stay table-limited (110 m reach); clear nights now have none on lit streets.
 - The old light-pop meter was not re-run (no time); the far halo's glare-radius metric saturates on lit backgrounds and is not quoted.
 - One mountain stage at night was not shot (NIGHT 3 changes only lit-city lamps, the city sky and city ambient; stages have no field lamps, so NightDark/halos there: halos follow the same far-point rule).
