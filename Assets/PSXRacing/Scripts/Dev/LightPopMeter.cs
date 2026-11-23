@@ -100,6 +100,12 @@ namespace PSXRacing
         static readonly int FieldTexId = Shader.PropertyToID("_PSXLampField");
         static readonly int FieldSTId = Shader.PropertyToID("_PSXLampFieldST");
         static readonly int FieldYId = Shader.PropertyToID("_PSXLampFieldY");
+        // (lightlook) the far lamp field is part of the field (StreetLights.FarField.cs)
+        static readonly int FarTexId = Shader.PropertyToID("_PSXLampFar");
+        static readonly int FarSTId = Shader.PropertyToID("_PSXLampFarST");
+        static readonly int FarYId = Shader.PropertyToID("_PSXLampFarY");
+        Texture prevFarTex, curFarTex, saveFarTex;
+        Vector4 prevFarST, curFarST, prevFarY, curFarY, saveFarST, saveFarY;
         static readonly int ConeAId = Shader.PropertyToID("_PSXConeA");
         static readonly int ConeBId = Shader.PropertyToID("_PSXConeB");
 
@@ -249,7 +255,7 @@ namespace PSXRacing
                     // by MinWeightStep, the field's window or texture, the
                     // cones' arrays, a light renderer that came or went); a
                     // frame with none is the renderer's own noise, kept apart
-                    bool eS = StreetMoved(), eF = prevFieldTex != curFieldTex || prevFieldST != curFieldST,
+                    bool eS = StreetMoved(), eF = prevFieldTex != curFieldTex || prevFieldST != curFieldST || prevFarTex != curFarTex || prevFarST != curFarST,
                          eH = HeadMoved(), eR = !curOn.SetEquals(prevOn), eC = ConesMoved();
                     Cause best = (eS || eF || eH || eR || eC) ? Cause.Mixed : Cause.Noise; int bestPx = 0;
                     if (eS) TryCause(cam, Cause.Street, ref best, ref bestPx);
@@ -439,6 +445,7 @@ namespace PSXRacing
             curFieldST = Shader.GetGlobalVector(FieldSTId);
             curFieldState = StreetLights.MeterFieldState;
             curFieldY = Shader.GetGlobalVector(FieldYId);
+            curFarTex = Shader.GetGlobalTexture(FarTexId); curFarST = Shader.GetGlobalVector(FarSTId); curFarY = Shader.GetGlobalVector(FarYId);
             var m = LampCones.MeterMat;
             var mr = LampCones.MeterRenderer;
             curConeOn = mr != null && mr.enabled;
@@ -460,6 +467,7 @@ namespace PSXRacing
             prevStreet.Clear(); foreach (var kv in curStreet) prevStreet[kv.Key] = kv.Value;
             prevHead.Clear(); foreach (var kv in curHead) prevHead[kv.Key] = kv.Value;
             prevFieldTex = curFieldTex; prevFieldST = curFieldST; prevFieldState = curFieldState; prevFieldY = curFieldY;
+            prevFarTex = curFarTex; prevFarST = curFarST; prevFarY = curFarY;
             System.Array.Copy(curConeA, prevConeA, curConeA.Length);
             System.Array.Copy(curConeB, prevConeB, curConeB.Length);
             prevConeOn = curConeOn;
@@ -485,6 +493,9 @@ namespace PSXRacing
                 if (prevFieldTex != null) Shader.SetGlobalTexture(FieldTexId, prevFieldTex);
                 Shader.SetGlobalVector(FieldSTId, prevFieldST);
                 Shader.SetGlobalVector(FieldYId, prevFieldY);
+                saveFarTex = Shader.GetGlobalTexture(FarTexId); saveFarST = Shader.GetGlobalVector(FarSTId); saveFarY = Shader.GetGlobalVector(FarYId);
+                if (prevFarTex != null) Shader.SetGlobalTexture(FarTexId, prevFarTex);
+                Shader.SetGlobalVector(FarSTId, prevFarST); Shader.SetGlobalVector(FarYId, prevFarY);
             }
             else saveFieldTex = null;
             if (head) { CarLights.MeterPush(prevHead); heldHead = true; }
@@ -512,7 +523,12 @@ namespace PSXRacing
         void RestoreAll()
         {
             if (heldStreet) { StreetLights.MeterHold = false; heldStreet = false; StreetLights.MeterEmit(StreetLights.MeterRank, Camera.main.transform.position); }
-            if (saveFieldTex != null) { Shader.SetGlobalTexture(FieldTexId, saveFieldTex); Shader.SetGlobalVector(FieldSTId, saveFieldST); Shader.SetGlobalVector(FieldYId, saveFieldY); saveFieldTex = null; }
+            if (saveFieldTex != null)
+            {
+                Shader.SetGlobalTexture(FieldTexId, saveFieldTex); Shader.SetGlobalVector(FieldSTId, saveFieldST); Shader.SetGlobalVector(FieldYId, saveFieldY); saveFieldTex = null;
+                if (saveFarTex != null) Shader.SetGlobalTexture(FarTexId, saveFarTex);
+                Shader.SetGlobalVector(FarSTId, saveFarST); Shader.SetGlobalVector(FarYId, saveFarY); saveFarTex = null;
+            }
             if (heldHead) { CarLights.MeterPush(null); heldHead = false; }
             if (heldCones)
             {
