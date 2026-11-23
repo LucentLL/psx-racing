@@ -45,8 +45,10 @@ namespace PSXRacing.City
     // ======================================================================
     public static partial class CityMeshes
     {
-        public static bool ServiceOn = System.Environment.GetEnvironmentVariable("PSX_CITY_SERVICE") != "0";
-        public static bool ServiceAislesOn = System.Environment.GetEnvironmentVariable("PSX_CITY_SERVICE_AISLES") != "0";
+        // (roadsmerge 11-23, the coordinator: option B) DEFAULT OFF until the line gate stops reading a road edge beside
+        // service / lot asphalt as a seam (the SEAMROADS rule, scratchpad roadsmerge ROUND2.md). =1: on.
+        public static bool ServiceOn = System.Environment.GetEnvironmentVariable("PSX_CITY_SERVICE") == "1";
+        public static bool ServiceAislesOn = System.Environment.GetEnvironmentVariable("PSX_CITY_SERVICE_AISLES") == "1";
         /// <summary>(roadsmerge 11-23) a divided road's median stays whole: no service pavement between two
         /// carriageways of one road and no mouth on a carriageway's median side (the way across it is a
         /// crossover the graph does not have: the graph round's list). PSX_CITY_SERVICE_MEDIAN=0: as 11-15.</summary>
@@ -136,7 +138,7 @@ namespace PSXRacing.City
             public static string Line()
             {
                 var sb = new System.Text.StringBuilder();
-                sb.Append($"service ways ({(ServiceOn ? "ON" : "OFF (PSX_CITY_SERVICE=0)")}{(ServiceOn && !ServiceAislesOn ? ", loose aisles off (PSX_CITY_SERVICE_AISLES=0)" : "")}; {ServiceSource}): ");
+                sb.Append($"service ways ({(ServiceOn ? "ON" : "OFF (PSX_CITY_SERVICE=1: on)")}{(ServiceOn && !ServiceAislesOn ? ", loose aisles off (PSX_CITY_SERVICE_AISLES=0)" : "")}; {ServiceSource}): ");
                 sb.Append($"{ways} pieces, {km:0.0} km ({kmOnLot:0.0} km on a lot's own asphalt), {points} points; ");
                 for (int i = 0; i < kmByKind.Length; i++) if (kmByKind[i] > 0.05f) sb.Append($"{ServiceKinds[i]} {kmByKind[i]:0.0} km, ");
                 sb.Append($"{quads} paved quads ({quadsOnLot} segments left to the lot they run on), {throats} kerb openings where a way meets a lot, ");

@@ -40,15 +40,17 @@ namespace PSXRacing.City
     //  tags on the roads named in tools/city/strips2.tsv (the roads proven so
     //  far) and from that table's own rows (seen in a view, not tagged).
     //    PSX_CITY_LANES2=0      none of it (no LAN2 rows are read)
-    //    PSX_CITY_PARKING=0     no parking lane
-    //    PSX_CITY_STRIPS=0      no bike lane or paved shoulder
+    //    PSX_CITY_PARKING=1     parking lanes (default OFF since 11-23)
+    //    PSX_CITY_STRIPS=1      bike lanes and paved shoulders (default OFF since 11-23)
     //    PSX_CITY_STRIPS_ALL=1  also every bike lane / shoulder the map tags
     //                           (488 km of road side; NOT proven, default off)
     // ======================================================================
     public static partial class CityMeshes
     {
-        public static bool ParkingOn = System.Environment.GetEnvironmentVariable("PSX_CITY_PARKING") != "0";
-        public static bool StripsOn = System.Environment.GetEnvironmentVariable("PSX_CITY_STRIPS") != "0";
+        // (roadsmerge 11-23, the coordinator: option B) DEFAULT OFF until the line gate reads a parking / bike-lane end
+        // as a strip end (the PARKEND rule, scratchpad roadsmerge ROUND2.md); the travelled way holds (Case A). =1: on.
+        public static bool ParkingOn = System.Environment.GetEnvironmentVariable("PSX_CITY_PARKING") == "1";
+        public static bool StripsOn = System.Environment.GetEnvironmentVariable("PSX_CITY_STRIPS") == "1";
         public static bool StripsAll = System.Environment.GetEnvironmentVariable("PSX_CITY_STRIPS_ALL") == "1";
         /// <summary>Asphalt from the outer lane's edge to the gutter: a parallel parking lane, a bike lane, a paved shoulder.</summary>
         public const float ParkLaneM = 2.3f, BikeLaneM = 1.5f, ShoulderM = 1.2f;
@@ -63,7 +65,7 @@ namespace PSXRacing.City
         public static int ParkingEdges; public static float ParkingSideM;
         public static int StripEdges; public static float StripSideM;
         public static string ParkingReport => !CityLanes2.On ? "roadside strips OFF (PSX_CITY_LANES2=0)"
-            : (ParkingOn ? $"parking lanes: {ParkingEdges} edges, {ParkingSideM / 1000f:0.0} km of curb side" : "parking lanes OFF (PSX_CITY_PARKING=0)") + "; "
+            : (ParkingOn ? $"parking lanes: {ParkingEdges} edges, {ParkingSideM / 1000f:0.0} km of curb side" : "parking lanes OFF (PSX_CITY_PARKING=1: on)") + "; "
             + (StripsOn ? $"bike lanes and paved shoulders: {StripEdges} edges, {StripSideM / 1000f:0.0} km of road side" + (StripsAll ? " (PSX_CITY_STRIPS_ALL=1: every tagged one)" : "") : "bike lanes and shoulders OFF (PSX_CITY_STRIPS=0)");
 
         /// <summary>Per edge: bit 1 the left side's strip keeps its white line, bit 2 the right's (BuildParkingLanes).</summary>
