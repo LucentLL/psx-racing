@@ -416,6 +416,8 @@ namespace PSXRacing
             // camera chose; re-choosing for its pose would light the world
             // for an eye that never draws it.
             if ((cam.cullingMask & ~(1 << 5)) == 0) return;
+            // the lightlook round's switches (LightLook.cs), every camera
+            LightLook.Push();
             // An inspector preview renders a preview scene, not this one: it
             // gets no lamps rather than the lamps nearest wherever it sits.
             if (cam.cameraType == CameraType.Preview) { PushNone(); FieldOff(); return; }

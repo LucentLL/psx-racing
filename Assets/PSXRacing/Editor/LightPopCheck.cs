@@ -49,7 +49,8 @@ namespace PSXRacing.EditorTools
             RaceHandoff.FromLifeSim = true;
             RaceHandoff.TrackIndex = v;
             RaceHandoff.TimeOfDayIndex = TimeOfDay.Night;
-            RaceHandoff.WeatherOverride = (int)Weather.Clear;
+            // (lightlook) PSX_LIGHTPOP_WEATHER: Rain etc. (default Clear)
+            RaceHandoff.WeatherOverride = System.Enum.TryParse(Env("PSX_LIGHTPOP_WEATHER", "Clear"), true, out Weather wx) ? (int)wx : (int)Weather.Clear;
             RaceHandoff.StartFuelPct = 100f;
             RaceHandoff.CalendarDay = 320;
             var cars = CarCatalog.All;
@@ -193,11 +194,25 @@ namespace PSXRacing.EditorTools
                     Random.InitState(4242);
                     Time.captureFramerate = 30;
                     for (int k = 0; k < 20; k++) yield return null;   // the camera settles behind the car
-                    meter.Begin(rid + "_" + view.ToString().ToLowerInvariant(), car.transform, strip);
+                    string segName = rid + "_" + view.ToString().ToLowerInvariant();
+                    // (lightlook) PSX_LIGHTPOP_SHOTS: full-size look frames at these game seconds (LightLookShots);
+                    // PSX_LIGHTPOP_NOMETER=1: no pop metering (a look run)
+                    bool metering = LightPopCheck.Env("PSX_LIGHTPOP_NOMETER", "0") != "1";
+                    var shotAt = new System.Collections.Generic.List<float>();
+                    foreach (var st in LightPopCheck.Env("PSX_LIGHTPOP_SHOTS", "").Split(','))
+                        if (float.TryParse(st.Trim(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float sv)) shotAt.Add(sv);
+                    int nextShot = 0;
+                    if (metering) meter.Begin(segName, car.transform, strip);
                     float g0 = Time.time, top = 0f, slowFor = 0f;
                     int nudges = 0;
                     while (Time.time - g0 < secs)
                     {
+                        if (nextShot < shotAt.Count && Time.time - g0 >= shotAt[nextShot])
+                        {
+                            LightLookShots.Take(Camera.main, System.IO.Path.Combine(LightPopMeter.OutDir, "shots"), segName + "_" + shotAt[nextShot].ToString("00") + "s");
+                            LightPopCheck.Line("shot " + segName + " " + shotAt[nextShot].ToString("0") + " s at " + car.transform.position.ToString("F0") + " " + car.speedKmh.ToString("0") + " km/h");
+                            nextShot++;
+                        }
                         top = Mathf.Max(top, car.speedKmh);
                         // held up by the traffic or a signal: set on 60 m (a cut, not counted)
                         slowFor = Mathf.Abs(car.forwardSpeed) < 3f ? slowFor + Time.deltaTime : 0f;
@@ -212,7 +227,7 @@ namespace PSXRacing.EditorTools
                         if (ai.PathIndex >= path.Count - 12) break;
                         yield return null;
                     }
-                    string line = meter.End();
+                    string line = metering ? meter.End() : segName + ": look run, no metering";
                     LightPopCheck.Line(line + "\n    top " + top.ToString("0") + " km/h, " + nudges + " nudges past held-up traffic");
                     Time.captureFramerate = 0;
                 }
