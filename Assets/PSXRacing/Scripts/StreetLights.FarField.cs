@@ -41,6 +41,7 @@ namespace PSXRacing
         static float farBaseY;
         static int farVersion, farBuiltVersion = -1;
         static bool farBuiltOn;
+        static Vector3 farShape = new Vector3(-1f, -1f, -1f);
         static bool fPend;
         static int fStage, fLamp, fRow, fLamps, fPendVersion, fPendFrame = -1;
         static Vector2 fPendOrigin;
@@ -75,10 +76,13 @@ namespace PSXRacing
             float span = FarRes * FarTexelM;
             var origin = new Vector2(Mathf.Round(eye.x / FarSnapM) * FarSnapM - span * 0.5f,
                                      Mathf.Round(eye.z / FarSnapM) * FarSnapM - span * 0.5f);
-            if (mayRebuild && (origin != farOrigin || farBuiltVersion != farVersion || farBuiltOn != StreetOn))
+            var shapeF = new Vector3(FieldPoolM, FieldPoolGain, FieldGlowGain);
+            bool farPendReshape = shapeF != farShape;
+            if (farPendReshape) { farShape = shapeF; farVersion++; }
+            if ((mayRebuild || farPendReshape) && (origin != farOrigin || farBuiltVersion != farVersion || farBuiltOn != StreetOn))
             {
                 long pc = PerfClock.On ? PerfClock.Now() : 0;
-                bool left = farTex == null || float.IsNaN(farOrigin.x) || FarEyeOff(eye) > FarRes * FarTexelM * 0.5f - FarEndM - FarTexelM;
+                bool left = farPendReshape || farTex == null || float.IsNaN(farOrigin.x) || FarEyeOff(eye) > FarRes * FarTexelM * 0.5f - FarEndM - FarTexelM;
                 if (Application.isPlaying && !left && farBuiltOn == StreetOn && FieldSliced)
                 {
                     using (BuildFarMarker.Auto()) StepFar(origin, Mathf.Round(eye.y));
@@ -219,6 +223,40 @@ namespace PSXRacing
                 }
             }
             return i;
+        }
+    }
+}
+
+namespace PSXRacing
+{
+    public static partial class StreetLights
+    {
+        /// <summary>(lightlook, tools) The field lamps nearest the eye: distance, the
+        /// viewport point of the head, its intensity, and the owner's name - to see which
+        /// lamps light a stretch of road and whether their heads are in the picture.</summary>
+        public static string DiagnoseNearest(Camera cam, int count)
+        {
+            if (cam == null) return "";
+            var list = new System.Collections.Generic.List<(float d, int i)>();
+            Vector3 eye = cam.transform.position;
+            for (int i = 0; i < high; i++)
+            {
+                ref Entry e = ref entries[i];
+                if (!e.used || !e.field || e.kind != Kind.Street) continue;
+                list.Add(((e.pos - eye).magnitude, i));
+            }
+            list.Sort((a, b) => a.d.CompareTo(b.d));
+            var sb = new System.Text.StringBuilder();
+            for (int k = 0; k < list.Count && k < count; k++)
+            {
+                ref Entry e = ref entries[list[k].i];
+                Vector3 vp = cam.WorldToViewportPoint(e.pos);
+                string owner = e.owner != null ? (e.owner as Component != null ? ((Component)e.owner).transform.parent?.name + "/" + ((Component)e.owner).name : e.owner.name) : "-";
+                sb.Append("      lamp ").Append(list[k].d.ToString("0")).Append(" m, view ").Append(vp.x.ToString("0.00")).Append(",").Append(vp.y.ToString("0.00"))
+                  .Append(vp.z > 0f && vp.x >= 0f && vp.x <= 1f && vp.y >= 0f && vp.y <= 1f ? " IN" : " out").Append(", h ").Append(e.pos.y.ToString("0"))
+                  .Append(", int ").Append(e.intensity.ToString("0.00")).Append(e.mercury ? " merc" : "").Append(", ").Append(owner).Append("\n");
+            }
+            return sb.ToString();
         }
     }
 }

@@ -88,6 +88,7 @@ namespace PSXRacing
         public static int FieldMercuryLamps { get; private set; }
 
         static int fieldVersion;
+        static Vector3 builtShape = new Vector3(-1f, -1f, -1f);
 
         // ---- city-build-hitches (2026-10-29): the field rebuilt only when it changes ----
         /// <summary>Every tile stood up or dropped, every tree frame's lamps,
@@ -147,7 +148,11 @@ namespace PSXRacing
             float span = FieldRes * FieldTexelM;
             var origin = new Vector2(Mathf.Round(eye.x / FieldSnapM) * FieldSnapM - span * 0.5f,
                                      Mathf.Round(eye.z / FieldSnapM) * FieldSnapM - span * 0.5f);
-            if (!mayRebuild && fieldTex != null && builtStreetOn == StreetOn) origin = builtOrigin;
+            // (lightlook) the pool's shape changed (a look option, a tool's A/B): rebuilt whole at once
+            Vector3 shape = new Vector3(FieldPoolM, FieldPoolGain, FieldGlowGain);
+            bool reshaped = shape != builtShape;
+            if (reshaped) { builtShape = shape; fieldVersion++; }
+            if (!mayRebuild && fieldTex != null && builtStreetOn == StreetOn && !reshaped) origin = builtOrigin;
             else if (origin != builtOrigin || builtVersion != fieldVersion || builtStreetOn != StreetOn)
             {
                 long pc = PerfClock.On ? PerfClock.Now() : 0;   // city perf round 1
@@ -158,7 +163,7 @@ namespace PSXRacing
                 // cut, a respawn, a teleport): the shown one would hold no pool
                 // round the new eye for the frames a sliced build takes.
                 bool left = NoPop && fieldTex != null && !float.IsNaN(builtOrigin.x) && FieldEyeOff(eye) > FieldSlackM;
-                if (FieldSliced && Application.isPlaying && fieldTex != null && builtStreetOn == StreetOn && StreetOn && !left)
+                if (FieldSliced && Application.isPlaying && fieldTex != null && builtStreetOn == StreetOn && StreetOn && !left && !reshaped)
                 {
                     using (BuildFieldMarker.Auto()) StepPending(origin, Mathf.Round(eye.y));
                     origin = builtOrigin;

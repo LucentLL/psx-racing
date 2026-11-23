@@ -34,7 +34,7 @@ namespace PSXRacing
         const float BoreH = 5.2f, BoreWallOut = 1.1f;
         /// <summary>A tunnel lamp's light (x the street lamp's): a 150 W head
         /// five metres over the road, two rows, eight metres apart.</summary>
-        public const float Gain = 0.40f;
+        public const float Gain = 0.15f;
 
         static UnityEngine.SceneManagement.Scene madeScene;
         /// <summary>Lamps placed in this scene (tests, the shots' log).</summary>
