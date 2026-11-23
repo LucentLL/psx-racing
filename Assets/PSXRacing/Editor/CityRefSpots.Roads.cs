@@ -110,7 +110,8 @@ namespace PSXRacing.EditorTools
                         PSXScreenshotTool.ShotAs(cam, $"roads/{id}_high{tag}", high, Quaternion.LookRotation(new Vector3(p.x, y, p.y) + fh * 70f - high));
                         shots += 2;
                     }
-                    if (abField == null) Pair("");
+                    // PSX_ROADS_TAG=_before: a suffix for a run that is one side of a before / after in fresh processes
+                    if (abField == null) Pair(System.Environment.GetEnvironmentVariable("PSX_ROADS_TAG") ?? "");
                     else
                     {
                         // the same pose with a switch as it was (before) and as it is now (after), the tiles built again between

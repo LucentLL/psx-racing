@@ -59,6 +59,7 @@ namespace PSXRacing.EditorTools
         static void NetworkCensus(CityMap map, CityMeshes.Trims trims)
         {
             Line($"NETWORK REVIEW {System.DateTime.Now:yyyy-MM-dd HH:mm}: {map.nodes.Length} nodes, {map.edges.Length} edges, graph hash {CityMap.GraphHashOf(map.edges):x8} (GHSH)");
+            Line(CityLanes2.Report);
 
             // ---- junction control as the game decides it
             var all = CitySignals.All(map, trims);
@@ -180,8 +181,10 @@ namespace PSXRacing.EditorTools
             string ab = System.Environment.GetEnvironmentVariable("PSX_ROADS_COST");
             if (string.IsNullOrWhiteSpace(ab)) return;
             var kv = ab.Split(':');
-            var field = typeof(CityMeshes).GetField(kv[0].Trim(), System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
-            if (field == null || field.FieldType != typeof(bool)) { Line("COST: CityMeshes has no public static bool " + kv[0]); return; }
+            // PSX_ROADS_COST=report: the rings as this process builds them (one side of a before / after in fresh processes)
+            bool reportOnly = kv[0].Trim() == "report";
+            var field = reportOnly ? null : typeof(CityMeshes).GetField(kv[0].Trim(), System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+            if (!reportOnly && (field == null || field.FieldType != typeof(bool))) { Line("COST: CityMeshes has no public static bool " + kv[0]); return; }
             bool before = kv.Length > 1 && kv[1].Trim() == "1";
             var I = CultureInfo.InvariantCulture;
             Vector2 LLc(double lat, double lon) => new Vector2((float)((lon + 80.81770185962013) * 111320.0 * System.Math.Cos(35.18456 * System.Math.PI / 180.0)), (float)((lat - 35.18456015184093) * 111132.0));
@@ -197,17 +200,17 @@ namespace PSXRacing.EditorTools
             var meshFields = new List<System.Reflection.FieldInfo>();
             foreach (var f in typeof(CityMeshes.TileMeshes).GetFields()) if (f.FieldType == typeof(Mesh)) meshFields.Add(f);
             void Kill(CityMeshes.TileMeshes tm) { foreach (var f in meshFields) { var m = f.GetValue(tm) as Mesh; if (m != null) Object.DestroyImmediate(m); } }
-            Line($"COST of CityMeshes.{field.Name} (before = {before}, after = {!before}), 3 x 3 rings, the warm pass:");
-            bool was = (bool)field.GetValue(null);
+            Line(reportOnly ? $"COST as built ({CityLanes2.Report}), 3 x 3 rings, the warm pass:" : $"COST of CityMeshes.{field.Name} (before = {before}, after = {!before}), 3 x 3 rings, the warm pass:");
+            bool was = !reportOnly && (bool)field.GetValue(null);
             try
             {
                 foreach (var r in rings)
                 {
                     int cx = Mathf.FloorToInt(r.c.x / CityMeshes.TileSize), cz = Mathf.FloorToInt(r.c.y / CityMeshes.TileSize);
                     var tris = new double[2]; var verts = new double[2]; var ms = new double[2];
-                    for (int side = 0; side < 2; side++)
+                    for (int side = 0; side < (reportOnly ? 1 : 2); side++)
                     {
-                        field.SetValue(null, side == 0 ? before : !before);
+                        if (!reportOnly) field.SetValue(null, side == 0 ? before : !before);
                         for (int pass = 0; pass < 2; pass++)
                         {
                             tris[side] = 0; verts[side] = 0; ms[side] = 0;
@@ -227,11 +230,12 @@ namespace PSXRacing.EditorTools
                                 }
                         }
                     }
-                    Line(string.Format(I, "  RING {0} (tile {1},{2}): triangles a tile {3:0} -> {4:0} ({5:+0;-0;0}), vertices a tile {6:0} -> {7:0} ({8:+0;-0;0}), build {9:0} -> {10:0} ms a tile",
+                    if (reportOnly) Line(string.Format(I, "  RING {0} (tile {1},{2}): triangles a tile {3:0}, vertices a tile {4:0}, build {5:0} ms a tile", r.name, cx, cz, tris[0] / 9, verts[0] / 9, ms[0] / 9));
+                    else Line(string.Format(I, "  RING {0} (tile {1},{2}): triangles a tile {3:0} -> {4:0} ({5:+0;-0;0}), vertices a tile {6:0} -> {7:0} ({8:+0;-0;0}), build {9:0} -> {10:0} ms a tile",
                         r.name, cx, cz, tris[0] / 9, tris[1] / 9, (tris[1] - tris[0]) / 9, verts[0] / 9, verts[1] / 9, (verts[1] - verts[0]) / 9, ms[0] / 9, ms[1] / 9));
                 }
             }
-            finally { field.SetValue(null, was); }
+            finally { if (!reportOnly) field.SetValue(null, was); }
         }
 
         public static void RunRoadsSample()

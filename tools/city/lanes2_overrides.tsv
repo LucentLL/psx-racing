@@ -1,0 +1,74 @@
+# LANES2: lane counts the map lacks or has wrong against TODAY's road (owner 2026-11-15: roads = the newest 2026 version).
+# One row a way. Read by tools/city/export_osm.mjs only with PSX_EXPORT_LANES2=1; tools/city/lanes2.mjs splices the result
+# into charlotte_city.bytes as section LAN2 (the game: PSX_CITY_LANES2=0 = as before). Rows starting "#list" are not applied.
+# way	lanes	forward	backward	centre	road	was	evidence (street-level view: date, place, what it shows)
+983708018	4	-	-	0	Beatties Ford Road	tw2	Beatties Ford Rd, views Dec 2025 at no. 917 and Nov 2024 at no. 1507 (LaSalle St): four lanes undivided, double yellow
+1366015750	4	-	-	0	Beatties Ford Road	tw2	Beatties Ford Rd, views Dec 2025 at no. 917 and Nov 2024 at no. 1507 (LaSalle St): four lanes undivided, double yellow
+1366015751	4	-	-	0	Beatties Ford Road	tw2	Beatties Ford Rd, views Dec 2025 at no. 917 and Nov 2024 at no. 1507 (LaSalle St): four lanes undivided, double yellow
+120718194	4	-	-	0	Beatties Ford Road	tw2	Beatties Ford Rd, views Dec 2025 at no. 917 and Nov 2024 at no. 1507 (LaSalle St): four lanes undivided, double yellow
+648895501	4	-	-	0	Beatties Ford Road	tw2	Beatties Ford Rd, views Dec 2025 at no. 917 and Nov 2024 at no. 1507 (LaSalle St): four lanes undivided, double yellow
+16690656	4	-	-	0	Beatties Ford Road	tw2	Beatties Ford Rd, views Dec 2025 at no. 917 and Nov 2024 at no. 1507 (LaSalle St): four lanes undivided, double yellow
+750370858	4	-	-	0	Beatties Ford Road	tw2	Beatties Ford Rd, views Dec 2025 at no. 917 and Nov 2024 at no. 1507 (LaSalle St): four lanes undivided, double yellow
+1379241431	4	-	-	0	North Graham Street	tw2	N Graham St, view Nov 2024 at no. 2400: four lanes undivided, double yellow
+1341448339	4	-	-	0	North Graham Street	tw2	N Graham St, view Nov 2024 at no. 2400: four lanes undivided, double yellow
+1341448338	4	-	-	0	North Graham Street	tw2	N Graham St, view Nov 2024 at no. 2400: four lanes undivided, double yellow
+1499519664	4	-	-	0	North Graham Street	tw2	N Graham St, view Nov 2024 at no. 2400: four lanes undivided, double yellow
+1378841050	4	-	-	0	North Graham Street	tw2	N Graham St, view Apr 2026 at no. 1400: four lanes undivided, double yellow
+1395908062	4	-	-	0	North Graham Street	tw2	N Graham St, view Apr 2026 at no. 1400: four lanes undivided, double yellow
+908584126	4	-	-	0	North Graham Street	tw2	N Graham St, view Mar 2026 at no. 3500: four lanes, double yellow
+#list 836481922	4	-	-	0	Randolph Road	tw2	Randolph Rd, views Jun 2019 at no. 5412 and Jun 2022 at no. 5001: four lanes undivided, double yellow; LISTED 11-15: with four lanes the split joint at this piece's end steps 0.2-0.35 m in the outer lane (drive audit), the carriageways' first metres are shaped for two lanes
+1222545724	4	-	-	0	Randolph Road	tw2	Randolph Rd, views Jun 2019 at no. 5412 and Jun 2022 at no. 5001: four lanes undivided, double yellow
+1222545725	4	-	-	0	Randolph Road	tw2	Randolph Rd, views Jun 2019 at no. 5412 and Jun 2022 at no. 5001: four lanes undivided, double yellow
+1222545726	4	-	-	0	Randolph Road	tw2	Randolph Rd, views Jun 2019 at no. 5412 and Jun 2022 at no. 5001: four lanes undivided, double yellow
+810775858	4	-	-	0	Randolph Road	tw2	Randolph Rd, view Feb 2026 at no. 4125: four lanes undivided
+#list 648860599	4	-	-	0	Randolph Road	tw2	Randolph Rd, view Apr 2026 at no. 3731: four lanes undivided; LISTED 11-15: with four lanes the split joint at this piece's end steps 0.2-0.35 m in the outer lane (drive audit), the carriageways' first metres are shaped for two lanes
+1395929244	4	-	-	0	Randolph Road	tw2	Randolph Rd, view Apr 2026 at no. 3731: four lanes undivided
+1098274967	4	-	-	0	Randolph Road	tw2	Randolph Rd, view Apr 2026 at no. 3731: four lanes undivided
+1098274966	4	-	-	0	Randolph Road	tw2	Randolph Rd, view Apr 2026 at no. 3731: four lanes undivided
+1031976158	4	-	-	0	Randolph Road	tw2	Randolph Rd, view Apr 2026 at no. 3731: four lanes undivided
+1031976157	4	-	-	0	Randolph Road	tw2	Randolph Rd, view Apr 2026 at no. 3731: four lanes undivided
+1017800017	4	-	-	0	Monroe Road	tw2	Monroe Rd, view 2025 at no. 7001: four lanes undivided, double yellow
+681299814	4	-	-	0	Monroe Road	tw2	Monroe Rd, view Apr 2026 at no. 3761: four lanes undivided
+833034339	4	-	-	0	Monroe Road	tw2	Monroe Rd, view Apr 2026 at no. 3099: four lanes, double yellow
+1340193908	4	-	-	0	Monroe Road	tw2	Monroe Rd, view Apr 2026 at no. 4608: four lanes undivided
+1382903597	4	-	-	0	Monroe Road	tw2	Monroe Rd, view Apr 2026 at no. 4608: four lanes undivided
+1490740047	4	-	-	0	Monroe Road	tw2	Monroe Rd, view Apr 2026 at no. 4608: four lanes undivided
+16721039	4	-	-	0	Park Road	tw2	Park Rd, view Oct 2025 at no. 3853: four lanes with a painted centre
+120703441	4	-	-	0	Sharon Road	tw2	Sharon Rd, view Nov 2025 at no. 5308: four lanes undivided, double yellow
+1038713823	4	-	-	0	Sharon Road	tw2	Sharon Rd, view Nov 2025 at no. 5308: four lanes undivided, double yellow
+648190067	4	-	-	0	Sharon Road	tw2	Sharon Rd, view Nov 2025 at no. 5308: four lanes undivided, double yellow
+16711888	4	-	-	0	Central Avenue	tw2	Central Ave, view Apr 2026 at no. 711: four lanes wide, double yellow (lane lines in shade)
+159022519	4	-	-	0	Central Avenue	tw2	Central Ave, view Apr 2026 at no. 711: four lanes wide, double yellow (lane lines in shade)
+896643282	4	-	-	0	Central Avenue	tw2	Central Ave, view Apr 2026 at no. 711: four lanes wide, double yellow (lane lines in shade)
+16686994	4	-	-	0	Elizabeth Avenue	tw2	Elizabeth Ave, view Apr 2026 at no. 1030 under the freeway bridge: four lanes, streetcar tracks in the inner ones
+1543192019	4	-	-	0	Elizabeth Avenue	tw2	Elizabeth Ave, view Apr 2026 at no. 1030 under the freeway bridge: four lanes, streetcar tracks in the inner ones
+48646541	4	-	-	0	East 4th Street	tw2	E 4th St, view Dec 2025 at no. 1516: four lanes undivided, double yellow
+48646548	4	-	-	0	East 4th Street	tw2	E 4th St, view Dec 2025 at no. 1516: four lanes undivided, double yellow
+51063158	4	-	-	0	West Boulevard	tw2	West Blvd, view Apr 2026 at no. 118: four lanes, double yellow
+1338898858	4	-	-	0	West Boulevard	tw2	West Blvd, view Apr 2026 at no. 118: four lanes, double yellow
+648297735	4	-	-	0	West Sugar Creek Road	tw2	W Sugar Creek Rd, view Mar 2026 at no. 1617: four lanes undivided, double yellow
+681298509	4	-	-	0	Rama Road	tw2	Rama Rd, view Dec 2024 at no. 721: four lanes undivided, double yellow
+852657556	4	-	-	0	Sardis Road	tw2	Sardis Rd, view Nov 2025 at Livingston Dr: four lanes, double yellow
+749417800	4	-	-	0	Sardis Road	tw2	Sardis Rd, view Nov 2025 at Livingston Dr: four lanes, double yellow
+16663055	4	-	-	0	Quail Hollow Road	tw2	Quail Hollow Rd, view Nov 2025 at no. 6344: four lanes undivided, double yellow
+16713952	2	-	-	0	Piney Top Drive	tw4	Piney Top Dr, view Apr 2026: two lanes with a painted turn lane (the class default drew four)
+249655532	1	-	-	0	Cindy Lane	ow2	Cindy Lane, view Dec 2025: one lane and a bike lane on each carriageway (the class default drew two)
+1074436848	1	-	-	0	Cindy Lane	ow2	Cindy Lane, view Dec 2025: one lane and a bike lane on each carriageway (the class default drew two)
+#list 249655536	1	-	-	0	Cindy Lane	ow2	Cindy Lane, the next carriageway piece 500 m east: not viewed
+#list 249655537	1	-	-	0	Cindy Lane	ow2	Cindy Lane, the next carriageway piece 500 m east: not viewed
+1363391788	4	-	-	0	Monroe Road	tw2	Monroe Rd, view Nov 2025 at no. 5698: two lanes eastbound and a guardrail seen at a creek crossing; four lanes at the four other Monroe Rd views
+681285105	4	-	-	0	Monroe Road	tw2	Monroe Rd, view Nov 2025 at no. 5698: two lanes eastbound and a guardrail seen at a creek crossing; four lanes at the four other Monroe Rd views
+681285103	4	-	-	0	Monroe Road	tw2	Monroe Rd, view Nov 2025 at no. 5698: two lanes eastbound and a guardrail seen at a creek crossing; four lanes at the four other Monroe Rd views
+681285104	4	-	-	0	Monroe Road	tw2	Monroe Rd, view Nov 2025 at no. 5698: two lanes eastbound and a guardrail seen at a creek crossing; four lanes at the four other Monroe Rd views
+#list 699386761	4	-	-	0	Sardis Road	tw2	Sardis Rd, view Nov 2025 at no. 5121: wide, lane lines unclear
+#list 699386759	4	-	-	0	Sardis Road	tw2	Sardis Rd, view Nov 2025 at no. 5121: wide, lane lines unclear
+#list 701548541	4	-	-	0	Sardis Road	tw2	Sardis Rd, view Nov 2025 at no. 5121: wide, lane lines unclear
+#list 1384964028	4	-	-	0	Sardis Road	tw2	Sardis Rd south piece: not viewed
+16714405	4	-	-	0	South Tryon Street	tw2	S Tryon St in Uptown (tagged 2), views Dec 2025 at 3rd St and May 2026 at no. 1009: four lanes wide curb to curb, the outer ones parking / loading at 3rd St
+51063159	4	-	-	0	South Tryon Street	tw2	S Tryon St in Uptown (tagged 2), views Dec 2025 at 3rd St and May 2026 at no. 1009: four lanes wide curb to curb, the outer ones parking / loading at 3rd St
+1183425775	4	-	-	0	South Tryon Street	tw2	S Tryon St in Uptown (tagged 2), views Dec 2025 at 3rd St and May 2026 at no. 1009: four lanes wide curb to curb, the outer ones parking / loading at 3rd St
+610673841	4	-	-	0	South Boulevard	tw2	South Blvd at East Blvd (tagged 2), view Dec 2025: four lanes, double yellow
+1442558139	4	-	-	0	South Boulevard	tw2	South Blvd at East Blvd (tagged 2), view Dec 2025: four lanes, double yellow
+648248443	3	1	1	1	East Boulevard	tw2	East Blvd at no. 1709, view Apr 2026: one lane each way and a centre turn lane, parking on the right
+16696690	2	-	-	0	Steele Creek Road	tw4	Steele Creek Rd, view Nov 2025 at no. 7500: two lanes, double yellow, open country (the class default drew four)
+16678393	2	-	-	0	Freedom Drive	tw4	Freedom Dr, view Apr 2026 at no. 6856: two lanes at a rail crossing (the class default drew four)

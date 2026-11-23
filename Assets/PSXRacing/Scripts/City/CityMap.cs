@@ -764,6 +764,13 @@ namespace PSXRacing.City
                 for (int i = 0; i < ns; i++) names[i] = r.ReadString();
                 Close("NAME");
 
+                // LANES2 (2026-11-15, CityLanes2): section LAN2's edge rows - today's
+                // lane counts where the map has none or a wrong one - read first, so
+                // the edges below take their section from them. PSX_CITY_LANES2=0: not read.
+                Dictionary<int, CityLanes2.Row> lan2 = null; long lan2TaperAt = -1;
+                if (CityLanes2.On && Has("LAN2")) { Open("LAN2"); lan2 = CityLanes2.ReadRows(r); lan2TaperAt = r.BaseStream.Position; }
+                CityLanes2.Loaded(lan2);
+
                 // EDGE holds each edge's record and its point COUNT; the
                 // points themselves are in PNTS, every edge's in edge order.
                 Open("EDGE");
@@ -791,6 +798,7 @@ namespace PSXRacing.City
                     e.shl = r.ReadSingle(); e.shr = r.ReadSingle();
                     e.speedKmh = r.ReadByte();
                     e.wayId = r.ReadUInt32();
+                    if (lan2 != null && lan2.TryGetValue(i, out var l2e)) { e.lanes = Mathf.Max(1, l2e.lanes); e.turnLane = l2e.turn; }   // LANES2
                     e.profile = RoadProfiles.IndexFor(e.cls, e.link, e.oneway, e.lanes, e.turnLane);
                     var prof = RoadProfiles.All[e.profile];
                     e.width = prof.Width;
@@ -932,9 +940,13 @@ namespace PSXRacing.City
                 // change, then every edge's ribbon offset off its OSM line.
                 // Layout: tools/city/export_osm.mjs, section TAPR.
                 float[] taprOff = null;
-                if (Has("TAPR"))
+                // LANES2: the taper list designed for the changed lane counts stands in LAN2,
+                // after its edge rows, in TAPR's own layout
+                bool taprLan2 = lan2 != null && lan2TaperAt >= 0;
+                long lan2SplitAt = -1;
+                if (taprLan2 || Has("TAPR"))
                 {
-                    Open("TAPR");
+                    if (taprLan2) r.BaseStream.Position = lan2TaperAt; else Open("TAPR");
                     int nt = r.ReadInt32();
                     map.tapr = new LineModel.Tapr[nt];
                     for (int i = 0; i < nt; i++)
@@ -953,7 +965,7 @@ namespace PSXRacing.City
                         r.ReadSingle(); r.ReadSingle();   // t0, t1: since the WP-10 review the offset holds along the edge
                         if (ei >= 0 && ei < ne) taprOff[ei] = 0.5f * (o0 + o1);
                     }
-                    Close("TAPR");
+                    if (taprLan2) lan2SplitAt = r.BaseStream.Position; else Close("TAPR");
                 }
                 // TAGN (WP-10): the OSM control nodes (signals, stops, give
                 // ways) resolved on the RAW ways, and where they lie now:
@@ -974,9 +986,10 @@ namespace PSXRacing.City
                     }
                     Close("TAGN");
                 }
-                if (Has("SPLT"))
+                // LANES2: a split's carriageway offsets follow the lane count; LAN2 carries the table after its tapers
+                if (lan2SplitAt >= 0 || Has("SPLT"))
                 {
-                    Open("SPLT");
+                    if (lan2SplitAt >= 0) r.BaseStream.Position = lan2SplitAt; else Open("SPLT");
                     int nsp = r.ReadInt32();
                     map.splt = new LineModel.Split[nsp];
                     for (int i = 0; i < nsp; i++)
@@ -985,7 +998,7 @@ namespace PSXRacing.City
                             node = r.ReadInt32(), u = r.ReadInt32(), a = r.ReadInt32(), b = r.ReadInt32(),
                             offA = r.ReadSingle() * LayoutScale, offB = r.ReadSingle() * LayoutScale, rate = r.ReadSingle(),
                         };
-                    Close("SPLT");
+                    Close(lan2SplitAt >= 0 ? "LAN2" : "SPLT");
                 }
                 // BRST (plan B1): the bridges' OSM outlines, the water spans a
                 // culvert claims (owner Q8), the twin-deck overrides. Layout:
@@ -1041,6 +1054,7 @@ namespace PSXRacing.City
                         byte nF = r.ReadByte(), nB = r.ReadByte(), centre = r.ReadByte(), fl = r.ReadByte();
                         ushort to = r.ReadUInt16(); byte sub = r.ReadByte(), bike = r.ReadByte();
                         if (i >= ne) continue;
+                        if (lan2 != null && lan2.TryGetValue(i, out var l2s)) { nF = l2s.nF; nB = l2s.nB; centre = l2s.centre; fl = l2s.lsFlags; to = l2s.turnOnly; sub = l2s.sub; bike = l2s.bike; }   // LANES2
                         var le = map.edges[i];
                         var pr = RoadProfiles.All[le.profile];
                         bool fits = pr.oneway ? (nB == 0 && centre == 0 && nF == pr.lanes)

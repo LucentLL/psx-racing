@@ -87,10 +87,12 @@ namespace PSXRacing.City
         /// island), N Tryon St north (concrete). So: Wilkinson Blvd east of lon
         /// -80.8965 and South Blvd between lat 35.155 and 35.185 take the general rule (a bed
         /// under MedianBedMaxW, grass above, concrete at noses and pockets); the rest
-        /// of the listed roads stays concrete. OFF BY DEFAULT until its before / after
-        /// sheet and gate have been read (PSX_CITY_MEDIANSTRETCH=1 turns it on): concrete from
-        /// end to end, as before.</summary>
-        public static bool MedianStretchOn = System.Environment.GetEnvironmentVariable("PSX_CITY_MEDIANSTRETCH") == "1";
+        /// of the listed roads stays concrete. ON since its before / after in fresh
+        /// processes (round 2, 11-15): Wilkinson at Ashley Rd and Morris Field Dr and South
+        /// Blvd at Archdale Dr turn to planted beds, the three concrete controls stay; South
+        /// Blvd at Woodlawn Rd stays concrete (its island is under MedianConcreteMaxW here).
+        /// PSX_CITY_MEDIANSTRETCH=0: concrete from end to end, as before.</summary>
+        public static bool MedianStretchOn = System.Environment.GetEnvironmentVariable("PSX_CITY_MEDIANSTRETCH") != "0";
         /// <summary>World x of lon -80.8965, z of lat 35.155 and of lat 35.185 (CityMap's frame).</summary>
         const float WilkinsonPlantedEastOfX = -7170f, SouthBlvdPlantedNorthOfZ = -3285f, SouthBlvdPlantedSouthOfZ = 49f;
         static bool MedianPlantedStretch(CityMap.Edge e)

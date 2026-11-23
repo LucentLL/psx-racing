@@ -382,9 +382,39 @@ let tollKept = 0, tollDropped = 0;
 /// the plan's WP-10t, right after WP-11b ships.
 const KEEP_TOLL = false;
 const tollNodes = new Set();   // every node a dropped toll way touched
+/// LANES2 (2026-11-15, the owner: "roads should be the newest 2026 version"): the lane
+/// counts the map lacks or has wrong against today's road, from street-level views:
+/// tools/city/lanes2_overrides.tsv (way, lanes, forward, backward, centre, parking,
+/// evidence). Read ONLY with PSX_EXPORT_LANES2=1: the shipped charlotte_city.bytes
+/// keeps the tags' own counts in its sections, and tools/city/lanes2.mjs splices what
+/// this export does differently in as section LAN2 (the game applies it at load unless
+/// PSX_CITY_LANES2=0). A row replaces the way's lane tags before anything reads them,
+/// so the tapers, the offsets and the line set come out as for a tagged way.
+const LANES2 = new Map();
+if (process.env.PSX_EXPORT_LANES2 === '1') {
+  const f = join(HERE, 'lanes2_overrides.tsv');
+  for (const line of readFileSync(f, 'utf8').split(/\r?\n/)) {
+    if (!line.trim() || line.startsWith('#')) continue;
+    const c = line.split('\t');
+    const id = parseInt(c[0], 10), lanes = parseInt(c[1], 10);
+    if (!Number.isFinite(id) || !Number.isFinite(lanes) || lanes < 1) continue;
+    LANES2.set(id, { lanes, f: parseInt(c[2], 10), b: parseInt(c[3], 10), centre: c[4] === '1' });
+  }
+  console.log(`LANES2: ${LANES2.size} ways take their lane count from tools/city/lanes2_overrides.tsv`);
+}
+let lanes2Used = 0;
+function lanes2Tags(tags, o) {
+  const t = { ...tags };
+  for (const k of Object.keys(t)) if (/^(lanes|turn:lanes|centre_turn_lane)(:|$)/.test(k)) delete t[k];
+  t.lanes = String(o.lanes);
+  if (Number.isFinite(o.f) && Number.isFinite(o.b)) { t['lanes:forward'] = String(o.f); t['lanes:backward'] = String(o.b); }
+  if (o.centre) t['lanes:both_ways'] = '1';
+  lanes2Used++;
+  return t;
+}
 function keepWay(w, minor) {
   if (seenWay.has(w.id)) return;
-  const t = w.tags;
+  const t = LANES2.has(w.id) ? lanes2Tags(w.tags, LANES2.get(w.id)) : w.tags;
   const hw = t.highway || '';
   if (t.area === 'yes') return;
   const link = hw.endsWith('_link');
