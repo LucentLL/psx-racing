@@ -24,7 +24,10 @@
 // from behind its car gives nothing. _LensLook 2: a lamp-map body's lens
 // (its lamps are drawn on the paint) - only the far point, gone by the time
 // the painted lamp is LENS_FAR_TO_PX pixels across. With the look off, mode 1
-// is the quad as before and mode 2 draws nothing.
+// is the quad as before and mode 2 draws nothing. NEAR, a lens is its own
+// quad as before (its shape, no halo: the halation glows it): the point takes
+// over only as the lens shrinks from LENS_NEAR_TO_PX to LENS_NEAR_FROM_PX
+// pixels of half-size, the quad morphing into the point.
 Shader "PSX/Glow"
 {
     Properties
@@ -75,6 +78,8 @@ Shader "PSX/Glow"
             #define LENS_FAR_FROM_PX 2.0   // a lamp-map body's far point: whole under this lens radius (px)
             #define LENS_FAR_TO_PX   5.0   // ...gone by this
             #define LENS_HALO_K    4.5
+            #define LENS_NEAR_FROM_PX 3.0  // the lens's half-size (px) under which it is all point...
+            #define LENS_NEAR_TO_PX   7.0  // ...and over which it is all its own quad
 
             struct appdata { float4 vertex : POSITION; float2 uv : TEXCOORD0; };
             struct v2f
@@ -82,7 +87,9 @@ Shader "PSX/Glow"
                 float4 pos : SV_POSITION;
                 float2 uv : TEXCOORD0;
                 fixed fade : TEXCOORD1;
-                float4 lens : TEXCOORD2;   // the point: x core K, y halo amount, z core gain, w 1 = drawn as a point
+                float4 lens : TEXCOORD2;   // the point: x core K, y halo amount, z core gain, w 1 = the look (point x (1 - t) + quad x t)
+                float2 q : TEXCOORD3;      // the point's -1..1; t (the quad's share) in... see lensT
+                float lensT : TEXCOORD4;
             };
 
             v2f vert (appdata v)
@@ -96,6 +103,8 @@ Shader "PSX/Glow"
                 float dist = length(mul(UNITY_MATRIX_MV, v.vertex).xyz);
                 o.fade = 1.0 - saturate((dist - _PSXFogNear) / max(_PSXFogFar - _PSXFogNear, 1.0));
                 o.lens = float4(0.0, 0.0, 0.0, 0.0);
+                o.q = float2(0.0, 0.0);
+                o.lensT = 1.0;
                 if (_LensLook > 0.5)
                 {
                     if (_PSXLightLook.y > 0.5)
@@ -116,8 +125,13 @@ Shader "PSX/Glow"
                         float rc = max(lensR, LENS_CORE_PX * fbM);
                         float H = max(rc * LENS_ROOM, _LensHaloM);
                         float2 q = v.uv * 2.0 - 1.0;
-                        o.pos = mul(UNITY_MATRIX_P, float4(cv + float3(q * H, 0.0), 1.0));
-                        o.uv = q;
+                        // near: the lens's own quad; far: the point (the header)
+                        float halfPx = lensR / LENS_CORE_R / fbM;
+                        float t = _LensLook > 1.5 ? 0.0 : saturate((halfPx - LENS_NEAR_FROM_PX) / (LENS_NEAR_TO_PX - LENS_NEAR_FROM_PX));
+                        float3 nv = mul(UNITY_MATRIX_V, mul(unity_ObjectToWorld, float4(v.vertex.xyz, 1.0))).xyz;
+                        o.pos = mul(UNITY_MATRIX_P, float4(lerp(cv + float3(q * H, 0.0), nv, t), 1.0));
+                        o.q = q;
+                        o.lensT = t;
                         float keep = max(saturate(lensR / rc), LENS_KEEP);
                         float face = smoothstep(0.02, 0.35, facing);
                         float farOnly = _LensLook > 1.5 ? 1.0 - saturate((lensR / fbM - LENS_FAR_FROM_PX) / (LENS_FAR_TO_PX - LENS_FAR_FROM_PX)) : 1.0;
@@ -132,10 +146,12 @@ Shader "PSX/Glow"
             {
                 if (i.lens.w > 0.5)
                 {
-                    float r2 = dot(i.uv, i.uv);
+                    float r2 = dot(i.q, i.q);
                     float win = saturate(1.0 - r2);
                     win *= win;
-                    float p = (exp(-r2 * i.lens.x) * i.lens.z + exp(-r2 * LENS_HALO_K) * i.lens.y * win) * _Strength * i.fade;
+                    float p = (exp(-r2 * i.lens.x) * i.lens.z + exp(-r2 * LENS_HALO_K) * i.lens.y * win) * (1.0 - i.lensT)
+                            + tex2D(_MainTex, i.uv).a * i.lensT;
+                    p *= _Strength * i.fade;
                     return fixed4(_Color.rgb * (p * PSXAdaptGain()), saturate(p));
                 }
                 fixed a = tex2D(_MainTex, i.uv).a * _Strength * i.fade;
