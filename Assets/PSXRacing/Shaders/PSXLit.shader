@@ -786,6 +786,9 @@ Shader "PSX/Lit"
             // The horizon ring (PSXFogRing.cginc): the fog's colour by bearing.
             // After SkyReflect, whose _PSXSkyRotation it is turned by.
             #include "PSXFogRing.cginc"
+            // THE FAR HAZE v2 (PSXFarHaze.cginc): no fog brighter than the sky behind it.
+            #define PSX_FARHAZE_FOG
+            #include "PSXFarHaze.cginc"
         #ifdef PSX_FACADE
             // THE FACADE'S MATERIALS (Uptown B1b, 2026-10-04). The owner on the
             // B1 facades: "that white coating washed out faded look that cars
@@ -1759,6 +1762,10 @@ Shader "PSX/Lit"
                 o.fog = max(o.fog, wireFade);
             #endif
                 o.ring = PSXFogRing(wpos - _WorldSpaceCameraPos, _PSXSkyRotation);
+                // ...never brighter than the sky behind it (PSXFarHaze.cginc), the blue distance too
+                bool farAir = _PSXAerial.w > 0.5;
+                o.ring = PSXFarHazeRing(o.ring, wpos - _WorldSpaceCameraPos, max(o.fog, farAir && dist > _PSXAerial.x ? 1.0 : 0.0),
+                                        farAir ? _PSXAerialCol.rgb : float3(0, 0, 0));
             #ifdef PSX_ATLAS
                 float4 cell = floor(v.color * 255.0 + 0.5);
                 float px = max(_AtlasPx, 1.0);

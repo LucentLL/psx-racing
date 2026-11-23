@@ -596,6 +596,8 @@ Shader "PSX/CarPaint"
             // 1) at night, at dusk and in every scene that set no hour.
             #include "PSXSunShadow.cginc"
             #include "PSXFogRing.cginc"
+            #define PSX_FARHAZE_FOG
+            #include "PSXFarHaze.cginc"   // no fog brighter than the sky behind it
             #include "PSXArchFlare.cginc"
 
             struct appdata
@@ -1142,7 +1144,7 @@ Shader "PSX/CarPaint"
                 // Into the haze - the sky's colour, never exposed, rolled off
                 // as the sky's horizon is (PSXFogTone, C3) - exactly as PSX/Lit
                 // fogs the road beside the car.
-                col = lerp(col, PSXFogTone(PSXFogTowardSun(_PSXFogColor.rgb * PSXFogRing(-V, _PSXSkyRotation), V)), i.fog);
+                col = lerp(col, PSXFogTone(PSXFogTowardSun(_PSXFogColor.rgb * PSXFarHazeRing(PSXFogRing(-V, _PSXSkyRotation), -V, i.fog, 0), V)), i.fog);
                 // The alpha: the emitter mask on the PSX camera's own frame
                 // (PSXTone.cginc); the old coverage on any other camera's
                 // render texture (the mirror, the car viewer), which a

@@ -101,6 +101,8 @@ Shader "PSX/LitTransparent"
             // The horizon ring, turned with the sky (see PSXFogRing.cginc).
             float _PSXSkyRotation;
             #include "PSXFogRing.cginc"
+            #define PSX_FARHAZE_FOG
+            #include "PSXFarHaze.cginc"   // no fog brighter than the sky behind it
 
             struct appdata
             {
@@ -175,7 +177,7 @@ Shader "PSX/LitTransparent"
                 float3 V = normalize(_WorldSpaceCameraPos - i.wpos);
                 // The one curve on the lit pane; the haze is the sky's colour -
                 // adapted, neither exposed nor curved (C3).
-                fixed3 col = lerp(PSXTone(lit), PSXFogTone(PSXFogTowardSun(_PSXFogColor.rgb * PSXFogRing(-V, _PSXSkyRotation), V)), i.fog);
+                fixed3 col = lerp(PSXTone(lit), PSXFogTone(PSXFogTowardSun(_PSXFogColor.rgb * PSXFarHazeRing(PSXFogRing(-V, _PSXSkyRotation), -V, i.fog, 0), V)), i.fog);
                 // Fog also closes the glass: at full fog a window is as opaque
                 // as the wall beside it, because both are simply haze by then.
                 return fixed4(col, lerp(tex.a, 1.0, i.fog));

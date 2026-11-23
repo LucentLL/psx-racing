@@ -121,6 +121,8 @@ Shader "PSX/CarLens"
             #include "PSXSkyReflect.cginc"
             #include "PSXSunShadow.cginc"
             #include "PSXFogRing.cginc"
+            #define PSX_FARHAZE_FOG
+            #include "PSXFarHaze.cginc"   // no fog brighter than the sky behind it
 
             struct appdata
             {
@@ -253,7 +255,7 @@ Shader "PSX/CarLens"
 
                 // Into the haze as the body under it goes: the fog colour at
                 // this cover's coverage, so the two together are the fogged car.
-                float3 fogC = PSXFogTone(PSXFogTowardSun(_PSXFogColor.rgb * PSXFogRing(-V, _PSXSkyRotation), V));
+                float3 fogC = PSXFogTone(PSXFogTowardSun(_PSXFogColor.rgb * PSXFarHazeRing(PSXFogRing(-V, _PSXSkyRotation), -V, i.fog, 0), V));
                 col = lerp(col, fogC * alpha, i.fog);
                 return fixed4(col, alpha);
             }
