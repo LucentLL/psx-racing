@@ -409,7 +409,15 @@ namespace PSXRacing
                         {
                             var rot = Quaternion.Euler(-el, h * 45f, 0f);
                             var look = pos + rot * Vector3.forward;
-                            yield return Shoot("sky_" + f[0] + "_" + pv.name + "_h" + (h * 45).ToString("000") + "_e" + el.ToString("00") + ".jpg", cam, pos, look, rt, screen, blit, tex, W, H, 3);
+                            string stem = "sky_" + f[0] + "_" + pv.name + "_h" + (h * 45).ToString("000") + "_e" + el.ToString("00");
+                            yield return Shoot(stem + ".jpg", cam, pos, look, rt, screen, blit, tex, W, H, 3);
+                            // the sky alone (nothing on any layer drawn): the step check's frame
+                            int mask = cam.cullingMask;
+                            cam.cullingMask = 0;
+                            Capture(cam, rt, screen, blit, tex, W, H);
+                            cam.cullingMask = mask;
+                            var png = tex.EncodeToJPG(97);
+                            PSXPerfTour_Post(tag + "_" + stem + "_skyonly.jpg", png, png.Length);
                         }
                     for (int i = pv.ops.Count - 1; i >= 0; i--) pv.ops[i].off();
                 }
