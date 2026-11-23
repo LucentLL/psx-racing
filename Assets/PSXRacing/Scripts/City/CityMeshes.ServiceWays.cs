@@ -47,6 +47,46 @@ namespace PSXRacing.City
     {
         public static bool ServiceOn = System.Environment.GetEnvironmentVariable("PSX_CITY_SERVICE") != "0";
         public static bool ServiceAislesOn = System.Environment.GetEnvironmentVariable("PSX_CITY_SERVICE_AISLES") != "0";
+        /// <summary>(roadsmerge 11-23) a divided road's median stays whole: no service pavement between two
+        /// carriageways of one road and no mouth on a carriageway's median side (the way across it is a
+        /// crossover the graph does not have: the graph round's list). PSX_CITY_SERVICE_MEDIAN=0: as 11-15.</summary>
+        public static bool ServiceMedianOn = System.Environment.GetEnvironmentVariable("PSX_CITY_SERVICE_MEDIAN") != "0";
+        static readonly HashSet<int> svcMedianSegs = new HashSet<int>();
+        /// <summary>True when p lies between two opposite carriageways of one divided road (same name, one-way,
+        /// not links, headings opposed), within 40 m of each, outside both pavements.</summary>
+        static bool ServiceInMedian(CityMap map, Vector2 p)
+        {
+            svcMedianSegs.Clear();
+            map.EdgeSegsInRect(p - new Vector2(40f, 40f), p + new Vector2(40f, 40f), svcMedianSegs);
+            CityMap.Edge left = null, right = null; Vector2 lt = default; float ld = 41f, rd = 41f;
+            foreach (int pk in svcMedianSegs)
+            {
+                var e = map.edges[pk >> 12];
+                if (!e.oneway || e.link || e.cls < 2 || string.IsNullOrEmpty(e.name)) continue;
+                CityElevation.ProjectOn(e, p, out float sp);
+                sp = Mathf.Clamp(sp, 0f, e.length);
+                var q = e.PointAt(sp); var tg = e.TangentAt(sp);
+                float d = Vector2.Distance(q, p);
+                if (d < e.width * 0.5f) return false;                       // on a pavement
+                if (sp <= 0.01f || sp >= e.length - 0.01f) continue;        // beyond its ends: not beside it
+                float side = tg.x * (p.y - q.y) - tg.y * (p.x - q.x);       // > 0: p left of the edge
+                if (side > 0f) { if (d < ld) { ld = d; left = e; lt = tg; } }
+                else if (d < rd) { rd = d; right = e; }
+            }
+            // a median is LEFT of each carriageway (right-hand traffic): p left of A and left of B, A and B opposed
+            if (left == null) return false;
+            foreach (int pk in svcMedianSegs)
+            {
+                var e = map.edges[pk >> 12];
+                if (e == left || !e.oneway || e.link || e.name != left.name) continue;
+                CityElevation.ProjectOn(e, p, out float sp);
+                if (sp <= 0.01f || sp >= e.length - 0.01f) continue;
+                var q = e.PointAt(sp); var tg = e.TangentAt(sp);
+                if (Vector2.Distance(q, p) > 40f || Vector2.Dot(tg, lt) > -0.8f) continue;
+                if (tg.x * (p.y - q.y) - tg.y * (p.x - q.x) > 0f) return true;
+            }
+            return false;
+        }
         public const string ServiceResName = "charlotte_service";
         const uint ServiceMagic = 0x57435653u;   // "SVCW"
         const int ServiceVersion = 1;
@@ -84,12 +124,12 @@ namespace PSXRacing.City
 
         public static class ServiceStats
         {
-            public static int ways, mouths, quads, quadsOnLot, throats, stallsCut, islandsCut, lotsCut, points, buildingsCleared, quadsOnStation, mouthsOnStation;
+            public static int ways, mouths, quads, quadsOnLot, throats, stallsCut, islandsCut, lotsCut, points, buildingsCleared, quadsOnStation, mouthsOnStation, quadsInMedian, mouthsOnMedian;
             public static float km, kmOnLot, ms, msRead, msQuads, msLots;
             public static readonly float[] kmByKind = new float[7];
             public static void Reset()
             {
-                ways = mouths = quads = quadsOnLot = throats = stallsCut = islandsCut = lotsCut = points = quadsOnStation = mouthsOnStation = 0;
+                ways = mouths = quads = quadsOnLot = throats = stallsCut = islandsCut = lotsCut = points = quadsOnStation = mouthsOnStation = quadsInMedian = mouthsOnMedian = 0;
                 km = kmOnLot = ms = msRead = msQuads = msLots = 0f;
                 for (int i = 0; i < kmByKind.Length; i++) kmByKind[i] = 0f;
             }
@@ -102,6 +142,7 @@ namespace PSXRacing.City
                 sb.Append($"{quads} paved quads ({quadsOnLot} segments left to the lot they run on), {throats} kerb openings where a way meets a lot, ");
                 sb.Append($"{stallsCut} stalls and {islandsCut} islands taken off the ways in {lotsCut} lots; {mouths} mouths on streets; ");
                 sb.Append($"{quadsOnStation} segments and {mouthsOnStation} mouths left to the filling station they lie on; ");
+                sb.Append($"{quadsInMedian} segments and {mouthsOnMedian} mouths left out of a divided road's median{(ServiceMedianOn ? "" : " (PSX_CITY_SERVICE_MEDIAN=0: kept)")}; ");
                 sb.Append($"{ms:0} ms (read {msRead:0}, quads and throats {msQuads:0}, stalls and islands {msLots:0})");
                 return sb.ToString();
             }
@@ -458,6 +499,9 @@ namespace PSXRacing.City
                         float hs = Mathf.Max(w.half[i], w.half[i + 1]);
                         if (CityStations.LotAt(map, 0.5f * (w.pts[i] + w.pts[i + 1]), hs) >= 0 || CityStations.LotAt(map, w.pts[i], hs) >= 0 || CityStations.LotAt(map, w.pts[i + 1], hs) >= 0)
                         { ServiceStats.quadsOnStation++; continue; }
+                        // a divided road's median is not cut (the crossovers are not in the graph)
+                        if (ServiceMedianOn && (ServiceInMedian(map, 0.5f * (w.pts[i] + w.pts[i + 1])) || ServiceInMedian(map, w.pts[i]) || ServiceInMedian(map, w.pts[i + 1])))
+                        { ServiceStats.quadsInMedian++; continue; }
                     }
                     bool lies = w.onLot[i] && w.onLot[i + 1];
                     for (int tx = Mathf.FloorToInt((bx0 - 2.5f) / TileSize); tx <= Mathf.FloorToInt((bx1 + 2.5f) / TileSize); tx++)
@@ -536,6 +580,9 @@ namespace PSXRacing.City
                     var tg = e.TangentAt(sc);
                     var behind = e.PointAt(sc) + new Vector2(-tg.y, tg.x) * (m.side * (e.width * 0.5f + 4f));
                     if (CityStations.LotAt(map, behind, 2f) >= 0) { ServiceMouths[i].off = true; ServiceStats.mouthsOnStation++; continue; }
+                    // a mouth on a carriageway's median side: the median stays whole
+                    if (ServiceMedianOn && e.oneway && !e.link && ServiceInMedian(map, e.PointAt(sc) + new Vector2(-tg.y, tg.x) * (m.side * (e.width * 0.5f + 1.5f))))
+                    { ServiceMouths[i].off = true; ServiceStats.mouthsOnMedian++; continue; }
                     ents[e0 + ne] = new CityMap.LotEntrance { edge = m.edge, s = m.s, side = m.side, half = m.half };
                     ServiceMouths[i].entrance = e0 + ne;
                     ne++;
