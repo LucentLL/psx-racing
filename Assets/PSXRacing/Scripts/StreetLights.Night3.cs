@@ -45,6 +45,8 @@ namespace PSXRacing
         /// street (car sides, the lower storeys); 0.30 lit the pale plazas and pavements whole.</summary>
         public static float N3GlowM = 34f;
         public static float N3GlowGain = 0.10f;
+        /// <summary>A lamp more than 15 m over its ground (a high mast) lights from this height over it.</summary>
+        public const float N3MastLiftM = 12f;
 
         const float N3TexelM = 2f;
         const float N3StepM = 64f;
@@ -161,7 +163,20 @@ namespace PSXRacing
                     if (e.mercury) mercs++;
                     float pool = e.intensity * N3PoolGain, glow = e.intensity * N3GlowGain;
                     var u0 = new Vector4(e.pos.x, e.pos.z, 0f, 0f);
-                    var u1 = new Vector4(pool, glow, e.pos.y - n3BaseY, e.mercury ? 1f : 0f);
+                    // a high mast (an interchange's ring of floods, 20-30 m up) lights the carriageway under
+                    // it: its light is counted from N3MastLiftM over its own ground (the field's vertical reach
+                    // is 16 m under a head - so a road on a deck's underside 5+ m below still takes none)
+                    float hy = e.pos.y;
+                    if (Application.isPlaying)
+                    {
+                        if (!e.groundKnown)
+                        {
+                            e.groundKnown = true;
+                            e.ground = Physics.Raycast(e.pos + Vector3.down * 0.3f, Vector3.down, out var gh, 60f, ~(1 << 2), QueryTriggerInteraction.Ignore) ? gh.point.y : e.pos.y - 9f;
+                        }
+                        if (e.pos.y - e.ground > 15f) hy = e.ground + N3MastLiftM;
+                    }
+                    var u1 = new Vector4(pool, glow, hy - n3BaseY, e.mercury ? 1f : 0f);
                     int v = n3V.Count;
                     n3V.Add(new Vector3(e.pos.x - reach, e.pos.z - reach, 0f));
                     n3V.Add(new Vector3(e.pos.x + reach, e.pos.z - reach, 0f));

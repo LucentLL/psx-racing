@@ -326,7 +326,7 @@ namespace PSXRacing
         // ------------------------------------------------------------------
         //  the routes
         // ------------------------------------------------------------------
-        static Vector2 LL(double lat, double lon)
+        public static Vector2 LL(double lat, double lon)
         {
             const double Lat0 = 35.18456015184093, Lon0 = -80.81770185962013;
             double mLon = 111320.0 * System.Math.Cos(Lat0 * System.Math.PI / 180.0);
@@ -336,7 +336,7 @@ namespace PSXRacing
         /// <summary>A road followed node to node from the nearest point of a
         /// named road heading toward a target, the straightest way on that keeps
         /// the name (HitchProbe's FollowRoad, as a route).</summary>
-        static CityMap.Route FollowRoad(CityMap map, string id, Vector2 from, Vector2 toward, string nameHas, float maxM)
+        public static CityMap.Route FollowRoad(CityMap map, string id, Vector2 from, Vector2 toward, string nameHas, float maxM)
         {
             CityMap.Edge e = null; float bestD = float.MaxValue; bool fwd = true;
             foreach (var c in map.edges)
