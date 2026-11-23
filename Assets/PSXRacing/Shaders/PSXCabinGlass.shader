@@ -109,8 +109,8 @@ Shader "PSX/CabinGlass"
             float4 _PSXRain2Glass3;
             #define LG_R1     9.0     // the cross's inner taps, pixels at 1080 lines
             #define LG_R2     22.0    // ...its outer taps
-            #define LG_KNEE   0.55    // only what is brighter than this in the frame copy blooms
-            #define LG_GAIN   0.85
+            #define LG_KNEE   0.42    // only what is brighter than this in the frame copy blooms
+            #define LG_GAIN   2.0
             #define R2G_LENS    0.000016   // a drop's bend of what is behind it: metres squared (see the note at its use)
             #define R2G_MAXPX   46.0       // ...never further than this many pixels (of a 1080-line frame)
             #define R2G_SHEET   0.50       // how much of the pane a downpour's sheet covers while parked
@@ -734,7 +734,7 @@ Shader "PSX/CabinGlass"
                         // (lightlook) the lamps bloom in the water film (the header above)
                         if (_PSXRain2Glass3.y > 0.5)
                         {
-                            float lgFilm = saturate(max(sheet * 2.5, cover * 0.7) + smear * rain * 0.8 + lipL * 2.0 + (inBank ? 0.6 : 0.0));
+                            float lgFilm = saturate(max(wetA * 0.9, sheet * 2.5) + smear * rain * 0.8 + lipL * 2.0 + (inBank ? 0.6 : 0.0));
                             if (lgFilm > 0.02)
                             {
                                 float2 lgC = (i.pos.xy + dpx * 0.5) / _ScreenParams.xy;
