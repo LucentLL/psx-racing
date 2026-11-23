@@ -38,6 +38,7 @@ Shader "PSX/Glow"
         [HideInInspector] _LensLook ("A car lens (1), a lamp-map body's far point (2)", Float) = 0
         [HideInInspector] _LensHaloM ("The lens's halo half-size (m)", Float) = 0
         [HideInInspector] _LensHaloAmt ("The lens's halo amount", Float) = 0
+        [HideInInspector] _LensBirth ("A spawned car's lens, coming up (0..1)", Float) = 1
     }
     SubShader
     {
@@ -68,7 +69,7 @@ Shader "PSX/Glow"
             fixed4 _PSXFogColor;
             float _PSXFogNear;
             float _PSXFogFar;
-            float _LensLook, _LensHaloM, _LensHaloAmt;
+            float _LensLook, _LensHaloM, _LensHaloAmt, _LensBirth;
             float4 _PSXLightLook;
             #define LENS_CORE_PX   1.6     // the point's least core radius (e^-1), real framebuffer pixels
             #define LENS_CORE_R    0.45    // the core's radius as a share of the lens's own half-size
@@ -151,7 +152,7 @@ Shader "PSX/Glow"
                     win *= win;
                     float p = (exp(-r2 * i.lens.x) * i.lens.z + exp(-r2 * LENS_HALO_K) * i.lens.y * win) * (1.0 - i.lensT)
                             + tex2D(_MainTex, i.uv).a * i.lensT;
-                    p *= _Strength * i.fade;
+                    p *= _Strength * i.fade * _LensBirth;
                     return fixed4(_Color.rgb * (p * PSXAdaptGain()), saturate(p));
                 }
                 fixed a = tex2D(_MainTex, i.uv).a * _Strength * i.fade;

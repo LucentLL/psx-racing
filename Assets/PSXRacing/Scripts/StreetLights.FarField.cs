@@ -33,6 +33,8 @@ namespace PSXRacing
         /// gone by <see cref="FarEndM"/> (the window's half less the snap's
         /// half, less the glow's reach).</summary>
         public static float FarFullM = 760f, FarEndM = 900f;
+        /// <summary>PSXLamps.cginc's FIELD_END_M: where the near field is gone.</summary>
+        const float FieldEndNearM = 200f;
 
         static Texture2D farTex, farBack;
         static float[] facc;
@@ -99,7 +101,19 @@ namespace PSXRacing
             if (farTex == null || FarLamps == 0) { FarOff(); return; }
             Shader.SetGlobalTexture(FarTexId, farTex);
             Shader.SetGlobalVector(FarSTId, new Vector4(farOrigin.x, farOrigin.y, 1f / span, 1f));
-            Shader.SetGlobalVector(FarYId, new Vector4(farBaseY, FarEndM, 1f / Mathf.Max(1f, FarEndM - FarFullM), 0f));
+            // NO POP: never out to where a tile's lamps can still arrive. A tile stands up at the
+            // ring's edge, never nearer than the camera's far plane (CityWorld.RingFarM: 1,012 m on a
+            // PC with the baked tiles, 500 m on a 2-tile ring - the editor, the web); a new lamp's
+            // glow reaches FieldGlowM in from it. So the far field is gone that far inside the plane.
+            var cm = Camera.main;
+            float endM = FarEndM, fullM = FarFullM;
+            if (cm != null)
+            {
+                endM = Mathf.Min(FarEndM, cm.farClipPlane - FieldGlowM - 20f);
+                fullM = Mathf.Min(FarFullM, endM - 120f);
+            }
+            if (endM <= FieldEndNearM + 20f) { FarOff(); return; }
+            Shader.SetGlobalVector(FarYId, new Vector4(farBaseY, endM, 1f / Mathf.Max(1f, endM - fullM), 0f));
         }
 
         static float FarEyeOff(Vector3 eye)

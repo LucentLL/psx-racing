@@ -518,6 +518,33 @@ namespace PSXRacing
             if (!all.Contains(this)) all.Add(this);
             bornAt = Time.unscaledTime;
             Refresh();
+            UpdateLensBirth();
+        }
+
+        // (lightlook) a car that comes into being in view (a traffic spawn, a respawn) brings its lens
+        // points up over HeadBirthS, as its beams slide into the table - with the look a far lens is a
+        // point of a few pixels, and one switched on whole was counted as a pop
+        static MaterialPropertyBlock lensBlock;
+        static readonly int LensBirthId = Shader.PropertyToID("_LensBirth");
+        bool lensBirthDone;
+        void UpdateLensBirth()
+        {
+            if (!Application.isPlaying || !LightLook.CarPointsAtStart) return;
+            float k = Mathf.Clamp01((Time.unscaledTime - bornAt) / HeadBirthS);
+            if (k >= 1f && lensBirthDone) return;
+            if (lensBlock == null) lensBlock = new MaterialPropertyBlock();
+            float v = k * k * (3f - 2f * k);
+            for (int i = 0; i < 2; i++)
+                foreach (var r in new Renderer[] { headLens[i], tailLens[i] })
+                {
+                    if (r == null) continue;
+                    if (k >= 1f) { r.SetPropertyBlock(null); continue; }
+                    lensBlock.Clear();
+                    lensBlock.SetFloat(LensBirthId, v);
+                    r.SetPropertyBlock(lensBlock);
+                }
+            lensBirthDone = k >= 1f;
+            if (k < 1f) lensBirthDone = false;
         }
 
         void OnDisable()
@@ -770,6 +797,7 @@ namespace PSXRacing
             // place - and LateUpdate never runs outside play mode.
             UpdateTailLamp();
             UpdateOwnSpill();
+            UpdateLensBirth();
         }
 
         void Refresh()

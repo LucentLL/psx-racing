@@ -332,7 +332,7 @@ namespace PSXRacing
             if (cam == null) return;
             Vector3 eye = cam.transform.position;
             // the halo's own end (PSX/Halo: never past 0.92 of the far plane)
-            float seen = cam.farClipPlane * 0.92f, seen2 = seen * seen;
+            float seen = cam.farClipPlane * (LightLook.PointsOn ? 1.02f : 0.92f), seen2 = seen * seen;   // (lightlook: halos are drawn to the far plane)
             bool any = false;
             for (int i = 0; i < heads.Count && !any; i++) any = (heads[i] - eye).sqrMagnitude < seen2;
             if (!any) return;
