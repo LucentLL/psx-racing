@@ -335,7 +335,9 @@ float3 CarBeadShade2(float3 col, float4 bl, float2 up2, float lens, float resolv
     float pt = (1.0 - smoothstep(0.0, 0.24, length(bl.yz - up2 * 0.5))) * inB;
     float3 res = sky * (dome * lerp(0.16, 0.30, glass)) + pointL * pt;
     float3 unres = (sky * 0.08 + pointL * 0.12) * smoothstep(0.0, 0.2, lens);
-    col *= 1.0 - ring * resolved * lerp(0.22, 0.50, glass);
+    // (CARDROPS 2) the dark rim only as strong as the light that shows it: in shade a bead is barely there
+    float rimK = _PSXCarDrops2Off.x < 0.5 ? 0.5 * saturate(dot(sky + pointL, float3(0.30, 0.59, 0.11)) * 4.0) : 1.0;
+    col *= 1.0 - ring * resolved * lerp(0.22, 0.50, glass) * rimK;
     return col + lerp(unres, res, resolved) * lerp(0.5, 1.0, glass);
 }
 
