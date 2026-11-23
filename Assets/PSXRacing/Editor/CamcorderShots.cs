@@ -103,6 +103,8 @@ namespace PSXRacing.EditorTools
             RaceHandoff.WeatherOverride = 0;
             // (sprayfix) PSX_CAMSHOT_WEATHER=rain: the race in the rain, its spray photographed and measured (SprayFrames)
             if (SprayFrames.On) RaceHandoff.WeatherOverride = (int)Weather.Rain;
+            else if (SprayFrames.W == "fog") RaceHandoff.WeatherOverride = (int)Weather.Fog;
+            else if (SprayFrames.W == "clear") RaceHandoff.WeatherOverride = (int)Weather.Clear;
             RaceHandoff.StartFuelPct = 100f;
             // PSX_CAMSHOT_TRAFFIC=0..4: the race's traffic (the hour's own when unset).
             if (int.TryParse(System.Environment.GetEnvironmentVariable("PSX_CAMSHOT_TRAFFIC") ?? "", out int lvl) && lvl >= 0)
@@ -216,7 +218,7 @@ namespace PSXRacing.EditorTools
 
             // The player's car on autopilot, so the camcorders have it to film.
             var car = rm.playerCar;
-            if (SprayFrames.On && car != null)
+            if ((SprayFrames.On || SprayFrames.Dry) && car != null)
             {
                 // (sprayfix) parked on the grid in the rain, the clock stopped for the frames
                 float w0 = Time.realtimeSinceStartup;
@@ -227,6 +229,7 @@ namespace PSXRacing.EditorTools
                 Time.timeScale = 0f;
                 yield return null;
                 SprayFrames.Parked(car, name);
+                if (SprayFrames.On) SprayFrames.Viewer(name);
                 Time.timeScale = ts0;
                 TireSpray.ResetBirthStats();
             }
@@ -650,7 +653,10 @@ namespace PSXRacing.EditorTools
     /// </summary>
     internal static class SprayFrames
     {
-        internal static bool On => (System.Environment.GetEnvironmentVariable("PSX_CAMSHOT_WEATHER") ?? "").ToLowerInvariant() == "rain";
+        internal static string W => (System.Environment.GetEnvironmentVariable("PSX_CAMSHOT_WEATHER") ?? "").ToLowerInvariant();
+        internal static bool On => W == "rain";
+        /// <summary>PSX_CAMSHOT_WEATHER=fog|clear: a dry race, its parked body frames only (the dots-in-shade bisect).</summary>
+        internal static bool Dry => W == "fog" || W == "clear";
         /// <summary>The worst plume of the run, by day and at night (added luminance, 95th percentile).</summary>
         internal static float WorstDay, WorstNight;
         internal static int Frames;
@@ -769,6 +775,37 @@ namespace PSXRacing.EditorTools
                 cam.fieldOfView = f0;
                 if (chase != null) chase.enabled = true;
             }
+        }
+
+        /// <summary>A menu car viewer opened while it rains (its turntable frame, 960 x 600): the car indoors, dry.</summary>
+        internal static void Viewer(string item)
+        {
+            var cars = CarCatalog.All;
+            if (cars.Count == 0) return;
+            var host = new GameObject("SprayFrames_Viewer");
+            host.transform.position = new Vector3(0f, -500f, 0f);
+            try
+            {
+                var viewer = host.AddComponent<PSXRacing.LifeSim.CarViewer>();
+                viewer.width = 960; viewer.height = 600;
+                viewer.Show(cars[0]);
+                viewer.SetVisible(true);
+                CamcorderShots.Line("    viewer: _PSXCarDrops in the world " + Shader.GetGlobalVector("_PSXCarDrops"));
+                viewer.RenderNow();
+                var rt = viewer.Picture;
+                if (rt == null) return;
+                var prev = RenderTexture.active;
+                RenderTexture.active = rt;
+                var tex = new Texture2D(rt.width, rt.height, TextureFormat.RGB24, false);
+                tex.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
+                tex.Apply();
+                RenderTexture.active = prev;
+                string dir = Path.Combine(CamcorderShots.ProjectDir, "Screenshots", "camcorder");
+                File.WriteAllBytes(Path.Combine(dir, CamcorderShots.tag + "_spray_" + item + "_viewer.png"), tex.EncodeToPNG());
+                Object.DestroyImmediate(tex);
+                CamcorderShots.Line("    viewer: _PSXCarDrops after its render " + Shader.GetGlobalVector("_PSXCarDrops") + " (put back)");
+            }
+            finally { Object.Destroy(host); }
         }
     }
 }
