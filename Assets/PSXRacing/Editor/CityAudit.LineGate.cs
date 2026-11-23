@@ -233,6 +233,11 @@ namespace PSXRacing.EditorTools
         }
 
         /// <summary>Is the plan point on drawn pavement of another ribbon or emitter at this level?</summary>
+        /// <summary>PROPOSED RULE, OFF unless PSX_LG_SEAMROADS=1 (roadsmerge 11-23; the committed gate is unchanged): a pavement edge is a
+        /// seam only beside another ROAD's ribbon or fan, not beside the untapped asphalt of other emitters (a parking lot's aisle, a service
+        /// way, an apron) - the curb is still there and the edge is still the road's edge.</summary>
+        static readonly bool LgSeamRoadsOnly = System.Environment.GetEnvironmentVariable("PSX_LG_SEAMROADS") == "1";
+        [System.ThreadStatic] static bool lgSeamTest;
         static bool LgCovered(double x, double z, float y, int notEdge)
         {
             long k = ((long)(int)Math.Floor(x / LgPolyCell) << 32) ^ (uint)(int)Math.Floor(z / LgPolyCell);
@@ -242,6 +247,7 @@ namespace PSXRacing.EditorTools
             {
                 var q = lgPolys[id];
                 if (q.edge == notEdge || Mathf.Abs(q.y - y) > 0.6f) continue;
+                if (lgSeamTest && LgSeamRoadsOnly && q.edge == -1) continue;   // PROPOSAL (roadsmerge): a lot's / service way's asphalt beside a road is not a seam
                 if (LgInTri(px, pz, q.x0, q.z0, q.x1, q.z1, q.x2, q.z2) || LgInTri(px, pz, q.x0, q.z0, q.x2, q.z2, q.x3, q.z3)) return true;
             }
             return false;
@@ -706,7 +712,7 @@ namespace PSXRacing.EditorTools
                                 {
                                     double f = q == 0 ? 0.15 : q == 1 ? 0.5 : 0.85;
                                     double qx = ax + (bx - ax) * f, qz = az + (bz - az) * f, nx = ux / ul + (vx / vl - ux / ul) * f, nz = uz / ul + (vz / vl - uz / ul) * f;
-                                    if (LgCovered(qx + nx * 0.35, qz + nz * 0.35, (float)(ya + (yb - ya) * f), ei)) seam++;
+                                    lgSeamTest = true; if (LgCovered(qx + nx * 0.35, qz + nz * 0.35, (float)(ya + (yb - ya) * f), ei)) seam++; lgSeamTest = false;
                                 }
                                 if (seam >= 2) { lgSeamSpans++; st = null; continue; }
                             }
