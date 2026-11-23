@@ -72,13 +72,18 @@ namespace PSXRacing.EditorTools
         /// the recolour keeps each texel's luminance), from the owner's pictures' class medians.</summary>
         internal static readonly Color Fall2Gold = new Color(1.00f, 0.74f, 0.10f), Fall2Amber = new Color(1.00f, 0.62f, 0.07f),
             Fall2Orange = new Color(1.00f, 0.52f, 0.045f), Fall2Scarlet = new Color(1.00f, 0.30f, 0.19f),
-            Fall2Crimson = new Color(1.00f, 0.22f, 0.30f), Fall2Copper = new Color(1.00f, 0.56f, 0.27f);
-        /// <summary>The canopy beeches in NMTrees order: 01 orange, 02 scarlet, 03 gold, 06 copper (the oaks'
-        /// russet), 07 amber, 08 crimson (sourwood, black gum). The tulip share adds gold tree by tree.</summary>
+            Fall2Crimson = new Color(1.00f, 0.22f, 0.30f), Fall2Copper = new Color(1.00f, 0.56f, 0.27f),
+            Fall2Flame = new Color(1.00f, 0.45f, 0.03f);
+        /// <summary>The fall leaves' brightness over the summer's (PSX/Lit _LeafFall.y): his lit yellows are
+        /// L 0.64-0.67, ours were 0.50 at the same light.</summary>
+        internal static float Fall2Gain = 1.3f;
+        /// <summary>The canopy beeches in NMTrees order: 01 orange, 02 scarlet, 03 gold, 06 flame (sugar maple,
+        /// sassafras), 07 amber, 08 crimson (sourwood, black gum). The tulip share adds gold tree by tree; the
+        /// copper and russet are every crown's shaded side (PSX/Lit FALL2_WARM_DARK).</summary>
         static readonly (string name, Color target)[] Fall2Beech =
         {
             ("orange", Fall2Orange), ("scarlet", Fall2Scarlet), ("gold", Fall2Gold),
-            ("copper", Fall2Copper), ("amber", Fall2Amber), ("crimson", Fall2Crimson),
+            ("flame", Fall2Flame), ("amber", Fall2Amber), ("crimson", Fall2Crimson),
         };
         static readonly Color Fall2Tulip = new Color(1.0f, 0.74f, 0.10f, 0.16f);
         const float Fall2Strength = 0.92f;
@@ -91,7 +96,7 @@ namespace PSXRacing.EditorTools
             m.SetColor("_LeafTarget", target);
             var lv = m.GetVector("_LeafVivid"); lv.w = strength; m.SetVector("_LeafVivid", lv);
             m.SetColor("_LeafTulip", tulip ? Fall2Tulip : GreenSpread);
-            m.SetVector("_LeafFall", new Vector4(1f, 0f, 0f, 0f));
+            m.SetVector("_LeafFall", new Vector4(1f, Fall2Gain, 0f, 0f));
             EditorUtility.SetDirty(m);
         }
         /// <summary>The poplar's sheets against the beeches' (texture means of the

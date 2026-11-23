@@ -516,9 +516,13 @@ Shader "PSX/Lit"
             float4 _LeafTulip;
             float4 _LeafFall;
             // FALL 2's leaf light (see the foliage light): the crown shade's floor, the sky and the sun let through
-            #define FALL2_AO_FLOOR 0.45
+            #define FALL2_AO_FLOOR 0.55
             #define FALL2_THRU_SKY 0.30
-            #define FALL2_THRU_SUN 0.10
+            #define FALL2_THRU_SUN 0.22
+            // the shadowed side's warmer target (linear: green and blue pulled down) and the luminance band it fades over
+            #define FALL2_WARM_DARK float3(1.0, 0.55, 0.5)
+            #define FALL2_WARM_LO 0.04
+            #define FALL2_WARM_HI 0.20
             float4 _RoadLeaves;
             float4 _PSXFallPhase;   // global (SeasonDress): x 1 = live, y the fall's phase 0 early .. 0.5 peak .. 1 late
             // A leaf texel in another colour AT ITS OWN LUMINANCE (owner
@@ -2361,8 +2365,14 @@ Shader "PSX/Lit"
                     float lum = dot(tex.rgb, float3(0.2126, 0.7152, 0.0722));
                     tex.rgb = max(lerp(lum.xxx, tex.rgb, _LeafVivid.x), 0.0) * _LeafVivid.y;
                     float lumV = lum * _LeafVivid.y;   // (the saturation step keeps luminance)
+                    // FALL 2: the turned leaf's shadowed side runs warmer and redder than its lit side
+                    // (gold to copper, orange to rust, scarlet to blood red - his pictures' "brown" is
+                    // copper h 48-55, ours went olive h 64-78), and the leaf a little brighter (_LeafFall.y;
+                    // a far card's sheet already holds it: its copy carries 1)
+                    float fallOn = _LeafFall.x > 0.5 ? 1.0 : 0.0;
+                    float fallWarm = fallOn * (1.0 - smoothstep(FALL2_WARM_LO, FALL2_WARM_HI, lumV));
                     if (_LeafVivid.w > 0.0)
-                        tex.rgb = lerp(tex.rgb, LeafRecolour(_LeafTarget.rgb, lumV), _LeafVivid.w);
+                        tex.rgb = lerp(tex.rgb, LeafRecolour(_LeafTarget.rgb * lerp(1.0, FALL2_WARM_DARK, fallWarm), lumV), _LeafVivid.w);
                 #ifdef PSX_LODFADE
                     // EACH TREE ITS OWN (lodD.y: the instance's own number, the
                     // same at every level - the impostor shares the mesh's
@@ -2371,11 +2381,12 @@ Shader "PSX/Lit"
                     if (_LeafTulip.a > 0.0)
                     {
                         if (frac(i.lodD.y * 7.31 + 0.27) < _LeafTulip.a)
-                            tex.rgb = lerp(tex.rgb, LeafRecolour(_LeafTulip.rgb, lumV), 0.85);
+                            tex.rgb = lerp(tex.rgb, LeafRecolour(_LeafTulip.rgb * lerp(1.0, FALL2_WARM_DARK, fallWarm), lumV), 0.85);
                         float hv = frac(i.lodD.y * 13.7 + 0.61) - 0.5;
                         tex.rgb *= 1.0 + hv * float3(0.16, 0.03, -0.16);
                     }
                 #endif
+                    if (fallOn > 0.5 && _LeafFall.y > 0.0) tex.rgb *= _LeafFall.y;
                     // FALL 2: EARLY, PEAK AND LATE FALL (the calendar's day, Seasons.FallPhase). The
                     // build paints the peak; before it a share of the crowns has not turned yet (the
                     // tree's own number, as the tulip share: the same at every level and on its far

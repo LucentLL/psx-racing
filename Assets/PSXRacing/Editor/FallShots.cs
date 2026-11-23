@@ -102,6 +102,23 @@ namespace PSXRacing.EditorTools
             Finish(3);
         }
 
+        /// <summary>ITERATION ONLY (no scene build): the built FALL 2 leaf materials' brightness set to
+        /// PSX_FALL2_GAIN (their far cards keep the sheets they were baked with).
+        ///   -executeMethod PSXRacing.EditorTools.FallShots.Tune</summary>
+        public static void Tune()
+        {
+            float g = float.Parse(Env("PSX_FALL2_GAIN", "1.3"), CultureInfo.InvariantCulture);
+            int n = 0;
+            foreach (var guid in AssetDatabase.FindAssets("t:Material _fall2", new[] { "Assets/PSXRacing/Materials" }))
+            {
+                var m = AssetDatabase.LoadAssetAtPath<Material>(AssetDatabase.GUIDToAssetPath(guid));
+                if (m == null || m.name.StartsWith("TM_") || !m.HasProperty("_LeafFall") || m.GetVector("_LeafFall").x < 0.5f) continue;
+                var v = m.GetVector("_LeafFall"); v.y = g; m.SetVector("_LeafFall", v); EditorUtility.SetDirty(m); n++;
+            }
+            AssetDatabase.SaveAssets();
+            Debug.Log($"[FallTune] {n} fall leaf materials at brightness x{g}");
+        }
+
         internal static void Finish(int code)
         {
             EditorApplication.update -= Watchdog;
