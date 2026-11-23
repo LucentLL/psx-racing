@@ -116,6 +116,36 @@
 #define BEAM_ALBEDO_FLOOR     0.16    // linear luminance the beam reads a darker upward texel toward
 #define BEAM_ALBEDO_GAIN_MAX  4.0     // most it multiplies the beam's light on any texel by
 
+// NIGHT 3 (the city-night round, CarLights.Pools.cs): the lamp fields' textures and sampler
+// (PSXLamps.cginc's block, declared here first) and the CAR POOLS - every lit car's low beam on
+// the ground, splatted round the eye, x the share the table above does not give it
+#ifndef PSX_FIELD_TEX_DECLARED
+#define PSX_FIELD_TEX_DECLARED
+#ifdef UNITY_SEPARATE_TEXTURE_SAMPLER
+Texture2D _PSXLampField, _PSXLampFar, _PSXLampFieldPrev, _PSXLampFarPrev, _PSXCarPool;
+SamplerState sampler_PSXLampField;
+#define PSX_FIELD_LOD(t, uv) t.SampleLevel(sampler_PSXLampField, uv, 0.0)
+#else
+sampler2D _PSXLampField, _PSXLampFar, _PSXLampFieldPrev, _PSXLampFarPrev, _PSXCarPool;
+#define PSX_FIELD_LOD(t, uv) tex2Dlod(t, float4(uv, 0.0, 0.0))
+#endif
+#endif
+float4 _PSXCarPoolST;    // xy window origin (world xz), z 1/span, w on
+float4 _PSXCarPoolCol;   // rgb the halogen (linear x the beam's intensity), w the base height
+/// Every other lit car's low beam at `wpos` (0 when off): a surface at its ground's height takes
+/// it whole, a kerb or the foot of a wall within a metre and a half some, nothing above or below.
+float3 PSXCarPools(float3 wpos, float3 N, float facingOn)
+{
+    if (_PSXCarPoolST.w < 0.5) return float3(0.0, 0.0, 0.0);
+    float2 uv = (wpos.xz - _PSXCarPoolST.xy) * _PSXCarPoolST.z;
+    float4 c = PSX_FIELD_LOD(_PSXCarPool, uv);
+    if (c.r <= 1e-5) return float3(0.0, 0.0, 0.0);
+    float gy = _PSXCarPoolCol.w + c.g / max(c.r, 1e-4);
+    float vert = saturate(1.0 - abs(wpos.y - gy) / 1.5);
+    float face = facingOn > 0.5 ? smoothstep(-0.05, 0.5, N.y) : 1.0;
+    float2 e = saturate(min(uv, 1.0 - uv) * 20.0);
+    return _PSXCarPoolCol.rgb * (c.r * vert * face * e.x * e.y);
+}
 float  _PSXHeadCount;
 float  _PSXHeadNight;                      // 0 by day (sunset and dawn included) .. 1 at night: CarLights.BeamNight
 float4 _PSXHeadPos[PSX_MAX_HEADLIGHTS];    // xyz lamp (world), w = range in metres
@@ -212,7 +242,7 @@ float PSXLampImage(float3 R, float3 l, float dist, float lensR, float rough)
 void PSXHeadlightsCore(float3 wpos, float3 N, float3 V, float power, float specOn, float facingOn,
                        out float3 diff, out float3 spec)
 {
-    diff = float3(0.0, 0.0, 0.0);
+    diff = PSXCarPools(wpos, N, facingOn);   // (NIGHT 3; zero when off)
     spec = float3(0.0, 0.0, 0.0);
     if (_PSXHeadCount < 0.5) return;
     int count = (int)_PSXHeadCount;

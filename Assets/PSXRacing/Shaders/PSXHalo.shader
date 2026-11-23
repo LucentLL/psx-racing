@@ -217,6 +217,16 @@ Shader "PSX/Halo"
             #define HALO_REF_LINES 480.0
             // THE LOOK (the header): LightLook.cs
             float4 _PSXLightLook;
+            // NIGHT 3 (the city-night round, StreetLights.Night3.cs): x on. A street lamp's soft halo
+            // falls with the inverse square of its distance (whole to N3_HALO_REF), so a far lamp is
+            // its hard core alone - a small point, as in the owner's night frames - and a near one
+            // grows a glare with thin rays (N3_RAY_*: the camera's own star), never a soft orb
+            // floating half a mile out. Continuous in distance: nothing appears at a range.
+            float4 _PSXNight3;
+            #define N3_HALO_REF  55.0
+            #define N3_RAY_REF   40.0    // the rays are whole inside this, then fall as 1/d^2
+            #define N3_RAY_LEN   5.0     // the rays' reach, in halo half-sizes, when whole
+            #define N3_RAY_AMT   0.55
             #define LOOK_CORE_PX    1.5     // the core's least radius (e^-1), real framebuffer pixels
             #define LOOK_CORE_ROOM  4.0     // the quad's half-size at least this many core radii
             #define LOOK_MAX_SHARE  0.12    // the halo's half-size at most ~this share of the picture's height
@@ -240,6 +250,7 @@ Shader "PSX/Halo"
                 float4 col : TEXCOORD1;    // rgb = tint x strength x fade
                 float core : TEXCOORD2;    // the core's sharpness (HALO_CORE_K; softer for a far tower light)
                 float halo : TEXCOORD3;    // the soft halo's amount (_HaloAmt; the look's far lamps: a streamed lamp's)
+                float2 n3 : TEXCOORD4;     // NIGHT 3: x the quad's size in halo half-sizes (rays), y the rays' amount
             };
 
             v2f vert (appdata v)
@@ -341,7 +352,16 @@ Shader "PSX/Halo"
                 }
 
                 float2 q = v.uv * 2.0 - 1.0;
-                vc.xy += q * size;
+                o.n3 = float2(1.0, 0.0);
+                if (_PSXNight3.x > 0.5 && lookLamp)
+                {
+                    float dd = max(realDist, 1.0);
+                    float nearH = saturate((N3_HALO_REF / dd) * (N3_HALO_REF / dd));
+                    o.halo *= nearH;
+                    float ray = (own || v.uv1.y > 0.5) ? 0.0 : saturate((N3_RAY_REF / dd) * (N3_RAY_REF / dd));
+                    o.n3 = float2(1.0 + N3_RAY_LEN * sqrt(ray), ray * N3_RAY_AMT);
+                }
+                vc.xy += q * size * o.n3.x;
                 o.pos = mul(UNITY_MATRIX_P, float4(vc, 1.0));
                 o.q = q;
                 if (own)
@@ -436,12 +456,26 @@ Shader "PSX/Halo"
 
             fixed4 frag (v2f i) : SV_Target
             {
-                float r2 = dot(i.q, i.q);
+                float2 qq = i.q * i.n3.x;   // halo half-sizes (the quad is grown to hold the rays)
+                float r2 = dot(qq, qq);
                 // Windowed to exactly zero at r = 1 (see the header: an 8-bit
                 // linear framebuffer shows a 0.004 corner as a square).
                 float win = saturate(1.0 - r2);
                 win *= win;
                 float a = exp(-r2 * i.core) + exp(-r2 * HALO_SOFT_K) * i.halo * win;
+                if (i.n3.y > 0.0)
+                {
+                    // three thin streaks through the core (six rays), screen-aligned, each its own length
+                    float L = i.n3.x;
+                    float2 t0 = float2(0.966, 0.259), t1 = float2(-0.259, 0.966), t2 = float2(0.643, -0.766);
+                    float3 al = abs(float3(dot(qq, t0), dot(qq, t1), dot(qq, t2)));
+                    float3 pp = abs(float3(dot(qq, float2(-t0.y, t0.x)), dot(qq, float2(-t1.y, t1.x)), dot(qq, float2(-t2.y, t2.x))));
+                    float3 len = L * float3(1.0, 0.8, 0.55);
+                    float3 fall = saturate(1.0 - al / len); fall = fall * fall * fall;
+                    float3 w = 0.045 + 0.02 * al;
+                    float3 s = exp(-(pp * pp) / (w * w)) * fall / (1.0 + 2.0 * al);
+                    a += i.n3.y * (s.x + s.y + s.z);
+                }
                 return fixed4(i.col.rgb * (a * max(PSXAdaptGain(), _GainFloor)), saturate(a * i.col.a));
             }
             ENDCG

@@ -56,6 +56,8 @@ namespace PSXRacing
         static void NightFrame(Vector3 eye, float dt, bool instant, Vector3 fwd = default)
         {
             int cap = Mathf.Clamp(LampCones.Cap, 0, ConeMax);
+            // NIGHT 3: no nearest-lamps cone set (in clear air no cone; in thick air every lamp's, NightGlow.Air.cs)
+            if (Night3) cap = 0;
             int ranked = 0;
             float sum = 0f;
             float far2 = NightDark.FarM * NightDark.FarM;

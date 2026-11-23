@@ -149,6 +149,8 @@ namespace PSXRacing
         static void PushField(Vector3 eye, bool mayRebuild = true)
         {
             if (!FieldEnabled) { FieldOff(); return; }
+            // NIGHT 3 (StreetLights.Night3.cs): the static field, no eye fade, no far field
+            if (Night3 && N3Supported) { PushN3(eye, Camera.main, mayRebuild); return; }
             float span = FieldRes * FieldTexelM;
             var origin = new Vector2(Mathf.Round(eye.x / FieldSnapM) * FieldSnapM - span * 0.5f,
                                      Mathf.Round(eye.z / FieldSnapM) * FieldSnapM - span * 0.5f);

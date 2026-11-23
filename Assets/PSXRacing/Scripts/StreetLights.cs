@@ -421,6 +421,7 @@ namespace PSXRacing
             if ((cam.cullingMask & ~(1 << 5)) == 0) return;
             // the lightlook round's switches (LightLook.cs), every camera
             LightLook.Push();
+            PushNight3Globals();   // (NIGHT 3, StreetLights.Night3.cs)
             // An inspector preview renders a preview scene, not this one: it
             // gets no lamps rather than the lamps nearest wherever it sits.
             if (cam.cameraType == CameraType.Preview) { PushNone(); FieldOff(); return; }
