@@ -388,11 +388,13 @@ namespace PSXRacing.EditorTools
         {
             var c = HorizonCanopy[Mathf.Clamp(d, 0, HorizonCanopy.Length - 1)];
             if (d != (int)Season.Fall || !Fall2) return c;
-            var b = BroadFor(d);
-            var m = (b[0] + b[1] + b[2] + b[3] + b[4]) * 0.2f;
+            // (the far ridges in his overlook are gold, orange and rust in about equal shares, L .53-.63,
+            // C .08-.10: an amber-gold, not the rust the five crowns' mean makes - which read as one flat
+            // red-brown hill in the first after-frames)
+            var m = Fall2Amber.linear;
             m *= Lum(c) / Lum(m);
             float l = Lum(m);
-            m = Color.Lerp(m, new Color(l, l, l), 0.2f);
+            m = Color.Lerp(m, new Color(l, l, l), 0.3f);
             m.a = 1f;
             return m;
         }
