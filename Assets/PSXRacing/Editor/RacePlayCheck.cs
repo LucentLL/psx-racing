@@ -360,7 +360,27 @@ namespace PSXRacing.EditorTools
             }
             // a checkpoint race holds the countdown while its fields build: give it a minute on a busy machine
             float until = Time.realtimeSinceStartup + (rm.Checkpoints != null ? 60f : 15f);
-            while (rm.State == RaceManager.RaceState.Countdown && Time.realtimeSinceStartup < until) yield return null;
+            // (P0) a course preloaded LIVE in the editor takes minutes: PSX_RACE_HOLD=s waits that long
+            if (float.TryParse(System.Environment.GetEnvironmentVariable("PSX_RACE_HOLD") ?? "", out float holdS) && holdS > 0f) until = Time.realtimeSinceStartup + holdS;
+            float nextWatch = 0f;
+            while (rm.State == RaceManager.RaceState.Countdown && Time.realtimeSinceStartup < until)
+            {
+                // (P0) where the grid is while the countdown is held: the lowest car against its road
+                if (Time.realtimeSinceStartup >= nextWatch)
+                {
+                    nextWatch = Time.realtimeSinceStartup + 5f;
+                    float worst = float.MaxValue; string who = "-";
+                    foreach (var c in rm.allCars)
+                    {
+                        if (c == null) continue;
+                        float dy = c.transform.position.y - rm.path.GetPoint(rm.path.NearestIndex(c.transform.position, -1, rm.path.Count)).y;
+                        if (dy < worst) { worst = dy; who = c.name; }
+                    }
+                    var cw = PSXRacing.City.CityWorld.Active;
+                    RacePlayCheck.Note($"  HOLD {Time.realtimeSinceStartup:0}s: lowest car {who} {worst:+0.00;-0.00} m against the path; course {(cw != null ? (cw.CourseProgress * 100f).ToString("0") + "%" : "-")}, {(cw != null ? cw.LiveTiles : 0)} live");
+                }
+                yield return null;
+            }
             RacePlayCheck.Check(rm.State == RaceManager.RaceState.Racing, "the race goes live", rm.State);
             // (P0 11-23, PC61: "Charlotte levels aren't loading, falling through ground") every grid car
             // still on its road 10 s after the green
