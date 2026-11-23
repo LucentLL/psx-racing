@@ -53,7 +53,12 @@ namespace PSXRacing
             // (parkwaytunnel) THE WALL LAMPS: the builder's row (TunnelLampRow),
             // lit day and night. PSX_TUNNEL2=0 (or a scene built before it):
             // the light-look round's two ceiling rows below, night only.
-            if (Tunnel2 && MakeWallLamps(scene)) return;
+            // (coordinator, 2026-11-23) The real Parkway bores are UNLIT, and the owner asked for the real
+            // tunnel ("are you not able to reference road images of Blue Ridge Tunnels?"); his stylised
+            // picture has the lamp row. Until he chooses: unlit by default, the fixtures hidden;
+            // PSX_TUNNEL_LAMPS=1 lights the row.
+            if (Tunnel2 && !WallLampsOn) { if (HideWallFixtures(scene)) return; }
+            else if (Tunnel2 && MakeWallLamps(scene)) return;
             if (!(LightLook.On && LightLook.Tunnels)) return;
             var def = RaceHUD.VenueDef();
             if (def == null || !def.stage || def.tunnels == null || def.tunnels.Length == 0) return;
@@ -101,6 +106,23 @@ namespace PSXRacing
         public const float WallPoolM = 8.5f, WallGain = 1.1f, WallHaloGain = 0.15f;
         /// <summary>Wall lamps made in this scene (tests, the shots' log).</summary>
         public static int WallCount { get; private set; }
+
+        /// <summary>PSX_TUNNEL_LAMPS=1: the wall lamp row lit (default OFF: the real tunnel is unlit).</summary>
+        public static bool WallLampsOn => System.Environment.GetEnvironmentVariable("PSX_TUNNEL_LAMPS") == "1";
+
+        /// <summary>Unlit tunnel: the builder's lamp fixtures are not drawn. True when the scene has a
+        /// wall row (a Tunnel2 scene), so the old ceiling rows are not made either.</summary>
+        static bool HideWallFixtures(UnityEngine.SceneManagement.Scene scene)
+        {
+            WallCount = 0;
+            bool any = false;
+            foreach (var r in Object.FindObjectsByType<TunnelLampRow>(FindObjectsInactive.Exclude))
+                if (r != null && r.gameObject.scene == scene) any = true;
+            if (!any) return false;
+            foreach (var mr in Object.FindObjectsByType<MeshRenderer>(FindObjectsInactive.Exclude))
+                if (mr != null && mr.gameObject.scene == scene && mr.name.StartsWith("TunnelLamp")) mr.enabled = false;
+            return true;
+        }
 
         static bool MakeWallLamps(UnityEngine.SceneManagement.Scene scene)
         {
