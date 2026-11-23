@@ -142,6 +142,7 @@ namespace PSXRacing.EditorTools
         RaceManager rm;
         CarController car;
         bool shoot;
+        float freeH; Vector3 freePos; Quaternion freeRot;
         string shotName;
 
         IEnumerator Start()
@@ -203,6 +204,8 @@ namespace PSXRacing.EditorTools
                 float metres = float.Parse(f[1], ci);
                 float lateral = f.Length > 2 ? float.Parse(f[2], ci) : 1.8f;
                 float yaw = f.Length > 3 ? float.Parse(f[3], ci) : 0f;
+                // a 5th field: an ELEVATED eye (a replay camera's height, m over the road), looking along yaw, 6 deg down
+                freeH = f.Length > 4 ? float.Parse(f[4], ci) : 0f;
                 int idx = rm.path.Wrap(Mathf.RoundToInt(metres / rm.path.spacing));
                 var p = rm.path.GetPoint(idx);
                 var rot = rm.path.GetRotation(idx) * Quaternion.Euler(0f, yaw, 0f);
@@ -217,6 +220,8 @@ namespace PSXRacing.EditorTools
                     yield return null;
                 }
                 shotName = $"fall/{FallShots.tag}/{FallShots.venue}_{f[0]}";
+                freePos = rm.path.GetPoint(idx) + Vector3.up * freeH;
+                freeRot = rm.path.GetRotation(idx) * Quaternion.Euler(6f, yaw, 0f);
                 shoot = true;
                 yield return null;
                 yield return null;
@@ -328,7 +333,8 @@ namespace PSXRacing.EditorTools
             shoot = false;
             var cam = Camera.main;
             if (cam == null) return;
-            PSXScreenshotTool.ShotAs(cam, shotName, cam.transform.position, cam.transform.rotation);
+            if (freeH > 0f) PSXScreenshotTool.ShotAs(cam, shotName, freePos, freeRot);
+            else PSXScreenshotTool.ShotAs(cam, shotName, cam.transform.position, cam.transform.rotation);
         }
 
         void End()

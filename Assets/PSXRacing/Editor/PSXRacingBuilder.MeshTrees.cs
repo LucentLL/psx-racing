@@ -70,7 +70,7 @@ namespace PSXRacing.EditorTools
         internal static bool Fall2 => System.Environment.GetEnvironmentVariable("PSX_FALL2") != "0";
         /// <summary>The fall colours, sRGB with the largest channel 1 (only the hue and chroma count:
         /// the recolour keeps each texel's luminance), from the owner's pictures' class medians.</summary>
-        internal static readonly Color Fall2Gold = new Color(1.00f, 0.74f, 0.10f), Fall2Amber = new Color(1.00f, 0.62f, 0.07f),
+        internal static readonly Color Fall2Gold = new Color(1.00f, 0.80f, 0.12f), Fall2Amber = new Color(1.00f, 0.62f, 0.07f),
             Fall2Orange = new Color(1.00f, 0.52f, 0.045f), Fall2Scarlet = new Color(1.00f, 0.30f, 0.19f),
             Fall2Crimson = new Color(1.00f, 0.22f, 0.30f), Fall2Copper = new Color(1.00f, 0.56f, 0.27f),
             Fall2Flame = new Color(1.00f, 0.45f, 0.03f);
@@ -85,7 +85,7 @@ namespace PSXRacing.EditorTools
             ("orange", Fall2Orange), ("scarlet", Fall2Scarlet), ("gold", Fall2Gold),
             ("flame", Fall2Flame), ("amber", Fall2Amber), ("crimson", Fall2Crimson),
         };
-        static readonly Color Fall2Tulip = new Color(1.0f, 0.74f, 0.10f, 0.16f);
+        static readonly Color Fall2Tulip = new Color(1.0f, 0.80f, 0.12f, 0.16f);
         const float Fall2Strength = 0.92f;
 
         /// <summary>A FALL 2 leaf material: the sheet at its own tint (white), recoloured to
