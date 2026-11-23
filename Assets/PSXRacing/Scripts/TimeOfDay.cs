@@ -676,6 +676,36 @@ namespace PSXRacing
         /// <summary>The tone curve's switch for tools: PSX_TONE=0 in the
         /// environment is the picture from before the colour pass (the A/B
         /// the protocol measures). Always on in a build.</summary>
+        /// <summary>
+        /// THE FAR HAZE v2 (owner 2026-11-23, PC60, Bat Cave in the rain: a
+        /// far mountain "glowing white like a white dwarf star"). The fog and
+        /// the horizon band are table colours (in rain the hour's skyHorizon at
+        /// clear-sky brightness), the sky behind them the panorama or the
+        /// dynamic sky through the weather's exposure - rain x 0.60 - so a
+        /// ridge past the detail's edge stood (221,231,237) on a (117,120,131)
+        /// sky. Shaders/PSXFarHaze.cginc now holds every fog (PSX/Lit, its
+        /// transparent twin, the water) and PSX/Sky's band to no more than
+        /// <see cref="FarHazeCap"/> x the luminance of the dome straight behind
+        /// it. x on (PSX_FARHAZE2=0 = the old picture), y the cap, z the sky
+        /// map's LOD (about 128 texels round: the photographs are 1024 wide,
+        /// the dynamic sky's map 256), w the sine of the lowest elevation read.
+        /// </summary>
+        public static bool FarHaze2 => System.Environment.GetEnvironmentVariable("PSX_FARHAZE2") != "0";
+        /// <summary>Clear air by day may stand a little lighter than its sky
+        /// (aerial haze); in overcast, rain, fog, snow, at dawn, dusk and night
+        /// the haze is at most the sky's own brightness.</summary>
+        public const float FarHazeCapClearDay = 1.20f, FarHazeCap = 1.0f;
+        const float FarHazeMinElevDeg = 3f;
+        static readonly int FarHazeId = Shader.PropertyToID("_PSXFarHaze");
+
+        public static Vector4 FarHazeVector(int index, Weather weather, bool dynamicSky)
+        {
+            if (!FarHaze2) return Vector4.zero;
+            bool clearDay = weather == Weather.Clear && (index == Morning || index == Noon || index == Afternoon);
+            return new Vector4(1f, clearDay ? FarHazeCapClearDay : FarHazeCap, dynamicSky ? 1f : 3f,
+                               Mathf.Sin(FarHazeMinElevDeg * Mathf.Deg2Rad));
+        }
+
         public static bool ToneEnabled => System.Environment.GetEnvironmentVariable("PSX_TONE") != "0";
 
         /// <summary>The emitter-keyed halation's switch for tools:
@@ -1661,6 +1691,9 @@ namespace PSXRacing
                 // reflections, the horizon ring - pointed at the computed sky.
                 bool dyn = SkyModePrefs.Dynamic;
                 if (skyInstance.HasProperty("_Dynamic")) skyInstance.SetFloat("_Dynamic", dyn ? 1f : 0f);
+                // THE FAR HAZE v2: whatever fades with distance, no brighter
+                // than the sky it fades in front of (see FarHazeVector).
+                Shader.SetGlobalVector(FarHazeId, FarHazeVector(lastSkyIndex, lastSkyWeather, dyn));
 
                 // THE SUN AS THE SKY SHOWS IT (2026-10-13): the photograph's
                 // own sun height on the light's bearing, or the light itself

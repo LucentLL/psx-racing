@@ -13987,6 +13987,7 @@ namespace PSXRacing.EditorTools
             Guard("DayLook.Map", DayLookMap);
             Guard("DayLook.CarMap", DayLookCarMap);
             Guard("DayLook.Dapple", () => DappleSelfTest(Check));
+            Guard("DayLook.FarHaze", FarHazeSelfTest);
         }
 
         /// <summary>THE LEAF DAPPLE'S SHARE OF THE SUN (2026-10-15, the owner's
