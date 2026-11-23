@@ -57,6 +57,43 @@ namespace PSXRacing.EditorTools
         /// this small on the green dresses carries only the per-tree hue spread.</summary>
         static readonly Color FallTulip = new Color(1.0f, 0.80f, 0.16f, 0.22f);
         static readonly Color GreenSpread = new Color(1f, 1f, 1f, 0.0001f);
+
+        // ---- FALL 2 (the fallcolour round, 2026-11-23). The owner, after PC59: "Its very dull, the
+        // yellows are wrong, the oranges are wrong, the reds are wrong, the browns are wrong." Measured
+        // (OKLCH, scratchpad fallcolour measure0): his Parkway pictures' canopy is golden yellow h 81,
+        // flame orange h 57, scarlet h 36 and copper-brown h 48-55; ours was olive (the autumn sheet
+        // itself sits at h 89-90) under multiplied tints that made brick and mustard, with no orange.
+        // Now each canopy beech recolours the autumn sheet AT ITS OWN LUMINANCE (PSX/Lit LeafRecolour,
+        // so the leaf's shading stays) to one of his colours; the far cards, impostors and tree-match
+        // sheets are made from these very materials, so a tree is the same colour at every distance.
+        // PSX_FALL2=0 at the build: the materials as they were (their own assets, untouched).
+        internal static bool Fall2 => System.Environment.GetEnvironmentVariable("PSX_FALL2") != "0";
+        /// <summary>The fall colours, sRGB with the largest channel 1 (only the hue and chroma count:
+        /// the recolour keeps each texel's luminance), from the owner's pictures' class medians.</summary>
+        internal static readonly Color Fall2Gold = new Color(1.00f, 0.74f, 0.10f), Fall2Amber = new Color(1.00f, 0.62f, 0.07f),
+            Fall2Orange = new Color(1.00f, 0.52f, 0.045f), Fall2Scarlet = new Color(1.00f, 0.30f, 0.19f),
+            Fall2Crimson = new Color(1.00f, 0.22f, 0.30f), Fall2Copper = new Color(1.00f, 0.56f, 0.27f);
+        /// <summary>The canopy beeches in NMTrees order: 01 orange, 02 scarlet, 03 gold, 06 copper (the oaks'
+        /// russet), 07 amber, 08 crimson (sourwood, black gum). The tulip share adds gold tree by tree.</summary>
+        static readonly (string name, Color target)[] Fall2Beech =
+        {
+            ("orange", Fall2Orange), ("scarlet", Fall2Scarlet), ("gold", Fall2Gold),
+            ("copper", Fall2Copper), ("amber", Fall2Amber), ("crimson", Fall2Crimson),
+        };
+        static readonly Color Fall2Tulip = new Color(1.0f, 0.74f, 0.10f, 0.16f);
+        const float Fall2Strength = 0.92f;
+
+        /// <summary>A FALL 2 leaf material: the sheet at its own tint (white), recoloured to
+        /// <paramref name="target"/>, the tree-by-tree tulip share, the phase flag.</summary>
+        static void Fall2Dress(Material m, Color target, bool tulip, float strength = Fall2Strength)
+        {
+            if (m == null) return;
+            m.SetColor("_LeafTarget", target);
+            var lv = m.GetVector("_LeafVivid"); lv.w = strength; m.SetVector("_LeafVivid", lv);
+            m.SetColor("_LeafTulip", tulip ? Fall2Tulip : GreenSpread);
+            m.SetVector("_LeafFall", new Vector4(1f, 0f, 0f, 0f));
+            EditorUtility.SetDirty(m);
+        }
         /// <summary>The poplar's sheets against the beeches' (texture means of the
         /// alpha-tested texels, scratchpad texstats.py): leaves 0.405 v the beech
         /// atlas's 0.323, the billboard 0.564 v the beech impostor sheets' 0.32 -
@@ -189,6 +226,7 @@ namespace PSXRacing.EditorTools
         static string NMGroundFor(int dress)
         {
             if (!PCContent || !theme.stageForest) return null;
+            if (dress == (int)Season.Fall && Fall2Ground != null) return Fall2Ground;
             string n = dress == (int)Season.Summer ? "plants_01"
                      : dress == (int)Season.Spring ? "leaves_02"
                      : dress == Seasons.DressSnow ? null
@@ -200,6 +238,22 @@ namespace PSXRacing.EditorTools
 
         static bool NMGroundOn => NMGroundFor((int)Season.Fall) != null;
 
+        // ---- FALL 2: THE GROUND. His pictures' forest floor and verges are an orange-brown leaf carpet
+        // (OKLCH L .39-.55, C .074-.12, h 41-57) over tan grass; ours was the beech pack's grey-brown
+        // litter (C .03) and, on the verge, the summer-mowed green grass (48 % green in his PC59 frame).
+        // Now, in fall: the floor is the Meadow pack's leaf litter warmed to copper, patched with the beech
+        // litter; the verge is the Meadow's straw-and-grass meadow under copper leaf patches that reach
+        // the asphalt. All tile-checked pack textures (2026-11-08: the Meadow ground five pass both axes);
+        // the tints are material colours (the store files untouched).
+        static string Fall2Ground => Fall2 && PCContent && theme.stageForest
+            && AssetDatabase.LoadAssetAtPath<Texture2D>(MeadowGroundDir + "/T_forest_ground_leaves_01_A_SM.tga") != null
+            ? MeadowGroundDir + "/T_forest_ground_leaves_01_A_SM.tga" : null;
+        static string Fall2Verge => Fall2Ground != null && AssetDatabase.LoadAssetAtPath<Texture2D>(MeadowGroundDir + "/T_ground_meadow_grass_02_A_SM.tga") != null
+            ? MeadowGroundDir + "/T_ground_meadow_grass_02_A_SM.tga" : null;
+        /// <summary>The floor's leaf carpet (main and verge patches) and the verge's straw, as material tints.</summary>
+        internal static Color Fall2FloorTint = new Color(1.16f, 0.86f, 0.62f), Fall2VergeTint = new Color(1.10f, 0.98f, 0.80f),
+            Fall2VergeLeafTint = new Color(1.10f, 0.78f, 0.56f);
+
         const string MeadowGroundDir = "Assets/StoreAssets/Meadow/Ground";
 
         /// <summary>The second ground layer for a dress, from the Meadow pack
@@ -208,6 +262,11 @@ namespace PSXRacing.EditorTools
         static string MeadowBlendFor(int dress)
         {
             if (dress == Seasons.DressSnow) return null;
+            if (dress == (int)Season.Fall && Fall2Ground != null)
+            {
+                string bl = NMGroundDir + "/T_ground_beech_forest_leaves_01_BC_SM.tga";
+                if (AssetDatabase.LoadAssetAtPath<Texture2D>(bl) != null) return bl;
+            }
             string n = dress == (int)Season.Summer || dress == (int)Season.Spring
                 ? "T_forest_ground_grass_01_A_SM" : "T_forest_ground_leaves_01_A_SM";
             string p = MeadowGroundDir + "/" + n + ".tga";
@@ -219,9 +278,13 @@ namespace PSXRacing.EditorTools
             if (m == null) return;
             string bp = PCContent ? MeadowBlendFor(dress) : null;
             var bt = bp != null ? AssetDatabase.LoadAssetAtPath<Texture2D>(bp) : null;
+            if (m.HasProperty("_BlendTint")) m.SetColor("_BlendTint", Color.white);
             if (bt == null) { m.DisableKeyword("PSX_GROUNDBLEND"); return; }
             m.SetTexture("_BlendTex", bt);
             m.SetVector("_BlendParams", new Vector4(0.24f, 13f, 0.42f, 0f));
+            // FALL 2: the beech litter patches over the copper carpet, the copper undone on them
+            if (dress == (int)Season.Fall && Fall2Ground != null)
+                m.SetColor("_BlendTint", new Color(1f / Fall2FloorTint.r, 1f / Fall2FloorTint.g, 1f / Fall2FloorTint.b, 1f));
             m.EnableKeyword("PSX_GROUNDBLEND");
         }
 
@@ -232,6 +295,7 @@ namespace PSXRacing.EditorTools
         static string NMVergeFor(int dress)
         {
             if (NMGroundFor((int)Season.Fall) == null || dress == Seasons.DressSnow) return null;
+            if (dress == (int)Season.Fall && Fall2Verge != null) return Fall2Verge;
             if (dress != (int)Season.Winter && AssetDatabase.LoadAssetAtPath<Texture2D>(OEGrassVerge) != null)
                 return OEGrassVerge;   // the owner's mowed-grass sheet (Grass Flowers Pack)
             string n = dress == (int)Season.Winter ? "leaves_02" : "plants_01";
@@ -245,12 +309,25 @@ namespace PSXRacing.EditorTools
         {
             if (m == null || !NMGroundOn) return;
             m.mainTexture = AssetDatabase.LoadAssetAtPath<Texture2D>(verge ? NMVergeFor((int)Season.Fall) : NMGroundFor((int)Season.Fall));
-            m.color = Color.white;
+            m.color = Fall2Ground == null ? Color.white : verge ? Fall2VergeTint : Fall2FloorTint;
             float gs = m.mainTexture != null && m.mainTexture.name == "Grass01_BigUV" ? VergeGrassScale : NMGroundScale;
             m.mainTextureScale = new Vector2(gs, gs);
             GroundNormalFor(m);
             if (!verge) SetGroundBlend(m, (int)Season.Fall);
-            else m.DisableKeyword("PSX_GROUNDBLEND");
+            else if (Fall2Ground != null) SetVergeLeaves(m);
+            else { m.DisableKeyword("PSX_GROUNDBLEND"); if (m.HasProperty("_BlendTint")) m.SetColor("_BlendTint", Color.white); }
+        }
+
+        /// <summary>FALL 2: the verge's leaf carpet - the Meadow leaf litter in wide patches over the straw,
+        /// a little over half of it, the straw's tan undone on the leaves and the copper put on.</summary>
+        static void SetVergeLeaves(Material m)
+        {
+            var bt = AssetDatabase.LoadAssetAtPath<Texture2D>(Fall2Ground);
+            if (bt == null) { m.DisableKeyword("PSX_GROUNDBLEND"); return; }
+            m.SetTexture("_BlendTex", bt);
+            m.SetVector("_BlendParams", new Vector4(0.30f, 5f, 0.58f, 0f));
+            m.SetColor("_BlendTint", new Color(Fall2VergeLeafTint.r / Fall2VergeTint.r, Fall2VergeLeafTint.g / Fall2VergeTint.g, Fall2VergeLeafTint.b / Fall2VergeTint.b, 1f));
+            m.EnableKeyword("PSX_GROUNDBLEND");
         }
 
         /// <summary>The forest floor on a ground material and its seasons
@@ -340,11 +417,12 @@ namespace PSXRacing.EditorTools
             // the beech impostors' albedo, with their green impostor's cast
             float g = PoplarSheetGain;
             var green = NMLitMat("OE_imp_" + stem, dir, stem, null, null, true, new Color(0.80f * g / 0.84f, 0.86f * g / 0.84f, 0.78f * g / 0.84f));
-            var fallM = NMLitMat("OE_imp_" + stem + "_fall", dir, stem, null, null, true, new Color(g, g, g));
+            var fallM = NMLitMat("OE_imp_" + stem + (Fall2 ? "_fall2" : "_fall"), dir, stem, null, null, true, new Color(g, g, g));
             fallM.SetColor("_LeafTarget", new Color(1.0f, 0.78f, 0.12f));
             var lv = fallM.GetVector("_LeafVivid"); lv.w = 0.85f; fallM.SetVector("_LeafVivid", lv);
             green.SetColor("_LeafTulip", GreenSpread);
             fallM.SetColor("_LeafTulip", GreenSpread);
+            if (Fall2) Fall2Dress(fallM, Fall2Gold, false);
             var bare = NMLitMat("OE_imp_" + stem + "_bare", dir, stem, null, null, true, new Color(0.40f, 0.36f, 0.32f));
             var bv = bare.GetVector("_LeafVivid"); bv.x = 0.15f; bare.SetVector("_LeafVivid", bv);
             v.impostorDress = new[] { bare, green, green, fallM, bare };
@@ -357,7 +435,7 @@ namespace PSXRacing.EditorTools
         /// sheet; fall: the Autumn Valley sheet in the variant's fall tint;
         /// winter and snow: that sheet darkened to a bare grey-brown (the pack
         /// has no bare impostor).</summary>
-        static void AddImpostor(MeshForest.Variant v, string tree, Color fallTint, bool greenFall = false)
+        static void AddImpostor(MeshForest.Variant v, string tree, Color fallTint, bool greenFall = false, Color? fall2 = null)
         {
             string stem = tree.Replace("beech_tree_", "T_beech_tree_");
             if (AssetDatabase.LoadAssetAtPath<Texture2D>(NMTreeDir + "/" + stem + "_BC_A.png") == null) return;
@@ -385,7 +463,7 @@ namespace PSXRacing.EditorTools
                                  new Color(0.80f, 0.86f, 0.78f), maskIsHdrp: false);
             // the LATE (still green) fall tint's impostor from the green sheet,
             // or a green tree "pops in" where an orange one stood (owner 2026-11-09)
-            var fallM = NMLitMat("NM_imp_" + tree + "_fall", NMDir, greenFall ? "Trees/" + stem + "_BC_A" : "Autumn/" + stem,
+            var fallM = NMLitMat("NM_imp_" + tree + (fall2.HasValue ? "_fall2" : "_fall"), NMDir, greenFall ? "Trees/" + stem + "_BC_A" : "Autumn/" + stem,
                                  "Trees/" + stem + "_N", null, true, fallTint, maskIsHdrp: false);
             var barePath = BareImpostorPath(stem);
             var bare = barePath != null
@@ -393,6 +471,7 @@ namespace PSXRacing.EditorTools
                 : NMLitMat("NM_imp_" + tree + "_bare", NMDir, "Autumn/" + stem, null, null, true, new Color(0.42f, 0.37f, 0.33f));
             green.SetColor("_LeafTulip", GreenSpread);
             fallM.SetColor("_LeafTulip", greenFall ? GreenSpread : FallTulip);
+            if (fall2.HasValue) Fall2Dress(fallM, fall2.Value, true);
             v.impostorDress = new[] { bare, green, green, fallM, bare };
             foreach (var im in v.impostorDress) FarGrow(im);
         }
@@ -458,10 +537,25 @@ namespace PSXRacing.EditorTools
             };
             green.SetColor("_LeafTulip", GreenSpread);
             for (int f = 0; f < fall.Length; f++) fall[f].SetColor("_LeafTulip", f == 3 ? GreenSpread : FallTulip);
+            // FALL 2: one material per canopy beech, each its own colour (their own assets: the old ones untouched)
+            Material[] fall2 = null;
+            if (Fall2)
+            {
+                fall2 = new Material[Fall2Beech.Length];
+                for (int f = 0; f < fall2.Length; f++)
+                {
+                    fall2[f] = NMLitMat("NM_beech_leaves_fall2_" + Fall2Beech[f].name, NMTreeDir, "T_beech_atlas_BC_autumn", "T_beech_atlas_N", "T_beech_atlas_Maskmap", true, Color.white);
+                    Fall2Dress(fall2[f], Fall2Beech[f].target, true);
+                }
+                Log("FALL2: canopy beeches recoloured to the owner's fall (" + string.Join(", ", System.Array.ConvertAll(Fall2Beech, b => b.name)) + "), tulip gold share " + Fall2Tulip.a);
+            }
             var cherry = NMLitMat("NM_black_cherry", NMUnderDir, "Forest_black_cherry_BC", "Forest_black_cherry_N", "Black_cherry_MaskMap",
                                   true, new Color(0.82f, 0.88f, 0.80f), maskIsHdrp: false);
-            var cherryFall = NMLitMat("NM_black_cherry_fall", NMUnderDir, "Forest_black_cherry_BC", "Forest_black_cherry_N", "Black_cherry_MaskMap",
+            var cherryFall = Fall2
+                ? NMLitMat("NM_black_cherry_fall2", NMUnderDir, "Forest_black_cherry_BC", "Forest_black_cherry_N", "Black_cherry_MaskMap", true, Color.white, maskIsHdrp: false)
+                : NMLitMat("NM_black_cherry_fall", NMUnderDir, "Forest_black_cherry_BC", "Forest_black_cherry_N", "Black_cherry_MaskMap",
                                       true, new Color(1.35f, 0.36f, 0.26f), maskIsHdrp: false);
+            if (Fall2) Fall2Dress(cherryFall, Fall2Scarlet, false);
             // WINTER TWIGS (owner 2026-11-08, a winter frame: the bare beeches
             // read as a burned forest - a beech's fine twigs live in its leaf
             // texture). The autumn atlas with the leaves keyed to a grey-brown
@@ -472,7 +566,7 @@ namespace PSXRacing.EditorTools
                 bare = NMLitMat("NM_beech_twigs", NMDir, "Gen/T_beech_atlas_bare", null, null, true, new Color(0.86f, 0.82f, 0.78f));
                 bare.SetVector("_LeafVivid", new Vector4(1f, 1f, 0f, 0f));
             }
-            var kit = new MeshTreeKit { leafByDress = new[] { bare, green, green, fall[0], bare } };
+            var kit = new MeshTreeKit { leafByDress = new[] { bare, green, green, fall2 != null ? fall2[0] : fall[0], bare } };
 
             var list = new List<MeshForest.Variant>();
             int n = 0;
@@ -480,9 +574,18 @@ namespace PSXRacing.EditorTools
             {
                 var v = LoadVariant(NMTreeDir, tree, NMLitMat("NM_" + bark, NMTreeDir, bark + "_BC", bark + "_N", bark + "_MaskMap", false, Color.white));
                 if (v == null) continue;
+                int f2 = n % Fall2Beech.Length;
                 int fi = n++ % fall.Length;
-                v.leafDress = new[] { bare, green, green, fall[fi], bare };
-                AddImpostor(v, tree, FallTints[fi], fi == 3);
+                if (fall2 != null)
+                {
+                    v.leafDress = new[] { bare, green, green, fall2[f2], bare };
+                    AddImpostor(v, tree, Color.white, false, Fall2Beech[f2].target);
+                }
+                else
+                {
+                    v.leafDress = new[] { bare, green, green, fall[fi], bare };
+                    AddImpostor(v, tree, FallTints[fi], fi == 3);
+                }
                 list.Add(v);
             }
             if (list.Count == 0) return null;
@@ -493,11 +596,12 @@ namespace PSXRacing.EditorTools
                 var pBark = NMLitMat("OE_poplar_bark", OEPoplarDir, "Poplar_Bark001", "Poplar_Bark001_N", null, false, Color.white);
                 var pGain = new Color(PoplarLeafGain, PoplarLeafGain, PoplarLeafGain);
                 var pLeaf = NMLitMat("OE_poplar_leaves", OEPoplarDir, "BranchesPoplar001", "BranchesPoplar001_N", null, true, pGain);
-                var pFall = NMLitMat("OE_poplar_leaves_fall", OEPoplarDir, "BranchesPoplar001", "BranchesPoplar001_N", null, true, pGain);
+                var pFall = NMLitMat(Fall2 ? "OE_poplar_leaves_fall2" : "OE_poplar_leaves_fall", OEPoplarDir, "BranchesPoplar001", "BranchesPoplar001_N", null, true, pGain);
                 pLeaf.SetColor("_LeafTulip", GreenSpread);
                 pFall.SetColor("_LeafTulip", GreenSpread);
                 pFall.SetColor("_LeafTarget", new Color(1.0f, 0.78f, 0.12f));
                 var lv = pFall.GetVector("_LeafVivid"); lv.w = 0.85f; pFall.SetVector("_LeafVivid", lv);
+                if (Fall2) Fall2Dress(pFall, Fall2Gold, false);
                 var pv = LoadVariant(OEPoplarDir, "PoplarTree001", pBark, ".fbx", skip: 1);
                 if (pv != null)
                 {
@@ -514,7 +618,7 @@ namespace PSXRacing.EditorTools
             {
                 var v = LoadVariant(NMUnderDir, name, barkSmall);
                 if (v == null) continue;
-                v.leafDress = new[] { bare, green, green, fall[n++ % 3], bare };   // no late green: they end at 220 m
+                v.leafDress = new[] { bare, green, green, fall2 != null ? fall2[n++ % fall2.Length] : fall[n++ % 3], bare };   // no late green: they end at 220 m
                 v.maxDist = UnderMaxDist;
                 v.thin = 0.45f;
                 small.Add(list.Count); list.Add(v);
@@ -538,7 +642,11 @@ namespace PSXRacing.EditorTools
                 if (!coverMats.TryGetValue(tex, out var dressM))
                 {
                     var baseM = NMLitMat("NM_" + tex, NMCoverDir, tex + "_BC_M", tex + "_N", null, true, Color.white, maskIsHdrp: false);
-                    var fallM = NMLitMat("NM_" + tex + "_fall", NMCoverDir, tex + "_BC_M", tex + "_N", null, true, new Color(1.10f, 0.86f, 0.55f), maskIsHdrp: false);
+                    var fallM = Fall2
+                        ? NMLitMat("NM_" + tex + "_fall2", NMCoverDir, tex + "_BC_M", tex + "_N", null, true, new Color(1.05f, 0.92f, 0.70f), maskIsHdrp: false)
+                        : NMLitMat("NM_" + tex + "_fall", NMCoverDir, tex + "_BC_M", tex + "_N", null, true, new Color(1.10f, 0.86f, 0.55f), maskIsHdrp: false);
+                    // FALL 2: the ferns and grasses bronze and tan (bracken, broomsedge), not mustard
+                    if (Fall2) Fall2Dress(fallM, Fall2Copper, false, 0.7f);
                     var winM = NMLitMat("NM_" + tex + "_winter", NMCoverDir, tex + "_BC_M", tex + "_N", null, true, new Color(0.78f, 0.64f, 0.46f), maskIsHdrp: false);
                     dressM = new[] { winM, baseM, baseM, fallM, null };
                     coverMats[tex] = dressM;
@@ -584,9 +692,10 @@ namespace PSXRacing.EditorTools
             if (AssetDatabase.LoadAssetAtPath<GameObject>(MeadowMapleDir + "/maple_bush_01.FBX") != null)
             {
                 var mGreen = NMLitMat("NM_maple_bush", MeadowMapleDir, "T_maple_bush_BC", "T_maple_bush_N", null, true, Color.white);
-                var mFall = NMLitMat("NM_maple_bush_fall", MeadowMapleDir, "T_maple_bush_BC", "T_maple_bush_N", null, true, Color.white);
+                var mFall = NMLitMat(Fall2 ? "NM_maple_bush_fall2" : "NM_maple_bush_fall", MeadowMapleDir, "T_maple_bush_BC", "T_maple_bush_N", null, true, Color.white);
                 mFall.SetColor("_LeafTarget", new Color(0.92f, 0.14f, 0.07f));
                 var mlv = mFall.GetVector("_LeafVivid"); mlv.w = 0.8f; mFall.SetVector("_LeafVivid", mlv);
+                if (Fall2) Fall2Dress(mFall, Fall2Scarlet, false);
                 for (int m = 1; m <= 4; m++)
                 {
                     var v = LoadVariant(MeadowMapleDir, "maple_bush_0" + m, mGreen);
@@ -815,6 +924,7 @@ namespace PSXRacing.EditorTools
         {
             if (m == null || m.mainTexture == null) return;
             string tp = AssetDatabase.GetAssetPath(m.mainTexture);
+            if (tp.Contains("Meadow/Ground/") && tp.EndsWith("_A_SM.tga")) { SetHDNormal(m, tp.Replace("_A_SM.tga", "_N.png")); return; }   // FALL 2's floors
             if (!tp.Contains("T_ground_beech_forest_")) { m.DisableKeyword("PSX_HD"); return; }
             SetHDNormal(m, tp.Replace("_BC_SM.tga", "_N.png"));
         }

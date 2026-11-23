@@ -177,6 +177,8 @@ namespace PSXRacing.EditorTools
                         mat.SetVector("_LeafVivid", new Vector4(1f, 2f, leafy ? 1f : 0f, 0f));   // (the sheet holds half the albedo)
                         mat.SetColor("_LeafTarget", Color.white);
                         mat.SetColor("_LeafTulip", leafy && leaf.HasProperty("_LeafTulip") ? leaf.GetColor("_LeafTulip") : new Color(0f, 0f, 0f, 0f));
+                        // FALL 2: the season's phase moves the card as it moves its tree
+                        if (leafy && leaf.HasProperty("_LeafFall") && leaf.GetVector("_LeafFall").x > 0.5f) mat.SetVector("_LeafFall", leaf.GetVector("_LeafFall"));
                         mat.SetVector("_PSXGrowFoot", new Vector4(-pl.t.x, -pl.t.y, -pl.t.z, 0f));
                         // lit as a crown, not as a board (PSX/Lit _PSXCrownCard)
                         mat.SetVector("_PSXCrownCard", leafy ? new Vector4(TMLeafN, TMLeafUp, TMViews, TMViewFade) : new Vector4(TMBareN, TMBareUp, TMViews, TMViewFade));

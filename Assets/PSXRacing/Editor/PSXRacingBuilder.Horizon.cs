@@ -370,6 +370,33 @@ namespace PSXRacing.EditorTools
 
         static float Lum(Color c) => 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b;
 
+        /// <summary>FALL 2: the far crowns in the canopy beeches' own colours (gold, orange, scarlet, copper,
+        /// amber), each at the luminance the old fall crown in its slot had (the copper darker), so the far
+        /// land's level (CanopyLevel) is the same and only the colour moves; the land's own canopy tint is
+        /// their mean, a fifth toward its grey.</summary>
+        static Color[] BroadFor(int d)
+        {
+            if (d != (int)Season.Fall || !Fall2) return CanopyBroad[d];
+            Color[] hue = { Fall2Gold, Fall2Orange, Fall2Scarlet, Fall2Copper, Fall2Amber };
+            float[] lum = { 0.100f, 0.088f, 0.072f, 0.062f, 0.097f };
+            var o = new Color[5];
+            for (int i = 0; i < 5; i++) { var t = hue[i].linear; o[i] = t * (lum[i] / Lum(t)); o[i].a = 1f; }
+            return o;
+        }
+
+        static Color HorizonCanopyFor(int d)
+        {
+            var c = HorizonCanopy[Mathf.Clamp(d, 0, HorizonCanopy.Length - 1)];
+            if (d != (int)Season.Fall || !Fall2) return c;
+            var b = BroadFor(d);
+            var m = (b[0] + b[1] + b[2] + b[3] + b[4]) * 0.2f;
+            m *= Lum(c) / Lum(m);
+            float l = Lum(m);
+            m = Color.Lerp(m, new Color(l, l, l), 0.2f);
+            m.a = 1f;
+            return m;
+        }
+
         /// <summary>The level a dress's crowns are set to: their mean, lit as
         /// PSX/Lit lights them, is the measured canopy (HorizonCanopy) - so the
         /// land past the forest keeps the brightness the 2026-11-09 probe fitted
@@ -377,10 +404,10 @@ namespace PSXRacing.EditorTools
         /// rise by the root of it: they stay dark.</summary>
         static float CanopyLevel(int d)
         {
-            var broad = CanopyBroad[d];
+            var broad = BroadFor(d);
             float lb = 0f; foreach (var c in broad) lb += Lum(c); lb /= broad.Length;
             float lc = Lum(CanopyConiferRaw[d]), lg = Lum(CanopyGapCol[d]);
-            float target = Lum(HorizonCanopy[Mathf.Clamp(d, 0, HorizonCanopy.Length - 1)]) / CanopyMeanLight;
+            float target = Lum(HorizonCanopyFor(d)) / CanopyMeanLight;
             float lo = 0.1f, hi = 20f;
             for (int it = 0; it < 40; it++)
             {
@@ -398,7 +425,7 @@ namespace PSXRacing.EditorTools
             if (m == null || !m.HasProperty("_HorizonCrowns")) return;
             d = Mathf.Clamp(d, 0, CanopyBroad.Length - 1);
             float k = CanopyLevel(d), kc = Mathf.Sqrt(k);
-            var broad = CanopyBroad[d];
+            var broad = BroadFor(d);
             for (int i = 0; i < 5; i++)
             {
                 // a quarter toward its own grey: far crowns are never as saturated as a leaf
@@ -452,7 +479,7 @@ namespace PSXRacing.EditorTools
                 if (m == null) continue;
                 m.SetFloat("_Horizon", 1f);
                 if (nearCut > 0f) m.SetFloat("_NearCut", nearCut);
-                var c = HorizonCanopy[Mathf.Clamp(d, 0, HorizonCanopy.Length - 1)];
+                var c = HorizonCanopyFor(d);
                 m.SetTexture("_HorizonMacro", macro);
                 m.SetColor("_HorizonCanopy", new Color(c.r, c.g, c.b, macro != null ? 1f : 0f));
                 m.SetVector("_HorizonFade", new Vector4(CanopyFromM, CanopyByM, 1f / HillMapM, HillMapLum));
@@ -461,7 +488,7 @@ namespace PSXRacing.EditorTools
                 if (floor && NMGroundOn)
                 {
                     float k = 300f / Mathf.Max(1f, theme.groundTile);
-                    float s = m.mainTexture.name.StartsWith("T_ground_beech") ? NMGroundScale : 1f;
+                    float s = m.mainTexture.name.StartsWith("T_ground_beech") || m.mainTexture.name.StartsWith("T_forest_ground") ? NMGroundScale : 1f;
                     m.mainTextureScale = new Vector2(s * k, s * k);
                 }
                 EditorUtility.SetDirty(m);

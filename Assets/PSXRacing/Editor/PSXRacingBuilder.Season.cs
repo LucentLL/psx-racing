@@ -181,10 +181,37 @@ namespace PSXRacing.EditorTools
         /// a January ridge, which is grey-brown at any distance. Leaves that
         /// are still on (the brown oaks) are brighter than the threshold and
         /// are left alone.</param>
+        /// <summary>FALL 2: each broadleaf cell's colour (cells 0-11; the conifers and the bare tree keep
+        /// theirs) - the canopy beeches' six in the share the mesh forest plants them, gold leading
+        /// (the tulip share).</summary>
+        static readonly Color[] Fall2Cells =
+        {
+            Fall2Gold, Fall2Orange, Fall2Scarlet, Fall2Amber, Fall2Gold, Fall2Crimson,
+            Fall2Copper, Fall2Scarlet, Fall2Copper, Fall2Gold, Fall2Orange, Fall2Amber,
+        };
+
+        /// <summary>PSX/Lit's LeafRecolour on the CPU: the texel in the target's hue at its own linear
+        /// luminance (kept in gamut), mixed in at the canopy's strength.</summary>
+        static Color32 Fall2Recolour(Color32 c, Color target)
+        {
+            var lin = new Color(c.r / 255f, c.g / 255f, c.b / 255f).linear;
+            var t = target.linear;
+            float lum = 0.2126f * lin.r + 0.7152f * lin.g + 0.0722f * lin.b;
+            float lt = Mathf.Max(0.2126f * t.r + 0.7152f * t.g + 0.0722f * t.b, 0.05f);
+            float mx = Mathf.Max(t.r, Mathf.Max(t.g, Mathf.Max(t.b, 1e-3f)));
+            float k = Mathf.Min(lum / lt, 1f / mx);
+            var o = Color.Lerp(lin, new Color(t.r * k, t.g * k, t.b * k), Fall2Strength).gamma;
+            return new Color32((byte)Mathf.Clamp(Mathf.RoundToInt(o.r * 255f), 0, 255), (byte)Mathf.Clamp(Mathf.RoundToInt(o.g * 255f), 0, 255),
+                               (byte)Mathf.Clamp(Mathf.RoundToInt(o.b * 255f), 0, 255), c.a);
+        }
+
         static void ComposeTreeAtlas(string atlasPath, IList<string> files, int dress, bool liftBare = false)
         {
             const int cellPx = 128, atlasPx = cellPx * 4;
             var px = new Color32[atlasPx * atlasPx];
+            // FALL 2: the far billboards (the B chunks past the mesh forest's far range, and what the mirrors
+            // see) in the same colours as the canopy's beeches, cell by cell
+            bool fall2 = dress == (int)Season.Fall && Fall2;
             var bareTone = new Color32(122, 108, 92, 255);
             float worstSlide = 0f, worstShrink = 1f;
             for (int i = 0; i < files.Count && i < 16; i++)
@@ -219,6 +246,7 @@ namespace PSXRacing.EditorTools
                                                 (byte)Mathf.Lerp(c.b, bareTone.b, t), c.a);
                             }
                         }
+                        if (fall2 && i < 12 && c.a > 0) c = Fall2Recolour(c, Fall2Cells[i]);
                         px[(row * cellPx + y) * atlasPx + col * cellPx + x] = c;
                     }
             }
