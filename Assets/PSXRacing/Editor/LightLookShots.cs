@@ -125,4 +125,26 @@ namespace PSXRacing.EditorTools
             Object.Destroy(rt); Object.Destroy(screen);
         }
     }
+
+    /// <summary>Takes a queued look shot in LateUpdate, after every camera rig has
+    /// placed its camera for the frame (the cockpit view's camera is not where it
+    /// draws from until its own LateUpdate).</summary>
+    [DefaultExecutionOrder(32000)]
+    public class LightLookShotRunner : MonoBehaviour
+    {
+        static LightLookShotRunner inst;
+        static string pendDir, pendName;
+        public static bool Busy => pendName != null;
+        public static void Queue(string dir, string name)
+        {
+            if (inst == null) { var go = new GameObject("LightLookShotRunner"); Object.DontDestroyOnLoad(go); inst = go.AddComponent<LightLookShotRunner>(); }
+            pendDir = dir; pendName = name;
+        }
+        void LateUpdate()
+        {
+            if (pendName == null) return;
+            LightLookShots.Take(Camera.main, pendDir, pendName);
+            pendName = null;
+        }
+    }
 }

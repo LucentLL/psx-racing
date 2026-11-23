@@ -209,7 +209,7 @@ namespace PSXRacing.EditorTools
                     {
                         if (nextShot < shotAt.Count && Time.time - g0 >= shotAt[nextShot])
                         {
-                            LightLookShots.Take(Camera.main, System.IO.Path.Combine(LightPopMeter.OutDir, "shots"), segName + "_" + shotAt[nextShot].ToString("00") + "s");
+                            LightLookShotRunner.Queue(System.IO.Path.Combine(LightPopMeter.OutDir, "shots"), segName + "_" + shotAt[nextShot].ToString("00") + "s"); yield return null;
                             LightPopCheck.Line("shot " + segName + " " + shotAt[nextShot].ToString("0") + " s at " + car.transform.position.ToString("F0") + " " + car.speedKmh.ToString("0") + " km/h; far plane " + (Camera.main != null ? Camera.main.farClipPlane.ToString("0") : "-") + " m, field lamps " + StreetLights.FieldLamps + ", far field lamps " + StreetLights.FarLamps + ", registered " + StreetLights.Registered + ", tunnel lamps " + TunnelLamps.Count);
                             if (LightPopCheck.Env("PSX_LIGHTLOOK_DIAG", "0") == "1") LightPopCheck.Line(StreetLights.DiagnoseNearest(Camera.main, 12));
                             nextShot++;
@@ -260,7 +260,7 @@ namespace PSXRacing.EditorTools
                         ChaseCamera.PreviewView(view);
                         for (int k = 0; k < 40; k++) { car.ResetTo(pos, rot, seated: true); yield return null; }
                         string seg = "tunnel" + no + "_" + (off < 0f ? "approach" : off < 30f ? "mouth" : "inside") + "_" + view.ToString().ToLowerInvariant();
-                        LightLookShots.Take(Camera.main, System.IO.Path.Combine(LightPopMeter.OutDir, "shots"), seg);
+                        LightLookShotRunner.Queue(System.IO.Path.Combine(LightPopMeter.OutDir, "shots"), seg); yield return null;
                         LightPopCheck.Line("shot " + seg + " at " + pos.ToString("F0") + "; tunnel lamps " + TunnelLamps.Count + ", field lamps " + StreetLights.FieldLamps + ", registered " + StreetLights.Registered);
                     }
                 }
