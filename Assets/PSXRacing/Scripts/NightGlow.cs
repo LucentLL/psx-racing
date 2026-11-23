@@ -42,7 +42,7 @@ namespace PSXRacing
     /// neither Awake nor OnEnable on this - runs <see cref="PreviewAll(bool)"/>.
     /// All three end in the same idempotent Build + register.
     /// </summary>
-    public class NightGlow : MonoBehaviour
+    public partial class NightGlow : MonoBehaviour
     {
         static readonly List<NightGlow> all = new List<NightGlow>();
         static bool on;
@@ -110,6 +110,7 @@ namespace PSXRacing
         {
             StreetLights.RemoveAll(this);
             DropHalo();
+            DropConesAir();   // (NIGHT 3: NightGlow.Air.cs)
         }
 
         /// <summary>

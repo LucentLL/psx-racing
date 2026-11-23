@@ -117,13 +117,18 @@
 // (lightlook) ONE sampler state for every field texture (the near field, the far field and the
 // two being faded from): PSX/Lit's HD variant is at D3D11's 16 sampler states (its own header,
 // THE SAMPLER BUDGET), so the far and fading textures share the near field's (all bilinear, clamp)
+// (NIGHT 3: the same block in PSXHeadlights.cginc, which is included first, with the car pools'
+// texture beside them on the same sampler state; whichever comes first declares them)
+#ifndef PSX_FIELD_TEX_DECLARED
+#define PSX_FIELD_TEX_DECLARED
 #ifdef UNITY_SEPARATE_TEXTURE_SAMPLER
-Texture2D _PSXLampField, _PSXLampFar, _PSXLampFieldPrev, _PSXLampFarPrev;
+Texture2D _PSXLampField, _PSXLampFar, _PSXLampFieldPrev, _PSXLampFarPrev, _PSXCarPool;
 SamplerState sampler_PSXLampField;
 #define PSX_FIELD_LOD(t, uv) t.SampleLevel(sampler_PSXLampField, uv, 0.0)
 #else
-sampler2D _PSXLampField, _PSXLampFar, _PSXLampFieldPrev, _PSXLampFarPrev;
+sampler2D _PSXLampField, _PSXLampFar, _PSXLampFieldPrev, _PSXLampFarPrev, _PSXCarPool;
 #define PSX_FIELD_LOD(t, uv) tex2Dlod(t, float4(uv, 0.0, 0.0))
+#endif
 #endif
 float4 _PSXLampFieldST;   // xy window origin (world xz), z 1/span, w on
 float4 _PSXLampFieldY;    // x base height, yz uptown centre (xz), w 1/(outer-inner)
@@ -172,6 +177,25 @@ float3 PSXLampField(float3 wpos, float3 N, float facingOn)
     float2 uv = (wpos.xz - _PSXLampFieldST.xy) * _PSXLampFieldST.z;
     float4 f = PSX_FIELD_LOD(_PSXLampField, uv);
     float fBaseY = _PSXLampFieldY.x;
+    // NIGHT 3 (the city-night round, StreetLights.Night3.cs; w = 3): the STATIC field - world
+    // texels splatted once, a window bigger than the far plane, and no fade by the eye's
+    // distance: a patch of street is lit the same from the far plane to the bumper
+    if (_PSXLampFieldST.w > 2.5)
+    {
+        float hY3 = fBaseY + f.b / max(f.g, 1e-4);
+        float un3 = hY3 - wpos.y;
+        float vP3 = saturate((un3 + 1.0) * 0.5) * saturate((FIELD_UNDER_M - un3) * FIELD_UNDER_RAMP);
+        float vG3 = saturate((un3 + FIELD_GLOW_UP_M) / FIELD_GLOW_UP_M) * saturate((FIELD_UNDER_M - un3) * FIELD_UNDER_RAMP);
+        float upP3 = facingOn > 0.5 ? saturate(0.55 + 0.45 * N.y) : 1.0;
+        float upG3 = facingOn > 0.5 ? saturate(0.75 + 0.25 * N.y) : 1.0;
+        float2 dc3 = wpos.xz - _PSXLampFieldY.yz;
+        float upt3 = saturate((_PSXFieldWhite.w - length(dc3)) * _PSXLampFieldY.w);
+        float3 hue3 = lerp(_PSXFieldWarm.rgb, _PSXFieldWhite.rgb, saturate(f.a / max(f.g, 1e-4)))
+                    * (1.0 + (_PSXFieldWarm.w - 1.0) * upt3);
+        // the window's own outer 64 m (past the far plane by construction) and nothing outside it
+        float2 e3 = saturate(min(uv, 1.0 - uv) / max(64.0 * _PSXLampFieldST.z, 1e-6));
+        return hue3 * ((max(f.r, 0.0) * vP3 * upP3 + max(f.g, 0.0) * vG3 * upG3) * (e3.x * e3.y));
+    }
     if (_PSXLampFieldPrevST.w > 0.0)
     {
         // (lightlook) cross-fading from the texture a lamp change replaced: each re-based to

@@ -63,6 +63,7 @@ namespace PSXRacing
         /// glow of the last eye).</summary>
         static void FarTouched(Vector3 pos)
         {
+            N3Touched();   // (NIGHT 3: the static field gathers its lamps again)
             if (float.IsNaN(farOrigin.x)) { farVersion++; return; }
             float half = FarRes * FarTexelM * 0.5f;
             float dx = pos.x - (farOrigin.x + half), dz = pos.z - (farOrigin.y + half);
