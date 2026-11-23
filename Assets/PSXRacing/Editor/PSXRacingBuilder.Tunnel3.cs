@@ -836,7 +836,16 @@ namespace PSXRacing.EditorTools
             // the hill's steep faces and its boulders in the road cuts' own rock (BuildStageBanks' material: the
             // neighbour's look and scale exactly)
             var bank = AssetDatabase.LoadAssetAtPath<Material>(MatDir + "/" + MeshPrefix + "Bank.mat");
-            if (bank != null && bank.IsKeywordEnabled("PSX_ROCKFACE")) { hillRock = bank; boulderRock = bank; }
+            if (bank != null && bank.IsKeywordEnabled("PSX_ROCKFACE"))
+            {
+                // a copy of the cuts' rock with the top plane (the cuts' own material is left as it is)
+                hillRock.CopyPropertiesFromMaterial(bank);
+                hillRock.shaderKeywords = bank.shaderKeywords;
+                hillRock.SetFloat("_RockTop", 1f);
+                if (hillRock.HasProperty("_HouseTint")) hillRock.SetFloat("_HouseTint", 0f);
+                EditorUtility.SetDirty(hillRock);
+                boulderRock = hillRock;
+            }
             if (ground != null) BuildHill3(pts, from, stations, parent, no, halfW, ground, hillRock, boulderRock);
             else Log("Tunnel hill: no ground material " + MeshPrefix + "Ground");
             string sign = T3SignTexPath(track.id);

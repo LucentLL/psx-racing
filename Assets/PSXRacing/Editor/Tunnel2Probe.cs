@@ -214,6 +214,7 @@ namespace PSXRacing.EditorTools
                                 for (int q = Mathf.Max(1, i - 40); q < Mathf.Min(n - 1, i + 40); q++) { float dd = (new Vector2(pts[q].x - hp.x, pts[q].z - hp.z)).sqrMagnitude; if (dd < bd) { bd = dd; bi = q; } }
                                 float off = Vector3.Dot(hp - pts[bi], Vector3.Cross(Vector3.up, Fwd(bi)).normalized);
                                 name += $" [at path m {bi * sp:0}, {off:+0.0;-0.0} m, y {hp.y - pts[bi].y:+0.0;-0.0}]";
+                                if (results.Count < 8) name += " first mesh on the ray: " + FirstHit(cr, 300f);
                                 results.Add((name, gaps, new Vector2(sx / (float)gaps, H - sy / (float)gaps), keep));
                             }
                         }
@@ -239,6 +240,41 @@ namespace PSXRacing.EditorTools
             foreach (var r in hidden) if (r != null) r.enabled = true;
             RenderSettings.skybox = keepSky;
             return sb.ToString();
+        }
+
+        /// <summary>What drawn mesh the ray crosses first (a triangle test, both faces), for a gap's diagnosis: a
+        /// hit there means a surface that was not drawn (culled, clipped by its shader, a back face).</summary>
+        static string FirstHit(Ray ray, float maxD)
+        {
+            float best = maxD; string what = "nothing within " + maxD + " m";
+            foreach (var mr in Object.FindObjectsByType<MeshRenderer>(FindObjectsSortMode.None))
+            {
+                if (!mr.enabled || !mr.gameObject.activeInHierarchy) continue;
+                if (!mr.bounds.IntersectRay(ray, out float bd) || bd > best) continue;
+                var mf = mr.GetComponent<MeshFilter>(); var m = mf != null ? mf.sharedMesh : null;
+                if (m == null || !m.isReadable) continue;
+                var v = m.vertices; var t = m.triangles; var xf = mr.transform.localToWorldMatrix;
+                for (int k = 0; k + 2 < t.Length; k += 3)
+                {
+                    Vector3 a = xf.MultiplyPoint3x4(v[t[k]]), b = xf.MultiplyPoint3x4(v[t[k + 1]]), c = xf.MultiplyPoint3x4(v[t[k + 2]]);
+                    Vector3 e1 = b - a, e2 = c - a, pv = Vector3.Cross(ray.direction, e2);
+                    float det = Vector3.Dot(e1, pv);
+                    if (Mathf.Abs(det) < 1e-9f) continue;
+                    float inv = 1f / det; Vector3 tv = ray.origin - a;
+                    float uu = Vector3.Dot(tv, pv) * inv; if (uu < 0f || uu > 1f) continue;
+                    Vector3 qv = Vector3.Cross(tv, e1); float vv = Vector3.Dot(ray.direction, qv) * inv;
+                    if (vv < 0f || uu + vv > 1f) continue;
+                    float d = Vector3.Dot(e2, qv) * inv;
+                    if (d > 0.05f && d < best)
+                    {
+                        best = d;
+                        var n = Vector3.Cross(e1, e2);
+                        what = mr.gameObject.name + " (" + (mr.sharedMaterial != null ? mr.sharedMaterial.name : "-") + ") at " + d.ToString("0.0") + " m, " +
+                               (Vector3.Dot(n, ray.direction) < 0f ? "front" : "BACK") + " face, layer " + LayerMask.LayerToName(mr.gameObject.layer);
+                    }
+                }
+            }
+            return what;
         }
 
         // ------------------------------------------------------------------
