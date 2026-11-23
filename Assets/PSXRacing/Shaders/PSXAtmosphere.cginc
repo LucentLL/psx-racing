@@ -573,7 +573,7 @@ float3 PSXDynamicSkyT(float3 dir, out float cloudT)
 
     // Exposure and a soft shoulder: the display's range.
     col *= _PSXDynExposure;
-    if (_PSXN3Sky > 0.001) col *= lerp(1.0, _PSXN3Sky, saturate(dir.y * 5.0));
+    if (_PSXN3Sky > 0.001) col *= lerp(1.0, _PSXN3Sky, saturate(dir.y * 12.0));
     return 1.0 - exp(-col);
 }
 

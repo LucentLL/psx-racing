@@ -43,8 +43,8 @@ namespace PSXRacing
         public static float N3PoolGain = 2.4f;
         /// <summary>The scattered glow's radius (m) and gain: the light thrown about by the
         /// street (car sides, the lower storeys); 0.30 lit the pale plazas and pavements whole.</summary>
-        public static float N3GlowM = 34f;
-        public static float N3GlowGain = 0.10f;
+        public static float N3GlowM = 40f;
+        public static float N3GlowGain = 0.16f;
         /// <summary>A lamp more than 15 m over its ground (a high mast) lights from this height over it.</summary>
         public const float N3MastLiftM = 12f;
 
@@ -144,7 +144,7 @@ namespace PSXRacing
 
         /// <summary>The city's bounce on a tower face under NIGHT 3 (linear): his frames'
         /// faces above the lamps read Ycode 7-21 against our beige 18-48 (CityBounce 0.075).</summary>
-        public static Vector3 N3Bounce = new Vector3(0.030f, 0.028f, 0.026f);
+        public static Vector3 N3Bounce = new Vector3(0.020f, 0.019f, 0.017f);
 
         /// <summary>One quad per lit field lamp (all of them: the GPU drops what falls off the window).</summary>
         static void N3BuildMesh()
@@ -256,7 +256,7 @@ namespace PSXRacing
         static readonly int N3SkyId = Shader.PropertyToID("_PSXN3Sky");
         static readonly int NightGlobalId = Shader.PropertyToID("_PSXNight");
         /// <summary>The lit city's night sky over the horizon, x this (his frames: Ycode 7-17, ours 33).</summary>
-        public static float N3SkyMul = 0.35f;
+        public static float N3SkyMul = 0.25f;
         /// <summary>The air's haze under NIGHT 3 (0 = clear: no cones; tools may set it, -1 = the weather's).</summary>
         public static float AirOverride = -1f;
         /// <summary>The haze (x the cone's light) and the extinction length (m) of the air in a weather.</summary>
