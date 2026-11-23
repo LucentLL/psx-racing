@@ -68,8 +68,7 @@ namespace PSXRacing.EditorTools
         /// stage): the road, its shoulders and kerbs, by kind. Writes PSXRacing_tunnel2_probe.txt.</summary>
         public static void RoadsAll()
         {
-            var sb = new StringBuilder("ROAD STRETCH, every stage scene as built (texels; > 1.5 : 1 = stretched)
-");
+            var sb = new StringBuilder("ROAD STRETCH, every stage scene as built (texels; > 1.5 : 1 = stretched)" + System.Environment.NewLine);
             try
             {
                 string only = Env("PSX_T2_STAGES", "");
@@ -83,8 +82,7 @@ namespace PSXRacing.EditorTools
                     if (s < 0 || s >= scenes.Length || !File.Exists(scenes[s].path)) { sb.AppendLine(def.id + ": no scene"); continue; }
                     string rep = Stretch(def, scenes[s].path, true, out _);
                     sb.AppendLine("=== " + def.id + " (" + File.GetLastWriteTime(scenes[s].path).ToString("MM-dd HH:mm") + ")");
-                    foreach (var line in rep.Split('
-'))
+                    foreach (var line in rep.Split((char)10))
                     {
                         string t = line.Trim();
                         if (t.StartsWith("Road") || t.StartsWith("Kerb") || t.StartsWith("Shoulder")) sb.AppendLine("  " + t);
