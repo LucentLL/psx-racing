@@ -98,6 +98,9 @@ namespace PSXRacing
         static Color bAmb, bSky, bLight, bFog;
         static float bNight;
         static bool haveEye;
+        static bool lastN3;
+        /// <summary>NIGHT 3: the share of the unlit night's cut the lit city takes.</summary>
+        public static float CityDark3 = 0.6f;
         static Vector3 lastEye;
 
         /// <summary>How much of the dark an hour can have: NIGHT only (dusk is
@@ -137,7 +140,12 @@ namespace PSXRacing
             // tunnel bore: the Parkway's are unlit.
             if (LitShare < 1f && WeatherShelter.ContainsRoom(eye)) LitShare = 1f;
             Target = Enabled && haveBase ? NightGate(bNight) * (1f - LitShare) : 0f;
-            bool cut = instant || !haveEye || (eye - lastEye).sqrMagnitude > CutJumpM * CutJumpM;
+            // NIGHT 3 (StreetLights.Night3.cs): the lit city keeps only part of the hour's ambient,
+            // moon and haze too - his Uptown frames: black sky, dark faces above the lamps, dark
+            // ground between the lit patches; the lamps, not the ambient, light the streets
+            if (StreetLights.Night3 && CityFloor > 0f && Enabled && haveBase) Target = Mathf.Max(Target, NightGate(bNight) * CityDark3);
+            bool cut = instant || !haveEye || (eye - lastEye).sqrMagnitude > CutJumpM * CutJumpM || lastN3 != StreetLights.Night3;
+            lastN3 = StreetLights.Night3;
             haveEye = true;
             lastEye = eye;
             if (cut) Amount = Target;
