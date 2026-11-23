@@ -44,7 +44,7 @@ namespace PSXRacing
         /// <summary>The scattered glow's radius (m) and gain: the light thrown about by the
         /// street (car sides, the lower storeys); 0.30 lit the pale plazas and pavements whole.</summary>
         public static float N3GlowM = 40f;
-        public static float N3GlowGain = 0.16f;
+        public static float N3GlowGain = 0.20f;
         /// <summary>A lamp more than 15 m over its ground (a high mast) lights from this height over it.</summary>
         public const float N3MastLiftM = 12f;
 
