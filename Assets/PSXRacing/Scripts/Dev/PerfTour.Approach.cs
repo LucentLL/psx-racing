@@ -160,6 +160,76 @@ namespace PSXRacing
             rt.Release(); screen.Release(); Destroy(tex); if (blit != null) Destroy(blit);
         }
 
+        /// <summary>&amp;nshots=name~lat~lon~towardLat~towardLon~RoadNameHas~view;... : the player's car on
+        /// that road heading toward (towardLat, towardLon), the game's own camera (chase / cockpit), one
+        /// full-size frame per variant (apv) - the night sheet's cells. Lamps stay as in play.</summary>
+        IEnumerator NightShots(CityMode mode, string arg)
+        {
+            var world = mode.world; var map = world.Map; car = mode.player;
+            var input = car.GetComponent<PlayerCarInput>();
+            if (input != null) { input.inputEnabled = false; input.enabled = false; }
+            var cam = Camera.main;
+            string url = Request() ?? "";
+            var vars = new List<ProbeVariant>();
+            foreach (var raw in (ShotLink.Query(url, "apv") ?? "").Split(';'))
+            {
+                string s = raw.Trim(); int eq = s.IndexOf('=');
+                if (eq <= 0) continue;
+                var pv = new ProbeVariant { name = s.Substring(0, eq) };
+                foreach (var os in s.Substring(eq + 1).Split(',')) { var op = os.Trim().Length > 0 ? MakeOp(os.Trim(), null, null) : null; if (op != null) pv.ops.Add(op); }
+                vars.Add(pv);
+            }
+            if (vars.Count == 0) vars.Add(new ProbeVariant { name = "cur" });
+            int W = 3832, H = 2054;
+            var rt = new RenderTexture(W, H, 32, RenderTextureFormat.Default) { antiAliasing = 1 };
+            var screen = new RenderTexture(W, H, 0, RenderTextureFormat.Default) { antiAliasing = 1 };
+            rt.Create(); screen.Create();
+            var outp = cam.GetComponent<PSXCameraOutput>();
+            Material blit = outp != null && outp.display != null && outp.display.material != null ? new Material(outp.display.material) : null;
+            var tex = new Texture2D(W, H, TextureFormat.RGB24, false);
+            var ci = CultureInfo.InvariantCulture;
+            foreach (var spec in arg.Split(';'))
+            {
+                var f = spec.Split('~');
+                if (f.Length < 7) continue;
+                if (!double.TryParse(f[1], NumberStyles.Float, ci, out double la) || !double.TryParse(f[2], NumberStyles.Float, ci, out double lo) ||
+                    !double.TryParse(f[3], NumberStyles.Float, ci, out double tla) || !double.TryParse(f[4], NumberStyles.Float, ci, out double tlo)) continue;
+                var route = FollowRoad(map, f[0], LL(la, lo), LL(tla, tlo), f[5], 300f);
+                if (route == null) { Say("NSHOT " + f[0] + ": no road"); continue; }
+                var e = map.edges[route.edges[0]]; bool fw = route.dirs[0] > 0;
+                map.NearestRoadPoint(LL(la, lo), 300f, false, out int ei, out float s0, out _);
+                if (ei != route.edges[0]) s0 = fw ? 0f : e.length;
+                var q = e.PointAt(s0); var tt = e.TangentAt(s0); if (!fw) tt = -tt;
+                var t3 = new Vector3(tt.x, 0f, tt.y).normalized;
+                var right = Vector3.Cross(Vector3.up, t3).normalized;
+                var pos = new Vector3(q.x, e.YAt(s0), q.y) + right * Mathf.Clamp(e.width * 0.25f, 1.6f, 5.5f);
+                pos = Ground(pos) + Vector3.up * 0.45f;
+                var rot = Quaternion.LookRotation(t3);
+                if (System.Enum.TryParse(f[6], true, out ChaseCamera.View v)) ChaseCamera.PreviewView(v);
+                world.EnsureRing(pos, 1);
+                float t0 = Time.realtimeSinceStartup;
+                while (Time.realtimeSinceStartup - t0 < 90f)
+                {
+                    car.ResetTo(pos, rot, seated: true);
+                    if (world.LiveTiles >= 25 && world.TreesPending == 0 && !world.TreeJobOpen && Time.realtimeSinceStartup - t0 > 10f) break;
+                    yield return null;
+                }
+                float sA = Time.realtimeSinceStartup;
+                while (Time.realtimeSinceStartup - sA < 10f) { car.ResetTo(pos, rot, seated: true); yield return null; }
+                foreach (var pv in vars)
+                {
+                    foreach (var op in pv.ops) op.on();
+                    for (int i = 0; i < 30; i++) { car.ResetTo(pos, rot, seated: true); yield return null; }
+                    Capture(cam, rt, screen, blit, tex, W, H);
+                    var jpg = tex.EncodeToJPG(92);
+                    PSXPerfTour_Post(tag + "_ns_" + f[0] + "_" + pv.name + ".jpg", jpg, jpg.Length);
+                    for (int i = pv.ops.Count - 1; i >= 0; i--) pv.ops[i].off();
+                }
+                Say("NSHOT " + f[0] + " at " + V(pos));
+            }
+            rt.Release(); screen.Release(); Destroy(tex); if (blit != null) Destroy(blit);
+        }
+
         static string V(Vector3 v) => v.x.ToString("0") + "/" + v.y.ToString("0.0") + "/" + v.z.ToString("0");
 
         /// <summary>The camera at <paramref name="d"/> metres from the target down

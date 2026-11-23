@@ -279,7 +279,9 @@ namespace PSXRacing
             Post("env.txt", env.ToString());
             Say("free roam up: " + env.ToString().Replace("\n", " | "));
 
-            if (!string.IsNullOrEmpty(approachArg)) yield return Approach(mode);
+            string nshots = ShotLink.Query(Request() ?? "", "nshots");
+            if (!string.IsNullOrEmpty(nshots)) yield return NightShots(mode, nshots);
+            else if (!string.IsNullOrEmpty(approachArg)) yield return Approach(mode);
             else if (!string.IsNullOrEmpty(shotsArg)) yield return Shots(mode);
             else
                 foreach (var id in routesArg.Split(','))
