@@ -388,6 +388,7 @@ namespace PSXRacing
             // lane discipline hangs off TwoWay) - NONE means no cars, not a
             // closed circuit.
             BuildLanes(path.roadWidth, oneWay);
+            if (!oneWay) MapOneWay(def);
 
             // Enough cars for the window at this density, both ways, with a
             // quarter over for the random gaps; none at all for NONE.
@@ -397,6 +398,92 @@ namespace PSXRacing
             poolSize = Level == TrafficLevels.None ? 0
                      : Mathf.Clamp(Mathf.CeilToInt(expected * 1.25f) + 3, PoolMin, poolMax);
             for (int i = 0; i < poolSize; i++) pool.Add(Build(TrafficModels.RaceKey(i)));
+        }
+
+        /// <summary>
+        /// ONE-WAY STREETS UNDER A CITY RACE (aipass 11-17): the strip lays its lanes both ways along the whole route,
+        /// so on a stretch of one-way street the oncoming stream drove the wrong way down it - and a rival's own map
+        /// (its routed road) said one-way there, so it kept no guard against it (CltC2 at MEDIUM: 12 meets in a race).
+        /// Per waypoint of a city race's path, the route's own edge under it (the route's edges in order, nearest);
+        /// no oncoming car is born on a one-way waypoint, and one about to drive onto one turns off out of the
+        /// camera's view (Recycle). PSX_TRAFFIC_ONEWAY=0: both ways everywhere, as before. Null on other venues.
+        /// </summary>
+        bool[] oneWayWp;
+        public int OneWayWaypoints { get; private set; }
+        static readonly bool OneWayOn = System.Environment.GetEnvironmentVariable("PSX_TRAFFIC_ONEWAY") != "0";
+        void MapOneWay(TrackCatalog.TrackDef def)
+        {
+            oneWayWp = null; OneWayWaypoints = 0;
+            if (!OneWayOn || def == null || !def.IsCityRace) return;
+            var map = City.CityMap.Get();
+            var route = map != null ? map.RouteById(def.cityRoute) : null;
+            if (route == null || route.edges == null || route.edges.Length == 0) return;
+            int len = route.edges.Length, n = path.Count;
+            var flags = new bool[n];
+            int k = -1;
+            for (int i = 0; i < n; i++)
+            {
+                Vector3 w = path.GetPoint(i);
+                var p = new Vector2(w.x, w.z);
+                int best = 0; float bestD = float.MaxValue;
+                // the first waypoint against every edge of the route; then the route's edges in order round the last
+                int from = k < 0 ? 0 : k - 1, to = k < 0 ? len - 1 : k + 3;
+                for (int kk = from; kk <= to; kk++)
+                {
+                    int e = route.loop ? ((kk % len) + len) % len : kk;
+                    if (e < 0 || e >= len) continue;
+                    float d = PolylineDist(map.edges[route.edges[e]].pts, p);
+                    if (d < bestD) { bestD = d; best = e; }
+                }
+                k = best;
+                flags[i] = map.edges[route.edges[k]].oneway;
+                if (flags[i]) OneWayWaypoints++;
+            }
+            if (OneWayWaypoints > 0) oneWayWp = flags;
+        }
+        static float PolylineDist(Vector2[] pts, Vector2 p)
+        {
+            float best = float.MaxValue;
+            if (pts == null) return best;
+            for (int j = 0; j + 1 < pts.Length; j++)
+            {
+                Vector2 a = pts[j], ab = pts[j + 1] - a;
+                float t = ab.sqrMagnitude > 1e-6f ? Mathf.Clamp01(Vector2.Dot(p - a, ab) / ab.sqrMagnitude) : 0f;
+                float d = (a + ab * t - p).sqrMagnitude;
+                if (d < best) best = d;
+            }
+            return best;
+        }
+        /// <summary>
+        /// HELD SHORT OF A ONE-WAY STREET (tier1 11-23): an oncoming car the camera can see could not turn off where its
+        /// road becomes one-way (Recycle only takes it out of view), so it drove on down the one-way street against
+        /// the traffic. Now it slows to a stop OneWayHoldM short of where the one-way starts - a driver waiting to turn
+        /// off - and goes out of the race (Recycle) once no camera sees it; the cars behind queue behind it as behind
+        /// any stopped car. And an oncoming car out of view is taken off anywhere within OneWayLookM of a one-way
+        /// stretch, not only in its last 20 m. PSX_TRAFFIC_ONEWAY_HOLD=0: as aipass left it.
+        /// </summary>
+        static readonly bool OneWayHoldOn = System.Environment.GetEnvironmentVariable("PSX_TRAFFIC_ONEWAY_HOLD") != "0";
+        const float OneWayHoldM = 12f, OneWayLookM = 120f;
+        /// <summary>Metres from s, driving dir, to the first one-way waypoint within look (+inf if none).</summary>
+        float OneWayAheadM(float s, int dir, float look)
+        {
+            if (oneWayWp == null) return float.PositiveInfinity;
+            for (float d = 0f; d <= look; d += path.spacing)
+            {
+                float at = s + dir * d;
+                if (path.HasEnds && (at < 0f || at > total)) break;
+                if (OneWayAt(at)) return d;
+            }
+            return float.PositiveInfinity;
+        }
+
+        /// <summary>Is the race path one-way (by the city's map) at this many metres along it?</summary>
+        bool OneWayAt(float s)
+        {
+            if (oneWayWp == null) return false;
+            int i = Mathf.RoundToInt(Wrap(s) / path.spacing);
+            i = path.HasEnds ? Mathf.Clamp(i, 0, oneWayWp.Length - 1) : ((i % oneWayWp.Length) + oneWayWp.Length) % oneWayWp.Length;
+            return oneWayWp[i];
         }
 
         /// <summary>Lane centres as the painter lays them out: US lanes packed
@@ -657,6 +744,10 @@ namespace PSXRacing
         /// <summary>Nearest an ONCOMING car is placed ahead of the grid at the
         /// green (Populate).</summary>
         const float OncomingStartM = 400f;
+        /// <summary>No car born where a racer would meet or close on it within this many seconds, plus these metres
+        /// (TrySpawn). PSX_TRAFFIC_BIRTH_CLEAR=0: born anywhere 22 m clear of a racer, as before.</summary>
+        const float BirthClearS = 6f, BirthClearM = 40f;
+        static readonly bool BirthClearOn = System.Environment.GetEnvironmentVariable("PSX_TRAFFIC_BIRTH_CLEAR") != "0";
 
         IEnumerable<int> Dirs()
         {
@@ -720,6 +811,8 @@ namespace PSXRacing
         bool TrySpawn(float s, int dir, float lat)
         {
             if (path.HasEnds && (s < 8f || s > total - 8f)) return false;
+            // no oncoming car on a one-way street (MapOneWay)
+            if (dir < 0 && OneWayAt(s)) return false;
             // Never on top of anything: another traffic car in the lane, or a
             // racer (they use the whole road).
             foreach (var c in live)
@@ -728,6 +821,24 @@ namespace PSXRacing
             Vector3 at = p0 + Vector3.Cross(Vector3.up, t0).normalized * lat;
             foreach (var f in field)
                 if ((f.pos - at).sqrMagnitude < MinGap * MinGap) return false;
+            // NOT BORN IN FRONT OF A RACER (aipass 11-17): the window's far edge is 700 m ahead of the PLAYER, and a rival
+            // running near it saw a car appear 22 m up the road - in the oncoming lane, closing at 50 m/s, out of a pass
+            // that had nothing coming. A car is born only where every racer coming up to it is further off than it
+            // would meet (oncoming) or close on (going its way) in BirthClearS, plus BirthClearM.
+            if (BirthClearOn)
+            {
+                var defB = TrackCatalog.At(RaceHandoff.TrackIndex);
+                float limitB = (defB != null ? defB.speedLimitKmh : 80f) / 3.6f;
+                foreach (var f in field)
+                {
+                    float d = Delta(f.s, s);                          // the birth point, metres up the road from the racer
+                    if (d < -10f) continue;                            // behind it: never met
+                    Sample(f.s, out _, out Vector3 tanF);
+                    float vf = Mathf.Max(0f, Vector3.Dot(f.vel, tanF));
+                    float closing = dir < 0 ? vf + limitB * TrafficLevels.CruiseMax[Level] : vf - limitB * TrafficLevels.CruiseMin[Level];
+                    if (d < Mathf.Max(closing, 0f) * BirthClearS + BirthClearM) return false;
+                }
+            }
 
             var free = pool.Find(x => !x.active);
             if (free == null) return false;
@@ -789,6 +900,9 @@ namespace PSXRacing
                     ? !outOfWindow && !(Time.time - c.wreckedAt > 60f && d < -40f)
                       && !(Time.time - c.wreckedAt > WreckClearS && !InView(c.go.transform.position))
                     : !outOfWindow;
+                // an oncoming car about to drive onto a one-way street turns off there, out of the camera's view
+                if (keep && !c.wrecked && c.dir < 0 && oneWayWp != null && !InView(c.go.transform.position) &&
+                    (OneWayHoldOn ? OneWayAheadM(c.s, c.dir, OneWayLookM) < OneWayLookM : OneWayAt(c.s - 20f))) keep = false;
                 if (keep) continue;
                 c.active = false;
                 c.go.SetActive(false);
@@ -922,6 +1036,17 @@ namespace PSXRacing
                     v = Mathf.Min(v, EdgePassMps);
                 }
                 else c.edgeLat = float.NaN;
+            }
+            // held short of a one-way street (OneWayHoldOn)
+            if (OneWayHoldOn && c.dir < 0 && oneWayWp != null)
+            {
+                float ow = OneWayAheadM(c.s, c.dir, OneWayLookM);
+                if (ow < OneWayLookM)
+                {
+                    float room = Mathf.Max(0f, ow - OneWayHoldM);
+                    v = Mathf.Min(v, Mathf.Sqrt(2f * 4f * room));
+                    if (room < c.speed * c.speed / (2f * 6f) + 1f) decel = Mathf.Max(decel, 7f);
+                }
             }
             MoveAcross(c, latTarget, dt);
             c.speed = Mathf.MoveTowards(c.speed, v, (v > c.speed ? 2.5f : decel) * dt);
