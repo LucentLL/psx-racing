@@ -814,7 +814,7 @@ namespace PSXRacing.EditorTools
                                       Material lining)
         {
             int n = pts.Count;
-            var stone = T2Mat("TunnelPortalStone3", StageRockTexPath, new Color(1.0f, 1.0f, 1.02f), true, new Vector4(1f / 6.2f, 1f / 18f, 0.75f, 1.6f));
+            var stone = T2Mat("TunnelPortalStone3", StageRockTexPath, new Color(1.3f, 1.3f, 1.32f), true, new Vector4(1f / 6.2f, 1f / 18f, 0.6f, 1.6f));
             stone.SetFloat("_RockTop", 1f);
             EditorUtility.SetDirty(stone);
             var mortar = T2Mat("TunnelPortalMortar3", StageRockTexPath, new Color(0.17f, 0.17f, 0.16f), false, Vector4.zero, false);
