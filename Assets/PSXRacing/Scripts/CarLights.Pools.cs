@@ -35,6 +35,7 @@ namespace PSXRacing
         static readonly int PoolSTId = Shader.PropertyToID("_PSXCarPoolST");
         static readonly int PoolColId = Shader.PropertyToID("_PSXCarPoolCol");
         static readonly int PoolBaseId = Shader.PropertyToID("_SplatBaseY");
+        static readonly int SplatCosId = Shader.PropertyToID("_SplatCos");
         static Material poolMat;
         static bool? poolOk;
         /// <summary>Lamps splatted at the last push (tests, the approach tool).</summary>
@@ -43,6 +44,9 @@ namespace PSXRacing
         // this car's weight in the per-pixel table at the last push, and its ground
         [System.NonSerialized] float tableW;
         [System.NonSerialized] float poolGroundY = float.NaN, poolGroundAt = -9f;
+        // (P1 11-23, "lights are flickering on ground and trees while driving") the lamps' height over
+        // the ground, measured now and then; the ground itself follows the car every frame
+        [System.NonSerialized] float poolLampH = float.NaN;
 
         static bool PoolsSupported
         {
@@ -82,13 +86,23 @@ namespace PSXRacing
                 Vector3 cp = l.transform.position;
                 if ((cp - eye).sqrMagnitude > far2) continue;
                 // the ground under the car (a ray now and then: layer 2 is the cars)
+                var top = l.beams[0] != null ? l.beams[0].transform.position : cp + Vector3.up;
                 if (float.IsNaN(l.poolGroundY) || now - l.poolGroundAt > 0.3f || !Application.isPlaying)
                 {
                     l.poolGroundAt = now;
-                    var top = l.beams[0] != null ? l.beams[0].transform.position : cp + Vector3.up;
                     l.poolGroundY = Physics.Raycast(top + Vector3.up * 0.2f, Vector3.down, out var hit, 6f, ~(1 << 2), QueryTriggerInteraction.Ignore)
                         ? hit.point.y : top.y - 0.65f;
+                    // P1: the lamp's height over its ground, eased (a kerb or a pothole under the ray is no step)
+                    float hNow = Mathf.Clamp(top.y - l.poolGroundY, 0.3f, 1.5f);
+                    l.poolLampH = float.IsNaN(l.poolLampH) || !Application.isPlaying ? hNow : Mathf.Lerp(l.poolLampH, hNow, 0.35f);
                 }
+                // P1: the ground under the lamps THIS frame (it stood still for 0.3 s while the car climbed: the
+                // pool's height gate cut the light on a grade in steps - the flicker on the ground and the trees)
+                float groundNow = StreetLights.Night4 && !float.IsNaN(l.poolLampH) ? top.y - l.poolLampH : l.poolGroundY;
+                // and the ground's slope under the car (its own floor): a pool on a grade lies on the grade
+                var upC = l.transform.up;
+                float gx = 0f, gz = 0f;
+                if (StreetLights.Night4 && upC.y > 0.5f) { gx = -upC.x / upC.y; gz = -upC.z / upC.y; }
                 for (int i = 0; i < 2; i++)
                 {
                     if (l.beams[i] == null || l.HeadOut(i)) continue;
@@ -104,9 +118,11 @@ namespace PSXRacing
                     Vector2 c0 = P2 - F2 * back - R2 * side, c1 = P2 - F2 * back + R2 * side, c2 = P2 + F2 * ahead + R2 * side, c3 = P2 + F2 * ahead - R2 * side;
                     pV.Add(new Vector3(c0.x, c0.y, 0f)); pV.Add(new Vector3(c1.x, c1.y, 0f)); pV.Add(new Vector3(c2.x, c2.y, 0f)); pV.Add(new Vector3(c3.x, c3.y, 0f));
                     var u0 = new Vector4(p.x, p.y, p.z, BeamRange);
-                    var u1 = new Vector4(f.x, f.y, f.z, cosOuter);
-                    var u2 = new Vector4(r.x, r.y, r.z, cosInner);
-                    var u3 = new Vector4(w, l.poolGroundY, l.OccV, 0f);   // z: NIGHT 4's row, -1 none
+                    // w: the ground plane's slopes (P1; the beam's two cosines are the material's _SplatCos)
+                    var u1 = new Vector4(f.x, f.y, f.z, gx);
+                    var u2 = new Vector4(r.x, r.y, r.z, gz);
+                    // y: the ground under the lamp, z: NIGHT 4's row (-1 none)
+                    var u3 = new Vector4(w, groundNow, l.OccV, 0f);
                     for (int k = 0; k < 4; k++) { pU0.Add(u0); pU1.Add(u1); pU2.Add(u2); pU3.Add(u3); }
                     pI.Add(v); pI.Add(v + 1); pI.Add(v + 2); pI.Add(v); pI.Add(v + 2); pI.Add(v + 3);
                     lamps++;
@@ -136,6 +152,7 @@ namespace PSXRacing
             poolCmd.ClearRenderTarget(false, true, Color.clear);
             poolCmd.SetViewProjectionMatrices(Matrix4x4.identity, StreetLights.SplatProj(span));
             poolMat.SetFloat(PoolBaseId, baseY);
+            poolMat.SetVector(SplatCosId, new Vector4(cosOuter, cosInner, 0f, 0f));
             poolCmd.DrawMesh(poolMesh, Matrix4x4.Translate(new Vector3(-origin.x, -origin.y, 0f)), poolMat, 0, 1);
             Graphics.ExecuteCommandBuffer(poolCmd);
             Shader.SetGlobalTexture(PoolTexId, poolTex);

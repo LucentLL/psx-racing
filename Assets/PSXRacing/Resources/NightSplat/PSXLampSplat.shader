@@ -80,6 +80,7 @@ Shader "Hidden/PSX/LampSplat"
             #define BEAM_FACE_LO       -0.05
             #define BEAM_FACE_HI       0.02
             float _SplatBaseY;
+            float4 _SplatCos;   // x cos of the outer half-spread, y of the inner (P1: fwd.w / rgt.w carry the ground's slopes)
             // NIGHT 4 (CarLights.Occlusion.cs): per car, the beam's reach on 64 bearings (+-75 deg)
             sampler2D _PSXHeadVis;
             // vertex.xy = the quad corner (world xz); lamp: xyz the lamp (world), w range;
@@ -95,20 +96,22 @@ Shader "Hidden/PSX/LampSplat"
             }
             float4 frag(v2f i) : SV_Target
             {
-                float3 wpos = float3(i.w.x, i.amt.y, i.w.y);
+                // the ground under this texel: the plane under the car through the ground under the lamp (P1)
+                float gyT = i.amt.y + i.fwd.w * (i.w.x - i.lamp.x) + i.rgt.w * (i.w.y - i.lamp.z);
+                float3 wpos = float3(i.w.x, gyT, i.w.y);
                 float3 d = wpos - i.lamp.xyz;
                 float dist = length(d);
                 float3 F = i.fwd.xyz, Rt = i.rgt.xyz, U = cross(F, Rt);
                 float fz = dot(d, F), fx = dot(d, Rt), fy = dot(d, U);
                 float hz = fz * rsqrt(fx * fx + fz * fz + 1e-4);
-                float spread = smoothstep(i.fwd.w, i.rgt.w, hz);
+                float spread = smoothstep(_SplatCos.x, _SplatCos.y, hz);
                 float slope = fy / max(fz, 0.25);
                 float cut = 1.0 - smoothstep(BEAM_CUT_LO, BEAM_CUT_HI, slope);
                 float front = saturate(fz * 1.5);
                 float range = max(i.lamp.w, 1.0);
                 float att = lerp(BEAM_NEAR, 1.0, smoothstep(BEAM_NEAR_FROM, BEAM_NEAR_TO, dist))
                           * (1.0 - smoothstep(range - BEAM_FADE_M, range, dist));
-                float spill = BEAM_SPILL * smoothstep(BEAM_SPILL_COS, i.fwd.w, hz)
+                float spill = BEAM_SPILL * smoothstep(BEAM_SPILL_COS, _SplatCos.x, hz)
                             * (1.0 - smoothstep(BEAM_SPILL_CUT_LO, BEAM_SPILL_CUT_HI, slope))
                             * (1.0 - smoothstep(BEAM_SPILL_FROM, BEAM_SPILL_TO, dist));
                 float nl = -d.y / max(dist, 0.05);   // N = up
@@ -119,7 +122,7 @@ Shader "Hidden/PSX/LampSplat"
                     float r = tex2Dlod(_PSXHeadVis, float4(0.5 + atan2(fx, fz) * 0.38197186, i.amt.z, 0.0, 0.0)).r;
                     a *= 1.0 - smoothstep(r + 0.3, r + 1.8, sqrt(fx * fx + fz * fz));
                 }
-                return float4(a, a * (i.amt.y - _SplatBaseY), 0.0, 0.0);
+                return float4(a, a * (gyT - _SplatBaseY), 0.0, 0.0);
             }
             ENDCG
         }
