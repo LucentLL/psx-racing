@@ -83,7 +83,10 @@ namespace PSXRacing
     {
         /// <summary>Slots in the shader table. MUST equal PSX_MAX_LAMPS in
         /// PSXLamps.cginc.</summary>
-        public const int MaxLamps = 12;
+        public const int MaxLamps = 20;
+        /// <summary>The table as it was before the lightpop round (12): what
+        /// PSX_LIGHT_NOPOP=0 and phones fill.</summary>
+        public const int LegacyLamps = 12;
         /// <summary>At most this many tail lamps in the table at once: the
         /// cars nearest the camera. The rest of the slots are the street's.
         /// </summary>
@@ -95,7 +98,13 @@ namespace PSXRacing
         /// tail lamps' share. FIXED, whatever is in view - a share that moved
         /// with the number of cars in view is what made the pools jump (see
         /// NO POPPING in the class notes).</summary>
-        public const int StreetCap = MaxLamps - PointCap;
+        public const int StreetCap = LegacyLamps - PointCap;
+        /// <summary>NO LIGHT POPS on PC: sixteen street slots, so on a dense
+        /// lit street the rank cut sits out at the reach, where the distance
+        /// fade has already taken the lamp (the meter: eight slots on Uptown's
+        /// race loop moved the cut a lamp at a time, 30 hand-overs a km).</summary>
+        public const int StreetCapPC = MaxLamps - PointCap;
+        public static int StreetCapNow => NoPop && PlatformProfile.PC ? StreetCapPC : StreetCap;
         /// <summary>Metres, at the edge of <see cref="MaxReach"/>, over which a
         /// lamp fades in by distance: full brightness at MaxReach - FadeBandM,
         /// none at MaxReach. A band tied to the lamp's own distance, never to
@@ -423,7 +432,9 @@ namespace PSXRacing
             if (Time.frameCount != advancedFrame && driver)
             {
                 advancedFrame = Time.frameCount;
-                if (NoPop) { RankScored(t.position, t.forward); NightGlow.TickBirths(); }
+                // NO LIGHT POPS: the headlight table too, for THIS eye (a replay cut
+                // moves the camera after the cars' LateUpdate pushed it)
+                if (NoPop) { RankScored(t.position, t.forward); NightGlow.TickBirths(); CarLights.PushGlobals(); }
                 else
                 {
                     GeometryUtility.CalculateFrustumPlanes(cam, planes);
@@ -726,9 +737,9 @@ namespace PSXRacing
             }
 
             float first = Mathf.Min(1f, step);
-            for (int k = 0; k < rankedPoint && heldCount < MaxLamps; k++)
+            for (int k = 0; k < rankedPoint && heldCount < LegacyLamps; k++)
                 if (!pointFound[k]) Hold(pointIdx[k], first);
-            for (int k = 0; k < rankedStreet && heldCount < MaxLamps; k++)
+            for (int k = 0; k < rankedStreet && heldCount < LegacyLamps; k++)
                 if (!streetFound[k]) Hold(streetIdx[k], first);
         }
 

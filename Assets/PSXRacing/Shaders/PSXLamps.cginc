@@ -80,7 +80,7 @@
 #define PSX_LAMPS_INCLUDED
 #include "PSXSpecBend.cginc"
 
-#define PSX_MAX_LAMPS 12
+#define PSX_MAX_LAMPS 20   // (20 since the lightpop round: sixteen street lamps on PC; today's table and phones fill twelve)
 
 // How far a lamp's REFLECTION reaches, in pool radii. The diffuse pool stops
 // at one radius; a glint on a wet road is a mirror image and is still there

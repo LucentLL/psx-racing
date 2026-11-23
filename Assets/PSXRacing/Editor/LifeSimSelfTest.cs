@@ -14422,7 +14422,7 @@ namespace PSXRacing.EditorTools
                       StreetLights.Registered - baseline);
 
                 StreetLights.Push(eye, fwd);
-                Check(StreetLights.PushedCount == StreetLights.StreetCap,
+                Check(StreetLights.PushedCount == (StreetLights.NoPop ? StreetLights.StreetCapNow : StreetLights.StreetCap),
                       "the eight street lamps that matter to the eye are pushed: the street's share is FIXED, " +
                       "not stretched into the tail lamps' four while no car is in view",
                       StreetLights.PushedCount);
@@ -14475,7 +14475,7 @@ namespace PSXRacing.EditorTools
                 int points = 0;
                 for (int i = 0; i < StreetLights.PushedCount && col != null && i < col.Length; i++)
                     if (col[i].w > 0.5f) points++;
-                Check(StreetLights.PushedCount == StreetLights.MaxLamps && points == 4,
+                Check(StreetLights.PushedCount == (StreetLights.NoPop ? StreetLights.StreetCapNow + StreetLights.PointCap : StreetLights.LegacyLamps) && points == 4,
                       "tail lamps take four slots at most, and the street keeps the rest",
                       points + " point lamps of " + StreetLights.PushedCount);
                 foreach (int h in tails) StreetLights.Remove(h);

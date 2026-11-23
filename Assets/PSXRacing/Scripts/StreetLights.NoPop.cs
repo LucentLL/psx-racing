@@ -52,9 +52,9 @@ namespace PSXRacing
         public const float ScoreCap = MaxReach;
 
         // the scored candidates, one past each share (the first excluded is the cut)
-        static readonly int[] sIdx = new int[StreetCap + 1];
-        static readonly float[] sScore = new float[StreetCap + 1];
-        static readonly float[] sDist = new float[StreetCap + 1];
+        static readonly int[] sIdx = new int[StreetCapPC + 1];
+        static readonly float[] sScore = new float[StreetCapPC + 1];
+        static readonly float[] sDist = new float[StreetCapPC + 1];
         static readonly int[] pIdx = new int[PointCap + 1];
         static readonly float[] pScore = new float[PointCap + 1];
         static readonly float[] pDist = new float[PointCap + 1];
@@ -86,6 +86,7 @@ namespace PSXRacing
         static void RankScored(Vector3 eye, Vector3 fwd)
         {
             nScoredS = nScoredP = 0;
+            int capS = StreetCapNow;
             float reach2 = MaxReach * MaxReach;
             bool streetOn = StreetOn;
             for (int i = 0; i < high; i++)
@@ -98,14 +99,17 @@ namespace PSXRacing
                 float d2 = d.sqrMagnitude;
                 if (d2 > reach2) continue;
                 float dist = Mathf.Sqrt(d2);
-                float s = dist * ViewFactor(d, dist, e.radius, fwd);
+                // a tail lamp (four at most, the cars round the eye) by its
+                // distance alone: a car racing past a replay's bystander must
+                // not swing its own red pool out of the table as it passes
+                float s = e.kind == Kind.Street ? dist * ViewFactor(d, dist, e.radius, fwd) : dist;
                 if (s >= ScoreCap) continue;
-                if (e.kind == Kind.Street) OfferScored(sIdx, sScore, sDist, ref nScoredS, i, s, dist);
-                else OfferScored(pIdx, pScore, pDist, ref nScoredP, i, s, dist);
+                if (e.kind == Kind.Street) OfferScored(sIdx, sScore, sDist, ref nScoredS, i, s, dist, capS + 1);
+                else OfferScored(pIdx, pScore, pDist, ref nScoredP, i, s, dist, PointCap + 1);
             }
-            cutS = nScoredS > StreetCap ? Mathf.Min(sScore[StreetCap], ScoreCap) : ScoreCap;
+            cutS = nScoredS > capS ? Mathf.Min(sScore[capS], ScoreCap) : ScoreCap;
             cutP = nScoredP > PointCap ? Mathf.Min(pScore[PointCap], ScoreCap) : ScoreCap;
-            if (nScoredS > StreetCap) nScoredS = StreetCap;
+            if (nScoredS > capS) nScoredS = capS;
             if (nScoredP > PointCap) nScoredP = PointCap;
             // the choice, by handle, with its rank weight
             chosenCount = 0;
@@ -123,9 +127,8 @@ namespace PSXRacing
             chosenCount++;
         }
 
-        static void OfferScored(int[] idx, float[] score, float[] dist, ref int held, int i, float s, float dd)
+        static void OfferScored(int[] idx, float[] score, float[] dist, ref int held, int i, float s, float dd, int cap)
         {
-            int cap = idx.Length;
             if (held == cap && s >= score[cap - 1]) return;
             int k = held < cap ? held++ : cap - 1;
             while (k > 0 && score[k - 1] > s)
