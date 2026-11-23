@@ -46,6 +46,7 @@ float _PSXSkySharpness;
 #endif
 
 #define PSX_FARHAZE_LUM float3(0.2126, 0.7152, 0.0722)
+#define PSX_FARHAZE_ABOVE 0.026   // sin 1.5 degrees
 
 /// The dome PSX/Sky draws at this bearing, read no lower than _PSXFarHaze.w:
 /// PSXSkyIn's lookup without its land and ground bands.
@@ -54,7 +55,9 @@ float3 PSXSkyBehind(float3 dir)
     float2 flat = dir.xz;
     float fl = length(flat);
     flat = fl > 1e-5 ? flat / fl : float2(1.0, 0.0);
-    float y = clamp(dir.y / max(length(dir), 1e-5), _PSXFarHaze.w, 0.6);
+    // the sky just OVER the point (PSX_FARHAZE_ABOVE): what the eye sees the
+    // ridge against, not the photographed horizon glow it hides
+    float y = clamp(dir.y / max(length(dir), 1e-5) + PSX_FARHAZE_ABOVE, _PSXFarHaze.w, 0.6);
     float3 R = float3(flat.x * sqrt(1.0 - y * y), y, flat.y * sqrt(1.0 - y * y));
     float above = pow(saturate(y), 1.0 / max(_PSXSkySharpness, 0.5) * 4.0);
     float3 grad = lerp(_PSXSkyHorizon.rgb, _PSXSkyTop.rgb, above);

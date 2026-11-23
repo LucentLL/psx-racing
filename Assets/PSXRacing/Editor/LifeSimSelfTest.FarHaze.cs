@@ -34,7 +34,7 @@ namespace PSXRacing.EditorTools
                     foreach (bool dyn in new[] { false, true })
                     {
                         var v = TimeOfDay.FarHazeVector(h, w, dyn);
-                        if (v.x < 0.5f || v.w <= 0f || (v.z != 0f && v.z != 2f)) onEverywhere = false;
+                        if (v.x < 0.5f || v.w <= 0f || (v.z != 0f && v.z != 1f)) onEverywhere = false;
                         bool clearDay = w == Weather.Clear && (h == TimeOfDay.Morning || h == TimeOfDay.Noon || h == TimeOfDay.Afternoon);
                         if (v.y > (clearDay ? TimeOfDay.FarHazeCapClearDay : 1.0f) + 1e-4f) { allCapped = false; worst = TimeOfDay.At(h).name + " " + w + " cap " + v.y; }
                     }
@@ -53,14 +53,20 @@ namespace PSXRacing.EditorTools
             }
             finally { System.Environment.SetEnvironmentVariable("PSX_FARHAZE2", keepEnv); }
 
-            string rep = Path.Combine(Path.GetDirectoryName(Application.dataPath), "Screenshots", "farhaze", "on", FarHazeCheck.ReportName);
-            if (!File.Exists(rep)) { Skip("far haze picture: no FarHazeCheck report in this project (tools: farhaze-check)"); return; }
-            string txt = File.ReadAllText(rep);
-            int fails = 0;
-            foreach (var line in txt.Split('\n')) if (line.TrimEnd().EndsWith("| FAIL")) fails++;
-            Check(fails == 0 && txt.Contains("# FARHAZE PASS"),
-                  "far haze picture: no far land brighter than " + FarHazeCheck.Limit + " x the sky over it (overcast, rain, fog, snow, dusk, night)",
-                  fails + " frame(s) over");
+            // every FarHazeCheck report in this project taken with the switch on
+            string root = Path.Combine(Path.GetDirectoryName(Application.dataPath), "Screenshots", "farhaze");
+            var reps = Directory.Exists(root) ? Directory.GetFiles(root, FarHazeCheck.ReportName, SearchOption.AllDirectories) : new string[0];
+            int fails = 0, judged = 0;
+            foreach (var rep in reps)
+            {
+                string txt = File.ReadAllText(rep);
+                if (!txt.Contains("PSX_FARHAZE2 on")) continue;
+                judged++;
+                foreach (var line in txt.Split('\n')) if (line.TrimEnd().EndsWith("| FAIL")) fails++;
+            }
+            if (judged == 0) { Skip("far haze picture: no FarHazeCheck report with the switch on in this project"); return; }
+            Check(fails == 0, "far haze picture: no fogged far land brighter than " + FarHazeCheck.Limit +
+                  " x the sky over it (overcast, rain, fog, snow at every hour; clear at dusk and night)", fails + " frame(s) over in " + judged + " report(s)");
         }
     }
 }

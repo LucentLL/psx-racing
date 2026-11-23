@@ -694,20 +694,20 @@ namespace PSXRacing
         /// <summary>Clear air by day may stand a little lighter than its sky
         /// (aerial haze); in overcast, rain, fog, snow, at dawn, dusk and night
         /// the haze is at most the sky's own brightness.</summary>
-        public const float FarHazeCapClearDay = 1.20f, FarHazeCap = 1.0f;
+        public const float FarHazeCapClearDay = 1.10f, FarHazeCap = 1.0f;
         /// <summary>The lowest elevation the sky is read at: a photograph has its
         /// own photographed horizon under ~2 degrees; the dynamic sky's map has
         /// none, and its dusk and overcast dome darkens right down to the
         /// horizon, so it is read nearly there (measured, FarHazeCheck: at 3
         /// degrees a rain dusk ridge still stood 3x its sky).</summary>
-        const float FarHazeMinElevPhoto = 2f, FarHazeMinElevDynamic = 1f;
+        const float FarHazeMinElevPhoto = 0.5f, FarHazeMinElevDynamic = 1f;
         static readonly int FarHazeId = Shader.PropertyToID("_PSXFarHaze");
 
         public static Vector4 FarHazeVector(int index, Weather weather, bool dynamicSky)
         {
             if (!FarHaze2) return Vector4.zero;
             bool clearDay = weather == Weather.Clear && (index == Morning || index == Noon || index == Afternoon);
-            return new Vector4(1f, clearDay ? FarHazeCapClearDay : FarHazeCap, dynamicSky ? 0f : 2f,
+            return new Vector4(1f, clearDay ? FarHazeCapClearDay : FarHazeCap, dynamicSky ? 0f : 1f,
                                Mathf.Sin((dynamicSky ? FarHazeMinElevDynamic : FarHazeMinElevPhoto) * Mathf.Deg2Rad));
         }
 
