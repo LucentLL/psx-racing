@@ -146,7 +146,7 @@ namespace PSXRacing
                         Capture(cam, rt, screen, blit, tex, W, H);
                         float ms = (PerfClock.Now() - c0) / 10000f;
                         string row = Measure(tg, cam, tex, W, H, pv.name, want);
-                        Say("N3DBG " + tg.name + " " + pv.name + " " + want + " eye " + V(cam.transform.position) + " patch " + StreetLights.N3Debug(tg.patch) + " || eye " + StreetLights.N3Debug(cam.transform.position));
+                        Say("N3DBG " + tg.name + " " + pv.name + " " + want + " dark " + NightDark.Amount.ToString("0.00") + " floor " + NightDark.CityFloor + " sum " + NightDark.LampSum.ToString("0.0") + " eye " + V(cam.transform.position) + " patch " + StreetLights.N3Debug(tg.patch) + " || eye " + StreetLights.N3Debug(cam.transform.position));
                         csv.AppendLine(row + "," + ms.ToString("0", ci));
                         bool thumb = want >= 990f || Mathf.Abs(want - 450f) < 1f || Mathf.Abs(want - 230f) < 1f || Mathf.Abs(want - 110f) < 1f || Mathf.Abs(want - 50f) < 1f || Mathf.Abs(want - 30f) < 1f;
                         if (thumb) Thumb(tex, W, H, thumbW, tag + "_ap_" + tg.name + "_" + pv.name + "_" + want.ToString("0", ci) + ".jpg");

@@ -133,7 +133,11 @@ namespace PSXRacing
         internal static void Measure(Vector3 eye, float lampSum, float dt, bool instant)
         {
             LampSum = lampSum;
-            LitShare = Mathf.Max(CityFloor, LitFor(lampSum));
+            // NIGHT 3: the city's floor is the city being there, not what an hour change last found (TimeOfDay
+            // sets CityFloor once per Apply - an hour applied before the streamed city came up left it 0, and
+            // the whole picture then dimmed and brightened with the lamps within 120 m of the eye)
+            float floor = StreetLights.Night3 && City.CityWorld.Active != null ? 1f : CityFloor;
+            LitShare = Mathf.Max(floor, LitFor(lampSum));
             // INDOORS (a building you can walk into, WeatherShelter): a room at
             // night is lit by its own lamps, which the street registry never
             // sees - the house and the shops keep the night they had. Not a
@@ -143,7 +147,7 @@ namespace PSXRacing
             // NIGHT 3 (StreetLights.Night3.cs): the lit city keeps only part of the hour's ambient,
             // moon and haze too - his Uptown frames: black sky, dark faces above the lamps, dark
             // ground between the lit patches; the lamps, not the ambient, light the streets
-            if (StreetLights.Night3 && CityFloor > 0f && Enabled && haveBase) Target = Mathf.Max(Target, NightGate(bNight) * CityDark3);
+            if (StreetLights.Night3 && floor > 0f && Enabled && haveBase) Target = Mathf.Max(Target, NightGate(bNight) * CityDark3);
             bool cut = instant || !haveEye || (eye - lastEye).sqrMagnitude > CutJumpM * CutJumpM || lastN3 != StreetLights.Night3;
             lastN3 = StreetLights.Night3;
             haveEye = true;
