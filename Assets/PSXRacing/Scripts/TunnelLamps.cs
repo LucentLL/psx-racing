@@ -98,7 +98,7 @@ namespace PSXRacing
         /// <summary>A wall lamp's light: a 70 W low-pressure-era sodium bulkhead
         /// 2.7 m up the wall, its pool <see cref="WallPoolM"/> across - a lit
         /// patch of wall and road round each head and dark between them.</summary>
-        public const float WallPoolM = 7.5f, WallGain = 0.55f, WallHaloGain = 0.12f;
+        public const float WallPoolM = 8.5f, WallGain = 1.1f, WallHaloGain = 0.15f;
         /// <summary>Wall lamps made in this scene (tests, the shots' log).</summary>
         public static int WallCount { get; private set; }
 
