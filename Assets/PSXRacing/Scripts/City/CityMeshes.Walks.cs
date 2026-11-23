@@ -716,13 +716,7 @@ namespace PSXRacing.City
                         int node = k == 0 ? e.a : e.b;
                         if (!WalkEndKeeps(map, trims, e, node, side, pw)) continue;
                     }
-                    float wWant = Cs4WalkWAt(map, e, S.s);
-                    // (roadsmerge 11-23) where the strip's whole section would reach another road's pavement (a Y split, a gore,
-                    // a slip lane beside the street) the section is the plain walk as before the strip: the strip street's curb
-                    // was otherwise laid into the other arm's travelled way (line gate MEDIAN +4: Monroe Rd, Statesville Rd, N Tryon
-                    // St, Perimeter Pkwy, Brownstone St). PSX_CITY_STRIPCLEAR=0: as hoods 2 left it.
-                    if (StripClearOn && StripOf(map, e) > 0f && wWant > WalkWOf(map, e) + 0.01f && WalkOnPavement(map, trims, pw, outw, wWant, ed.y, e.index)) wWant = WalkWOf(map, e);
-                    float w = WalkClear(map, trims, pw, outw, ed.y + CurbH, wWant);   // (curbs 3) a roll curb alone is CurbOnlyW
+                    float w = WalkClear(map, trims, pw, outw, ed.y + CurbH, Cs4WalkWAt(map, e, S.s));   // (curbs 3) a roll curb alone is CurbOnlyW
                     if (WalkClearOn && Curbs3On && w > 0f && CityHouses.BoundTo(map)) w = Mathf.Min(w, CityHouses.ClearOut(pw, outw, w, 0.3f));   // (hoods 2) no walk through a building
                     if (w < Cs3WalkMin(map, e) || WalkOnPavement(map, trims, pw, outw, w, ed.y, e.index)) continue;
                     arr[k] = w;

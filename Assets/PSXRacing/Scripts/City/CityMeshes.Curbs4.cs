@@ -59,7 +59,11 @@ namespace PSXRacing.City
     // ======================================================================
     public static partial class CityMeshes
     {
-        public static bool StripOn = System.Environment.GetEnvironmentVariable("PSX_CITY_STRIP") != "0";
+        /// <summary>(roadsmerge 11-23) DEFAULT OFF: with the standard section on, the line gate finds 6 NEW walk / curb pieces
+        /// (Sidewalk slot, 0.15-0.88 m) inside another road's travelled way at junction ends - Statesville Rd e8580, Monroe Rd e17101 and
+        /// e10289, N Tryon St e2053, Perimeter Pkwy e19416, Brownstone St e22766 (gate MEDIAN 76 -> 79; box run at Monroe: 1 with it on,
+        /// 0 with it off). Not found yet: testing the whole section for other pavement did not remove them. PSX_CITY_STRIP=1: on.</summary>
+        public static bool StripOn = System.Environment.GetEnvironmentVariable("PSX_CITY_STRIP") == "1";
         public static bool ValleyOn = System.Environment.GetEnvironmentVariable("PSX_CITY_VALLEY") != "0";
         public static bool BulbCurbOn = System.Environment.GetEnvironmentVariable("PSX_CITY_BULBCURB") != "0";
         public static bool StdBulbsOn = System.Environment.GetEnvironmentVariable("PSX_CITY_STDBULBS") != "0";
@@ -67,7 +71,6 @@ namespace PSXRacing.City
         /// <summary>(roadsmerge 11-23) the two-lane collector / arterial shoulder section with no curb (hoods 2, 0ba58918): OFF until
         /// the line gate passes with it - with it on, its newly painted edge lines put existing taper and kink faults on the
         /// gate as new places (SHIFT +2, SJOG +1, KINK +4, WIDTH +2 city-wide). PSX_CITY_SHOULDER2=1: on.</summary>
-        public static bool StripClearOn = System.Environment.GetEnvironmentVariable("PSX_CITY_STRIPCLEAR") != "0";
         public static bool ShoulderSectionOn = System.Environment.GetEnvironmentVariable("PSX_CITY_SHOULDER2") == "1";
 
         /// <summary>(the lanes round's curb close-ups, scratchpad lanes/EDGES.md version 2, 13:45: N Graham St at 1400 and
