@@ -65,6 +65,9 @@ namespace PSXRacing
             {
                 ref Entry e = ref entries[i];
                 if (!e.used || e.kind != Kind.Street) continue;
+                // (parkwaytunnel) a tunnel's wall lamp: no cone in the air and
+                // no say in the night's darkness (it burns by day too)
+                if (e.allDay) continue;
                 if (e.owned && e.owner == null) continue;      // Rank prunes it
                 if (!Lit(ref e, streetOn)) continue;
                 float d2 = (e.pos - eye).sqrMagnitude;

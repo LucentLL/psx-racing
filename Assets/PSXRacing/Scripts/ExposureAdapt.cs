@@ -43,6 +43,12 @@ namespace PSXRacing
         public const float Strength = 1.4f;
         /// <summary>The most the eye opens: +1.26 stops.</summary>
         public const float MaxGain = 2.4f;
+        /// <summary>(parkwaytunnel, PSX_TUNNEL2) the most the eye opens in a
+        /// stage bore: the owner's Parkway tunnel is DARK, punctuated by its
+        /// wall lamps, with the far portal's daylight bright - not a bore
+        /// opened up to daylight grey (an overcast hour's fill took it to x10).
+        /// Lower also means less bloom at the exit.</summary>
+        public const float TunnelCap = 1.6f;
         /// <summary>Seconds (time constant) to open up in the dark, and to
         /// close down in the light.</summary>
         public const float RiseTau = 1.2f, FallTau = 0.35f;
@@ -173,6 +179,7 @@ namespace PSXRacing
             if (Tunnel) open = 0f;
             Openness = open;
             Target = Scripted >= 0f ? Scripted : TargetFor(open, 1f - g.night, g.dayFill);
+            if (Scripted < 0f && Tunnel && !ForceTunnel && TunnelLamps.Tunnel2) Target = Mathf.Min(Target, TunnelCap);
             Current = Step(Current, Target, dt);
             return Current;
         }
@@ -193,6 +200,7 @@ namespace PSXRacing
             if (Tunnel) open = 0f;
             Openness = open;
             Target = TargetFor(open, 1f - night, dayFill);
+            if (Tunnel && TunnelLamps.Tunnel2) Target = Mathf.Min(Target, TunnelCap);
             return Target;
         }
     }

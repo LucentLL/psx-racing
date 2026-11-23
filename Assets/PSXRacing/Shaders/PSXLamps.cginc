@@ -291,6 +291,11 @@ void PSXLampsCore(float3 wpos, float3 N, float3 V, float power, float specOn, fl
         float radius = max(P.w, 0.5);
         float3 L = P.xyz - wpos;
         float d = max(length(L), 0.05);
+        // (parkwaytunnel) past everything this lamp gives - its pool (zero AT
+        // the radius) and, on a wet surface, its glint's reach - it adds
+        // exactly nothing: skip the rest (the tunnels' wall lamps burn by
+        // day, and every pixel on screen walked them all)
+        if (d >= radius * (specOn > 0.5 ? LAMP_SPEC_REACH : 1.0)) continue;
         float3 l = L / d;
         // 1 for the street kind (w = 0), 0 for a point lamp (w = 1).
         float street = 1.0 - step(0.5, C.w);
