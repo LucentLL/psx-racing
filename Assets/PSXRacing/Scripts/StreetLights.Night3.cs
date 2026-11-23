@@ -199,6 +199,10 @@ namespace PSXRacing
 
         static readonly int Night3Id = Shader.PropertyToID("_PSXNight3");
         static int n3AirFrame = -1;
+        static readonly int N3SkyId = Shader.PropertyToID("_PSXN3Sky");
+        static readonly int NightGlobalId = Shader.PropertyToID("_PSXNight");
+        /// <summary>The lit city's night sky over the horizon, x this (his frames: Ycode 7-17, ours 33).</summary>
+        public static float N3SkyMul = 0.35f;
         /// <summary>The air's haze under NIGHT 3 (0 = clear: no cones; tools may set it, -1 = the weather's).</summary>
         public static float AirOverride = -1f;
         /// <summary>The haze (x the cone's light) and the extinction length (m) of the air in a weather.</summary>
@@ -221,6 +225,9 @@ namespace PSXRacing
             if (Night3 && AirOverride >= 0f) air.x = AirOverride;
             if (!LampCones.Enabled) air.x = 0f;
             Shader.SetGlobalVector(Night3Id, new Vector4(Night3 ? 1f : 0f, air.x, Mathf.Max(air.y, 1f), 0f));
+            // the lit city's night sky (PSXAtmosphere.cginc): darker toward the zenith, by the night
+            float sky = Night3 && FieldActive ? Mathf.Lerp(1f, N3SkyMul, Mathf.Clamp01(Shader.GetGlobalFloat(NightGlobalId))) : 0f;
+            Shader.SetGlobalFloat(N3SkyId, sky);
             if (Application.isPlaying && Time.frameCount != n3AirFrame)
             {
                 n3AirFrame = Time.frameCount;

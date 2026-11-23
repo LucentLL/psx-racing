@@ -44,18 +44,16 @@ namespace PSXRacing
         public const int FieldRes = 256;          // texels a side
         public const float FieldTexelM = 2f;      // 512 m across
         const float FieldSnapM = 32f;             // the window moves in these steps
-        /// <summary>OPTION (owner to judge, 2026-11-23): PSX_LIGHT_ROWS=1 = distinct pools with darker gaps between
-        /// the lamps (the light-look round's "rows option": pool 16 m, pool gain 2.8, glow 0.15). Default OFF: the
-        /// city night as it was. Declared before the three fields it sets (static initialisers run in order).</summary>
-        public static readonly bool Rows = System.Environment.GetEnvironmentVariable("PSX_LIGHT_ROWS") == "1";
+        // (the lamp-rows option, PSX_LIGHT_ROWS, rejected by the owner 2026-11-23, is gone: NIGHT 3's
+        // static field has its own pool and glow, StreetLights.Night3.cs)
         /// <summary>The pool's horizontal radius on the street (m).</summary>
-        public static float FieldPoolM = Rows ? 16f : 28f;
+        public static float FieldPoolM = 28f;
         /// <summary>The scattered glow's radius (m).</summary>
         public static float FieldGlowM = 40f;
         /// <summary>The pool per lamp, x the lamp's own intensity (2.0 x gain).</summary>
-        public static float FieldPoolGain = Rows ? 2.8f : 1.8f;
+        public static float FieldPoolGain = 1.8f;
         /// <summary>The glow per lamp, x the lamp's own intensity.</summary>
-        public static float FieldGlowGain = Rows ? 0.15f : 0.30f;
+        public static float FieldGlowGain = 0.30f;
         /// <summary>Uptown (the Square, Trade x Tryon) - inside it the heads
         /// give <see cref="UptownGain"/> the light; metres, world XZ.</summary>
         public static Vector2 UptownCentre = new Vector2(-2259f, 4782f);
