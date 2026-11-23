@@ -1018,6 +1018,17 @@ namespace PSXRacing
         /// (less than the street lamps': a car turning across the view must not
         /// sweep the ranking).</summary>
         public const float HeadViewPenalty = 1f;
+        // (lightlook, 2026-11-23) THE HAND-OVERS TWICE AS SOFT: on I-77, five and more cars contest
+        // the four cars' slots and oncoming traffic closes at 60 m/s, so a 45 m rank band stepped a
+        // beam 5-10 % a frame (the pop meter counted them); a car racing away from a replay's
+        // bystander crossed the 60 m distance fade in a second. With the look the band is 90 m and
+        // the fade 140-240 m: 2-3 % a frame at those speeds, under what the eye (and the meter) can
+        // tell from driving. PSX_LIGHT_LOOK_BEAMS=0: as the pop round left them.
+        static bool SoftHand => LightLook.On && LightLook.Beams;
+        static float HeadBandNow => SoftHand ? 90f : HeadRankBandM;
+        static float HeadFullNow => SoftHand ? 140f : HeadFullM;
+        static float HeadEndNow => SoftHand ? 240f : HeadEndM;
+        static float HeadCapNow => HeadEndNow * 2f;
         /// <summary>A car just switched on (a spawn, a respawn) scores this much
         /// further, easing to nothing over <see cref="HeadBirthS"/>: it slides
         /// into the ranking instead of moving the cut in a step.</summary>
@@ -1039,7 +1050,7 @@ namespace PSXRacing
         {
             var tr = l.transform;
             float dist = (tr.position + tr.forward * HeadAimM - eye).magnitude;
-            return Mathf.Clamp01((HeadEndM - dist) / (HeadEndM - HeadFullM));
+            return Mathf.Clamp01((HeadEndNow - dist) / (HeadEndNow - HeadFullNow));
         }
 
         /// <summary>The four lowest scores of <see cref="sorted"/> into
@@ -1056,15 +1067,15 @@ namespace PSXRacing
                 Vector3 aim = tr.position + tr.forward * HeadAimM;
                 Vector3 d = aim - eye;
                 float dist = d.magnitude;
-                if (dist >= HeadEndM) continue;
+                if (dist >= HeadEndNow) continue;
                 float vf = StreetLights.ViewFactor(d, dist, HeadAimRadiusM, fwd);
                 float s = dist * (1f + (vf - 1f) * HeadViewPenalty / StreetLights.ViewPenalty);
                 float born = Application.isPlaying ? Mathf.Clamp01((now - sorted[i].bornAt) / HeadBirthS) : 1f;
                 s += HeadBirthM * (1f - born);
-                if (s >= HeadScoreCap) continue;
+                if (s >= HeadCapNow) continue;
                 if (scoredCount == cap && s >= scoredScore[cap - 1]) continue;
                 int k = scoredCount < cap ? scoredCount++ : cap - 1;
-                float fade = Mathf.Clamp01((HeadEndM - dist) / (HeadEndM - HeadFullM));
+                float fade = Mathf.Clamp01((HeadEndNow - dist) / (HeadEndNow - HeadFullNow));
                 while (k > 0 && scoredScore[k - 1] > s)
                 {
                     scoredScore[k] = scoredScore[k - 1]; scoredIdx[k] = scoredIdx[k - 1]; scoredFade[k] = scoredFade[k - 1];
@@ -1072,7 +1083,7 @@ namespace PSXRacing
                 }
                 scoredScore[k] = s; scoredIdx[k] = i; scoredFade[k] = fade;
             }
-            carCut = scoredCount > carsMax ? Mathf.Min(scoredScore[carsMax], HeadScoreCap) : HeadScoreCap;
+            carCut = scoredCount > carsMax ? Mathf.Min(scoredScore[carsMax], HeadCapNow) : HeadCapNow;
             if (scoredCount > carsMax) scoredCount = carsMax;
         }
 
@@ -1147,7 +1158,7 @@ namespace PSXRacing
                 {
                     var l = noPop && !meterB ? sorted[scoredIdx[c]] : sorted[c];
                     // NO LIGHT POPS: the car's rank weight times its own distance fade
-                    float rank = noPop && !meterB ? Mathf.Clamp01((carCut - scoredScore[c]) / HeadRankBandM) : (n < LegacyLights ? 1f : 0f);
+                    float rank = noPop && !meterB ? Mathf.Clamp01((carCut - scoredScore[c]) / HeadBandNow) : (n < LegacyLights ? 1f : 0f);
                     float w = noPop && !meterB ? Mathf.Min(rank, scoredFade[c]) : rank;
                     if (meterB)
                     {

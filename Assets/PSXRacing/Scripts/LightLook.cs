@@ -43,6 +43,10 @@ namespace PSXRacing
         /// <summary>5. Sodium ceiling lamps in the stage tunnels (TunnelLamps).</summary>
         public static bool Tunnels = Env("PSX_LIGHT_LOOK_TUNNELS");
 
+        /// <summary>4/7. The headlight table's hand-overs twice as soft (CarLights: rank band 90 m,
+        /// distance fade 140-240 m).</summary>
+        public static bool Beams = Env("PSX_LIGHT_LOOK_BEAMS");
+
         public static bool PointsOn => On && Points;
         public static bool CarPointsOn => On && CarPoints;
 
