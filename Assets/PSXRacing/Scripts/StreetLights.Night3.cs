@@ -189,12 +189,51 @@ namespace PSXRacing
             n3Cmd.ClearRenderTarget(false, true, Color.clear);
             if (n3Lamps > 0)
             {
-                var proj = GL.GetGPUProjectionMatrix(Matrix4x4.Ortho(0f, span, 0f, span, -1f, 1f), true);
-                n3Cmd.SetViewProjectionMatrices(Matrix4x4.identity, proj);
+                n3Cmd.SetViewProjectionMatrices(Matrix4x4.identity, SplatProj(span));
                 n3Mat.SetVector(SplatRId, new Vector4(1f / (N3PoolM * N3PoolM), 1f / (N3GlowM * N3GlowM), 0f, 0f));
                 n3Cmd.DrawMesh(n3Mesh, Matrix4x4.Translate(new Vector3(-origin.x, -origin.y, 0f)), n3Mat, 0, 0);
             }
             Graphics.ExecuteCommandBuffer(n3Cmd);
+            if (n3Lamps > 0 && !splatChecked) N3CheckOrientation(origin, span);
+        }
+
+        // ---- which way up a splat lands (once a process) ----
+        // A splat is drawn with an orthographic view of the window; whether the graphics API (and the
+        // command buffer's own handling of a render-texture target) puts world +z at the texture's
+        // +v is checked ONCE, by reading back the texel under a lamp and the texel mirrored from it.
+        static bool splatChecked, splatFlip;
+        internal static Matrix4x4 SplatProj(float span) => splatFlip ? Matrix4x4.Ortho(0f, span, span, 0f, -1f, 1f) : Matrix4x4.Ortho(0f, span, 0f, span, -1f, 1f);
+        static void N3CheckOrientation(Vector2 origin, float span)
+        {
+            // a lamp well inside the window, off its middle row (a mirror of the middle row is itself)
+            int best = -1; float bestD = float.MaxValue;
+            for (int i = 0; i < high; i++)
+            {
+                ref Entry e = ref entries[i];
+                if (!e.used || !e.field || !e.on || e.kind != Kind.Street || e.intensity <= 0f) continue;
+                float u = (e.pos.x - origin.x) / span, v = (e.pos.z - origin.y) / span;
+                if (u < 0.1f || u > 0.9f || v < 0.1f || v > 0.9f || Mathf.Abs(v - 0.5f) < 0.08f) continue;
+                float d = Mathf.Abs(u - 0.5f) + Mathf.Abs(Mathf.Abs(v - 0.5f) - 0.2f);
+                if (d < bestD) { bestD = d; best = i; }
+            }
+            if (best < 0) return;
+            var p = entries[best].pos;
+            int x = Mathf.Clamp(Mathf.FloorToInt((p.x - origin.x) / N3TexelM), 0, n3Res - 1), z = Mathf.Clamp(Mathf.FloorToInt((p.z - origin.y) / N3TexelM), 0, n3Res - 1);
+            float a = ReadR(x, z), b = ReadR(x, n3Res - 1 - z);
+            splatChecked = true;
+            if (b > a * 1.5f && b > 0.05f)
+            {
+                splatFlip = !splatFlip;
+                Debug.Log("[StreetLights] NIGHT 3: the splat lands mirrored on this device - flipped (" + a.ToString("0.00") + " / " + b.ToString("0.00") + ")");
+                N3Splat(origin, span);
+            }
+            else Debug.Log("[StreetLights] NIGHT 3: splat orientation checked (" + a.ToString("0.00") + " / " + b.ToString("0.00") + ")");
+        }
+        static float ReadR(int x, int z)
+        {
+            var req = AsyncGPUReadback.Request(n3Tex, 0, x, 1, z, 1, 0, 1, TextureFormat.RGBAFloat, null);
+            req.WaitForCompletion();
+            return req.hasError ? 0f : req.GetData<Color>()[0].r;
         }
 
         static readonly int Night3Id = Shader.PropertyToID("_PSXNight3");

@@ -134,7 +134,7 @@ namespace PSXRacing
             poolCmd.Clear();
             poolCmd.SetRenderTarget(poolTex);
             poolCmd.ClearRenderTarget(false, true, Color.clear);
-            poolCmd.SetViewProjectionMatrices(Matrix4x4.identity, GL.GetGPUProjectionMatrix(Matrix4x4.Ortho(0f, span, 0f, span, -1f, 1f), true));
+            poolCmd.SetViewProjectionMatrices(Matrix4x4.identity, StreetLights.SplatProj(span));
             poolMat.SetFloat(PoolBaseId, baseY);
             poolCmd.DrawMesh(poolMesh, Matrix4x4.Translate(new Vector3(-origin.x, -origin.y, 0f)), poolMat, 0, 1);
             Graphics.ExecuteCommandBuffer(poolCmd);
