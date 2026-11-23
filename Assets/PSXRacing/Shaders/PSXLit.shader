@@ -2237,23 +2237,31 @@ Shader "PSX/Lit"
                 float dEdge = min(rm.x, _RoadLeaves.y - rm.x);
                 float dens = lerp(0.65, 0.03, saturate((dEdge - 0.25) / 1.0)) * lerp(0.35, 1.35, saturate(_PSXFallPhase.y));
                 const float RLCell = 0.35;
-                float2 rc = floor(rm / RLCell), rf = frac(rm / RLCell);
-                float rh0 = frac(sin(dot(rc, float2(127.1, 311.7))) * 43758.5453);
-                float4 rh = frac(rh0 * float4(1.0, 37.719, 91.313, 13.591) + float4(0.0, 0.217, 0.613, 0.389));
-                float ang = rh.w * 6.2832;
-                float2 q = rf - (0.3 + 0.4 * rh.yz);
-                q = float2(q.x * cos(ang) + q.y * sin(ang), -q.x * sin(ang) + q.y * cos(ang));
-                float sz = 0.20 + 0.10 * frac(rh.x * 7.13);   // half-length in cells (7-10 cm)
-                float e = dot(q / float2(sz, sz * 0.55), q / float2(sz, sz * 0.55));
-                float leafIn = (rh.x < dens) ? saturate((1.0 - e) * 6.0) : 0.0;
-                float pick = frac(rh.y * 5.31 + rh.z * 2.17);
-                float3 leafCol = pick < 0.28 ? float3(0.55, 0.30, 0.02) : pick < 0.52 ? float3(0.50, 0.15, 0.010)
-                               : pick < 0.68 ? float3(0.40, 0.040, 0.020) : pick < 0.86 ? float3(0.25, 0.090, 0.030) : float3(0.16, 0.080, 0.030);
-                leafCol *= 0.8 + 0.4 * frac(rh.z * 3.7);
                 float pix = max(fwidth(rm.x), fwidth(rm.y));
                 float nearK = saturate(1.6 - pix * 12.0);
                 float3 farMix = lerp(tex.rgb, float3(0.38, 0.15, 0.03), dens * 0.16);
-                tex.rgb = lerp(farMix, lerp(tex.rgb, leafCol, leafIn), nearK);
+                // (the leaves themselves only where they can be drawn: past ~13 cm a pixel, the mean tint alone)
+                [branch] if (nearK > 0.0)
+                {
+                    float2 rc = floor(rm / RLCell), rf = frac(rm / RLCell);
+                    float2 rp = frac(rc * float2(0.1031, 0.11369));
+                    rp += dot(rp, rp.yx + 33.33);
+                    float rh0 = frac((rp.x + rp.y) * rp.x * 19.19);
+                    float4 rh = frac(rh0 * float4(1.0, 37.719, 91.313, 13.591) + float4(0.0, 0.217, 0.613, 0.389));
+                    float ang = rh.w * 6.2832;
+                    float ca = cos(ang), sa = sin(ang);
+                    float2 q = rf - (0.3 + 0.4 * rh.yz);
+                    q = float2(q.x * ca + q.y * sa, -q.x * sa + q.y * ca);
+                    float sz = 0.20 + 0.10 * frac(rh.x * 7.13);   // half-length in cells (7-10 cm)
+                    float e = dot(q / float2(sz, sz * 0.55), q / float2(sz, sz * 0.55));
+                    float leafIn = (rh.x < dens) ? saturate((1.0 - e) * 6.0) : 0.0;
+                    float pick = frac(rh.y * 5.31 + rh.z * 2.17);
+                    float3 leafCol = pick < 0.28 ? float3(0.55, 0.30, 0.02) : pick < 0.52 ? float3(0.50, 0.15, 0.010)
+                                   : pick < 0.68 ? float3(0.40, 0.040, 0.020) : pick < 0.86 ? float3(0.25, 0.090, 0.030) : float3(0.16, 0.080, 0.030);
+                    leafCol *= 0.8 + 0.4 * frac(rh.z * 3.7);
+                    farMix = lerp(farMix, lerp(tex.rgb, leafCol, leafIn), nearK);
+                }
+                tex.rgb = farMix;
             }
             #ifdef PSX_GROUNDBLEND
                 // THE SECOND LAYER, in patches (owner 2026-11-08: the ground "not
