@@ -83,7 +83,8 @@ namespace PSXRacing.EditorTools
                     if (car != null) car.TeleportTo(park + Vector3.up * 0.35f, rot); else player.transform.SetPositionAndRotation(park, rot);
                     CarLights.PushGlobals();
                     PSXScreenshotTool.ShotAs(cam, $"service/{id}_eye{tag}", here + Vector3.up * 1.2f, Quaternion.LookRotation(fh * 40f + Vector3.down * 2.2f));
-                    var top = here + fh * 22f + Vector3.up * 55f;
+                    float topH = 55f, topA = 22f; float.TryParse(System.Environment.GetEnvironmentVariable("PSX_SERVICE_TOPH") ?? "55", NumberStyles.Float, I, out topH); float.TryParse(System.Environment.GetEnvironmentVariable("PSX_SERVICE_AHEAD") ?? "22", NumberStyles.Float, I, out topA);
+                    var top = here + fh * topA + Vector3.up * topH;   // PSX_SERVICE_TOPH / PSX_SERVICE_AHEAD: a closer plan (roadsmerge)
                     PSXScreenshotTool.ShotAs(cam, $"service/{id}_top{tag}", top, Quaternion.LookRotation(Vector3.down, fh));
                     shots += 2;
                     bool onWay = CityMeshes.ServiceWayAt(map, new Vector2(x, z) + new Vector2(fh.x, fh.z) * 12f, 1f, out int wi, out _);
