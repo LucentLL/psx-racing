@@ -96,7 +96,7 @@ namespace PSXRacing
                 {
                     tab = SettingsTab.System, name = "RELOAD",
                     value = () => !LabSwitches.AnyPending ? "NOTHING WAITING"
-                                  : Armed ? "PRESS AGAIN" : "RESTART DRIVE",
+                                  : Armed ? "PRESS AGAIN" : "RELOAD DRIVE",
                     blurb = "Rows marked NEXT LOAD show after a load. This restarts the drive now (press twice).",
                     apply = () =>
                     {

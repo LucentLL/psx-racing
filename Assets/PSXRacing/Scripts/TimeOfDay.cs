@@ -694,7 +694,9 @@ namespace PSXRacing
         {
             // the LAB writes it (farHaze2Set); unwritten, the variable as before (FarHazeCheck sets it mid-run)
             get => farHaze2Set >= 0 ? farHaze2Set == 1 : System.Environment.GetEnvironmentVariable("PSX_FARHAZE2") != "0";
-            set => farHaze2Set = value ? 1 : 0;
+            // (only the LAB writes it, by name) the variable's own value: back to following the variable
+            [UnityEngine.Scripting.Preserve]
+            set => farHaze2Set = value == (System.Environment.GetEnvironmentVariable("PSX_FARHAZE2") != "0") ? -1 : value ? 1 : 0;
         }
         static int farHaze2Set = -1;
         /// <summary>Clear air by day may stand a little lighter than its sky

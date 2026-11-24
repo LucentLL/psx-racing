@@ -297,6 +297,10 @@ namespace PSXRacing.EditorTools
             Directory.CreateDirectory(outDir);
             foreach (var f in Directory.GetFiles(outDir, "*.png")) File.Delete(f);
             LabSwitches.Boot(true);
+            // a debug career, as Capture: the drive's SETTINGS page with its DEBUG BENCH row
+            LifeSimManager.DeleteSave();
+            LifeSimManager.StartNewGame("VINCE", 25, LifeRules.DefaultJobIndex);
+            LifeRules.EnableDebug(LifeSimManager.State);
             try
             {
                 ShootPause(outDir, "settings_settings", SettingsTab.System);
