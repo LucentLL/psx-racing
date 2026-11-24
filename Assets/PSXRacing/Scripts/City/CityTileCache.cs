@@ -70,7 +70,7 @@ namespace PSXRacing.City
         /// re-bakes (this file is among the generator's sources anyway).
         /// The PC branch's 2 (the tile's tree frame after its lattice) and main's 2-4 (the median dress's
         /// plants, the Uptown street trees, the ground floors / furniture / twin-globe lamps) met at 5.</summary>
-        public const int Format = 6;   // 6: LAMPS 4 (a lamp's barrier flag)
+        public const int Format = 5;
         public const string FolderName = "CityTiles";
         public const string ManifestName = "manifest.txt";
         /// <summary>The player's own fingerprint: Resources/citytiles_stamp.txt,
@@ -424,7 +424,7 @@ namespace PSXRacing.City
             w.Write(tm.solids.Count);
             foreach (var s in tm.solids) { WriteV3(w, s.center); WriteV3(w, s.size); w.Write(s.yawDeg); w.Write(s.round); w.Write(s.radius); }
             w.Write(tm.lamps.Count);
-            foreach (var l in tm.lamps) { WriteV3(w, l.foot); WriteV3(w, l.head); w.Write(l.height); w.Write(l.kind); w.Write(l.breakaway); w.Write(l.mercury); w.Write(l.barrier); }
+            foreach (var l in tm.lamps) { WriteV3(w, l.foot); WriteV3(w, l.head); w.Write(l.height); w.Write(l.kind); w.Write(l.breakaway); w.Write(l.mercury); }
             w.Write(tm.streetTrees.Count);
             foreach (var t in tm.streetTrees) { WriteV3(w, t.foot); w.Write(t.edge); w.Write(t.side); w.Write(t.dress); w.Write(t.station); }
             WriteList(w, tm.deckDark);
@@ -628,7 +628,7 @@ namespace PSXRacing.City
                             tm.solids.Add(new CityMeshes.SolidBox { center = ReadV3(r), size = ReadV3(r), yawDeg = r.ReadSingle(), round = r.ReadBoolean(), radius = r.ReadSingle() });
                         n = r.ReadInt32();
                         for (int i = 0; i < n; i++)
-                            tm.lamps.Add(new CityMeshes.Lamp { foot = ReadV3(r), head = ReadV3(r), height = r.ReadSingle(), kind = r.ReadByte(), breakaway = r.ReadBoolean(), mercury = r.ReadBoolean(), barrier = r.ReadBoolean() });
+                            tm.lamps.Add(new CityMeshes.Lamp { foot = ReadV3(r), head = ReadV3(r), height = r.ReadSingle(), kind = r.ReadByte(), breakaway = r.ReadBoolean(), mercury = r.ReadBoolean() });
                         n = r.ReadInt32();
                         for (int i = 0; i < n; i++)
                             tm.streetTrees.Add(new CityMeshes.StreetTree { foot = ReadV3(r), edge = r.ReadInt32(), side = r.ReadSByte(), dress = r.ReadByte(), station = r.ReadInt16() });

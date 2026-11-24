@@ -36,19 +36,12 @@ namespace PSXRacing.EditorTools
 
         struct Light { public Vector3 p; public float gain; public string src; }
 
-        /// <summary>Both placements in one run: LAMPS 4 off (before: LAMPS 3, a99a8ef1's) and on (after);
-        /// PSX_LAMPAUDIT_L3=1: LAMPS 3 off and on as the city-night round ran it.</summary>
+        /// <summary>Both placements in one run: CityMeshes.Lamps3 off (before) and on (after).</summary>
         public static void Run()
         {
-            bool was = CityMeshes.Lamps3, was4 = CityMeshes.Lamps4;
-            try
-            {
-                if (System.Environment.GetEnvironmentVariable("PSX_LAMPAUDIT_L3") == "1")
-                { CityMeshes.Lamps4 = false; CityMeshes.Lamps3 = false; RunTag("before"); CityMeshes.Lamps3 = true; RunTag("after"); }
-                else
-                { CityMeshes.Lamps3 = true; CityMeshes.Lamps4 = false; RunTag("before"); CityMeshes.Lamps4 = true; RunTag("after"); }
-            }
-            finally { CityMeshes.Lamps3 = was; CityMeshes.Lamps4 = was4; }
+            bool was = CityMeshes.Lamps3;
+            try { CityMeshes.Lamps3 = false; RunTag("before"); CityMeshes.Lamps3 = true; RunTag("after"); }
+            finally { CityMeshes.Lamps3 = was; }
         }
 
         static void RunTag(string tag)

@@ -2574,9 +2574,7 @@ namespace PSXRacing.EditorTools
                         if (clear < worst) { worst = clear; worstWhat = $"node {n}'s fan"; }
                     }
                     string where = $"kind {kindName[Mathf.Clamp(l.kind, 0, 3)]} at ({foot.x:0.0},{foot.z:0.0}) tile {tx},{tz}";
-                    // LAMPS 4: a davit on a freeway's median barrier stands on the barrier, by design
-                    // inside the verge clearance: it must only be off the tarmac
-                    if (worst < (l.barrier ? 0f : LampAuditClearM))
+                    if (worst < LampAuditClearM)
                     {
                         inLanes++;
                         notes.Add((LampAuditClearM - worst, $"LAMP  foot {worst:+0.00;-0.00} m outside {worstWhat}: {where}"));
