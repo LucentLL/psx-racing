@@ -184,7 +184,16 @@ namespace PSXRacing
                         if (!FirstSolid(head + Vector3.down * 0.15f, p + Vector3.up * 0.05f, out var hit)) continue;
                         string bk = BlockerKind(hit);
                         if (!KindMatches(want, bk)) continue;
-                        if (new Vector2(p.x - hit.point.x, p.z - hit.point.z).magnitude < 2f) continue;
+                        if (new Vector2(p.x - hit.point.x, p.z - hit.point.z).magnitude < 3f) continue;
+                        // a patch in the solid's full shadow, not at its edge: the ground 4 degrees either side
+                        // of it is cut off from the head too
+                        bool edge = false;
+                        foreach (float side in new[] { -4f, 4f })
+                        {
+                            var q2 = head + Quaternion.Euler(0f, side, 0f) * (p - head);
+                            if (!GroundAt(q2, head.y - 0.5f, out var g2) || !FirstSolid(head + Vector3.down * 0.15f, g2.point + Vector3.up * 0.05f, out _)) { edge = true; break; }
+                        }
+                        if (edge) continue;
                         float w = 2.4f * Mathf.Pow(Mathf.Max(0f, 1f - r * r / 324f), 2f) + 0.2f * Mathf.Pow(Mathf.Max(0f, 1f - r * r / 1600f), 2f);
                         if (w > bestScore) { bestScore = w; bestHead = head; bestP = p; bestB = bk + "@" + new Vector2(hit.point.x - head.x, hit.point.z - head.z).magnitude.ToString("0.0", CultureInfo.InvariantCulture) + "m"; }
                     }
@@ -192,6 +201,9 @@ namespace PSXRacing
             }
             if (bestScore <= 0f) { Say("LEAK " + name + ": no lamp-" + want + " spot within 220 m"); leakCsv.AppendLine(name + ",lamp-" + want + ",-,none,-1,-1,no spot"); yield break; }
             var eye = EyeFor(bestP, bestHead);
+            Vector3 offLamp = new Vector3(bestHead.x + 1e6f, 0f, 0f);
+            StreetLights.FieldLampsNear(bestHead, 900f, n4Heads);
+            foreach (var hh in n4Heads) if ((hh - bestHead).sqrMagnitude > 300f * 300f) { offLamp = hh; break; }
             string where = "head " + V(bestHead) + " patch " + V(bestP) + " plan " + new Vector2(bestP.x - bestHead.x, bestP.z - bestHead.z).magnitude.ToString("0.0", CultureInfo.InvariantCulture) + " m";
             Say("LEAK " + name + " lamp-" + want + ": " + where + " blocker " + bestB);
             bool n4Was = StreetLights.Night4;
@@ -199,7 +211,8 @@ namespace PSXRacing
             foreach (var vr in variants)
             {
                 StreetLights.Night4 = vr.n4;
-                StreetLights.N4SoloAt = vr.solo ? bestHead : new Vector3(bestHead.x + 1e6f, 0f, 0f);
+                // "off": another lamp alone, 300 m+ away (the field stays on, so the city-night regime is the same)
+                StreetLights.N4SoloAt = vr.solo ? bestHead : offLamp;
                 StreetLights.N4SoloM = 0.6f;
                 StreetLights.N4Touch();
                 yield return Shoot("leak_" + name + "_" + vr.v + ".jpg", cam, eye, bestP, rt, screen, blit, tex, W, H, 70);
@@ -268,7 +281,18 @@ namespace PSXRacing
                         if (hit.normal.y > 0.8f) continue;
                         string bk = path != null ? (hit.collider != null ? "rock:" + hit.collider.name : "-") : BlockerKind(hit);
                         if (!KindMatches(want, path != null ? "x" : bk)) continue;
-                        if (new Vector2(p.x - hit.point.x, p.z - hit.point.z).magnitude < 1.5f) continue;
+                        if (new Vector2(p.x - hit.point.x, p.z - hit.point.z).magnitude < 3f) continue;
+                        // a solid over the lamps' height (a Jersey, a wall, a building, rock: a low kerb's real
+                        // shadow is a metre or two) and the patch in its full shadow, not at its edge
+                        var lampFlat = new Vector3(p.x, lamp.y, p.z);
+                        if (!FirstSolid(lamp, lampFlat, out var hh2) || Vector3.Dot(hh2.normal, Vector3.up) > 0.8f) continue;
+                        bool edgeC = false;
+                        foreach (float side in new[] { -5f, 5f })
+                        {
+                            var d2 = Quaternion.Euler(0f, side, 0f) * (lampFlat - lamp);
+                            if (!FirstSolid(lamp, lamp + d2, out var hs) || Vector3.Dot(hs.normal, Vector3.up) > 0.8f) { edgeC = true; break; }
+                        }
+                        if (edgeC) continue;
                         float spread = 1f - Mathf.Clamp01((Mathf.Abs(deg) - 8f) / 26f);
                         float att = Mathf.Clamp01((r - 3f) / 7f) * (1f - Mathf.Clamp01((r - 30f) / 45f));
                         float w = spread * att;
