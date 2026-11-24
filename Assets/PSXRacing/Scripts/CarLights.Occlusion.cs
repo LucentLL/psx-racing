@@ -156,7 +156,11 @@ namespace PSXRacing
             f = t.forward; r = t.right;
             var a = beams[0] != null ? beams[0].transform.position : t.position + t.up * 0.65f;
             var b = beams[1] != null ? beams[1].transform.position : a;
-            o = (a + b) * 0.5f - t.up * 0.05f;
+            // LOW: the light that reaches the ground beyond a solid passes it well under the lamps' own
+            // height (from 0.85 m to the road 11 m on, a Jersey 5 m out is crossed at 0.47 m), so the fan
+            // looks at 0.45 m under the lamps: a solid that tall (a Jersey, a rail, a wall, rock) takes
+            // the beam beyond it; a kerb or a low verge does not
+            o = (a + b) * 0.5f - t.up * 0.45f;
         }
 
         /// <summary>The table's occlusion row for slot n (x v, y on).</summary>
