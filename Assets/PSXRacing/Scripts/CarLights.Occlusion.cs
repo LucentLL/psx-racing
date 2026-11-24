@@ -76,7 +76,8 @@ namespace PSXRacing
                 { name = "PSXHeadVis", filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp, hideFlags = HideFlags.DontSave };
                 occData = new ushort[OccBins * OccRows];
             }
-            Physics.SyncTransforms();
+            // (no Physics.SyncTransforms: the rays see the solids as the last physics step left them - the
+            // city's are static - and a sync every frame cost milliseconds in traffic)
             // a car within 80 m of the eye every frame; the rest every other frame (alternating by row),
             // each eased by the time since its own last look
             int cast = 0;
@@ -85,8 +86,10 @@ namespace PSXRacing
                 var l = sorted[c];
                 l.occCast = -1;
                 if (l.occRow < 0) continue;
-                bool due = l.occCur == null || l.occFrame < Time.frameCount - 3 || ((l.occRow + Time.frameCount) & 1) == 0
-                           || (l.transform.position - eye).sqrMagnitude < 80f * 80f;
+                // near (80 m) every frame; to 250 m every other; past it every fourth (its pool is a few pixels)
+                float d2c = (l.transform.position - eye).sqrMagnitude;
+                int every = d2c < 80f * 80f ? 1 : d2c < 250f * 250f ? 2 : 4;
+                bool due = l.occCur == null || l.occFrame < Time.frameCount - 6 || ((l.occRow + Time.frameCount) % every) == 0;
                 if (due) l.occCast = cast++;
             }
             int total = cast * OccBins;
@@ -119,7 +122,7 @@ namespace PSXRacing
                     continue;
                 }
                 var up = l.transform.up;
-                bool snap = l.occCur == null || l.occFrame < Time.frameCount - 3;
+                bool snap = l.occCur == null || l.occFrame < Time.frameCount - 6;
                 if (l.occCur == null) l.occCur = new float[OccBins];
                 float k = snap ? 1f : 1f - Mathf.Exp(-Mathf.Min(now - l.occAt, 0.1f) / Mathf.Max(OccEaseS, 1e-3f));
                 l.occFrame = Time.frameCount; l.occAt = now;
@@ -164,8 +167,11 @@ namespace PSXRacing
         }
 
         /// <summary>The table's occlusion row for slot n (x v, y on).</summary>
+        /// <summary>Tools (the cost probe): the per-pixel beams read the reach (false: only the pools do).</summary>
+        public static bool OccTable = true;
         static Vector4 OccSlot(CarLights l)
         {
+            if (!OccTable) return Vector4.zero;
             float v = l.OccV;
             return v >= 0f ? new Vector4(v, 1f, 0f, 0f) : Vector4.zero;
         }
