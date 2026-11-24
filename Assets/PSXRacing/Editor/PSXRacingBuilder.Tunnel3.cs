@@ -802,6 +802,39 @@ namespace PSXRacing.EditorTools
             T2Mesh("TunnelBoulders" + no, bv, buv, bc, bt, boulderMat, parent, null);
         }
 
+        static void TrimSolidsAtMouth(List<Vector3> pts, int i, float dir, float halfW, Transform parent)
+        {
+            Vector3 right = RightAt(pts, i);
+            Vector3 fwd = Vector3.Cross(right, Vector3.up).normalized;
+            Vector3 face = fwd * dir;                 // out of the mountain
+            Vector3 c = pts[i];
+            float wallX = T3WallX(halfW);
+            int moved = 0;
+            foreach (var mc in parent.root.GetComponentsInChildren<MeshCollider>(true))
+            {
+                if (mc == null || mc.sharedMesh == null || !mc.name.StartsWith("BankColl") || !mc.sharedMesh.isReadable) continue;
+                var m = mc.sharedMesh;
+                var vs = m.vertices;
+                var xf = mc.transform.localToWorldMatrix; var inv = mc.transform.worldToLocalMatrix;
+                bool any = false;
+                for (int k = 0; k < vs.Length; k++)
+                {
+                    Vector3 w = xf.MultiplyPoint3x4(vs[k]);
+                    Vector3 q = w - c;
+                    float lat = Mathf.Abs(Vector3.Dot(q, right)), d = Vector3.Dot(q, face);
+                    if (lat < halfW || lat > wallX + 6f || Mathf.Abs(q.y) > 20f) continue;
+                    if (d > -0.02f || d < -3f) continue;   // in front of the face already, or far into the hill
+                    w += face * (-0.02f - d);              // back onto the face, 2 cm in front of it
+                    vs[k] = inv.MultiplyPoint3x4(w); any = true; moved++;
+                }
+                if (!any) continue;
+                m.vertices = vs; m.RecalculateBounds();
+                mc.sharedMesh = null; mc.sharedMesh = m;
+                EditorUtility.SetDirty(m);
+            }
+            if (moved > 0) Log($"Tunnel mouth: {moved} cut-solid vertices pulled back onto the portal's face.");
+        }
+
         /// <summary>The fill's own height at (x, z), or NaN where it has none.</summary>
         static float StageFillYAt(FillGrid g, float x, float z)
         {
@@ -951,6 +984,9 @@ namespace PSXRacing.EditorTools
             BuildPortal3(pts, iB, 1f, halfW, parent, no * 2 + 1, stone, mortar);
             PortalColliders3(pts, iA, -1f, halfW, parent, phys);
             PortalColliders3(pts, iB, 1f, halfW, parent, phys);
+            // (2b) THE CUTS' SOLIDS END WHERE THEIR ROCK IS DRAWN: a bank's collider ran 0.1 m past the portal's face
+            // into the masonry, solid over nothing drawn (the self-test's ghost barriers at both mouths)
+            if (Tunnel3B) { TrimSolidsAtMouth(pts, iA, -1f, halfW, parent); TrimSolidsAtMouth(pts, iB, 1f, halfW, parent); }
             var ground = AssetDatabase.LoadAssetAtPath<Material>(MatDir + "/" + MeshPrefix + "Ground.mat");
             // the hill's steep faces and its boulders in the road cuts' own rock (BuildStageBanks' material: the
             // neighbour's look and scale exactly)
