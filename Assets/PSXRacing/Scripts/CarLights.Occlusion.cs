@@ -95,35 +95,45 @@ namespace PSXRacing
             float span = PoolRes * PoolTexelM * 0.5f;
             // 1. the last frame's rays, if the job threads are done with them (never waited for)
             OccCollect(!OccAsync);
-            // 2. this frame's rows: every lit car in the window
-            int cars = 0;
-            for (int c = 0; c < sorted.Count && cars < OccRows; c++)
-            {
-                var l = sorted[c];
-                if ((l.transform.position - eye).sqrMagnitude > span * span) continue;
-                l.occRow = cars++;
-            }
+            // 2. the rows: a car keeps its row while it stays lit in the window (4b: a row is written only when
+            // its reaches change, and the texture goes up only then)
             if (occTex == null)
             {
                 occTex = new Texture2D(OccBins, OccRows, TextureFormat.RHalf, false, true)
                 { name = "PSXHeadVis", filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp, hideFlags = HideFlags.DontSave };
                 occData = new ushort[OccBins * OccRows];
             }
-            ushort clear = Mathf.FloatToHalf(OccClear);
+            int cars = 0;
+            for (int r = 0; r < OccRows; r++)
+            {
+                var ow = occRowOwner[r];
+                if (ow == null) continue;
+                if (!ow.isActiveAndEnabled || !ow.LitNow || (ow.transform.position - eye).sqrMagnitude > span * span || ow.occRowFrame < Time.frameCount - 2)
+                { ow.occRowHeld = -1; occRowOwner[r] = null; }
+            }
             for (int c = 0; c < sorted.Count; c++)
             {
                 var l = sorted[c];
-                if (l.occRow < 0) continue;
-                int o = l.occRow * OccBins;
-                if (l.occCur == null) { for (int b = 0; b < OccBins; b++) occData[o + b] = clear; continue; }
-                for (int b = 0; b < OccBins; b++) occData[o + b] = Mathf.FloatToHalf(l.occCur[b]);
+                if ((l.transform.position - eye).sqrMagnitude > span * span) continue;
+                if (l.occRowHeld < 0 || occRowOwner[l.occRowHeld] != l)
+                {
+                    int free = -1;
+                    for (int r = 0; r < OccRows; r++) if (occRowOwner[r] == null) { free = r; break; }
+                    if (free < 0) continue;
+                    occRowOwner[free] = l; l.occRowHeld = free;
+                    OccWriteRow(l);
+                    occTexDirty = true;
+                }
+                l.occRow = l.occRowHeld; l.occRowFrame = Time.frameCount;
+                cars++;
             }
-            if (cars > 0)
+            if (occTexDirty)
             {
+                occTexDirty = false;
                 occTex.SetPixelData(occData, 0);
                 occTex.Apply(false, false);
-                Shader.SetGlobalTexture(OccTexId, occTex);
             }
+            if (cars > 0) Shader.SetGlobalTexture(OccTexId, occTex);
             // 3. the next rays, while none are out: near cars (80 m) every look, to 250 m every other, past it every fourth
             int total = 0;
             if (!occPending && cars > 0)
@@ -183,6 +193,18 @@ namespace PSXRacing
             Night4Clock.Occ(OccMs);
         }
 
+        static readonly CarLights[] occRowOwner = new CarLights[OccRows];
+        static bool occTexDirty;
+        [System.NonSerialized] int occRowHeld = -1, occRowFrame = -9;
+
+        static void OccWriteRow(CarLights l)
+        {
+            if (occData == null || l.occRowHeld < 0) return;
+            int o = l.occRowHeld * OccBins;
+            if (l.occCur == null) { ushort clear = Mathf.FloatToHalf(OccClear); for (int b = 0; b < OccBins; b++) occData[o + b] = clear; return; }
+            for (int b = 0; b < OccBins; b++) occData[o + b] = Mathf.FloatToHalf(l.occCur[b]);
+        }
+
         /// <summary>Read the rays that are back (all of them when <paramref name="wait"/>), ease each car's reaches.</summary>
         static void OccCollect(bool wait)
         {
@@ -214,6 +236,8 @@ namespace PSXRacing
                     }
                     l.occCur[b] = snap ? reach : l.occCur[b] + (reach - l.occCur[b]) * k;
                 }
+                OccWriteRow(l);
+                occTexDirty = true;
             }
             occCastCars.Clear();
         }

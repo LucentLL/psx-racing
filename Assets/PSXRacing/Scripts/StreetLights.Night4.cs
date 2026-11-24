@@ -74,6 +74,14 @@ namespace PSXRacing
         public static int N4Mask => ~((1 << 2) | (1 << 10));
 
         /// <summary>Is this collider thin in plan (a post, a trunk, a signal pole): no shadow.</summary>
+        /// <summary>(4b) By the hit's id first: hit.collider is a managed lookup, a thousand of them a lamp.</summary>
+        internal static bool N4IsThinHit(in RaycastHit hit)
+        {
+            var id = hit.colliderEntityId;
+            if (n4Thin.TryGetValue(id, out bool t)) return t;
+            return N4IsThin(hit.collider, id);
+        }
+
         internal static bool N4IsThin(Collider c, EntityId id)
         {
             if (c == null) return true;
@@ -256,7 +264,7 @@ namespace PSXRacing
                         var hit = hits[ci * 2 + m];
                         if (hit.normal == Vector3.zero) continue;   // (no hit)
                         if (hit.distance >= best) continue;
-                        if (N4IsThin(hit.collider, hit.colliderEntityId)) continue;
+                        if (N4IsThinHit(hit)) continue;
                         best = hit.distance; bh = hit;
                     }
                     if (best < float.MaxValue && best < len - 0.6f)
