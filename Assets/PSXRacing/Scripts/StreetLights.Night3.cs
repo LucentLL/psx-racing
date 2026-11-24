@@ -120,6 +120,8 @@ namespace PSXRacing
             if (!mayRebuild && !remade && !float.IsNaN(n3Origin.x)) origin = n3Origin;
             var shape = new Vector4(N3PoolM, N3PoolGain, N3GlowM, N3GlowGain);
             // a lamp change (streamed tiles; the ring's edge is past the far plane) is gathered at most twice a second
+            // (NIGHT 4) lamps waiting for the tiles round them are looked at again every second
+            if (n3MeshVersion == n3Version && Time.unscaledTime - n3MeshAt > (n4Backlog ? 0.5f : 1f) && N4WaitingDue()) n3Version++;
             bool lampsChanged = n3MeshVersion != n3Version && (Time.unscaledTime - n3MeshAt > 0.5f || n3Mesh == null || !Application.isPlaying);
             if (lampsChanged || shape != n3BuiltShape || n3BuiltOn != StreetOn || remade || origin != n3Origin)
             {
@@ -153,16 +155,21 @@ namespace PSXRacing
             n3V.Clear(); n3U0.Clear(); n3U1.Clear(); n3I.Clear();
             int lamps = 0, mercs = 0;
             float reach = Mathf.Max(N3PoolM, N3GlowM) + N3TexelM;
+            // NIGHT 4: what each lamp's head can see (StreetLights.Night4.cs), found once a lamp
+            // (by day too, as tiles stream: nothing is left to find when the lamps come on at dusk)
+            N4UpdateVis();
             if (StreetOn)
                 for (int i = 0; i < high; i++)
                 {
                     ref Entry e = ref entries[i];
                     if (!e.used || !e.field || !e.on || e.kind != Kind.Street || e.intensity <= 0f) continue;
                     if (e.owned && e.owner == null) continue;
+                    if (N4Withheld(i) || N4SoloSkips(e.pos)) continue;
                     lamps++;
                     if (e.mercury) mercs++;
                     float pool = e.intensity * N3PoolGain, glow = e.intensity * N3GlowGain;
-                    var u0 = new Vector4(e.pos.x, e.pos.z, 0f, 0f);
+                    var vs = N4Slot(i);
+                    var u0 = new Vector4(e.pos.x, e.pos.z, vs.x, vs.y);
                     // a high mast (an interchange's ring of floods, 20-30 m up) lights the carriageway under
                     // it: its light is counted from N3MastLiftM over its own ground (the field's vertical reach
                     // is 16 m under a head - so a road on a deck's underside 5+ m below still takes none)
@@ -205,7 +212,8 @@ namespace PSXRacing
             if (n3Lamps > 0)
             {
                 n3Cmd.SetViewProjectionMatrices(Matrix4x4.identity, SplatProj(span));
-                n3Mat.SetVector(SplatRId, new Vector4(1f / (N3PoolM * N3PoolM), 1f / (N3GlowM * N3GlowM), 0f, 0f));
+                n3Mat.SetVector(SplatRId, new Vector4(1f / (N3PoolM * N3PoolM), 1f / (N3GlowM * N3GlowM), N4UScale, 0f));
+                N4BindSplat(n3Mat);
                 n3Cmd.DrawMesh(n3Mesh, Matrix4x4.Translate(new Vector3(-origin.x, -origin.y, 0f)), n3Mat, 0, 0);
             }
             Graphics.ExecuteCommandBuffer(n3Cmd);
@@ -284,8 +292,12 @@ namespace PSXRacing
             Shader.SetGlobalVector(Night3Id, new Vector4(Night3 ? 1f : 0f, air.x, Mathf.Max(air.y, 1f), 0f));
             // the lit city's night sky (PSXAtmosphere.cginc): darker toward the zenith, by the night
             // (the city only: a stage whose only field lamps are its tunnels' keeps its sky)
-            float sky = Night3 && FieldActive && City.CityWorld.Active != null ? Mathf.Lerp(1f, N3SkyMul, Mathf.Clamp01(Shader.GetGlobalFloat(NightGlobalId))) : 0f;
+            float nightG = Mathf.Clamp01(Shader.GetGlobalFloat(NightGlobalId));
+            float sky = Night3 && FieldActive && City.CityWorld.Active != null ? Mathf.Lerp(1f, N3SkyMul, nightG) : 0f;
+            // NIGHT 4: no gate on the field (it could switch), eased with the city being loaded
+            if (Night4) { sky = N4SkyMulNow(nightG); if (sky > 0.9995f) sky = 0f; }
             Shader.SetGlobalFloat(N3SkyId, sky);
+            PushNight4Globals(nightG);
             if (Application.isPlaying && Time.frameCount != n3AirFrame)
             {
                 n3AirFrame = Time.frameCount;

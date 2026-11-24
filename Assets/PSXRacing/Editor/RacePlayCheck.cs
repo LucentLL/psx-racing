@@ -159,6 +159,8 @@ namespace PSXRacing.EditorTools
                 if (!string.IsNullOrEmpty(hour) && string.Equals(TimeOfDay.All[h].name, hour, System.StringComparison.OrdinalIgnoreCase))
                     hourIdx = h;
             RaceHandoff.TimeOfDayIndex = hourIdx;
+            // PSX_RACE_DAY=20: the calendar day (a winter date: the season's dress)
+            if (int.TryParse(System.Environment.GetEnvironmentVariable("PSX_RACE_DAY") ?? "", out int raceDay) && raceDay > 0) { RaceHandoff.CalendarDay = raceDay; log.AppendLine("  day " + raceDay); }
             log.AppendLine("  hour " + TimeOfDay.All[hourIdx].name);
             // THE TRAFFIC LEVEL (the owner's per-race toggle), by reflection so
             // this harness also runs against a build from before it existed -
@@ -360,8 +362,39 @@ namespace PSXRacing.EditorTools
             }
             // a checkpoint race holds the countdown while its fields build: give it a minute on a busy machine
             float until = Time.realtimeSinceStartup + (rm.Checkpoints != null ? 60f : 15f);
-            while (rm.State == RaceManager.RaceState.Countdown && Time.realtimeSinceStartup < until) yield return null;
+            // (P0) a course preloaded LIVE in the editor takes minutes: PSX_RACE_HOLD=s waits that long
+            if (float.TryParse(System.Environment.GetEnvironmentVariable("PSX_RACE_HOLD") ?? "", out float holdS) && holdS > 0f) until = Time.realtimeSinceStartup + holdS;
+            float nextWatch = 0f, gridWorst = float.MaxValue; string gridWho = "-";
+            while (rm.State == RaceManager.RaceState.Countdown && Time.realtimeSinceStartup < until)
+            {
+                // (P0) where the grid is while the countdown is held: the lowest car against its road
+                // (P0) every car on its road from the spawn through the countdown: the lowest, every frame
+                foreach (var c in rm.allCars)
+                {
+                    if (c == null || !c.gameObject.activeInHierarchy) continue;
+                    float dyG = c.transform.position.y - rm.path.GetPoint(rm.path.NearestIndex(c.transform.position, -1, rm.path.Count)).y;
+                    if (dyG < gridWorst) { gridWorst = dyG; gridWho = c.name; }
+                }
+                if (Time.realtimeSinceStartup >= nextWatch)
+                {
+                    nextWatch = Time.realtimeSinceStartup + 5f;
+                    float worst = float.MaxValue; string who = "-";
+                    foreach (var c in rm.allCars)
+                    {
+                        if (c == null) continue;
+                        float dy = c.transform.position.y - rm.path.GetPoint(rm.path.NearestIndex(c.transform.position, -1, rm.path.Count)).y;
+                        if (dy < worst) { worst = dy; who = c.name; }
+                    }
+                    var cw = PSXRacing.City.CityWorld.Active;
+                    RacePlayCheck.Note($"  HOLD {Time.realtimeSinceStartup:0}s: lowest car {who} {worst:+0.00;-0.00} m against the path; course {(cw != null ? (cw.CourseProgress * 100f).ToString("0") + "%" : "-")}, {(cw != null ? cw.LiveTiles : 0)} live");
+                }
+                yield return null;
+            }
             RacePlayCheck.Check(rm.State == RaceManager.RaceState.Racing, "the race goes live", rm.State);
+            RacePlayCheck.Check(gridWorst > -2f, "every grid car on its road through the countdown", gridWho + " " + gridWorst.ToString("+0.00;-0.00") + " m against the path at its lowest");
+            // (P0 11-23, PC61: "Charlotte levels aren't loading, falling through ground") every grid car
+            // still on its road 10 s after the green
+            StartCoroutine(OnRoadCheck(10f));
             RacePlayCheck.Note($"  road grip x{Seasons.RoadGripMult:0.00}, road {rm.path.roadWidth:0.0} m, two-way {(TrafficSystem.Instance != null && TrafficSystem.Instance.TwoWay)}");
             // PSX_RACE_VIEW=COCKPIT (race-play-check.ps1 -View Cockpit): the
             // race from the driver's seat, forced for the session and never
@@ -736,6 +769,29 @@ namespace PSXRacing.EditorTools
 
         /// <summary>A DOWN deck run's grid on the roof, settled: every car on
         /// the roof floor (not under it, not dropping), clear of the others.</summary>
+        /// <summary>After <paramref name="after"/> s: every car within 2 m of its road's height (the path's,
+        /// at its nearest point) and with ground under it (a ray down from 3 m over it).</summary>
+        IEnumerator OnRoadCheck(float after)
+        {
+            float tEnd = Time.time + after;
+            while (Time.time < tEnd) yield return null;
+            int bad = 0, n = 0;
+            foreach (var c in rm.allCars)
+            {
+                if (c == null || !c.gameObject.activeInHierarchy) continue;
+                n++;
+                var p = c.transform.position;
+                int i = rm.path.NearestIndex(p, -1, rm.path.Count);
+                float py = rm.path.GetPoint(i).y;
+                bool ground = Physics.Raycast(p + Vector3.up * 3f, Vector3.down, out var g, 8f, ~(1 << 2), QueryTriggerInteraction.Ignore);
+                float dy = p.y - py;
+                bool on = dy > -2f && ground;
+                if (!on) bad++;
+                RacePlayCheck.Note($"ON ROAD {c.name}: {dy:+0.00;-0.00} m against the path, ground {(ground ? g.collider.name + " at " + (p.y - g.point.y).ToString("0.00") + " m under" : "NONE")} ({(on ? "ok" : "OFF THE ROAD")})");
+            }
+            RacePlayCheck.Check(bad == 0 && n > 0, "every car is on its road 10 s after the green", bad + " of " + n + " off");
+        }
+
         IEnumerator RoofGridCheck()
         {
             yield return new WaitForSeconds(1.5f);

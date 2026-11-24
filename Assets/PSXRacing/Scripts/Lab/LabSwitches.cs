@@ -159,13 +159,14 @@ namespace PSXRacing
                 look = "The city at night: how dark it is between lamps, the lamp pools, the sky glow.",
                 env = new[] { "PSX_NIGHT3" }, members = new[] { "StreetLights.Night3" },
             });
-            // city-night4 (not merged yet): shows by itself once StreetLights.Night4 exists. Its timing is the
-            // night4 agent's to confirm at the merge (NEXT LOAD until then).
+            // NIGHT 4 (city-night4): flips live - the static field is gathered and splatted again (each lamp's
+            // view is kept, found once), the sky, the albedo cap and the car reach follow the static every frame
             Register(new LabRow
             {
-                id = "night4", group = LabGroup.Lights, name = "NIGHT 4", when = LabWhen.NextLoad,
-                look = "Lamp light blocked by walls and decks; beams kept off the far carriageway.",
+                id = "night4", group = LabGroup.Lights, name = "NIGHT 4", when = LabWhen.Now,
+                look = "Lamps and headlights blocked by walls, buildings, medians and rock; one smooth night sky; pale pavements no brighter than the road.",
                 env = new[] { "PSX_NIGHT4" }, members = new[] { "StreetLights.Night4" },
+                apply = () => StreetLights.N4Touch(),
             });
             Register(new LabRow
             {

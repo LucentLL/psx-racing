@@ -1,3 +1,77 @@
+# HANDOFF - NIGHT4: light blocked by solids, one smooth night sky, pale pavements capped; P0 reversed-race grid fix; P1 slope flicker (agent "night4", 11-23/24; branch `city-night4` from a99a8ef1, mountain-nm 8b98d9ff and b1bd5967 merged in; NOT pushed, NOT merged)
+
+The owner on NIGHT 3: "why does light go through walls, highway medians, etc?" and "Why is the sky so black with navy right next to it in one video. then the next video the sky is foggy and bright on the horizon?" Then from PC61: "Charlotte levels aren't loading, falling through ground" (P0) and "lights are flickering on ground and trees while driving" (P1).
+
+ALL PROOF FRAMES ARE EDITOR FRAMES (PSXPerf, hidden batch editor with graphics, the PC picture, 500 m ring), except the P0 runs and the first two leak probes, which ran in my measuring player before the owner's PC64 was open from 21:41. The player cost is NOT MEASURED.
+
+## P0: Charlotte race start with no ground (FIXED, db270292, Scripts/RaceHandoffApplier.cs, no re-bake)
+Cause: he raced TryonSprintREV. His log says "tryon.json has no rev chain: TryonSprintRev races its fixed line". CityMode.SetupRace builds the ring under the FORWARD grid and queues the course preload from the forward start. RaceManager.Start then reverses the route, and StageReversedGrid restages the field at the old finish in NoDa, 6 km away, whose tiles are LAST in the preload. Physics stepped through the 4-5 s of loading with nothing under the cars, and they fell through the city during the countdown. Fix: StageReversedGrid builds the tiles under every restaged car at once (CityWorld.EnsureRing; ring 1 for the player, 0 for each rival). Not NIGHT 3, LAMPS 3 or the bake.
+Proof (player, 8 cars, rain, noon, day 20 in winter): TryonSprintRev lowest grid car from spawn to green before -278.31 m (ONROAD FAIL), after -0.15 m (ONROAD OK); forward TryonSprint -0.16 m. The shipped PC61 exe passed every forward or solo run (noon, night, rain/winter).
+Smoke checks: player `-perftour "stage=TryonSprintRev,TryonSprint&field=1&rivals=7&traffic=2&hour=Noon&weather=Rain&day=20&secs=20&view=chase"` writes <tag>_<venue>_onroad.txt ending ONROAD OK/FAIL (spawn, countdown, 10 s after the green). Editor: tools\race-play-check.ps1 with PSX_RACE_FIELD=8 PSX_WEATHER=Rain PSX_RACE_DAY=20 ("every grid car on its road through the countdown", "every car is on its road 10 s after the green").
+
+## P1: flicker on the ground and low foliage (965a9bf3, NIGHT 4-gated)
+NIGHT 3's car road pools held each car's ground height for 0.3 s and treated it as flat. On any grade the pools' +-1.5 m height gate then cut the light in steps (headlights are on by day under grey skies too). Now the pool's ground follows the car every frame (ray every 0.3 s for the lamp's height over it, eased) and lies on the car's own grade (the plane under the car, per texel in the splat). Editor frames: the mountain-stage rows of the sheet. The flicker itself was not measured in motion.
+
+## A. No light through solids (NIGHT 4)
+- Static lamp field (StreetLights.Night4.cs, PSXLampSplat pass 0): each field lamp's view is found once, when its tile and the tiles round it stand. Rays from the head to the ground on 48 bearings x 13 radii (0-40 m) run on the job threads, and up to two shadowed stretches per bearing go into an atlas (50 texels per lamp). The splat multiplies pool and glow by what the head sees, and the surfaces still do one fetch. Thin things (<0.9 m: posts, trunks, poles) and cars do not block. While driving, 24 lamps a look, nearest first; at a load or a jump, the whole ring (452 lamps in 121 ms). Lamps waiting for the tiles round them are not splatted (ring edge, past the far plane).
+- Cars (CarLights.Occlusion.cs, PSXHeadlights.cginc, PSXLampSplat pass 1): per lit car a 64-ray fan (+-75 deg) 0.45 m under the lamps (a Jersey at 0.81 m takes the beam; a kerb does not), eased over 0.1 s (no pop). Cars within 80 m are looked at every frame, to 250 m every other frame, beyond every fourth. One fetch per per-pixel beam and per pool texel.
+- Leak table (Ycode at the patch, light ON minus OFF, same NIGHT state; "t" = the light term read back from the GPU):
+
+| spot | NIGHT 3 | NIGHT 4 |
+|---|---|---|
+| lamp behind a building corner (uptown) | +214.0 (t 2.24) | +11.6 (t 0.000: the residue is the lamp's own halo on screen) |
+| lamp behind a wall | +0.4 (t 0.023) | 0.0 (t 0.000) |
+| car beam behind a wall (I-77) | +83.9 (pool t 2.00) | 0.0 (t 0.000) |
+| car beam over a Jersey median (I-77) | +109.2 (pool t 2.21) | +27.8 (pool t 0.000; the rest is the per-pixel beam on a bearing whose fan hit the barrier 2 m further on) |
+| car beam past a building corner (W Trade) | +2.3 | +22.5 (pool t 0.96: two lamps, one bearing each side of the corner) |
+| car beam past a rock face (Blue Ridge stage) | +89.5 (pool t 1.93) | 0.0 (t 0.000) |
+
+The deck case found no spot within 220 m at three places; FIELD_UNDER_M already keeps lamps off the ground under decks.
+
+## B. One smooth night sky
+- Causes: (1) a night cloud was lit by next to nothing while the clear sky behind it kept its scattered light, so clouds were BLACK holes with hard puff edges (his I-77 clip); (2) NIGHT 3 darkened the sky only from 5 degrees up (`saturate(dir.y*12)`), which left the pale band; (3) it was gated on FieldActive, so it could switch; (4) the PHOTO sky (the game's default pref) got no darkening at all.
+- Fix (PSXAtmosphere.cginc, PSXSky.shader, StreetLights.Night4.cs): darkening at every elevation; night clouds at least as bright as the sky they cover; over the lit city one gradient (zenith to horizon) with only 15% of the source sky's structure kept, stars over it, and the city's own warm low glow on top. Its weight eases over 2 s and follows only the city being loaded and the hour. It applies to both photo and dynamic skies.
+- Step check (sky-only frames, 8 headings x 3 elevations, 5x5 median to remove stars; Ycode step between pixels 2 apart above the horizon; py/skystep.py):
+
+| spot | sky | p99.9 before / after | max before / after | low sky (+0.5 deg) before / after |
+|---|---|---|---|---|
+| I-77 | photo | 2.5 / 1.9 | 6.5 / 4.6 | 22.5 / 10.3 |
+| I-77 | dynamic | 3.0 / 2.9 | 87.7 / 31.9 | 18.1 / 10.1 |
+| uptown | photo | 2.4 / 2.0 | 6.6 / 4.7 | 25.5 / 13.9 |
+| uptown | dynamic | 3.0 / 2.8 | 87.9 / 31.9 | 21.0 / 13.4 |
+| residential | photo | 2.3 / 2.0 | 6.1 / 5.0 | 13.3 / 3.7 |
+| residential | dynamic | 4.2 / 3.2 | 85.4 / 30.6 | 9.9 / 2.0 |
+
+The dynamic sky's remaining max (31.9) is the moon's disc. Its clouds still show as faint, soft, darker shapes (15% of their old contrast).
+
+## C. Pavements and faces
+Under NIGHT 4 a lamp-lit city surface reads at most 0.12 effective albedo (PSXLit: no brighter than the lit asphalt). Faces take the glow only up to 2 m over the lamp's head (it was 8), and take the pool only below the head. Editor region table (median/p90 Ycode, NIGHT 3 to NIGHT 4): W Trade sky 13 to 9, road under lamp 116 to 73, pavement 43 to 27; skybridge walls 89/178 to 71/110, pavement 25/82 to 24/31; side street pavement 211 to 200 (that box is in the car's own headlights, which are not capped). His frames: sky 7-17, pavement 33-45, road under a lamp 63-137.
+
+## D. Freeway lamps: NOT FIXED
+LAMPS 4 (barrier-mounted median davits) stood ONE post in the 201 audited tiles, and I-77's worst dark gap stays 844 m. Where the outside refuses posts (ramps beside it), I-77's median is open or cable, not a Jersey, and the longest gaps are structure runs where `PlaceLamps` places nothing. It is withdrawn: Scripts/City is identical to b1bd5967, so no re-bake. To fix it would take median-centre posts behind the cable/W-beam (a new TryLamp mode that measures the other carriageway's edge and stands the post halfway, arms both ways, audit clearance relaxed for it), plus deck-mounted lamps on structure runs.
+
+## E. Other proofs
+- Pop meter (editor, city, 6 runs): NIGHT 4 off vs on the same (lamp field 18.9-22.5/km both). These are the editor ring streaming lamps into view, not NIGHT 4.
+- Clean approach curve: the surface pass now draws the roads AND ground layers with every halo, cone, glow, lens and beam hidden (PerfTour.ApCleanSurface). NOT RUN: player only.
+- Car-pool hand-over: not measured separately.
+- LAB check in the editor did not complete (the run left free roam without a LAB report). Not verified.
+- Self-test (LifeSimSelfTest, PSXPerf, editor, 04:39): 65 failed checks, the same 65 as the city-night round (its list compared line by line, numbers stripped: no new failure). Not re-run on b1bd5967 itself.
+
+## Switches (public static bool FIELDS)
+- `StreetLights.Night4` (PSX_NIGHT4=0 = a99a8ef1's NIGHT 3, default ON). LAB row "NIGHT 4" applies AT ONCE (LabWhen.Now; apply = StreetLights.N4Touch(): the field is re-splatted; the sky, albedo cap and car reach follow the static every frame).
+- Tools only: `CarLights.ToolPoolOnly`, `CarLights.OccTable`, `SkyModePrefs.ToolSky` (a property, run-only, never saved), `PerfTour.ApCleanSurface`.
+
+## Cost
+Editor A/B (W Trade x Tryon, park, chase, 3832x2054 offscreen, 12 x (6+12) frames, nulls): NIGHT 4 off saves 2.94 / 2.71 ms frame (sd 5.4 / 0.95), late scripts 3.6 / 2.4, gpu wait 2.1 / 1.7. Nulls +0.11 / +1.39. The per-pixel reach alone (OccTable off) is 0.90 ms (sd 6.6). Before the last fix (a Physics.SyncTransforms a frame) it was 7-8 ms. So NIGHT 4 is DEARER than NIGHT 3 by about 3 ms in the editor, mostly CPU (the per-frame car fans). The PLAYER cost is NOT MEASURED. Run on the built exe:
+`-batchmode -perftour "routes=at~tradetryon~35.2283~-80.8449~35.2190~-80.8320~Trade&hour=Night&weather=Clear&day=320&secs=30&offscreen=3832x2054&pcfg=12,6,12&view=chase&probe=park&traffic=1&pv=n4off=set:StreetLights.Night4:0;null=g:_PSXNothing:0;occtab=set:CarLights.OccTable:0;n4off2=set:StreetLights.Night4:0;null2=g:_PSXNothing2:0&tag=n4cost"`. Read <tag>_tradetryon_probe.txt, columns "d frame ms (sd)", "d late" and "d gpu wait" for n4off/n4off2 against null/null2. Repeat with view=cockpit and the I-77 route `at~i77s~35.2290~-80.8600~35.1000~-80.8900~I-77`.
+
+## For the merge / the next build: CODE ONLY
+- No change under Scripts/City and no scene or Resources data, so the tile bake and its fingerprint (ad4609c0d730) do not move. New files with metas: Scripts/StreetLights.Night4.cs, CarLights.Occlusion.cs, Dev/PerfTour.Night4.cs. Shared: StreetLights.Night3.cs, CarLights.cs (+ .Pools.cs), RaceHandoffApplier.cs (P0), PSXQuality.cs (SkyModePrefs.ToolSky), Lab/LabSwitches.cs (the NIGHT 4 row, LabWhen.Now + apply), Dev/PerfTour.cs / .Stage.cs / .Approach.cs, Editor/RacePlayCheck.cs; shaders PSXLamps.cginc, PSXHeadlights.cginc, PSXAtmosphere.cginc, PSXSky.shader, PSXLit.shader, Resources/NightSplat/PSXLampSplat.shader.
+- The next build must run: the P0 smoke above; the leak probe `-perftour "leak=bld~35.2272~-80.8431~lamp-building;med~35.2330~-80.8565~car-barrier~I-77;cwall~35.2290~-80.8600~car-wall~I-77&hour=Night&weather=Clear&day=320&traffic=0"` (<tag>_leak.csv; py/leaktable.py); `stage=BlueRidge&leak=car-rock&hour=Night&weather=Clear&day=290&view=chase`; the cost probe above; tools\lab-check.ps1 on the exe.
+
+## Leftovers to recycle after the merge
+C:\Users\mcgee\PSXRelease\_night4 (the measuring player with a LAMPS 4 bake, 8.9 GB). PSXPerf\CityTiles now holds 7.8 MB (the player build took the bake). The sandbox's other files are code only.
+
 # HANDOFF - TUNNEL2: the Little Switzerland Tunnel, round 2 - the real portal, the hillside onto it, no gaps, no stretched textures; headlights in the bore by day; stage road asphalt no longer stretched (agent "tunnel2", branch parkway-tunnel2 from 396f6002, mountain-nm a99a8ef1 and 8b98d9ff merged in; NOT pushed, NOT merged)
 
 Owner 11-23 on round 1: "this is not what they look like (inside or outside) where did all the foliage go?"; on PC60: "I see a lot of gaps around the tunnel remodel. I also see stretched textures on the banks. Textures should never be stretched to noticeable extent."; on PC61: "stretched asphalt texture on mountain map".

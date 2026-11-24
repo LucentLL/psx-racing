@@ -154,7 +154,12 @@ namespace PSXRacing
                         var fullPix = apPix;
                         int maskWas = cam.cullingMask;
                         cam.cullingMask = tg.wall ? (1 << CityWorld.SolidLayer) | (1 << CityWorld.RoadLayer) : (1 << CityWorld.RoadLayer);
+                        // (NIGHT 4) the clean curve: the roads AND the ground layer (a junction's surface is the
+                        // ground's), every halo, far dot and air cone hidden for the pass (they are on layer 0 too)
+                        var hid = ApCleanSurface ? HideGlare() : null;
+                        if (ApCleanSurface) cam.cullingMask |= 1;
                         Capture(cam, rt, screen, blit, tex, W, H);
+                        if (hid != null) foreach (var r in hid) if (r != null) r.enabled = true;
                         cam.cullingMask = maskWas;
                         apPix = tex.GetPixels32();
                         Vector3 tt0 = tg.pathTan.Count > 0 ? tg.pathTan[0] : Vector3.forward, rr0 = Vector3.Cross(Vector3.up, tt0).normalized;
@@ -608,6 +613,24 @@ namespace PSXRacing
             float s2 = 0f; int n = 0;
             for (int y = cy - hh; y <= cy + hh; y++) for (int x = cx - hw; x <= cx + hw; x++) { s2 += Luma(apPix[y * W + x]); n++; }
             return s2 / Mathf.Max(1, n);
+        }
+
+        /// <summary>NIGHT 4: the surface pass also draws the ground layer, with the glare hidden.</summary>
+        public static bool ApCleanSurface = true;
+        static List<Renderer> HideGlare()
+        {
+            var list = new List<Renderer>();
+            foreach (var r in Object.FindObjectsByType<Renderer>(FindObjectsInactive.Exclude))
+            {
+                if (!r.enabled || r.gameObject.layer != 0) continue;
+                var m = r.sharedMaterial;
+                string sn = m != null && m.shader != null ? m.shader.name : "";
+                if (r.gameObject.name == NightGlow.HaloName || sn.IndexOf("Halo", System.StringComparison.OrdinalIgnoreCase) >= 0
+                    || sn.IndexOf("Cone", System.StringComparison.OrdinalIgnoreCase) >= 0 || sn.IndexOf("Glow", System.StringComparison.OrdinalIgnoreCase) >= 0
+                    || sn.IndexOf("Lens", System.StringComparison.OrdinalIgnoreCase) >= 0 || sn.IndexOf("Beam", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                { r.enabled = false; list.Add(r); }
+            }
+            return list;
         }
 
         static bool Occluded(Vector3 eye, Vector3 p)
