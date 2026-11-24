@@ -1,3 +1,47 @@
+# HANDOFF - CARDOTS: the dark dots on a dry car's paint in shade (agent "cardots", branch car-dots from 28480caf)
+
+Owner 11-23 (PC61): "weird shadow dots on car in shade (driving and menus)"; then "Dots in shade...I see them when selecting a car to start the game. In menus. When parked in house driveway. Its been an issue for a long time and I've pointed it out multiple times."
+
+## What it was
+- URP's screen-space ambient occlusion as the PC profile runs it since 4b84a323 (11-02): `PlatformProfile.ApplyAO` sets the SSAO feature to AFTER OPAQUE, source DEPTH, intensity 0.85, radius 0.6 m, and every pixel of the frame is multiplied by it, the cars' paint included. PerfSwitches (AO driver only) keeps it in the driver's view, the replays and the car viewer's showroom (NEW GAME pick, car page, MY CARS, dealers).
+- On a car body (a few thousand flat facets) the normal SSAO rebuilds from depth jumps at every facet; its blur is normal-aware and stops there, so the blue-noise samples stay on the panel as 1-2 px dark specks (median blob 1-2 px, p90 6-16 px; a speck is 57-116 of 255 darker than its neighbourhood). At 4.2 m and 50 deg FOV on 2054 lines a pixel is about 1.9 mm of car: specks of 2-4 mm, clusters to ~3 cm in creases. The pattern is fixed to the SCREEN (blue noise), so it swims over the paint as the car or the camera moves and sits still when both are parked. On a lit panel it is lost in the light; in shade the paint is a smooth dark gradient and the specks are what the owner saw.
+- Why it survived: `ApplyAO` runs in the PLAYER only (`Application.isEditor` returns early), so every editor tool frame was drawn without it. Editor/CarDotsShots now turns the player's SSAO on in memory for its frames (CarDotsShots.PlayerAO; nothing dirtied or saved).
+
+## Cause table (PSXLab editor, 3832x2054 through PSX/Blit 8-bit + FXAA + grade; the "speck" is the frame minus the same frame without SSAO, minus its 9x9 mean, inside the paint mask (PSX/CarPaint debug 12); dots = speck pixels < -0.035)
+| switched | speck rms /255 | specks /10k paint px | verdict |
+|---|---|---|---|
+| player SSAO on (28480caf picture) | 1.2-5.1 | 20-340 | THE DOTS (every place, every paint) |
+| SSAO 12 samples (High) | same | same | no help |
+| SSAO blur Low | worse | 54-320 | worse |
+| SSAO interleaved-gradient noise | about half | 11-210 | less, still there |
+| SSAO from depth+normals (the asset's own mode) | 0 | 0 | draws nothing: the PSX shaders have no DepthNormals pass (no world AO either) |
+| SSAO off (the editor's picture) | 0 | 0 | clean |
+| this round (PSX_CARDOTS on, SSAO on) | 0.00 studio + stage; 0.5-0.9 garage | 0 studio + stage; 1.2-4.9 garage | clean (garage remainder: FXAA/halation carrying the world's AO 1-2 px over the car's edge) |
+Not the cause (checked in code/textures, no picture change expected): the sun / car shadow maps (strength 0 indoors and in menus; a car never shades itself, bias 0.45 m), the sky map, the HD sheets (civic_eg red colour/normal/ORM are flat on the panels: normal 128,128,255 sd 0.05; AO 255; roughness 0.28 < the 0.5 threshold), the dither (8 bits on PC HD), rain beads (the viewers and menus are dry since sprayfix; nothing of PSXCarDrops changed). No TAA in the game.
+
+## The fix (PSX_CARDOTS, default ON; =0 = 28480caf)
+- Scripts/CarDots.cs: every PSX/CarPaint material writes stencil bit 128 (`CarDots.Mark`, called from `PSXTexDecode.Stamp` - every car material passes through it; DamageCabin's hole materials (bit 64) are left alone; =0 takes the mark back off; an editor asset stays clean).
+- SpeedBlurFeature.AddRenderPasses (one line) enqueues `CarDots.Add`: for a base camera whose SSAO is active and after-opaque, a stencil-gated copy of the car pixels OUT just before the SSAO (event 449) and BACK just after it (451, before the transparents: glass, smoke, spray and rain still draw over the car). Shader: PSX/SpeedBlur pass 4 "CarKeep" (always in the build through the feature's serialized shader).
+- The ground under and beside the car keeps its occlusion (the car is still in the depth the SSAO reads). Where an opaque drawn after a car covers it, that pixel keeps its pre-SSAO colour (never a wrong colour).
+- Honest trade: the car's own crevices (grille, arch liners, under the bumper) lose the SSAO's broad darkening as well as its specks; they keep the paint's own sill-to-roof fall-off and, on HD cars, their baked AO map (garage rows of the sheet show it: the grille is lighter).
+
+## Proof
+- `scratchpad\cardots\dots_sheet.png`: 28480caf | this round, 1:1 crops (centre 180 px at 2x): showroom red / white / silver / gtr_99, garage red / black, Blue Ridge shaded flank red / white / black. Full logs: t2\cardots.txt (studio, garage, the bisect variants), t3\cardots.txt (stage).
+- Self-test `LifeSimSelfTest.RunCarDots` (also in RunPaint and the full Run): showroom, far flank in fill, player SSAO on: speck rms red 1.70 -> 0.00, white 3.78 -> 0.00, black 3.75 -> 0.00 /255; specks 54 / 185 / 208 -> 0 per 10k (limit 0.5); silver added. Full self-test: this branch 65 FAIL = 28480caf 65 FAIL, the same set (no new failures).
+- Cost (EDITOR perf tour, Blue Ridge park, 3832x2054 offscreen, 20 x 30 frames, AO after-opaque in all variants): fix on vs off: frame +0.0..+0.5 ms, gpu wait +0.2..+0.3 ms, set-pass +2; A/A nulls 0.55 ms frame / 0.14 ms gpu (one off-block outlier, sd 12). Below what the editor can resolve; expected ~0.05-0.1 ms on the GPU (two full-frame stencil-gated passes, a full-size transient). Re-measure in the PC build with -perftour pv `keep_off=set:CarDots.On:0;aa=set:CarDots.On:1`.
+
+## Not done / not verified
+- Not seen in a player: the player-only AO is emulated in the editor (the same feature settings ApplyAO writes). The HD car tier is not in PSXLab (no HDSrc), so HD shells were drawn with their 512 sheets; the fix is independent of the tier.
+- The house driveway in the Charlotte home was not shot (the edit-mode city streams nothing); the garage (indoors), the showroom and a stage's shaded flank stand in. No overcast weather in the edit-mode shot (noon, shaded flank).
+- Traffic and rivals: the same material path (Stamp) and the same pass; not shot separately.
+
+## At merge
+- Shared files: Scripts/SpeedBlurFeature.cs (AddRenderPasses, +2 lines), Scripts/PSXTexDecode.cs (Stamp, +2 lines), Shaders/PSXSpeedBlur.shader (pass 4 appended). New: Scripts/CarDots.cs, Editor/CarDotsShots.cs, Editor/LifeSimSelfTest.CarDots.cs (+metas); LifeSimSelfTest.cs wires TestCarDotsShade into RunPaint and the full run.
+- No scene, kit or data change; no re-bake. A PC build picks it up as is.
+
+## What the owner will notice
+The dark speckle is gone from the cars' paint in shade and indoors - the NEW GAME car pick, the showroom pages, the garage, the driveway, and every car on the road - with the world's ambient shading unchanged.
+
 # HANDOFF - SPRAYFIX: rain spray off the tyres and the road, not out of the tail lamps; rain on the cars at real size (agent "sprayfix", branch spray-fix from a99a8ef1)
 
 Owner 11-23 (PC61): "Why are the water trails shooting out of the car's taillights, when they should be coming off the ground/rear tires?"; "these water droplets are MASSIVE ... like a Hot Wheel ... streaks moving in a straight light past droplets that aren't moving"; "weird shadow dots on car in shade (driving and menus)".
