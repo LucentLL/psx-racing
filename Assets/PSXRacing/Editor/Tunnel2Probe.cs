@@ -249,7 +249,9 @@ namespace PSXRacing.EditorTools
                                         if (c.r < 235 || c.g > 20 || c.b < 235) continue;
                                         var ray = cam.ViewportPointToRay(new Vector3((x + 0.5f) / W, (y + 0.5f) / H, 0f));
                                         bool gap;
-                                        if (ray.direction.y < -0.01f) gap = true;
+                                        // (2 degrees under the horizontal: a mountain stage's far valleys legitimately show sky a
+                                        // degree or so under it, past the far land's crest)
+                                        if (ray.direction.y < -0.035f) gap = true;
                                         else
                                         {
                                             bool a = InOpening(mouths[0], ray.origin, ray.direction), b = InOpening(mouths[1], ray.origin, ray.direction);
