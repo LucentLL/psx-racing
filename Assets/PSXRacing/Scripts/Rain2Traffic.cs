@@ -180,6 +180,15 @@ namespace PSXRacing
             if (Rain2.On && Rain2.Spray && ps == null) Build();
         }
 
+        /// <summary>(LAB, SPRAY FROM TYRES) the shared mist thrown away, so the next rainy frame builds it again
+        /// with TireSpray.Spray2's material and shape as they are now.</summary>
+        public static void Discard()
+        {
+            if (holder != null) Object.Destroy(holder);
+            holder = null;
+            ps = null;
+        }
+
         /// <summary>A new scene: the last one's cars are gone, and its mist with them.</summary>
         public static void Clear()
         {

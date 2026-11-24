@@ -428,6 +428,7 @@ namespace PSXRacing
                                 new Vector2(1f, 0.5f), new Vector2(-PadX, 0f), TextAnchor.MiddleRight,
                                 MenuKit.Accent, w * 0.5f - PadX * 2f, RowH, bold: true);
             val.name = "Value";
+            if (it.dim) { cap.color = MenuKit.Dim; val.color = MenuKit.Dim; }
             live.Add(new KeyValuePair<SettingItem, Text>(it, val));
             Tag(b.gameObject, it.blurb);
             return b;

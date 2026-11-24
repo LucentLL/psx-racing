@@ -462,7 +462,7 @@ namespace PSXRacing
         /// any stopped car. And an oncoming car out of view is taken off anywhere within OneWayLookM of a one-way
         /// stretch, not only in its last 20 m. PSX_TRAFFIC_ONEWAY_HOLD=0: as aipass left it.
         /// </summary>
-        static readonly bool OneWayHoldOn = System.Environment.GetEnvironmentVariable("PSX_TRAFFIC_ONEWAY_HOLD") != "0";
+        static bool OneWayHoldOn = System.Environment.GetEnvironmentVariable("PSX_TRAFFIC_ONEWAY_HOLD") != "0";
         const float OneWayHoldM = 12f, OneWayLookM = 120f;
         /// <summary>Metres from s, driving dir, to the first one-way waypoint within look (+inf if none).</summary>
         float OneWayAheadM(float s, int dir, float look)

@@ -284,12 +284,55 @@ namespace PSXRacing.EditorTools
             Debug.Log("[BenchPreview] done");
         }
 
+        /// <summary>
+        /// THE LAB PAGE (2026-11-23) at the pause sizes: SETTINGS with its LAB row from the pause menu and from a
+        /// front end's OPTIONS; every LAB tab from both; the WORLD tab scrolled to its end and walked by a pad; the
+        /// pause screen with two rows changed (its LAB line). Writes Screenshots/lab/. Rows are flipped in memory
+        /// only (a test run: nothing saved) and put back.
+        /// </summary>
+        [MenuItem("PSX Racing/Preview Lab Page")]
+        public static void CaptureLab()
+        {
+            string outDir = Path.Combine(Directory.GetParent(Application.dataPath).FullName, "Screenshots", "lab");
+            Directory.CreateDirectory(outDir);
+            foreach (var f in Directory.GetFiles(outDir, "*.png")) File.Delete(f);
+            LabSwitches.Boot(true);
+            try
+            {
+                ShootPause(outDir, "settings_settings", SettingsTab.System);
+                ShootPause(outDir, "front_settings", SettingsTab.System, frontEnd: true);
+                for (int p = 0; p < LabCatalog.TabNames.Length; p++)
+                {
+                    string tn = LabCatalog.TabNames[p].ToLowerInvariant();
+                    ShootPause(outDir, "lab_" + tn, SettingsTab.System, p, sub: LabCatalog.Pages);
+                    ShootPause(outDir, "front_lab_" + tn, SettingsTab.System, p, sub: LabCatalog.Pages, frontEnd: true);
+                }
+                // two rows changed: the values, the SETTINGS summary and the pause screen's line
+                LabSwitches.Set(LabSwitches.Find("night3"), false, false);
+                LabSwitches.Set(LabSwitches.Find("farhaze2"), false, false);
+                if (LabSwitches.Find("spray2") != null) LabSwitches.Set(LabSwitches.Find("spray2"), false, false);
+                ShootPause(outDir, "lab_changed_pause");
+                ShootPause(outDir, "lab_changed_lights", SettingsTab.System, (int)LabGroup.Lights, sub: LabCatalog.Pages);
+                ShootPause(outDir, "lab_changed_rain", SettingsTab.System, (int)LabGroup.Rain, sub: LabCatalog.Pages);
+                Debug.Log("[BenchPreview] lab line: " + LabSwitches.ChangedLine);
+            }
+            finally
+            {
+                LabSwitches.ResetAll(false);
+                LabSwitches.ApplyPending();
+                RaceHandoff.ClearAll();
+                MenuKit.ScreenSizeOverride = Vector2.zero;
+            }
+            Debug.Log("[BenchPreview] done");
+        }
+
         /// <param name="scrollTo">Where to leave the settings rows' scroll (1 = top).</param>
         /// <param name="padWalk">Walk a pad DOWN the rows (NavScrollPreview) and
         /// photograph where it ends.</param>
         /// <param name="arcade">An arcade session (its DAMAGE row).</param>
         internal static void ShootPause(string outDir, string label, SettingsTab? tab = null, int wheelPage = -1,
-                                        float scrollTo = 1f, bool padWalk = false, bool arcade = false)
+                                        float scrollTo = 1f, bool padWalk = false, bool arcade = false,
+                                        SettingsPages sub = null, bool frontEnd = false)
         {
             foreach (var size in PauseSizes)
             {
@@ -300,6 +343,14 @@ namespace PSXRacing.EditorTools
                 if (arcade) ArcadeMode.Simulate(true);
 
                 var host = new GameObject("GameSystems");
+                if (frontEnd)
+                {
+                    // (lab) a front end's OPTIONS: the settings page alone, no drive (host null)
+                    var fp = host.AddComponent<SettingsPanel>();
+                    fp.Open(tab ?? SettingsTab.System);
+                }
+                else
+                {
                 var menu = host.AddComponent<PauseMenu>();
                 // The fuel row is a car's; there is no car here, so ask for it
                 // outright - the screen is photographed at its tallest.
@@ -313,11 +364,12 @@ namespace PSXRacing.EditorTools
                 build.Invoke(menu, null);
                 PauseMenu.PreviewFuelRow = false;
                 if (tab.HasValue) menu.OpenSettings(tab.Value);
+                }
                 SettingsPanel wheel = null;
                 if (wheelPage >= 0)
                 {
                     var main = host.GetComponent<SettingsPanel>();
-                    wheel = main != null ? main.OpenSub(WheelSetupCatalog.Pages, wheelPage) : null;
+                    wheel = main != null ? main.OpenSub(sub ?? WheelSetupCatalog.Pages, wheelPage) : null;
                     if (wheel != null) wheel.RefreshValues();
                 }
 
@@ -359,8 +411,10 @@ namespace PSXRacing.EditorTools
                     var sp = host.GetComponent<SettingsPanel>();
                     if (sp == null || !sp.IsOpen)
                         Debug.LogError("[BenchPreview] " + where + " NO CONTROLS - the settings menu did not open");
-                    if (tab.Value == SettingsTab.System && !Has("Btn_DEBUG BENCH"))
+                    if (tab.Value == SettingsTab.System && !frontEnd && wheelPage < 0 && !Has("Btn_DEBUG BENCH"))
                         Debug.LogError("[BenchPreview] " + where + " NO BENCH BUTTON in a debug career's SETTINGS page");
+                    if (tab.Value == SettingsTab.System && wheelPage < 0 && !Has("Btn_LAB"))
+                        Debug.LogError("[BenchPreview] " + where + " NO CONTROLS - no LAB row on SETTINGS");
                     if (tab.Value == SettingsTab.Gameplay && !Has("Slider_STEERING"))
                         Debug.LogError("[BenchPreview] " + where + " NO CONTROLS - no STEERING slider on GAMEPLAY");
                     if (tab.Value == SettingsTab.Controls && wheelPage < 0 && !Has("Btn_WHEEL SETUP"))

@@ -94,11 +94,11 @@ namespace PSXRacing
         // is drawn OVER the scene (premultiplied alpha, PSX/Rain _Over), so however many puffs stack
         // they can only reach the light the scene gives them, and the lamps' share of it is capped.
         // The same particle counts as before.
-        public static readonly bool Spray2 = System.Environment.GetEnvironmentVariable("PSX_SPRAY2") != "0";
+        public static bool Spray2 = System.Environment.GetEnvironmentVariable("PSX_SPRAY2") != "0";
         /// <summary>(sprayfix) The rain ON the cars' bodies and glass at real size, one water (PSXCarDrops.cginc
         /// CARDROPS 2), and the chase lens's drops at 0.6 of their size (PSXLens). PSX_CARDROPS2=0: a99a8ef1's.
         /// Pushed as _PSXCarDrops2Off (x body, y lens: 1 = the old), so an unset global is the new look.</summary>
-        public static readonly bool CarDrops2 = System.Environment.GetEnvironmentVariable("PSX_CARDROPS2") != "0";
+        public static bool CarDrops2 = System.Environment.GetEnvironmentVariable("PSX_CARDROPS2") != "0";
         static readonly int CarDrops2OffId = Shader.PropertyToID("_PSXCarDrops2Off");
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
 #if UNITY_EDITOR
