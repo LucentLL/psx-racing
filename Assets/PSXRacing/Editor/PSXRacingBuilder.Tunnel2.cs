@@ -188,9 +188,17 @@ namespace PSXRacing.EditorTools
                 foreach (float side in new[] { -1f, 1f })
                 {
                     int prev = -1;
-                    for (int k = 0; k < rings; k++)
+                    // (and 0.8 m out past each mouth, under the verge there: the slit between the bore's lip and
+                    // the hill's verge, which starts 16 cm in front of the face)
+                    for (int kk = -1; kk <= rings; kk++)
                     {
+                        int k = Mathf.Clamp(kk, 0, rings - 1);
                         Vector3 c = cen[k], r = rgt[k];
+                        if (kk < 0 || kk >= rings)
+                        {
+                            Vector3 along = (cen[kk < 0 ? 1 : rings - 1] - cen[kk < 0 ? 0 : rings - 2]); along.y = 0f; along.Normalize();
+                            c += along * (kk < 0 ? -0.8f : 0.8f);
+                        }
                         float y = c.y - 0.32f + (side < 0f ? bankL[k] : bankR[k]);
                         Vector3 wIn = c + r * (side * (R - 0.9f)), wOut = c + r * (side * (R + 0.25f));
                         int b = cV.Count;
