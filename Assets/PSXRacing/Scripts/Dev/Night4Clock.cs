@@ -26,7 +26,8 @@ namespace PSXRacing
                 buf ??= new StringBuilder(1 << 16);
                 buf.Append(frame).Append(',').Append((dt * 1000f).ToString("0.00", System.Globalization.CultureInfo.InvariantCulture))
                    .Append(',').Append(occ.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture))
-                   .Append(',').Append(view.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture)).Append('\n');
+                   .Append(',').Append(view.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture))
+                   .Append(',').Append(tick.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture)).Append('\n');
                 if (buf.Length > 60000) Flush();
             }
             if (!hooked) { hooked = true; Application.quitting += Flush; }
