@@ -4002,6 +4002,10 @@ namespace PSXRacing.EditorTools
                        : KerbTexPath;
             var mat = MakeMat(MeshPrefix + "Kerb", tex, affine: 0f, wet: WetKerb);
             mat.mainTextureScale = new Vector2(1f, 1f);
+            // (tunnel2b, PSX_ROADSIDEUV2) a stage's verge strip: square texels along it (was 2 m a repeat over 0.9 m)
+            kerbUTileM = 2f;
+            if (RoadsideUV2 && style == KerbStyle.Verge && track != null && track.stage && mat.mainTexture != null)
+                kerbUTileM = KerbWidth * mat.mainTexture.width / Mathf.Max(1f, mat.mainTexture.height);
 
             foreach (float side in new[] { -1f, 1f })
             {
@@ -4069,6 +4073,8 @@ namespace PSXRacing.EditorTools
         /// <summary>The Racing/Verge ribbon: two verts per station, flush
         /// with the road (<see cref="KerbStripLift"/>), u along the road at
         /// one repeat per 2 m (the classic red/white dashing), v across.</summary>
+        static float kerbUTileM = 2f;
+
         static Mesh FlatKerbMesh(List<Vector3> pts, float side)
         {
             var verts = new List<Vector3>();
@@ -4090,8 +4096,8 @@ namespace PSXRacing.EditorTools
                 int v = verts.Count;
                 verts.Add(inner); verts.Add(outer);
                 // Repeat every 2 m of travel gives the classic red/white dashing.
-                uvs.Add(new Vector2(ring.dist / 2f, 0f));
-                uvs.Add(new Vector2(ring.dist / 2f, 1f));
+                uvs.Add(new Vector2(ring.dist / kerbUTileM, 0f));
+                uvs.Add(new Vector2(ring.dist / kerbUTileM, 1f));
                 if (ri + 1 < rings.Count) KerbQuad(tris, v, 2, side);
             }
             return new Mesh { vertices = verts.ToArray(), uv = uvs.ToArray(), triangles = tris.ToArray() };

@@ -49,6 +49,11 @@ namespace PSXRacing
         /// opened up to daylight grey (an overcast hour's fill took it to x10).
         /// Lower also means less bloom at the exit.</summary>
         public const float TunnelCap = 1.6f;
+        /// <summary>(tunnel2b) With round 2's tunnel (TunnelHeadlights.On) the eye opens further in the bore, x2.4:
+        /// the far portal glows bright against the dark bore (the real tunnel's look), the headlights carry the road.
+        /// Play time.</summary>
+        public static float TunnelCap3 = 2.4f;
+        static float Cap => TunnelHeadlights.On ? TunnelCap3 : TunnelCap;
         /// <summary>Seconds (time constant) to open up in the dark, and to
         /// close down in the light.</summary>
         public const float RiseTau = 1.2f, FallTau = 0.35f;
@@ -179,7 +184,7 @@ namespace PSXRacing
             if (Tunnel) open = 0f;
             Openness = open;
             Target = Scripted >= 0f ? Scripted : TargetFor(open, 1f - g.night, g.dayFill);
-            if (Scripted < 0f && Tunnel && !ForceTunnel && TunnelLamps.Tunnel2) Target = Mathf.Min(Target, TunnelCap);
+            if (Scripted < 0f && Tunnel && !ForceTunnel && TunnelLamps.Tunnel2) Target = Mathf.Min(Target, Cap);
             Current = Step(Current, Target, dt);
             return Current;
         }
@@ -200,7 +205,7 @@ namespace PSXRacing
             if (Tunnel) open = 0f;
             Openness = open;
             Target = TargetFor(open, 1f - night, dayFill);
-            if (Tunnel && TunnelLamps.Tunnel2) Target = Mathf.Min(Target, TunnelCap);
+            if (Tunnel && TunnelLamps.Tunnel2) Target = Mathf.Min(Target, Cap);
             return Target;
         }
     }

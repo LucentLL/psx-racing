@@ -32,6 +32,11 @@ namespace PSXRacing.EditorTools
     public static partial class PSXRacingBuilder
     {
         static bool Tunnel3 => System.Environment.GetEnvironmentVariable("PSX_TUNNEL3") != "0";
+        /// <summary>(tunnel2b, BUILD TIME) round 2b's flanks and closures: the slopes beside the wall laid back as
+        /// leaf-litter ground (42 deg) with the wall's ends standing, the hill kept low behind an approach guard rail
+        /// (no rail collider with a hill a few metres behind it), the hill's first row hard against the face and a
+        /// floor under the verge at each mouth. PSX_TUNNEL3B=0 = round 2 (b1bd5967).</summary>
+        public static bool Tunnel3B = System.Environment.GetEnvironmentVariable("PSX_TUNNEL3B") != "0";
 
         /// <summary>The voussoir ring's radial depth (mean), the wall past the ring each side, the top over the
         /// ring's crown, the end step.</summary>
@@ -90,6 +95,29 @@ namespace PSXRacing.EditorTools
             int st = Mathf.Clamp(Mathf.RoundToInt(f.station), 0, tunnelIn.Length - 1);
             if (!tunnelIn[st] || !T3GroundAt(x, z, out float y)) return false;
             return y > f.roadY + T2CrownY(RoadWidth * 0.5f + TunnelWallOut) + 0.8f;
+        }
+
+        /// <summary>(tunnel2b, PSX_ROADSIDEUV2) a stage's ground / shoulder materials sample the world plane a surface
+        /// faces (_GroundTri = 1 / the ground tile: the top plane is exactly their uv), the cuts' rock takes its top
+        /// plane. Every material of this venue's prefix whose name starts Ground or RoadEdge, and its Bank.</summary>
+        static void RoadsideMaterials()
+        {
+            if (track == null || !track.stage) return;
+            float tri = RoadsideUV2 ? 1f / Mathf.Max(theme.groundTile, 0.01f) : 0f;
+            foreach (var guid in AssetDatabase.FindAssets("t:Material", new[] { MatDir }))
+            {
+                var path = AssetDatabase.GUIDToAssetPath(guid);
+                string nm = System.IO.Path.GetFileNameWithoutExtension(path);
+                if (!nm.StartsWith(MeshPrefix)) continue;
+                string rest = nm.Substring(MeshPrefix.Length);
+                var m = AssetDatabase.LoadAssetAtPath<Material>(path);
+                if (m == null) continue;
+                if ((rest.StartsWith("Ground") && !rest.StartsWith("GroundFar")) || rest.StartsWith("RoadEdge"))
+                {
+                    if (m.HasProperty("_GroundTri")) { m.SetFloat("_GroundTri", tri); EditorUtility.SetDirty(m); }
+                }
+                else if (rest == "Bank" && m.HasProperty("_RockTop")) { m.SetFloat("_RockTop", RoadsideUV2 ? 1f : 0f); EditorUtility.SetDirty(m); }
+            }
         }
 
         static void T3Reset() { t3Grounds.Clear(); t3Keeps.Clear(); t3Boulders.Clear(); t3Boulder = 0; t3HillTris = 0; t3RockTris = 0; }
@@ -493,7 +521,22 @@ namespace PSXRacing.EditorTools
             // rows: every 1.5 m, and the portal planes' own (in front, behind, the slab's back edge)
             var ds = new List<float>();
             for (float d = -Dout; d <= total + Dout + 1e-3f; d += 1.5f) ds.Add(d);
-            float[] plane = { -0.16f, 0.05f, 1.25f, total + 0.16f, total - 0.05f, total - 1.25f };
+            float fr = Tunnel3B ? 0.02f : 0.16f;   // (2b) the hill's first row hard against the face
+            float[] plane = { -fr, 0.05f, 1.25f, total + fr, total - 0.05f, total - 1.25f };
+            // (2b) an approach guard rail on a side of a mouth: its collider stands 1.7 m tall over a 0.8 m rail, so
+            // the hill behind it is kept low (under the rail) for 4.3 m, or the collider is "held off by air"
+            var guard = new bool[2, 2];   // [mouth A/B, side -/+]
+            if (Tunnel3B)
+                for (int mo = 0; mo < 2; mo++)
+                    for (int sd = 0; sd < 2; sd++)
+                    {
+                        Vector3 mc = Frame(mo == 0 ? 0f : total, out Vector3 mr, out Vector3 mf);
+                        Vector3 outw = mo == 0 ? -mf : mf;
+                        Vector3 q = mc + mr * ((sd == 0 ? -1f : 1f) * (roadHalf + 1.6f)) + outw * 3f;
+                        foreach (var h in Physics.RaycastAll(q + Vector3.up * 30f, Vector3.down, 60f, ~0, QueryTriggerInteraction.Ignore))
+                            if (h.collider != null && h.collider.name.StartsWith("WallColl")) guard[mo, sd] = true;
+                    }
+            const float SlopeB = 0.9f;
             ds.RemoveAll(d => System.Array.Exists(plane, p => Mathf.Abs(p - d) < 0.45f));
             ds.AddRange(plane);
             ds.Sort();
@@ -524,18 +567,26 @@ namespace PSXRacing.EditorTools
                     float g = GroundAt(p, out bool onMesh);
                     float land = onMesh ? g - 0.12f : g;
                     float need;
+                    // (2b) the most the hill may stand here beside / in front of a mouth: from the verge up at 42 deg
+                    // (from the rail's back, flat for 4.3 m, where an approach guard rail stands)
+                    bool gside = guard[atA ? 0 : 1, x < 0f ? 0 : 1];
+                    float capB = gside ? c.y + 0.45f + Mathf.Max(0f, ax - (roadHalf + 5.6f)) * SlopeB
+                                       : c.y + Mathf.Max(0f, ax - (roadHalf + 0.6f)) * SlopeB;
                     if (u[ri] <= 0f)
                     {
                         // behind the plane: over the masonry, beside it the hill at the wall's end height falling away
                         need = ax <= wallX + 0.05f ? y0 + T3MasonryTop(ax, halfW) - 0.06f
                                                    : y0 + stepTop - 0.06f - (ax - wallX) * 0.25f;
+                        // (2b) beside the wall's end the hillside comes from the verge at 42 deg, rising behind: the end
+                        // of the wall stands out of it (the photographs), no rock cliff beside it
+                        if (Tunnel3B && ax > wallX + 0.05f) need = Mathf.Min(need, capB + Mathf.Max(0f, -u[ri]) * SlopeB);
                         if (ax < halfW + 1.5f) need = Mathf.Max(need, c.y + crownMin);
                     }
                     else
                     {
                         // in front: spilling over the wall's ends, a verge at the road edge
-                        float dx = Mathf.Max(0f, wallX - ax), du = u[ri] * 1.35f;
-                        float spill = y0 + (ax >= wallX ? stepTop - 0.06f - (ax - wallX) * 0.25f : stepTop - 0.06f) - Mathf.Sqrt(dx * dx + du * du);
+                        float dx = Mathf.Max(0f, wallX - ax), du = u[ri] * (Tunnel3B ? 1f : 1.35f);
+                        float spill = y0 + (ax >= wallX ? stepTop - 0.06f - (ax - wallX) * 0.25f : stepTop - 0.06f) - Mathf.Sqrt(dx * dx + du * du) * (Tunnel3B ? 1f / SlopeB : 1f);
                         float road = c.y + (ax - (roadHalf + 1.0f)) * 2.2f;              // steep (rock) off the verge
                         float verge = c.y - 0.06f - Mathf.Max(0f, ax - (roadHalf + 2.5f)) * 1.0f;
                         need = u[ri] < 16f ? Mathf.Max(verge, Mathf.Min(spill, road)) : float.NegativeInfinity;
@@ -547,6 +598,7 @@ namespace PSXRacing.EditorTools
                         // (a forest floor holds it), never over the land, never under the wall's top or the crown's cover
                         float depth = Mathf.Max(0f, -u[ri] - (ax <= wallX ? 1.25f : 0f));
                         float baseY = ax <= wallX ? y0 + T3MasonryTop(ax, halfW) - 0.06f : y0 + stepTop - 0.06f - (ax - wallX) * 0.25f;
+                        if (Tunnel3B && ax > wallX + 0.05f) baseY = Mathf.Min(baseY, capB);
                         float undul = ((T2Value(new Vector3(p.x, 0f, p.z) / 5.5f) - 0.5f) * 1.2f + (T2Value(new Vector3(p.x, 3.7f, p.z) / 2.3f) - 0.5f) * 0.5f) * Mathf.Clamp01(depth / 2f);
                         float slope = baseY + depth * 0.88f + undul;
                         y = Mathf.Max(need, Mathf.Min(land, slope));
@@ -555,7 +607,7 @@ namespace PSXRacing.EditorTools
                     {
                         // in front: the land or the spill, but never over the road edge - from the verge the hill
                         // rises no faster than 2.2 : 1 (rock), so nothing hangs over the shoulder with air under it
-                        float cap = c.y + Mathf.Max(0f, ax - (roadHalf + 0.6f)) * 2.2f;
+                        float cap = Tunnel3B ? capB : c.y + Mathf.Max(0f, ax - (roadHalf + 0.6f)) * 2.2f;
                         y = Mathf.Max(c.y - 0.06f - Mathf.Max(0f, ax - (roadHalf + 2.5f)), Mathf.Min(Mathf.Max(land, need), cap));
                     }
                     v[ri * C + ci] = new Vector3(p.x, y, p.z);
@@ -613,6 +665,29 @@ namespace PSXRacing.EditorTools
                     }
                     Tri(a, d, e); Tri(a, e, b);
                 }
+            // (2b) A FLOOR under the verge at each mouth, both sides, from the tarmac edge to past the wall's end,
+            // 0.6 m behind the face to 1.5 m in front, 0.25 m under the road: whatever slit is left between the
+            // verge, the face's foot and the bore's lip looks down onto ground, never through the world
+            if (Tunnel3B)
+                for (int mo = 0; mo < 2; mo++)
+                    foreach (float sd in new[] { -1f, 1f })
+                    {
+                        float d0 = mo == 0 ? 0.6f : total - 0.6f, d1 = mo == 0 ? -1.5f : total + 1.5f;
+                        Vector3 c0 = Frame(d0, out Vector3 r0, out _), c1 = Frame(d1, out Vector3 r1, out _);
+                        float yF = (mo == 0 ? cA.y : cB.y) - 0.25f;
+                        int b = verts.Count;
+                        foreach (var (cc, rr) in new[] { (c0, r0), (c1, r1) })
+                            foreach (float xx in new[] { roadHalf + 0.05f, wallX + 0.6f })
+                            {
+                                Vector3 pp = cc + rr * (sd * xx); pp.y = yF;
+                                verts.Add(pp); uvs.Add(new Vector2(pp.x, pp.z) / tile);
+                            }
+                        foreach (var (i0, i1, i2) in new[] { (b, b + 1, b + 3), (b, b + 3, b + 2) })
+                        {
+                            Vector3 nn = Vector3.Cross(verts[i1] - verts[i0], verts[i2] - verts[i0]);
+                            if (nn.y >= 0f) { gT.Add(i0); gT.Add(i1); gT.Add(i2); } else { gT.Add(i0); gT.Add(i2); gT.Add(i1); }
+                        }
+                    }
             if (gT.Count + rT.Count == 0) return;
             var mesh = new Mesh { indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 };
             mesh.SetVertices(verts); mesh.SetUVs(0, uvs);
