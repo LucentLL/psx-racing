@@ -879,7 +879,11 @@ namespace PSXRacing.EditorTools
             float n = Noise(x, y) - 0.5f;
             float amp = IsConcrete(surf) ? 20f : 14f;
             // (PSX_ROADUV2) a texture of more rows keeps its joints 21 of 64 rows apart (4 m along)
-            float joint = IsConcrete(surf) && ((y * 64) / grainRows) % 21 == 0 && (y * 64) % grainRows < 64 ? -26f : 0f;
+            // (tunnel2b, PSX_ROADUV2) three joints a tile, evenly (4.06 m on a track's 12.192 m): the old 21-of-64 rows
+            // put two joints 19 cm apart at every wrap
+            bool jointRow = RoadUV2 && grainRows != 64 ? (y == 0 || (y * 3) / grainRows != ((y - 1) * 3) / grainRows)
+                                                       : ((y * 64) / grainRows) % 21 == 0 && (y * 64) % grainRows < 64;
+            float joint = IsConcrete(surf) && jointRow ? -26f : 0f;
             return new Color32(
                 Chan(b.r, n * amp + joint),
                 Chan(b.g, n * amp + joint),
