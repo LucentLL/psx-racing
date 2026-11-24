@@ -986,6 +986,9 @@ namespace PSXRacing.EditorTools
         /// lattice can be a metre off the field on a falling verge.</summary>
         static float StageLatticeY(float x, float z)
         {
+            // (tunnel2) over a tunnel's hill (PSXRacingBuilder.Tunnel3.cs) the ground is the hill as drawn: the
+            // forest, undergrowth and scatter stand on it (registered after the ground mesh is built)
+            if (t3Grounds.Count > 0 && T3GroundAt(x, z, out float hy)) return hy;
             int gx = Mathf.FloorToInt(x / NearCell), gz = Mathf.FloorToInt(z / NearCell);
             float u = x / NearCell - gx, w = z / NearCell - gz;
             float ha = StageLatticeVertexY(gx, gz), hc = StageLatticeVertexY(gx + 1, gz + 1);
@@ -7558,6 +7561,7 @@ namespace PSXRacing.EditorTools
         static void BuildStageTunnels(List<Vector3> pts, Transform parent)
         {
             portalSpots.Clear();
+            T3Reset();   // (tunnel2) the last venue's hill keep-outs
             if (!hasTunnels) return;
             var runs = StationRuns(tunnelIn, 3);
             if (runs.Count == 0) return;
@@ -7569,6 +7573,11 @@ namespace PSXRacing.EditorTools
             // (PSXRacingBuilder.Tunnel2.cs); the c96b5178 tube has none
             if (mat.HasProperty("_HouseTint")) { mat.SetFloat("_HouseTint", Tunnel2 ? 1f : 0f); EditorUtility.SetDirty(mat); }
             if (Tunnel2 && MountainStage && mat.IsKeywordEnabled("PSX_ROCKFACE")) { mat.SetVector("_RockParams", new Vector4(1f / 4.5f, 1f / 15f, 1.0f, 0.35f)); mat.color = new Color(0.80f, 0.82f, 0.86f); }
+            // (tunnel2) the bore's rock at the cut's own scale (the stretch check: within 30 % of it), and a top-down
+            // plane for the crown (the side planes alone streaked it)
+            if (mat.HasProperty("_RockTop")) mat.SetFloat("_RockTop", Tunnel2 && Tunnel3 ? 1f : 0f);
+            if (Tunnel2 && Tunnel3 && MountainStage && mat.IsKeywordEnabled("PSX_ROCKFACE")) { mat.SetVector("_RockParams", new Vector4(1f / 6.8f, 1f / 20f, 1.2f, 0.25f)); mat.color = new Color(0.78f, 0.79f, 0.80f); }
+            EditorUtility.SetDirty(mat);
             t2Tris = 0; t2Stones = 0;
             portalStoneTris = 0;
             var phys = GetOrCreatePhysMat("WallPhys", 0.05f, 0.05f);
@@ -8185,7 +8194,8 @@ namespace PSXRacing.EditorTools
                         if (d <= 90f && storyRoll < ForestUnderstory)
                             h *= 0.5f + (float)(storyRoll / ForestUnderstory) * 0.2f;
 
-                        bool deckOver = f > 0.4f && roadY - ground > h + 3.5f;
+                        // (tunnel2) on the hill over a bore the road's margins do not apply (like a tree under a deck)
+                        bool deckOver = (f > 0.4f && roadY - ground > h + 3.5f) || T3OverBore(foot, wx, wz);
 
                         // NO BILLBOARD ACROSS THE LANE AT A HEIGHT A CAR OR ITS
                         // CAMERA REACHES. A card is a flat plane sixteen metres

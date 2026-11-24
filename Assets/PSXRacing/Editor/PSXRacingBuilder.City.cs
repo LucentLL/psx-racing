@@ -871,12 +871,15 @@ namespace PSXRacing.EditorTools
         /// over it, plus slab joints on the concretes — the seams between
         /// poured bays are the single most recognisable thing about concrete.
         /// </summary>
+        static int grainRows = 64;
+
         static Color32 Grain(int x, int y, CityMeshes.Surface surf)
         {
             var b = SurfaceBase[(int)surf];
             float n = Noise(x, y) - 0.5f;
             float amp = IsConcrete(surf) ? 20f : 14f;
-            float joint = IsConcrete(surf) && (y % 21) == 0 ? -26f : 0f;
+            // (PSX_ROADUV2) a texture of more rows keeps its joints 21 of 64 rows apart (4 m along)
+            float joint = IsConcrete(surf) && ((y * 64) / grainRows) % 21 == 0 && (y * 64) % grainRows < 64 ? -26f : 0f;
             return new Color32(
                 Chan(b.r, n * amp + joint),
                 Chan(b.g, n * amp + joint),
@@ -991,8 +994,29 @@ namespace PSXRacing.EditorTools
             EnsureCityFolders();
             TrackLaneLadder(totalM, oneWay, out int lanesPerSide, out float shoulderM, out float laneM);
             string file = TrackRoadTexFile(totalM, oneWay, surf, edgeLines);
-            DrawRoadTexCore(file, lanesPerSide, 0f, false, shoulderM, totalM, 256, oneWay, surf, laneM, edgeLines);
+            DrawRoadTexCore(file, lanesPerSide, 0f, false, shoulderM, totalM, 256, oneWay, surf, laneM, edgeLines,
+                            RoadUV2 ? TrackRoadTexH(256, totalM) : 64);
             return CityTexDir + "/" + file;
+        }
+
+        /// <summary>
+        /// (tunnel2, the owner on PC61: "stretched asphalt texture on mountain map. textures should never be
+        /// noticeably stretched. this is already a rule") A track road's texture spans the tarmac's width across
+        /// (u 0..1) and <see cref="TrackRoadVTile"/> (12.192 m) along (v). It was 256 x 64: on a 6.4 m Parkway
+        /// 40 texels a metre across and 5.25 along, every grain of the aggregate 2.5 cm wide and 19 cm long (7.6 : 1,
+        /// the stretch check: 100 % of the stage road over 1.5 : 1) - streaks down the lane on every stage. Now
+        /// as many rows as make the texel square (the nearest power of two: 512 on 6.1-7.3 m roads, 1.05 : 1),
+        /// the paint and its dash cycle unchanged. PSX_ROADUV2=0: 256 x 64 as before. A build-time switch (the
+        /// texture is written by the scene build).
+        /// </summary>
+        internal static bool RoadUV2 => System.Environment.GetEnvironmentVariable("PSX_ROADUV2") != "0";
+
+        internal static int TrackRoadTexH(int width, float totalM)
+        {
+            float want = width * TrackRoadVTile / Mathf.Max(totalM, 1f);
+            int h = 64;
+            while (h < 1024 && Mathf.Abs(Mathf.Log(h * 2 / want)) < Mathf.Abs(Mathf.Log(h / want))) h *= 2;
+            return h;
         }
 
         /// <summary>The marker a road PNG painted WITHOUT white edge lines
@@ -1067,10 +1091,11 @@ namespace PSXRacing.EditorTools
         /// and the ribbon's u = 0.5 is its centre.</summary>
         static void DrawRoadTexCore(string file, int lanesPerSide, float medianM, bool grassMed,
                                     float shoulderM, float total, int width, bool oneWay,
-                                    CityMeshes.Surface surf, float laneM, bool paintEdges = true)
+                                    CityMeshes.Surface surf, float laneM, bool paintEdges = true, int texH = 64)
         {
             int laneCount = oneWay ? lanesPerSide : lanesPerSide * 2;
-            int h = 64;
+            int h = texH;
+            grainRows = Mathf.Max(1, h);
 
             var whiteLines = new List<float>();   // dashed lane separators
             // The solid white edge pair, unless this stretch's real road has
@@ -1118,6 +1143,7 @@ namespace PSXRacing.EditorTools
 
                 return px;
             });
+            grainRows = 64;
         }
 
         /// <summary>

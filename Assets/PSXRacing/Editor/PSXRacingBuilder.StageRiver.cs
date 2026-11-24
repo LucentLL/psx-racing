@@ -155,6 +155,7 @@ namespace PSXRacing.EditorTools
         internal static bool StageKeepOut(float x, float z)
         {
             if (LandmarkKeepOut(x, z)) return true;   // a Linn Cove block (PSXRacingBuilder.LandmarkRocks)
+            if (T3KeepOut(x, z)) return true;         // (tunnel2) a portal's stone, its hill's rock ledges and boulders
             if (worldKeep == null) return false;
             if (worldCliffKeep != null && CliffKeepAt(x, z)) return true;
             int c = (int)((x - worldKeepX0) / WorldKeepCell), r = (int)((z - worldKeepZ0) / WorldKeepCell);

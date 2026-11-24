@@ -2511,6 +2511,7 @@ namespace PSXRacing.EditorTools
             stageRowPos = null; stageRowEs = null;
             apexLeftovers = null;
             stageFills = null;
+            T3Reset();   // (tunnel2) the last venue's tunnel hills
             int n = pts != null ? pts.Count : 0;
             if (n < 2 || profile == null) return;
             int last = Loop ? n : n - 1;

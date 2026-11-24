@@ -223,6 +223,13 @@ namespace PSXRacing
                 look = "Built into the stage scenes: the road texture's joints at their real spacing. A scene build.",
                 env = new[] { "PSX_ROADUV2" }, requires = "TunnelHeadlights.On",
             });
+            // tunnel round 2 (merged 11-23): the cars' lights come on by day through a tunnel; read every frame, so live.
+            Register(new LabRow
+            {
+                id = "tunnellights", group = LabGroup.World, name = "HEADLIGHTS IN TUNNELS", when = LabWhen.Now,
+                look = "By day the cars' lights come on from 50 m before a tunnel mouth to 50 m past it. OLD: lights follow the hour.",
+                env = new[] { "PSX_TUNNEL3" }, members = new[] { "TunnelHeadlights.On" },
+            });
             // ---- CARS -----------------------------------------------------------
             Register(new LabRow
             {

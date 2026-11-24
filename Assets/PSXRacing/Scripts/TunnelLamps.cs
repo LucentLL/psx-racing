@@ -57,6 +57,8 @@ namespace PSXRacing
             // tunnel ("are you not able to reference road images of Blue Ridge Tunnels?"); his stylised
             // picture has the lamp row. Until he chooses: unlit by default, the fixtures hidden;
             // PSX_TUNNEL_LAMPS=1 lights the row.
+            // (tunnel2) the cars' headlights come on in the bore by day (TunnelHeadlights)
+            if (Tunnel2) TunnelHeadlights.Ensure(scene);   // (always made; TunnelHeadlights.On is read live)
             if (Tunnel2 && !WallLampsOn) { if (HideWallFixtures(scene)) return; }
             else if (Tunnel2 && MakeWallLamps(scene)) return;
             if (!(LightLook.On && LightLook.Tunnels)) return;

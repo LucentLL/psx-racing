@@ -71,6 +71,8 @@ namespace PSXRacing
         internal static List<CarLights> AllLive => all;
         static bool lightsOn;
         static bool lightsDecided;
+        /// <summary>(tunnel2) Are the cars' lights switched on (by the hour, the weather, or a tunnel)?</summary>
+        public static bool AllOn => lightsOn;
 
         /// <summary>Turn every car's running lights on or off. Called by
         /// <see cref="TimeOfDay.Apply"/>; the hour owns this, not the car.

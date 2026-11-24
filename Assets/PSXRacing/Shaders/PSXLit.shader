@@ -174,6 +174,9 @@ Shader "PSX/Lit"
         [HideInInspector] _RockTex ("Rock albedo", 2D) = "grey" {}
         [HideInInspector] _RockNrm ("Rock normal", 2D) = "bump" {}
         [HideInInspector] _RockParams ("Rock params", Vector) = (0.14, 0.045, 1.0, 1.0)
+        // (tunnel2) 1: a THIRD projection on the ground plane for what faces up or down (a bore's crown, a
+        // stone's top): the two side planes alone stretch the scan to streaks there. 0 (default): as before.
+        [HideInInspector] _RockTop ("Rock top plane", Float) = 0
         _Emission ("Emission", Range(0,1)) = 0
         // 1 = full PS1 affine texture warping, 0 = perspective correct.
         //
@@ -555,6 +558,7 @@ Shader "PSX/Lit"
             sampler2D _RockTex;
             sampler2D _RockNrm;
             float4 _RockParams;
+            float _RockTop;
             // the lattice folded into a 512-cell period first (seamless, the
             // fold is on the integer corners): the sine hash loses its digits
             // on a coordinate in the thousands
@@ -2595,6 +2599,10 @@ Shader "PSX/Lit"
                     float3 an = abs(N);
                     float2 wSide = pow(an.xz + 1e-3, 4.0); wSide /= (wSide.x + wSide.y);
                     float s1 = _RockParams.x, s2 = _RockParams.y;
+                    // (tunnel2, _RockTop) the up / down plane's share
+                    float wTop = 0.0;
+                    if (_RockTop > 0.5) { float3 p4 = pow(an + 1e-3, 4.0); wTop = p4.y / (p4.x + p4.y + p4.z); }
+                    wSide *= 1.0 - wTop;
                     // fine: on each plane; coarse: the same planes turned 31 degrees
                     const float2x2 rkRot = float2x2(0.857, -0.515, 0.515, 0.857);
                     float2 pX = i.wpos.zy, pZ = i.wpos.xy;
@@ -2605,6 +2613,12 @@ Shader "PSX/Lit"
                     float3 cZ = tex2Dgrad(_RockTex, mul(rkRot, pZ) * s2 + 0.71, mul(rkRot, gZx) * s2, mul(rkRot, gZy) * s2).rgb;
                     float3 fine = aX * wSide.x + aZ * wSide.y;
                     float3 coarse = cX * wSide.x + cZ * wSide.y;
+                    float2 pY = i.wpos.xz, gYx = dWx.xz, gYy = dWy.xz;
+                    if (wTop > 0.001)
+                    {
+                        fine += tex2Dgrad(_RockTex, pY * s1 + 0.53, gYx * s1, gYy * s1).rgb * wTop;
+                        coarse += tex2Dgrad(_RockTex, mul(rkRot, pY) * s2 + 0.29, mul(rkRot, gYx) * s2, mul(rkRot, gYy) * s2).rgb * wTop;
+                    }
                     // the fine's detail on the coarse's tone: the coarse sets the
                     // light and dark masses, the fine the grain
                     float lf = dot(fine, float3(0.2126, 0.7152, 0.0722));
@@ -2648,7 +2662,13 @@ Shader "PSX/Lit"
                     float3 dX = float3(0.0, nX.y, nX.x * sx);
                     float3 dZ = float3(nZ.x * -sz, nZ.y, 0.0);
                     float rkK = _RockParams.z * (1.0 - moss * 0.6);
-                    N = normalize(N + (dX * wSide.x + dZ * wSide.y) * rkK);
+                    float3 dY = 0.0;
+                    if (wTop > 0.001)
+                    {
+                        float3 nY = UnpackNormal(tex2Dgrad(_RockNrm, pY * s1 + 0.53, gYx * s1, gYy * s1));
+                        dY = float3(nY.x, 0.0, nY.y) * wTop;
+                    }
+                    N = normalize(N + (dX * wSide.x + dZ * wSide.y + dY) * rkK);
                     float3 Ld0 = normalize(_PSXLightDir.xyz);
                     rkSun = min(saturate(dot(N, Ld0)) / max(saturate(dot(rkN0, Ld0)), 0.08), 2.5);
                 }
