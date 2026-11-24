@@ -57,7 +57,7 @@ namespace PSXRacing
         static Vector3[] n4At = new Vector3[0];
         static readonly List<int> n4Todo = new List<int>();
         /// <summary>Lamps a look finds while driving (the rest wait for the next look, half a second on).</summary>
-        public static int N4LampsPerLook = 8;
+        public static int N4LampsPerLook = 24;
         static bool n4Backlog, n4EyeKnown;
         static Vector3 n4LastEye;
         /// <summary>Field lamps waiting for the tiles round them (not splatted yet).</summary>
@@ -128,7 +128,15 @@ namespace PSXRacing
                 // only once every tile its light reaches is standing (a building on the next tile
                 // over would otherwise be missed for good); until then it is not splatted at all -
                 // which happens only at the ring's edge, past the far plane
-                if (world != null && !N4NeighboursLive(world, e.pos)) { n4Waiting++; continue; }
+                // (4b) a lamp found waiting is asked again only once the ring has changed
+                if (world != null)
+                {
+                    if (n4WaitSeen.Length < entries.Length) System.Array.Resize(ref n4WaitSeen, entries.Length);
+                    int liveNow = world.LiveTiles + 1;
+                    if (n4WaitSeen[i] == liveNow) { n4Waiting++; continue; }
+                    if (!N4NeighboursLive(world, e.pos)) { n4WaitSeen[i] = liveNow; n4Waiting++; continue; }
+                    n4WaitSeen[i] = 0;
+                }
                 n4Todo.Add(i);
             }
             // A BUDGET while driving: a tile row streaming in at the ring's edge (past the far plane) is
@@ -311,6 +319,7 @@ namespace PSXRacing
         /// <summary>Main-thread milliseconds a frame may spend reading lamps' rays back.</summary>
         public static float N4ReadBudgetMs = 0.25f;
         static bool n4JobPending;
+        static int[] n4WaitSeen = new int[0];
         static NativeArray<Vector3> n4JH;
         static NativeArray<float> n4JG, n4RadiiN;
         static NativeArray<Vector2> n4Dirs;
@@ -410,7 +419,7 @@ namespace PSXRacing
                 n4JobSlots.Clear();
                 N4Touch();   // the lamps join the splat at its next gathering
             }
-            Night4Clock.View((float)clock.Elapsed.TotalMilliseconds);
+            Night4Clock.Tick((float)clock.Elapsed.TotalMilliseconds);
         }
 
         static void N4EnsureAtlasRows() { }

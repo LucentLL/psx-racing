@@ -14,7 +14,7 @@ namespace PSXRacing
         static readonly string path = System.Environment.GetEnvironmentVariable("PSX_N4CLOCK");
         public static bool On => !string.IsNullOrEmpty(path);
         static int frame = -1;
-        static float occ, view, dt;
+        static float occ, view, tick, dt;
         static StringBuilder buf;
         static bool hooked;
 
@@ -30,7 +30,7 @@ namespace PSXRacing
                 if (buf.Length > 60000) Flush();
             }
             if (!hooked) { hooked = true; Application.quitting += Flush; }
-            frame = Time.frameCount; occ = 0f; view = 0f; dt = Time.unscaledDeltaTime;
+            frame = Time.frameCount; occ = 0f; view = 0f; tick = 0f; dt = Time.unscaledDeltaTime;
         }
 
         static void Flush()
@@ -42,5 +42,6 @@ namespace PSXRacing
 
         public static void Occ(float ms) { if (!On) return; Roll(); occ += ms; }
         public static void View(float ms) { if (!On) return; Roll(); view += ms; }
+        public static void Tick(float ms) { if (!On) return; Roll(); view += ms; tick += ms; }
     }
 }
