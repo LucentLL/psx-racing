@@ -823,8 +823,8 @@ namespace PSXRacing.EditorTools
                     Vector3 q = w - c;
                     float lat = Mathf.Abs(Vector3.Dot(q, right)), d = Vector3.Dot(q, face);
                     if (lat < halfW || lat > wallX + 6f || Mathf.Abs(q.y) > 20f) continue;
-                    if (d > -0.02f || d < -3f) continue;   // in front of the face already, or far into the hill
-                    w += face * (-0.02f - d);              // back onto the face, 2 cm in front of it
+                    if (d >= 0f || d < -3f) continue;      // in front of the face already, or far into the hill
+                    w += face * (-d);                      // back onto the face, where the drawn rock ends
                     vs[k] = inv.MultiplyPoint3x4(w); any = true; moved++;
                 }
                 if (!any) continue;
