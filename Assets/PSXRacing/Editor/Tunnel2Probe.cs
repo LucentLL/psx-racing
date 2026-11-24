@@ -512,6 +512,7 @@ namespace PSXRacing.EditorTools
                 if (!rock && (uv == null || uv.Length == 0)) continue;
                 var rp = rock ? mat.GetVector("_RockParams") : Vector4.zero;
                 float rockTop = rock && mat.HasProperty("_RockTop") ? mat.GetFloat("_RockTop") : 0f;
+                float groundTri = !rock && mat.HasProperty("_GroundTri") ? mat.GetFloat("_GroundTri") : 0f;
                 Vector2 tile = rock ? Vector2.one : mat.mainTextureScale;
                 Vector2 texel = new Vector2(tx.width, tx.height);
                 if (w == null)
@@ -560,6 +561,14 @@ namespace PSXRacing.EditorTools
                         float tr = aa + bb, det = Mathf.Sqrt(Mathf.Max(0f, (aa - bb) * (aa - bb) + 4f * ab * ab));
                         float s1 = Mathf.Sqrt(Mathf.Max(0f, (tr + det) * 0.5f)), s2 = Mathf.Sqrt(Mathf.Max(0f, (tr - det) * 0.5f));
                         float aniso = s2 > 1e-6f ? s1 / s2 : 99f;
+                        if (groundTri > 0f)
+                        {
+                            // (PSX_ROADSIDEUV2) PSX/Lit _GroundTri: the uv (the top plane) blended toward the side planes
+                            // by |n|^8 - the blend's stretch, each plane 1 / |n . axis|
+                            float nx = Mathf.Abs(nrm.x) + 1e-3f, ny = Mathf.Abs(nrm.y) + 1e-3f, nz = Mathf.Abs(nrm.z) + 1e-3f;
+                            float wx = Mathf.Pow(nx, 8f), wy = Mathf.Pow(ny, 8f), wz = Mathf.Pow(nz, 8f), ws = wx + wy + wz;
+                            if (1f - wy / ws > 0.002f) aniso = (wx / nx + wy / ny + wz / nz) / ws;
+                        }
                         if (rock)
                         {
                             // what the shader draws is the BLEND of its planes, each stretched 1 / |n . axis| on this
