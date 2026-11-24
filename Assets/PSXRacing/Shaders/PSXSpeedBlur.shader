@@ -327,6 +327,40 @@ Shader "PSX/SpeedBlur"
             }
             ENDHLSL
         }
+
+        // 4 - THE CAR KEPT FROM THE OCCLUSION (CarDots.cs, the cardots round
+        // 2026-11-23: "dots in shade" on every car). A plain copy, RGB, gated
+        // by the stencil bit every PSX/CarPaint pixel writes: run once from
+        // the frame into a copy just before URP's SSAO is laid over the
+        // opaques, and once from the copy back into the frame just after it,
+        // so the paint keeps its own shading and the world keeps its occlusion.
+        Pass
+        {
+            Name "CarKeep"
+            ZWrite Off ZTest Always Cull Off Blend Off
+            ColorMask RGB
+            Stencil
+            {
+                Ref 128
+                ReadMask 128
+                Comp Equal
+                Pass Keep
+            }
+
+            HLSLPROGRAM
+            #pragma vertex Vert
+            #pragma fragment KeepFrag
+
+            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+            #include "Packages/com.unity.render-pipelines.core/Runtime/Utilities/Blit.hlsl"
+
+            half4 KeepFrag (Varyings input) : SV_Target
+            {
+                UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
+                return half4(SAMPLE_TEXTURE2D_X_LOD(_BlitTexture, sampler_PointClamp, input.texcoord, 0).rgb, 1);
+            }
+            ENDHLSL
+        }
     }
     Fallback Off
 }
