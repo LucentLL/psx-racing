@@ -83,6 +83,8 @@ namespace PSXRacing
             changed |= TextureHD.Apply(m);
             // ...and a car livery's HD set (CarHD, PC; PSX/CarPaint only)
             changed |= CarHD.Apply(m);
+            // ...and the paint's stencil mark that keeps it out of the SSAO (CarDots, PSX_CARDOTS)
+            changed |= CarDots.Mark(m);
             changed |= StampOne(m, MainTexRawId);
             changed |= StampOne(m, DeepTexRawId);
             // ...and the terrain detail amounts, off the same texture

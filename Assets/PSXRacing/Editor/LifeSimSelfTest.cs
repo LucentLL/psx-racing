@@ -52,6 +52,7 @@ namespace PSXRacing.EditorTools
             log = new StringBuilder();
             failures = 0;
             Guard(nameof(TestPaintAndFilmGrade), TestPaintAndFilmGrade);
+            Guard(nameof(TestCarDotsShade), TestCarDotsShade);   // cardots: LifeSimSelfTest.CarDots.cs
             Line(failures == 0 ? "PAINT SELF-TEST OK" : "PAINT SELF-TEST FAILED (" + failures + ")");
             System.IO.File.WriteAllText(
                 System.IO.Path.Combine(Application.dataPath, "../PSXRacing_selftest_paint.txt"), log.ToString());
@@ -2873,6 +2874,7 @@ namespace PSXRacing.EditorTools
             TestTreesStopCars();
             TestForestIsThickAndHasBrush();
             TestPaintAndFilmGrade();
+            Guard(nameof(TestCarDotsShade), TestCarDotsShade);   // cardots: LifeSimSelfTest.CarDots.cs
             TestLampControlMaps();
             TestOneToneCurve();
             TestReversedStageDistance();

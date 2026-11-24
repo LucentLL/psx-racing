@@ -191,6 +191,8 @@ namespace PSXRacing
             Shader.SetGlobalFloat(WetPass.LiveId, 0f);
             if (WetReflections.WantedFor(cam)) renderer.EnqueuePass(wetPass);
             AddCamcorder(renderer, cam);
+            // (cardots, PSX_CARDOTS: the cars' paint kept out of the SSAO laid over the opaques)
+            if (CarDots.On && EnsureMaterial()) CarDots.Add(renderer, material);
         }
 
         void AddCamcorder(ScriptableRenderer renderer, Camera cam)
