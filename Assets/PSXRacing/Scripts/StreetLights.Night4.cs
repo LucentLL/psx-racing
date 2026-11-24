@@ -55,6 +55,10 @@ namespace PSXRacing
         static bool[] n4Known = new bool[0];
         static Vector3[] n4At = new Vector3[0];
         static readonly List<int> n4Todo = new List<int>();
+        /// <summary>Lamps a look finds while driving (the rest wait for the next look, half a second on).</summary>
+        public static int N4LampsPerLook = 24;
+        static bool n4Backlog, n4EyeKnown;
+        static Vector3 n4LastEye;
         /// <summary>Field lamps waiting for the tiles round them (not splatted yet).</summary>
         static int n4Waiting;
         static readonly Dictionary<EntityId, bool> n4Thin = new Dictionary<EntityId, bool>();
@@ -118,6 +122,20 @@ namespace PSXRacing
                 if (world != null && !N4NeighboursLive(world, e.pos)) { n4Waiting++; continue; }
                 n4Todo.Add(i);
             }
+            // A BUDGET while driving: a tile row streaming in at the ring's edge (past the far plane) is
+            // found 24 lamps a look (~7 ms on the job threads, measured 0.27 ms a lamp in a 1000-lamp load);
+            // at a load or a jump (a replay cut, a teleport, the first look) the whole ring at once
+            n4Backlog = false;
+            var camN = Camera.main;
+            Vector3 eyeN = camN != null ? camN.transform.position : Vector3.zero;
+            bool jumped = !n4EyeKnown || (eyeN - n4LastEye).sqrMagnitude > 200f * 200f;
+            n4LastEye = eyeN; n4EyeKnown = true;
+            if (!jumped && n4Todo.Count > N4LampsPerLook)
+            {
+                n4Todo.Sort((a, b) => (entries[a].pos - eyeN).sqrMagnitude.CompareTo((entries[b].pos - eyeN).sqrMagnitude));
+                n4Todo.RemoveRange(N4LampsPerLook, n4Todo.Count - N4LampsPerLook);
+                n4Backlog = true;
+            }
             if (n4Todo.Count == 0) { N4Upload(); return; }
             var clock = System.Diagnostics.Stopwatch.StartNew();
             Physics.SyncTransforms();
@@ -143,6 +161,7 @@ namespace PSXRacing
         static int n4LiveSeen = -1;
         static bool N4WaitingDue()
         {
+            if (n4Backlog) return true;
             if (n4Waiting <= 0) return false;
             var w = City.CityWorld.Active;
             int live = w != null ? w.LiveTiles : -1;

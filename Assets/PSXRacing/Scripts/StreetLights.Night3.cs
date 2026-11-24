@@ -121,7 +121,7 @@ namespace PSXRacing
             var shape = new Vector4(N3PoolM, N3PoolGain, N3GlowM, N3GlowGain);
             // a lamp change (streamed tiles; the ring's edge is past the far plane) is gathered at most twice a second
             // (NIGHT 4) lamps waiting for the tiles round them are looked at again every second
-            if (n3MeshVersion == n3Version && Time.unscaledTime - n3MeshAt > 1f && N4WaitingDue()) n3Version++;
+            if (n3MeshVersion == n3Version && Time.unscaledTime - n3MeshAt > (n4Backlog ? 0.5f : 1f) && N4WaitingDue()) n3Version++;
             bool lampsChanged = n3MeshVersion != n3Version && (Time.unscaledTime - n3MeshAt > 0.5f || n3Mesh == null || !Application.isPlaying);
             if (lampsChanged || shape != n3BuiltShape || n3BuiltOn != StreetOn || remade || origin != n3Origin)
             {
