@@ -1030,6 +1030,18 @@ namespace PSXRacing
                 // window afterwards — so a stale one never finds its way back.
                 car.GetComponent<AIDriver>()?.ReseedPath();
             }
+
+            // P0 (owner 11-23, PC61, TryonSprintRev in NoDa: "Charlotte levels aren't loading, falling
+            // through ground"): in the city the ground under the grid was built for the FORWARD grid
+            // (CityMode.SetupRace: the ring round the player, then the course queued from the forward
+            // start), and a reversed city route's grid stands at the old finish, 6 km away - its tiles
+            // the LAST of the course preload. Physics stepped through the 4-5 s of loading with nothing
+            // under the field, and the cars fell through the city during the countdown. The tiles under
+            // the restaged grid are built NOW, before anything steps (as SetupRace does for its own).
+            var world = PSXRacing.City.CityWorld.Active;
+            if (world != null && world.Map != null)
+                foreach (var car in field)
+                    if (car != null) world.EnsureRing(car.transform.position, car == playerCar ? 1 : 0);
         }
 
         /// <summary>
