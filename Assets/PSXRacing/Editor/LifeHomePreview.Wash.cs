@@ -93,7 +93,7 @@ namespace PSXRacing.EditorTools
             try
             {
                 // ---- WASH on every input, before the wash (the car dry and dirty)
-                Shoot(outDir, "wash_pad", "carmenu", garageCar: car.id, sizes: new[] { WOwner }, probe: (screen, where) =>
+                Shoot(outDir, "wash_pad", "carmenu", scrollTo: 0f, garageCar: car.id, sizes: new[] { WOwner }, probe: (screen, where) =>
                 {
                     var b = FindWash(screen);
                     if (b == null) { Debug.Log("[Wash] FAIL no WASH button on " + where); fails++; return; }
@@ -105,14 +105,14 @@ namespace PSXRacing.EditorTools
                               " left " + (b.navigation.selectOnLeft != null) + " right " + (b.navigation.selectOnRight != null));
                     SaveStudio(outDir, "0_before");
                 });
-                Shoot(outDir, "wash_mouse", "carmenu", garageCar: car.id, sizes: new[] { W169 }, probe: (screen, where) =>
+                Shoot(outDir, "wash_mouse", "carmenu", scrollTo: 0f, garageCar: car.id, sizes: new[] { W169 }, probe: (screen, where) =>
                 {
                     var b = FindWash(screen);
                     if (b == null) { Debug.Log("[Wash] FAIL no WASH button on " + where); fails++; return; }
                     b.OnPointerEnter(new PointerEventData(null));
                     Debug.Log("[Wash] mouse: pointer over WASH on " + where);
                 });
-                Shoot(outDir, "wash_touch", "carmenu", garageCar: car.id, sizes: new[] { WPhone }, probe: (screen, where) =>
+                Shoot(outDir, "wash_touch", "carmenu", scrollTo: 0f, garageCar: car.id, sizes: new[] { WPhone }, probe: (screen, where) =>
                 {
                     var b = FindWash(screen);
                     if (b == null) { Debug.Log("[Wash] FAIL no WASH button on " + where); fails++; return; }

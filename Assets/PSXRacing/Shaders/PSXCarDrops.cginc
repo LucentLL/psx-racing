@@ -255,7 +255,7 @@ float CarDropsH(float3 p, float3 n, float3 down, float3 air, float up, float win
             float2 sd = glen > 0.3 ? gdir : float2(0.7071, 0.7071);
             float sAlong = dot(qm, sd), sAcross = dot(qm, float2(sd.y, -sd.x));
             float rip = sin(sAlong * 55.0 - _Time.y * lerp(2.0, 9.0, saturate(glen)) + sin(sAcross * 23.0) * 1.7) * 0.5 + 0.5;
-            hRain = max(hRain, sheetW * (0.22 + 0.20 * rip));
+            hRain = max(hRain, sheetW * (0.32 + 0.36 * rip));
         }
     }
     else if (rain > 0.002)
