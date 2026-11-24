@@ -298,6 +298,7 @@ namespace PSXRacing
         /// <summary>(P0 11-23: "Charlotte levels aren't loading, falling through ground") After
         /// <paramref name="after"/> s of racing: every car within 2 m of its road's height and with ground
         /// under it. Writes &lt;id&gt;_onroad.txt (a line per car, then ONROAD OK / ONROAD FAIL).</summary>
+        float gridLowest = float.MaxValue; string gridLowestWho = "-";
         IEnumerator OnRoadAfter(string id, RaceManager rm, TrackPath path, float after)
         {
             float t0 = Time.time;
@@ -316,7 +317,10 @@ namespace PSXRacing
                 if (!on) bad++;
                 sb.AppendLine(c.name + " " + (p.y - py).ToString("+0.00;-0.00", CultureInfo.InvariantCulture) + " m against the path, ground " + (ground ? g.collider.name : "NONE") + (on ? " ok" : " OFF THE ROAD"));
             }
-            sb.AppendLine((bad == 0 && n > 0 ? "ONROAD OK " : "ONROAD FAIL ") + bad + " of " + n + " cars off their road " + after.ToString("0", CultureInfo.InvariantCulture) + " s after the green");
+            sb.AppendLine("grid: the lowest car from the spawn to the green " + gridLowestWho + " " + gridLowest.ToString("+0.00;-0.00", CultureInfo.InvariantCulture) + " m against the path");
+            if (gridLowest < -2f) bad++;
+            sb.AppendLine((bad == 0 && n > 0 ? "ONROAD OK " : "ONROAD FAIL ") + bad + " of " + n + " cars off their road (spawn, countdown, " + after.ToString("0", CultureInfo.InvariantCulture) + " s after the green)");
+            gridLowest = float.MaxValue; gridLowestWho = "-";
             Post(id + "_onroad.txt", sb.ToString());
             Say(id + " " + sb.ToString().Replace('\n', '|'));
         }
@@ -359,7 +363,9 @@ namespace PSXRacing
                 RaceHandoff.Solo = !fieldRun;
                 if (fieldRun)
                 {
-                    ArcadeMode.FillField(spec, ArcadeMode.RivalsAt(TrackCatalog.At(venue)));
+                    int rivalsN = ArcadeMode.RivalsAt(TrackCatalog.At(venue));
+                    if (int.TryParse(ShotLink.Query(Request() ?? "", "rivals") ?? "", out int rq) && rq > 0) rivalsN = Mathf.Min(rq, RaceField.MaxFor(TrackCatalog.At(venue)) - 1);
+                    ArcadeMode.FillField(spec, rivalsN);
                     if (int.TryParse(ShotLink.Query(Request() ?? "", "traffic") ?? "", out int tl)) RaceHandoff.TrafficLevel = tl;
                 }
                 float l0 = Time.realtimeSinceStartup;
@@ -373,6 +379,14 @@ namespace PSXRacing
                     var rm = RaceManager.Instance;
                     var pin = FindFirstObjectByType<PlayerCarInput>();
                     path = FindFirstObjectByType<TrackPath>();
+                    // (P0) every car on its road from the spawn through the countdown: the lowest seen
+                    if (rm != null && path != null && rm.allCars != null)
+                        foreach (var gc in rm.allCars)
+                        {
+                            if (gc == null || !gc.gameObject.activeInHierarchy) continue;
+                            float dyG = gc.transform.position.y - path.GetPoint(path.NearestIndex(gc.transform.position, -1, path.Count)).y;
+                            if (dyG < gridLowest) { gridLowest = dyG; gridLowestWho = gc.name + (rm.State == RaceManager.RaceState.Countdown ? " (countdown)" : ""); }
+                        }
                     if (rm == null || pin == null || path == null || rm.State != RaceManager.RaceState.Racing) continue;
                     car = pin.GetComponent<CarController>();
                     if (car != null) break;

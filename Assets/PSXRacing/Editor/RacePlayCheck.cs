@@ -159,6 +159,8 @@ namespace PSXRacing.EditorTools
                 if (!string.IsNullOrEmpty(hour) && string.Equals(TimeOfDay.All[h].name, hour, System.StringComparison.OrdinalIgnoreCase))
                     hourIdx = h;
             RaceHandoff.TimeOfDayIndex = hourIdx;
+            // PSX_RACE_DAY=20: the calendar day (a winter date: the season's dress)
+            if (int.TryParse(System.Environment.GetEnvironmentVariable("PSX_RACE_DAY") ?? "", out int raceDay) && raceDay > 0) { RaceHandoff.CalendarDay = raceDay; log.AppendLine("  day " + raceDay); }
             log.AppendLine("  hour " + TimeOfDay.All[hourIdx].name);
             // THE TRAFFIC LEVEL (the owner's per-race toggle), by reflection so
             // this harness also runs against a build from before it existed -
@@ -362,10 +364,17 @@ namespace PSXRacing.EditorTools
             float until = Time.realtimeSinceStartup + (rm.Checkpoints != null ? 60f : 15f);
             // (P0) a course preloaded LIVE in the editor takes minutes: PSX_RACE_HOLD=s waits that long
             if (float.TryParse(System.Environment.GetEnvironmentVariable("PSX_RACE_HOLD") ?? "", out float holdS) && holdS > 0f) until = Time.realtimeSinceStartup + holdS;
-            float nextWatch = 0f;
+            float nextWatch = 0f, gridWorst = float.MaxValue; string gridWho = "-";
             while (rm.State == RaceManager.RaceState.Countdown && Time.realtimeSinceStartup < until)
             {
                 // (P0) where the grid is while the countdown is held: the lowest car against its road
+                // (P0) every car on its road from the spawn through the countdown: the lowest, every frame
+                foreach (var c in rm.allCars)
+                {
+                    if (c == null || !c.gameObject.activeInHierarchy) continue;
+                    float dyG = c.transform.position.y - rm.path.GetPoint(rm.path.NearestIndex(c.transform.position, -1, rm.path.Count)).y;
+                    if (dyG < gridWorst) { gridWorst = dyG; gridWho = c.name; }
+                }
                 if (Time.realtimeSinceStartup >= nextWatch)
                 {
                     nextWatch = Time.realtimeSinceStartup + 5f;
@@ -382,6 +391,7 @@ namespace PSXRacing.EditorTools
                 yield return null;
             }
             RacePlayCheck.Check(rm.State == RaceManager.RaceState.Racing, "the race goes live", rm.State);
+            RacePlayCheck.Check(gridWorst > -2f, "every grid car on its road through the countdown", gridWho + " " + gridWorst.ToString("+0.00;-0.00") + " m against the path at its lowest");
             // (P0 11-23, PC61: "Charlotte levels aren't loading, falling through ground") every grid car
             // still on its road 10 s after the green
             StartCoroutine(OnRoadCheck(10f));
