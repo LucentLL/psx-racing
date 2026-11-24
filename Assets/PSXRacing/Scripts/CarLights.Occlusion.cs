@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Unity.Collections;
+using Unity.Jobs;
 using UnityEngine;
 
 namespace PSXRacing
@@ -64,6 +65,8 @@ namespace PSXRacing
         static bool occPending;
         static readonly List<CarLights> occCastCars = new List<CarLights>(64);
         static float[] occCos, occSin;
+        static NativeArray<Vector3> occO, occF, occR;
+        static NativeArray<Vector2> occDirs;
         static bool occQuitHooked;
 
         static void OccDisposeAll()
@@ -71,6 +74,8 @@ namespace PSXRacing
             if (occPending) { occJob.Complete(); occPending = false; }
             if (occCmds.IsCreated) occCmds.Dispose();
             if (occHits.IsCreated) occHits.Dispose();
+            if (occO.IsCreated) { occO.Dispose(); occF.Dispose(); occR.Dispose(); }
+            if (occDirs.IsCreated) occDirs.Dispose();
         }
 
         /// <summary>Cast every lit car's fan and fill the texture (PushGlobals, after the sort).</summary>
@@ -129,7 +134,7 @@ namespace PSXRacing
                     var l = sorted[c];
                     if (l.occRow < 0) continue;
                     float d2c = (l.transform.position - eye).sqrMagnitude;
-                    int every = d2c < 80f * 80f ? 1 : d2c < 250f * 250f ? 2 : 4;
+                    int every = d2c < 80f * 80f ? 2 : d2c < 250f * 250f ? 4 : 8;
                     bool due = l.occCur == null || l.occFrame < Time.frameCount - 8 || ((l.occRow + Time.frameCount) % every) == 0;
                     if (due) occCastCars.Add(l);
                 }
@@ -145,14 +150,29 @@ namespace PSXRacing
                         occHits = new NativeArray<RaycastHit>(cap * 2, Allocator.Persistent);
                     }
                     var qp = new QueryParameters(~((1 << 2) | (1 << 10)), false, QueryTriggerInteraction.Ignore, false);
-                    for (int i = 0; i < occCastCars.Count; i++)
+                    int nCars = occCastCars.Count;
+                    if (!occO.IsCreated || occO.Length < nCars)
                     {
-                        var l = occCastCars[i];
-                        l.OccOrigin(out var o, out var f, out var r);
-                        for (int b = 0; b < OccBins; b++)
-                            occCmds[i * OccBins + b] = new RaycastCommand(o, f * occCos[b] + r * occSin[b], qp, BeamRange + 4f);
+                        if (occO.IsCreated) { occO.Dispose(); occF.Dispose(); occR.Dispose(); }
+                        int capC = Mathf.Max(nCars, 64);
+                        occO = new NativeArray<Vector3>(capC, Allocator.Persistent);
+                        occF = new NativeArray<Vector3>(capC, Allocator.Persistent);
+                        occR = new NativeArray<Vector3>(capC, Allocator.Persistent);
                     }
-                    occJob = RaycastCommand.ScheduleBatch(occCmds.GetSubArray(0, total), occHits.GetSubArray(0, total * 2), 32, 2);
+                    if (!occDirs.IsCreated)
+                    {
+                        occDirs = new NativeArray<Vector2>(OccBins, Allocator.Persistent);
+                        for (int b = 0; b < OccBins; b++) occDirs[b] = new Vector2(occCos[b], occSin[b]);
+                    }
+                    for (int i = 0; i < nCars; i++)
+                    {
+                        occCastCars[i].OccOrigin(out var o, out var f, out var r);
+                        occO[i] = o; occF[i] = f; occR[i] = r;
+                    }
+                    // the commands written on the job threads, the rays cast after them: the main thread only schedules
+                    var fill = new N4FanFillJob { origins = occO, fwds = occF, rights = occR, dirs = occDirs, qp = qp, distance = BeamRange + 4f, cmds = occCmds.GetSubArray(0, total) }
+                        .Schedule(total, 64);
+                    occJob = RaycastCommand.ScheduleBatch(occCmds.GetSubArray(0, total), occHits.GetSubArray(0, total * 2), 32, 2, fill);
                     occPending = true;
                     Unity.Jobs.JobHandle.ScheduleBatchedJobs();
                     if (!OccAsync) OccCollect(true);

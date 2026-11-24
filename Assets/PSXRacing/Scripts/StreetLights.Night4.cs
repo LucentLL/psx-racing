@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Unity.Collections;
+using Unity.Jobs;
 using UnityEngine;
 
 namespace PSXRacing
@@ -56,7 +57,7 @@ namespace PSXRacing
         static Vector3[] n4At = new Vector3[0];
         static readonly List<int> n4Todo = new List<int>();
         /// <summary>Lamps a look finds while driving (the rest wait for the next look, half a second on).</summary>
-        public static int N4LampsPerLook = 24;
+        public static int N4LampsPerLook = 8;
         static bool n4Backlog, n4EyeKnown;
         static Vector3 n4LastEye;
         /// <summary>Field lamps waiting for the tiles round them (not splatted yet).</summary>
@@ -302,6 +303,9 @@ namespace PSXRacing
         /// <summary>Main-thread milliseconds a frame may spend reading lamps' rays back.</summary>
         public static float N4ReadBudgetMs = 0.25f;
         static bool n4JobPending;
+        static NativeArray<Vector3> n4JH;
+        static NativeArray<float> n4JG, n4RadiiN;
+        static NativeArray<Vector2> n4Dirs;
         static Unity.Jobs.JobHandle n4Job;
         static NativeArray<RaycastCommand> n4Cmds;
         static NativeArray<RaycastHit> n4Hits;
@@ -327,8 +331,38 @@ namespace PSXRacing
             }
             n4JobSlots.Clear(); n4JobSlots.AddRange(todo);
             if (n4JobHeads.Length < todo.Count) { n4JobHeads = new Vector3[todo.Count]; n4JobGrounds = new float[todo.Count]; }
-            N4Commands(n4JobSlots, n4Cmds, n4JobHeads, n4JobGrounds);
-            n4Job = RaycastCommand.ScheduleBatch(n4Cmds.GetSubArray(0, total), n4Hits.GetSubArray(0, total * 2), 64, 2);
+            if (!n4JH.IsCreated || n4JH.Length < todo.Count)
+            {
+                if (n4JH.IsCreated) { n4JH.Dispose(); n4JG.Dispose(); }
+                int capL = Mathf.Max(todo.Count, N4LampsPerLook);
+                n4JH = new NativeArray<Vector3>(capL, Allocator.Persistent);
+                n4JG = new NativeArray<float>(capL, Allocator.Persistent);
+            }
+            if (!n4Dirs.IsCreated)
+            {
+                n4Dirs = new NativeArray<Vector2>(N4Bearings, Allocator.Persistent);
+                for (int b = 0; b < N4Bearings; b++) { float a = (b + 0.5f) / N4Bearings * Mathf.PI * 2f; n4Dirs[b] = new Vector2(Mathf.Cos(a), Mathf.Sin(a)); }
+                n4RadiiN = new NativeArray<float>(N4Radii, Allocator.Persistent);
+            }
+            for (int t = 0; t < todo.Count; t++)
+            {
+                ref Entry e = ref entries[todo[t]];
+                if (!e.groundKnown)
+                {
+                    e.groundKnown = true;
+                    e.ground = Physics.Raycast(e.pos + Vector3.down * 0.3f, Vector3.down, out var gh, 60f, ~(1 << 2), QueryTriggerInteraction.Ignore) ? gh.point.y : e.pos.y - 9f;
+                }
+                var h = e.pos + Vector3.down * 0.15f;
+                n4JobHeads[t] = h; n4JobGrounds[t] = e.ground;
+                n4JH[t] = h; n4JG[t] = e.ground;
+            }
+            // the commands on the job threads as well: the main thread only schedules
+            var fill = new N4FieldFillJob
+            {
+                heads = n4JH, grounds = n4JG, dirs = n4Dirs, radii = n4RadiiN,
+                qp = new QueryParameters(N4Mask, false, QueryTriggerInteraction.Ignore, false), cmds = n4Cmds.GetSubArray(0, total),
+            }.Schedule(total, 128);
+            n4Job = RaycastCommand.ScheduleBatch(n4Cmds.GetSubArray(0, total), n4Hits.GetSubArray(0, total * 2), 64, 2, fill);
             Unity.Jobs.JobHandle.ScheduleBatchedJobs();
             n4JobPending = true;
             n4JobRead = 0;
