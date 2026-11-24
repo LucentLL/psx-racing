@@ -37,8 +37,13 @@ namespace PSXRacing.EditorTools
             foreach (var v in Object.FindObjectsByType<CarViewer>(FindObjectsInactive.Exclude))
             {
                 if (!v.Studio) continue;
+                foreach (float zoom in new[] { 1f, 6f })
+                {
+                CarViewer.PreviewZoom = zoom;
+                string nm = zoom > 1f ? name + "_close" : name;
                 Canvas.ForceUpdateCanvases();
                 v.RenderNow();
+                CarViewer.PreviewZoom = 1f;
                 var rt = v.StudioTexture;
                 if (rt == null) continue;
                 var prev = RenderTexture.active;
@@ -47,7 +52,7 @@ namespace PSXRacing.EditorTools
                 tex.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
                 tex.Apply();
                 RenderTexture.active = prev;
-                File.WriteAllBytes(Path.Combine(outDir, "studio_" + name + ".png"), tex.EncodeToPNG());
+                File.WriteAllBytes(Path.Combine(outDir, "studio_" + nm + ".png"), tex.EncodeToPNG());
                 Object.DestroyImmediate(tex);
                 // how many millimetres of the car one pixel of this frame covers: the body's length on screen
                 var cam = typeof(CarViewer).GetField("cam", BindingFlags.NonPublic | BindingFlags.Instance)?.GetValue(v) as Camera;
@@ -61,9 +66,10 @@ namespace PSXRacing.EditorTools
                     var pa = cam.WorldToViewportPoint(a); var pc = cam.WorldToViewportPoint(c);
                     float px = Vector2.Distance(new Vector2(pa.x * rt.width, pa.y * rt.height), new Vector2(pc.x * rt.width, pc.y * rt.height));
                     float mmPerPx = px > 1f ? dm * 1000f / px : -1f;
-                    Debug.Log("[Wash] " + name + ": studio " + rt.width + "x" + rt.height + ", " + mmPerPx.ToString("0.0") + " mm of car per pixel: beads 2-6 mm are " +
+                    Debug.Log("[Wash] " + nm + ": studio " + rt.width + "x" + rt.height + ", " + mmPerPx.ToString("0.0") + " mm of car per pixel: beads 2-6 mm are " +
                               (2f / mmPerPx).ToString("0.0") + "-" + (6f / mmPerPx).ToString("0.0") + " px, the merged 10 mm " + (10f / mmPerPx).ToString("0.0") +
                               " px; water shown " + v.WaterShown);
+                }
                 }
                 return;
             }
@@ -87,7 +93,7 @@ namespace PSXRacing.EditorTools
             try
             {
                 // ---- WASH on every input, before the wash (the car dry and dirty)
-                Shoot(outDir, "wash_pad", "garage", sizes: new[] { WOwner }, probe: (screen, where) =>
+                Shoot(outDir, "wash_pad", "carmenu", garageCar: car.id, sizes: new[] { WOwner }, probe: (screen, where) =>
                 {
                     var b = FindWash(screen);
                     if (b == null) { Debug.Log("[Wash] FAIL no WASH button on " + where); fails++; return; }
@@ -99,14 +105,14 @@ namespace PSXRacing.EditorTools
                               " left " + (b.navigation.selectOnLeft != null) + " right " + (b.navigation.selectOnRight != null));
                     SaveStudio(outDir, "0_before");
                 });
-                Shoot(outDir, "wash_mouse", "garage", sizes: new[] { W169 }, probe: (screen, where) =>
+                Shoot(outDir, "wash_mouse", "carmenu", garageCar: car.id, sizes: new[] { W169 }, probe: (screen, where) =>
                 {
                     var b = FindWash(screen);
                     if (b == null) { Debug.Log("[Wash] FAIL no WASH button on " + where); fails++; return; }
                     b.OnPointerEnter(new PointerEventData(null));
                     Debug.Log("[Wash] mouse: pointer over WASH on " + where);
                 });
-                Shoot(outDir, "wash_touch", "garage", sizes: new[] { WPhone }, probe: (screen, where) =>
+                Shoot(outDir, "wash_touch", "carmenu", garageCar: car.id, sizes: new[] { WPhone }, probe: (screen, where) =>
                 {
                     var b = FindWash(screen);
                     if (b == null) { Debug.Log("[Wash] FAIL no WASH button on " + where); fails++; return; }
@@ -130,7 +136,7 @@ namespace PSXRacing.EditorTools
                 foreach (var (name, t) in stages)
                 {
                     CarWater.ClockOverride = t;
-                    Shoot(outDir, "wash_" + name, "garage", sizes: new[] { WOwner }, probe: (screen, where) => SaveStudio(outDir, name));
+                    Shoot(outDir, "wash_" + name, "carmenu", garageCar: car.id, sizes: new[] { WOwner }, probe: (screen, where) => SaveStudio(outDir, name));
                 }
             }
             finally
