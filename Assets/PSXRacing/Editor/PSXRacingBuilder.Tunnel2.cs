@@ -133,6 +133,8 @@ namespace PSXRacing.EditorTools
         {
             int n = pts.Count;
             const int Sub = 4;                       // 1 m rings
+            // (tunnel2) a short lined mouth, then the rock
+            float LinedM = Tunnel3 ? 5f : T2LinedM;
             float R = T2Radius(halfW);
             int rings = (stations - 1) * Sub + 1;
             float total = (stations - 1) * Spacing;
@@ -178,6 +180,36 @@ namespace PSXRacing.EditorTools
                 }
             }
 
+            // (tunnel2) THE SLIT AT THE FOOT: the verge's outer edge and the footing meet on one line, a ribbon's
+            // chord against a ring's, and the gap between showed the background along both walls (the gap probe;
+            // his circle on the left road edge inside the bore). A dark lip under the verge, from 0.9 m inside the
+            // wall line out under the footing, closes it from every eye.
+            if (Tunnel3)
+                foreach (float side in new[] { -1f, 1f })
+                {
+                    int prev = -1;
+                    // (and 0.8 m out past each mouth, under the verge there: the slit between the bore's lip and
+                    // the hill's verge, which starts 16 cm in front of the face)
+                    for (int kk = -1; kk <= rings; kk++)
+                    {
+                        int k = Mathf.Clamp(kk, 0, rings - 1);
+                        Vector3 c = cen[k], r = rgt[k];
+                        if (kk < 0 || kk >= rings)
+                        {
+                            Vector3 along = (cen[kk < 0 ? 1 : rings - 1] - cen[kk < 0 ? 0 : rings - 2]); along.y = 0f; along.Normalize();
+                            c += along * (kk < 0 ? -0.8f : 0.8f);
+                        }
+                        float y = c.y - 0.32f + (side < 0f ? bankL[k] : bankR[k]);
+                        Vector3 wIn = c + r * (side * (R - 0.9f)), wOut = c + r * (side * (R + 0.25f));
+                        int b = cV.Count;
+                        cV.Add(new Vector3(wIn.x, y, wIn.z)); cV.Add(new Vector3(wOut.x, y, wOut.z));
+                        cUV.Add(new Vector2(k / 2.4f, 0f)); cUV.Add(new Vector2(k / 2.4f, 0.48f));
+                        cC.Add(new Color(0.05f, 0.05f, 0.05f, 1f)); cC.Add(new Color(0.05f, 0.05f, 0.05f, 1f));
+                        if (prev >= 0) QuadFacing(cV, cT, prev, prev + 1, b + 1, b, Vector3.up);
+                        prev = b;
+                    }
+                }
+
             // ---- the arch profile from the footing's top, left to right ----
             // (x across, y over the road's centre, and the inward normal)
             var prof = new List<Vector2>();
@@ -201,7 +233,7 @@ namespace PSXRacing.EditorTools
             float boardM = 1.2f;
             foreach (bool far in new[] { false, true })
             {
-                float d0 = far ? total - T2LinedM : 0f, d1 = far ? total : T2LinedM;
+                float d0 = far ? total - LinedM : 0f, d1 = far ? total : LinedM;
                 for (float bd = d0; bd < d1 - 1e-3f; bd += boardM)
                 {
                     float be = Mathf.Min(bd + boardM, d1);
@@ -246,16 +278,16 @@ namespace PSXRacing.EditorTools
             // walls below the springing); eased from the lining's line over
             // its first 2.5 m. Rings every metre, profile points shared.
             {
-                int kA = Mathf.FloorToInt(T2LinedM / (Spacing / Sub)), kB = Mathf.CeilToInt((total - T2LinedM) / (Spacing / Sub));
+                int kA = Mathf.FloorToInt(LinedM / (Spacing / Sub)), kB = Mathf.CeilToInt((total - LinedM) / (Spacing / Sub));
                 int prevRow = -1;
                 for (int k = kA; k <= kB; k++)
                 {
-                    float dist = Mathf.Clamp(k * Spacing / Sub, T2LinedM, total - T2LinedM);
+                    float dist = Mathf.Clamp(k * Spacing / Sub, LinedM, total - LinedM);
                     float fk = dist / (Spacing / Sub);
                     int k0 = Mathf.Clamp(Mathf.FloorToInt(fk), 0, rings - 2); float tk = Mathf.Clamp01(fk - k0);
                     Vector3 c = Vector3.Lerp(cen[k0], cen[k0 + 1], tk), r = Vector3.Lerp(rgt[k0], rgt[k0 + 1], tk).normalized;
                     float sp = Mathf.Min(dist, total - dist);
-                    float ease = Mathf.SmoothStep(0f, 1f, (sp - T2LinedM) / 2.5f);
+                    float ease = Mathf.SmoothStep(0f, 1f, (sp - LinedM) / 2.5f);
                     float a = Amb(dist) * 0.5f;
                     int row = rV.Count;
                     for (int j = 0; j < P; j++)
@@ -265,7 +297,9 @@ namespace PSXRacing.EditorTools
                         Vector2 inw = Inward(q);
                         float arch = Mathf.Clamp01((q.y - T2SpringY) / 1.2f);
                         float nz = T2Rock(p0);
-                        float off = (j == 0 || j == P - 1) ? 0f : ease * (0.14f + Mathf.Lerp(0.12f, 0.40f, arch) * nz);
+                        // (tunnel2) rougher: the blasted bore of his 11-02 drive, big facets
+                        float off = (j == 0 || j == P - 1) ? 0f : Tunnel3 ? ease * (0.18f + Mathf.Lerp(0.22f, 0.62f, arch) * nz)
+                                                                          : ease * (0.14f + Mathf.Lerp(0.12f, 0.40f, arch) * nz);
                         Vector3 outDir = -(r * inw.x + Vector3.up * inw.y);
                         rV.Add(p0 + outDir * off);
                         rUV.Add(new Vector2(dist / 6f, arc[j] / 6f));
@@ -340,7 +374,8 @@ namespace PSXRacing.EditorTools
                 Vector3 baseP = c - r * wallX + Vector3.up * T2LampY;
                 // housing: 0.46 along x 0.30 tall, from 0.6 m inside the rock to 0.20 m proud
                 Vector3 o = baseP - fwd * 0.23f - Vector3.up * 0.15f - inn * 0.6f;
-                Block(hv, huv, ht, o, fwd * 0.46f, Vector3.up * 0.30f, inn * 0.80f, c, r, fwd);
+                if (Tunnel3) o -= inn * 0.5f;
+                Block(hv, huv, ht, o, fwd * 0.46f, Vector3.up * 0.30f, inn * (Tunnel3 ? 1.30f : 0.80f), c, r, fwd);
                 // the lens: the housing's face, a little proud and smaller
                 Vector3 lo = baseP - fwd * 0.18f - Vector3.up * 0.10f + inn * 0.20f;
                 Block(lv, luv, lt, lo, fwd * 0.36f, Vector3.up * 0.20f, inn * 0.03f, c, r, fwd);
@@ -874,6 +909,8 @@ namespace PSXRacing.EditorTools
             tube.isStatic = true;
             parent = tube.transform;
             var lining = T2Mat("TunnelLining", Root + "/Art/Buildings/Textures/ConcreteBare.png", new Color(0.80f, 0.79f, 0.76f), false, Vector4.zero);
+            // (tunnel2) PSX_TUNNEL3: round 2's real portal, hillside and sign (PSXRacingBuilder.Tunnel3.cs)
+            if (Tunnel3) { BuildTunnel3Parts(pts, from, stations, parent, rockMat, phys, no, halfW, lining); return; }
             var stone = T2Mat("TunnelPortalStone2", StageRockTexPath, new Color(0.88f, 0.90f, 0.94f), true, new Vector4(1f / 2.6f, 1f / 11f, 1.0f, 1.6f));
             var mortar = T2Mat("TunnelPortalMortar", StageRockTexPath, new Color(0.22f, 0.21f, 0.20f), false, Vector4.zero, false);
             BuildBore2(pts, from, stations, parent, rockMat, lining, no, halfW);

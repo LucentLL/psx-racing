@@ -82,6 +82,19 @@ namespace PSXRacing.EditorTools
         static object Get(Op o) => o.f != null ? o.f.GetValue(null) : o.p.GetValue(null);
         static void Set(Op o, object v) { if (o.f != null) o.f.SetValue(null, v); else o.p.SetValue(null, v); }
 
+        public static bool ShotForest = System.Environment.GetEnvironmentVariable("PSX_SHOT_FOREST") != "0";
+        public static int ForestsQueued;
+
+        /// <summary>Queue every live mesh forest's draws for <paramref name="cam"/>'s next render (the player's
+        /// own cull: the camera's frustum).</summary>
+        public static void QueueForest(Camera cam)
+        {
+            ForestsQueued = 0;
+            if (cam == null) return;
+            foreach (var f in Object.FindObjectsByType<MeshForest>(FindObjectsSortMode.None))
+                if (f != null && f.isActiveAndEnabled) { f.DrawNow(cam, true); ForestsQueued++; }
+        }
+
         /// <summary>Shoot the main camera once per variant into <paramref name="dir"/>.</summary>
         public static void Take(Camera cam, string dir, string name)
         {
@@ -100,6 +113,12 @@ namespace PSXRacing.EditorTools
                 foreach (var o in v.ops) { o.was = Get(o); Set(o, o.v); }
                 for (int pass = 0; pass < 2; pass++)   // a warm-up render first (the speed blur's history)
                 {
+                    // (tunnel2, 2026-11-23) THE FOREST AS THE PLAYER SEES IT: the mesh forest (canopy, understory)
+                    // queues its draws once a frame (MeshForest.LateUpdate, Graphics.RenderMeshIndirect) and a
+                    // render on request takes them only once - the second render of a hidden shot drew none, so
+                    // every hidden frame showed bare hills. Queue them again for each render, as the edit-mode
+                    // tree tools do (DrawNow before every Render). PSX_SHOT_FOREST=0: as before.
+                    if (ShotForest) QueueForest(cam);
                     // the camera's whole stack (the cockpit's interior overlay too), as the light-pop meter does
                     var request = new UnityEngine.Rendering.RenderPipeline.StandardRequest { destination = rt };
                     if (UnityEngine.Rendering.RenderPipeline.SupportsRenderRequest(cam, request)) UnityEngine.Rendering.RenderPipeline.SubmitRenderRequest(cam, request);

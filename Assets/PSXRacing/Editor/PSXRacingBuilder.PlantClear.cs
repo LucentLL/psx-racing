@@ -449,8 +449,9 @@ namespace PSXRacing.EditorTools
         static float UnderBaseAt(float x, float z, float s)
         {
             if (!StageCorridor(x, z, ForestBand + 10f, out RoadFoot f)) return float.NaN;
-            if (f.d < RoadWidth * 0.5f + UnderClearM || f.d > ForestBand) return float.NaN;
-            if (BridgeAt(f.station) > 0.35f || (OnGradedRoadside(f) && !OnRockTop(f))) return float.NaN;
+            bool ob = T3OverBore(f, x, z);
+            if ((!ob && f.d < RoadWidth * 0.5f + UnderClearM) || f.d > ForestBand) return float.NaN;
+            if (BridgeAt(f.station) > 0.35f || (!ob && OnGradedRoadside(f) && !OnRockTop(f))) return float.NaN;
             return StageStandY(x, z, f) - 0.1f - SlopeSink(x, z, 0.35f);
         }
 
@@ -458,9 +459,11 @@ namespace PSXRacing.EditorTools
         static float CoverBaseAt(float x, float z, float s)
         {
             if (!StageCorridor(x, z, CoverBand + 4f, out RoadFoot f)) return float.NaN;
-            if (f.d < RoadWidth * 0.5f + 0.9f || f.d > CoverBand) return float.NaN;
+            bool ob = T3OverBore(f, x, z);
+            if ((!ob && f.d < RoadWidth * 0.5f + 0.9f) || f.d > CoverBand) return float.NaN;
             if (BridgeAt(f.station) > 0.35f) return float.NaN;
             float lat = StageLatticeY(x, z), top = StageBankTopY(f);
+            if (ob) return lat - 0.03f;
             if (OnGradedRoadside(f) && top > lat + 0.3f && !OnRockTop(f)) return float.NaN;
             return Mathf.Max(Mathf.Max(lat, top), StageFillY(x, z)) - 0.03f;
         }

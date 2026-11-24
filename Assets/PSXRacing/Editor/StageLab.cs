@@ -57,6 +57,14 @@ namespace PSXRacing.EditorTools
                         // And the paint on the tarmac: lanes even either side
                         // of a centre line on the ribbon's centre, lines smooth.
                         sb.AppendLine(LaneAudit.AuditForLab(def, path));
+                        // (tunnel2) a stage with a tunnel: no see-through gap from any camera the game puts
+                        // there, and no stretched texture on the tunnel's surfaces (Tunnel2Probe)
+                        TrackCatalog.EnsureStage(def);
+                        if (def.tunnels != null && def.tunnels.Length > 0)
+                        {
+                            sb.AppendLine(Tunnel2Probe.Gaps(def, path, "lab_" + id, out _));
+                            sb.AppendLine(Tunnel2Probe.Stretch(def, path, true, out _));
+                        }
                     }
                     // And no plant through a deck, a pier, a wall or rail, a
                     // rock face, or the lanes up to 4.5 m (owner 2026-11-10).
