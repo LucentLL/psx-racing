@@ -373,6 +373,17 @@ namespace PSXRacing.EditorTools
                 Slab(P(s * stepX, stepTop, 0.08f), P(s * stepX, top, 0.08f), P(s * stepX, top, Back), P(s * stepX, stepTop, Back), right * s, 0.5f);
                 Slab(P(s * wallX, T3Bottom, 0.08f), P(s * wallX, stepTop, 0.08f), P(s * wallX, stepTop, Back), P(s * wallX, T3Bottom, Back), right * s, 0.2f);
             }
+            // (2b) THE WALL'S BACK: the masonry was an open shell 1.25 m deep; with the hill no longer heaped beside its
+            // ends, a ray past an end looked into it and out through the stones' backs. Closed at the slab's back
+            // edge, the full width and height, facing into the hill (the bore's opening left open)
+            if (Tunnel3B)
+                foreach (float s in new[] { -1f, 1f })
+                {
+                    Slab(P(s * R, T3Bottom, Back), P(s * R, top, Back), P(s * stepX, top, Back), P(s * stepX, T3Bottom, Back), -face, 0.1f);
+                    Slab(P(s * stepX, T3Bottom, Back), P(s * stepX, stepTop, Back), P(s * wallX, stepTop, Back), P(s * wallX, T3Bottom, Back), -face, 0.1f);
+                    // over the arch: from the extrados to the top, across the middle (one slab a side)
+                    Slab(P(0f, T2SpringY + R + 0.2f, Back), P(0f, top, Back), P(s * R, top, Back), P(s * R, T2SpringY, Back), -face, 0.1f);
+                }
 
             // ---- the mortar plane behind every joint ----
             var mv = new List<Vector3>(); var muv = new List<Vector2>(); var mc = new List<Color>(); var mt = new List<int>();
