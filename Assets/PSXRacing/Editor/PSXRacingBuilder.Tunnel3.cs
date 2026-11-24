@@ -381,8 +381,6 @@ namespace PSXRacing.EditorTools
                 {
                     Slab(P(s * R, T3Bottom, Back), P(s * R, top, Back), P(s * stepX, top, Back), P(s * stepX, T3Bottom, Back), -face, 0.1f);
                     Slab(P(s * stepX, T3Bottom, Back), P(s * stepX, stepTop, Back), P(s * wallX, stepTop, Back), P(s * wallX, T3Bottom, Back), -face, 0.1f);
-                    // over the arch: from the extrados to the top, across the middle (one slab a side)
-                    Slab(P(0f, T2SpringY + R + 0.2f, Back), P(0f, top, Back), P(s * R, top, Back), P(s * R, T2SpringY, Back), -face, 0.1f);
                 }
 
             // ---- the mortar plane behind every joint ----
