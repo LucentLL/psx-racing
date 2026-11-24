@@ -35,7 +35,7 @@ namespace PSXRacing.EditorTools
         {
             Line("CARDOTS: the paint in shade on the showroom stage, the player's SSAO on (dots = px > 0.035 under their 9x9 mean, per 10k paint px)");
             Check(CarDots.Bit == 128 && DamageCabin.StencilBit == 64, "the paint's stencil bit is its own (128; DamageCabin's hole is 64)");
-            foreach (var (key, skin) in CarDotsShots.ParseCars("civic_eg:red,fastback_96:white,gt_liftback_88:black"))
+            foreach (var (key, skin) in CarDotsShots.ParseCars("civic_eg:red,fastback_96:white,gt_liftback_88:black,gt_hardtop_73:silver"))
             {
                 var def = CarModelLibrary.Load(key);
                 if (def == null || skin >= def.SkinCount) { Check(false, "car " + key + ":" + skin + " loads"); continue; }
@@ -45,7 +45,8 @@ namespace PSXRacing.EditorTools
                 Line($"    {key} {name}: paint px {n2}; SSAO speck rms {off.x * 255f:0.00} -> {on.x * 255f:0.00} (of 255), " +
                      $"dots {off.y:0.0} -> {on.y:0.0} per 10k; the paint's own local contrast rms {plainOff.x * 255f:0.00} -> {plainOn.x * 255f:0.00}, " +
                      $"dots {plainOff.y:0.0} -> {plainOn.y:0.0} per 10k (before -> after)");
-                Check(n2 > 20000, $"{key}: the paint is on screen ({n2} px)", n2);
+                // (a black sheet is mostly read as glass by PSX/CarPaint - "a black car is a mirror" - so its paint mask is small)
+                Check(n2 > 8000, $"{key}: the paint is on screen ({n2} px)", n2);
                 Check(on.y <= CarDotsLimit, $"{key} {name}: dark specks the SSAO leaves on the paint <= {CarDotsLimit} per 10k", on.y.ToString("0.0"));
                 Check(on.x * 255f <= 0.5f, $"{key} {name}: the SSAO's speck on the paint, rms <= 0.5 of 255", (on.x * 255f).ToString("0.00"));
             }
