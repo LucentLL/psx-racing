@@ -583,8 +583,9 @@ namespace PSXRacing.EditorTools
                         {
                             // falling away from the wall's end at 42 deg (beyond it the land is the hill: no shelf
                             // held up over a valley), and under the verge's slope
-                            need -= (ax - wallX) * (SlopeB - 0.25f);
-                            need = Mathf.Min(need, capB + Mathf.Max(0f, -u[ri]) * SlopeB);
+                            // no floor at all beside the wall's end (its end stands; the land or the laid-back
+                            // slope is the hill), so the plane's two rows meet without a step
+                            need = float.NegativeInfinity;
                         }
                         if (ax < halfW + 1.5f) need = Mathf.Max(need, c.y + crownMin);
                     }
