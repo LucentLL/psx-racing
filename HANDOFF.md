@@ -1,3 +1,23 @@
+# HANDOFF - SPRAY-FIX2: cars stay wet in the menus and dry; WASH seen on the turntable (agent "sprayfix", branch spray-fix2 from 28480caf)
+
+Owner 11-23: "Cars can be wet in the menu. I was actually going to request an option to 'wash' car in garage. My complaint was about the size of the water beads."
+
+## What changed (all under PSX_CARDROPS2, default on)
+- The dry gate is gone: no DryBegin/DryEnd in CarViewer, no "new scene starts dry" reset (TireSpray.cs). Bead/rivulet scale, one water, no dark dots in shade, lens drops all kept.
+- An owned car carries its OWN water (new Scripts/LifeSim/CarWater.cs, meta committed): OwnedCar.wet / wetDay / wetSlot (added fields; old saves read dry), set when a drive ends on a wet road (LifeRules.ApplyRaceResult, Seasons.RoadWetT > 0.3) or by a WASH. On the turntable (CarViewer.ApplyWater: a property block on the rig's renderers for its own render, over the world's globals) it dries over 3 minutes of play (film in 45 s; beads shrink away, no new drops land), and is dry once a life-sim time slot has passed. Cars with no owner (dealers, ads) take the world's globals as before. LifeSimManager.Save banks the current level.
+- WASH (the existing button on the MY CARS car page, LifeHomeScreen.BuildCarMenu): kept the life sim's own pattern, $8 and no time slot (LifeRules.WashCost); now also allowed on a clean car. It clears OwnedCar.dirt - the ONLY grime the game keeps (road dirt that dulls the shine, PaintGloss); there is no tyre-mark or mud state (proposal: a per-panel grime map later). The wash on the turntable: 6 s of a water sheet with ripples running down each panel and streams down the fall lines (PSXCarDrops.cginc, _PSXCarDrops.w > 0), 2.5 s run-off, then real-size beads drying (w < 0: static beads that shrink).
+- Tools: LifeHomePreview.Wash.cs (CaptureWash: the page on pad / mouse / touch, before / during / run-off / after / drying / dry, whole and 6x close frames, mm-per-pixel line); CarViewer.PreviewZoom (preview only, 1 in the game); TestRain2 gains TestCarWater (8 checks).
+
+## Proof (scratch sprayfix\)
+- wash_sheet.png: the car page with WASH by pad focus (2000x1077), pointer (16:9), touch press (phone_wide, 477x70 px); the turntable before, during, run-off, after, drying, dry; 6x close frames (1.1 mm/px: beads 2-6 mm = 2-5 px; the whole-car frame is 6.6 mm/px, beads sub-pixel = sheen).
+- Pad reach: all 6 controls reachable on every shot; 0 CLIP lines on the wash pages. Menu sweep (LifeHomePreview.Capture): no CLIP/OVERLAP line on garage / carmenu / mycars pages.
+- RAIN2 SELF-TEST OK (CARWATER 8/8). Full self-test: 100 FAIL lines on 28480caf and 100 on this branch, the same set (no new failures).
+
+## Left / merge
+- Other cars drawn in menu scenes with no CarLights (the 3D garage bays) still show the last pushed global (wet stays, does not dry) - the viewer is per car.
+- Drying uses real seconds of play inside a slot (the menus have no finer clock).
+- Shared files: CarViewer.cs, CarViewer.Studio.cs, TireSpray.cs, LifeState.cs (OwnedCar fields), LifeSimManager.Save, LifeRules (ApplyRaceResult, WashCar), LifeHomeScreen (WASH enable), PSXCarDrops.cginc. New: CarWater.cs(.meta), LifeHomePreview.Wash.cs(.meta). Code and shaders only.
+
 # HANDOFF - SPRAYFIX: rain spray off the tyres and the road, not out of the tail lamps; rain on the cars at real size (agent "sprayfix", branch spray-fix from a99a8ef1)
 
 Owner 11-23 (PC61): "Why are the water trails shooting out of the car's taillights, when they should be coming off the ground/rear tires?"; "these water droplets are MASSIVE ... like a Hot Wheel ... streaks moving in a straight light past droplets that aren't moving"; "weird shadow dots on car in shade (driving and menus)".
