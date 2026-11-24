@@ -579,7 +579,13 @@ namespace PSXRacing.EditorTools
                                                    : y0 + stepTop - 0.06f - (ax - wallX) * 0.25f;
                         // (2b) beside the wall's end the hillside comes from the verge at 42 deg, rising behind: the end
                         // of the wall stands out of it (the photographs), no rock cliff beside it
-                        if (Tunnel3B && ax > wallX + 0.05f) need = Mathf.Min(need, capB + Mathf.Max(0f, -u[ri]) * SlopeB);
+                        if (Tunnel3B && ax > wallX + 0.05f)
+                        {
+                            // falling away from the wall's end at 42 deg (beyond it the land is the hill: no shelf
+                            // held up over a valley), and under the verge's slope
+                            need -= (ax - wallX) * (SlopeB - 0.25f);
+                            need = Mathf.Min(need, capB + Mathf.Max(0f, -u[ri]) * SlopeB);
+                        }
                         if (ax < halfW + 1.5f) need = Mathf.Max(need, c.y + crownMin);
                     }
                     else
