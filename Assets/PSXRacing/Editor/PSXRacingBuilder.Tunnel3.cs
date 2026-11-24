@@ -666,6 +666,9 @@ namespace PSXRacing.EditorTools
                         bool rock = nn.normalized.y < cosRock;
                         var list = rock ? rT : gT;
                         list.Add(i0); list.Add(i1); list.Add(i2);
+                        // (2b) a near-vertical step in the surface (the plane's two rows beside a wall end, a fold) is
+                        // drawn from both sides: seen from behind it showed the world through it
+                        if (Tunnel3B && nn.normalized.y < 0.3f) { list.Add(i0); list.Add(i2); list.Add(i1); }
                         if (own[i0] || own[i1] || own[i2]) keepTris.Add((v[i0], v[i1], v[i2], rock));
                         visTris.Add((new Vector3(v[i0].x, vis[i0], v[i0].z), new Vector3(v[i1].x, vis[i1], v[i1].z), new Vector3(v[i2].x, vis[i2], v[i2].z), rock));
                     }
