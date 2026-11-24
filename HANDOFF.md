@@ -1,3 +1,64 @@
+# HANDOFF - LABSWITCHES: the test launchers as toggles in the game (SETTINGS > LAB) (agent "labswitches", branch lab-switches from e7c3bed2)
+
+Owner 11-23 (PC64), over the build folder's eight PSXRacing_*.cmd files: "I really don't like all these being individual builds that I have to load up separately to test each. Why can't they be toggles in the main build and I can approve to keep as option or make default?"
+
+## What the owner will notice
+SETTINGS has a new row LAB (value "ALL DEFAULT" / "n CHANGED"), in the pause menu and in MAIN / CITY OPTIONS. It opens a page with five tabs (RAIN, LIGHTS, WORLD, CARS, TRAFFIC), one row per decision, NEW / OLD (ON / OFF for the tunnel lamps) with DEFAULT / CHANGED / NEXT LOAD / LOCKED after it; the help line says AT ONCE / NEXT LOAD / BUILT IN, what to look at, and the variable in small print. Choices are remembered. While any row is off its default, the pause screen and the DEBUG INFO readout carry one line, e.g. "LAB: SPRAY FROM TYRES old (next load), NIGHT 3 old, FAR HAZE old". The .cmd files still work (a set variable wins and the row shows LOCKED).
+
+## Rows (Scripts/Lab/LabSwitches.cs RegisterAll; 17 on PC, 12 on a phone)
+| tab | row | variable(s) -> statics | default | takes effect | why |
+|---|---|---|---|---|---|
+| RAIN | RAIN 2 | PSX_RAIN2 -> Rain2.On | NEW on PC (hidden on phones) | NEXT LOAD | gutter pans are tagged and spray systems sized at build; a live ON would leave them missing |
+| RAIN | RAIN ON GLASS: ROUND 1 | PSX_RAIN2_STREAKS, _BEADS2, _WIPERMAP, _CARGLASS -> Rain2.* | NEW | AT ONCE | all read per frame / per push (Rain2.PushGlass2 on flip). WIPERMODEL left out: not in his RainAsPC54 file, and it is built per cockpit (next load) |
+| RAIN | RAIN ON GLASS: ROUND 2 | PSX_RAIN2_BANK2, _COVER, _CLEAR, _LENSDROPS, _CARBEADS | NEW | AT ONCE | shader globals pushed every frame |
+| RAIN | SPRAY FROM TYRES | PSX_SPRAY2 -> TireSpray.Spray2 | NEW | NEXT LOAD | per-car spray systems are built with its material/drag; the traffic's session mist is discarded at the load (Rain2Traffic.Discard) |
+| LIGHTS | LIGHT LOOK | PSX_LIGHT_LOOK + PSX_RAIN2_LAMPGLOW -> LightLook.On, Rain2.LampGlow | NEW | AT ONCE | globals per camera; LightLook.CarPointsAtStart rewritten on the flip |
+| LIGHTS | LIGHTS: NO POP-IN | PSX_LIGHT_NOPOP -> StreetLights.NoPop | NEW | AT ONCE | per frame |
+| LIGHTS | NIGHT 3 | PSX_NIGHT3 -> StreetLights.Night3 | NEW | AT ONCE | per frame (NightDark cuts on change) |
+| LIGHTS | NIGHT 4 | PSX_NIGHT4 -> StreetLights.Night4 | NEW | NEXT LOAD (to confirm at merge) | registered by name: hidden until city-night4 is merged |
+| LIGHTS | CITY LAMP ROWS 3 | PSX_CITY_LAMPS3 | - | BUILT IN (greyed) | placed per city tile and part of the tile-cache signature |
+| WORLD | FAR HAZE | PSX_FARHAZE2 -> TimeOfDay.FarHaze2 | NEW | AT ONCE | TimeOfDay.RefreshSky on the flip |
+| WORLD | TUNNEL WALL LAMPS | PSX_TUNNEL_LAMPS -> TunnelLamps.WallLampsOn | OFF | NEXT LOAD | made / hidden once per scene (EnsureVenueLamps) |
+| WORLD | MAP ARROWS | PSX_MAP_ARROW_OLD -> RouteMapGraphic.OldArrow (NEW = false) | NEW | AT ONCE | maps marked dirty on the flip |
+| WORLD | FALL COLOURS 2 | PSX_FALL2 | - | BUILT IN | the FALL 2 materials are made by the scene build |
+| WORLD | PARKWAY TUNNELS | PSX_TUNNEL2 | - | BUILT IN | bore and fixtures in the stage scenes |
+| WORLD | TUNNELS: ROUND 3 / ROAD TEXTURE LENGTH | PSX_TUNNEL3 / PSX_ROADUV2 | - | BUILT IN | registered; hidden until parkway-tunnel2 (TunnelHeadlights) is merged |
+| CARS | NO DOTS ON PAINT IN SHADE | PSX_CARDOTS -> CarDots.On | NEW (PC only) | AT ONCE | passes per frame; every PSX/CarPaint material re-marked on the flip |
+| CARS | SMALL BEADS ON CARS | PSX_CARDROPS2 -> TireSpray.CarDrops2 | NEW | AT ONCE | TireSpray.PushCarDrops2 on the flip |
+| TRAFFIC | ONE-WAY STREETS | PSX_TRAFFIC_ONEWAY_HOLD -> TrafficSystem.OneWayHoldOn | NEW | AT ONCE | per step |
+| TRAFFIC | RIVALS SHUT IN: BRAKE | PSX_AI_SHUT_BRAKE -> AIDriver.ShutBrakeOn | NEW | AT ONCE | per step |
+
+## Rules it keeps
+- Precedence: a set variable wins (row LOCKED), then the saved choice (PlayerPrefs psx.lab.<id>, 1 NEW / 0 OLD; choosing the default deletes the key), then the default. Saved choices are written into the statics BEFORE the first scene; a NEXT LOAD row's change waits for sceneUnloaded / sceneLoaded.
+- Test runs neither read nor write the saved choices: the editor (unless PSX_LAB_PREFS=1), -batchmode, -perftour, -titleshots, -psx-title-hour, -nographics, -psx-lab-ignore, PSX_LAB_IGNORE=1, a WebGL perftour/shot URL; and any flip while PerfTour.Active is not saved.
+- Cost: none per frame. The game's code still reads its own static; the lab runs at boot, on a press and at a level load (reflection there only). The pause line is rebuilt only when LabSwitches.Version changes while the pause screen is open; the debug readout appends a cached string.
+- RELOAD (pause, only where CareerDrive.RestartOffered, only with a row waiting, second press within 4 s) restarts the drive through PauseMenu.RestartForLab.
+
+## Retiring a row (one line each)
+- MAKE IT THE DEFAULT, delete the old path: delete its Register(...) block in LabSwitches.RegisterAll, then the old branch and the static.
+- KEEP AS A PLAYER OPTION: add a Step row in SettingsCatalog over a *Prefs class (LabSwitches.SavedChoice("<id>") gives his last choice once), delete the Register block.
+- DROP THE NEW PATH: set the row's def to OLD for a build if wanted, then delete the Register block and the new branch.
+- A retired row's psx.lab.<id> key is simply never read again.
+
+## The built-exe check (goes into the smoke)
+`powershell -ExecutionPolicy Bypass -File tools\lab-check.ps1 -Exe <build>\PSXRacing.exe [-Snaps] [-View cockpit]` = two hidden batch runs of `-perftour "stage=LakeLure&from=7970&hour=night&weather=rain&lab=1"` and `"routes=trade&from=1700&hour=night&lab=1"`; per row: base, base again (noise), flipped, back; PASS / NO CHANGE / NOT BACK / EXCEPTION / PENDING OK (NEXT LOAD: statics untouched, picture unchanged) / BUILT IN / LOCKED. Exit 1 on NOT BACK, EXCEPTION or HALF STATE. Refuses to start while the owner's game runs. Do not pass offscreen= with lab=1.
+The same check in an editor (a hidden play check, allowed while the owner plays): `-executeMethod PSXRacing.EditorTools.LabPlayCheck.Run` (no -quit), PSX_LAB_PLACE=city | <stage id>, PSX_LAB_VIEW, PSX_LAB_SNAPS=1. Both call Scripts/Dev/LabCheck.cs.
+
+## Proof (PSXRec, Android target with PSX_PROFILE=PC, PSX_PC_CONTENT=1; scratch labswitches\)
+- lab_sheet.png: SETTINGS with LAB and every LAB tab from the pause menu and from MAIN OPTIONS at the six preview sizes (owner 2000x1077, phone_wide, 16:9, 4:3, 640x360, 780x340); three rows changed (values + the pause screen's LAB line); NIGHT 3 (city, chase) and RAIN ON GLASS: ROUND 1 (LakeLure, cockpit) flipped live, same frozen frame before | after.
+- LabPlayCheck, night rain, frozen clock (noise 0.00): city chase pass 8 (rainglass1 1.47 mean / 4.6 % px, rainglass2 1.92 / 6.1, lightlook 1.79 / 5.7, night3 2.73 / 1.9, cardrops2 1.35 / 4.6, and the 3 NEXT LOAD rows PENDING OK), no change 6, fail 0; LakeLure cockpit pass 6 (rainglass1 1.45 / 5.1, rainglass2 0.76 / 2.2, lightlook 0.20 / 0.5 + 3 PENDING OK), no change 8, fail 0. Every flipped row came back to 0.00. NO CHANGE where the feature is not in that frame: NO POP-IN (needs driving), FAR HAZE (no far land judged in these frames), MAP ARROWS (the HUD is not in the camera's picture), NO DOTS (the player SSAO is player-only: ApplyAO returns in the editor), the two TRAFFIC rows (behaviour), NIGHT 3 and BEADS ON CARS on the stage.
+- Self-test: TestLab (RunLab: 62 ok, 0 fail); full LifeSimSelfTest e7c3bed2 88 FAIL lines vs this branch 88, the same set (no new failures).
+- Preview (DebugBenchPreview.CaptureLab): every control on the canvas and reachable by pad at all six sizes; CLIP lines only of the kinds e7c3bed2's own settings pages show at 640x360 / 780x340 (row captions "cut on the LEFT" by the scroll list, GAMEPLAY over CONTROLS in the strip at 780x340) - checked with e7c3bed2's Capture.
+
+## Shared-file lines (night4 / tunnel2 own these files)
+- Scripts/TunnelLamps.cs:111 `public static bool WallLampsOn => ... == "1";` -> `public static bool WallLampsOn = ... == "1";` (tunnel2's file; parkway-tunnel2 has the same line at :113)
+- Scripts/LightLook.cs:41 `public static readonly bool CarPointsAtStart` -> `public static bool CarPointsAtStart` (lighting, not on either list, listed anyway)
+- No line in StreetLights*, CarLights*, NightGlow or PSXAtmosphere.cginc.
+Other one-line declaration changes: TireSpray.cs Spray2 / CarDrops2 (readonly dropped), TrafficSystem.cs OneWayHoldOn, AIDriver.cs ShutBrakeOn, RouteMap.cs OldArrow (readonly dropped), TimeOfDay.cs FarHaze2 (env property given a backing field; writing the variable's own value returns it to following the variable, so FarHazeCheck's mid-run env flips still work). New: Rain2Traffic.Discard. SettingsCatalog (LAB row, SettingItem.dim), SettingsPanel (dim colour), PauseMenu (LAB line, debug line, RestartForLab), PerfTour.cs / PerfTour.Stage.cs (lab= arg, the park hook).
+
+## At merge
+Code only: no scene pass, no bake. New files with metas: Scripts/Lab/ (LabSwitches, LabCatalog), Scripts/Dev/LabCheck.cs, Scripts/Dev/PerfTour.Lab.cs, Editor/LifeSimSelfTest.Lab.cs, Editor/LabPlayCheck.cs, tools/lab-check.ps1. When city-night4 and parkway-tunnel2 merge, their rows appear by themselves; confirm NIGHT 4's timing (change `when` in its Register block) and, if TunnelLamps.WallLampsOn comes back as a property from the tunnel2 merge, keep the field form (the row hides itself otherwise).
+
 # HANDOFF - CARDOTS: the dark dots on a dry car's paint in shade (agent "cardots", branch car-dots from 28480caf)
 
 Owner 11-23 (PC61): "weird shadow dots on car in shade (driving and menus)"; then "Dots in shade...I see them when selecting a car to start the game. In menus. When parked in house driveway. Its been an issue for a long time and I've pointed it out multiple times."
