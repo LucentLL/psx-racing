@@ -108,22 +108,6 @@ namespace PSXRacing
         {
             float off = CarDrops2 ? 0f : 1f;
             Shader.SetGlobalVector(CarDrops2OffId, new Vector4(off, off, 0f, 0f));
-            if (CarDrops2 && !sceneHooked)
-            {
-                sceneHooked = true;
-                UnityEngine.SceneManagement.SceneManager.activeSceneChanged += DryOnSceneChange;
-            }
-        }
-        static bool sceneHooked;
-
-        /// <summary>(CARDROPS 2) The rain on the bodies and their water film are globals the world's cars
-        /// push every frame (CarLights). A scene with no such car - a menu, the home, a garage - kept the
-        /// last scene's: a rainy race's beads on every car drawn there. A new scene starts dry; its own
-        /// cars push its own weather from their first frame.</summary>
-        static void DryOnSceneChange(UnityEngine.SceneManagement.Scene from, UnityEngine.SceneManagement.Scene to)
-        {
-            Shader.SetGlobalVector(PaintGloss.CarDropsId, Vector4.zero);
-            Shader.SetGlobalFloat(PaintGloss.CarWetId, 0f);
         }
         /// <summary>(Spray2) a puff's size at birth (about a tyre's width) and at death (m).</summary>
         public const float Size2Start = 0.28f, Size2End = 1.1f;

@@ -1414,6 +1414,8 @@ namespace PSXRacing.LifeSim
                                               - 0.003f * RaceHandoff.DriftSeconds);
                 car.dirt = Mathf.Min(1f, car.dirt + meters / 1000f
                                      * Mathf.Lerp(DirtPerKmDry, DirtPerKmWet, Seasons.RoadWetT));
+                // (spray-fix2) home wet from a wet road: the body beaded, drying in the garage (CarWater)
+                if (meters > 10f && Seasons.RoadWetT > 0.3f) CarWater.Soak(s, car, Mathf.Clamp01(Seasons.RoadWetT));
 
                 // 4a. HEAT. Everything the coolant gauge did out there, banked
                 // from what the model MEASURED rather than derived from the
@@ -2425,14 +2427,18 @@ namespace PSXRacing.LifeSim
         }
 
         /// <summary>WASH: the road dirt off the finish (OwnedCar.dirt), so a
-        /// clean car's paint shines again. Null on success, else why not.</summary>
+        /// clean car's paint shines again. Null on success, else why not.
+        /// (spray-fix2) A clean car can be washed too (the owner wants to wash his cars), and the
+        /// wash is SEEN on the turntable: water sheeting and running off, then beads drying
+        /// (CarWater.Wash). Still $8 and no time slot, as before.</summary>
         public static string WashCar(LifeState s, OwnedCar car)
         {
             if (car == null) return "no car";
-            if (car.dirt < 0.02f) return "it is already clean";
+            if (car.dirt < 0.02f && !TireSpray.CarDrops2) return "it is already clean";
             if (s.money < WashCost) return "need " + MenuKit.Money(WashCost);
             s.money -= WashCost;
             car.dirt = 0f;
+            if (TireSpray.CarDrops2) CarWater.Wash(s, car);
             s.calendarLog.Add(LogDate(s.day) + ": washed " + car.displayName);
             return null;
         }

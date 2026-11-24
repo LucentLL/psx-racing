@@ -127,8 +127,11 @@ float CD2Beads(float2 q, float cell, float rMin, float rMax, float density, floa
     float4 h = CDHash(id + seed);
     float2 c = (id + 0.5 + (h.xy - 0.5) * 0.5) * cell;
     float life = frac(_Time.y * (0.05 + 0.08 * h.w) + h.z);
-    float alive = step(h.z, density) * smoothstep(0.0, 0.08, life) * (1.0 - smoothstep(0.75, 1.0, life));
-    float r = cell * lerp(rMin, rMax, h.w);
+    // (spray-fix2) _PSXCarDrops.w < 0: DRYING (a washed or rained-on car indoors): no new drops land, each
+    // bead stays put and shrinks away as the water goes (density falling), instead of coming and going
+    float dryK = step(_PSXCarDrops.w, -0.5);
+    float alive = step(h.z, density) * lerp(smoothstep(0.0, 0.08, life) * (1.0 - smoothstep(0.75, 1.0, life)), 1.0, dryK);
+    float r = cell * lerp(rMin, rMax, h.w) * lerp(1.0, saturate((density - h.z) * 6.0 + 0.35), dryK);
     float dome = CDDome(q - c, r) * alive;
     // the average: a dome's mean over its cell (half its disc's share), the alive share ~0.75
     float rM = cell * 0.5 * (rMin + rMax);
@@ -145,8 +148,11 @@ float4 CD2Bead4(float2 q, float cell, float rMin, float rMax, float density, flo
     float4 h = CDHash(id + seed);
     float2 c = (id + 0.5 + (h.xy - 0.5) * 0.5) * cell;
     float life = frac(_Time.y * (0.05 + 0.08 * h.w) + h.z);
-    float alive = step(h.z, density) * smoothstep(0.0, 0.08, life) * (1.0 - smoothstep(0.75, 1.0, life));
-    float r = cell * lerp(rMin, rMax, h.w);
+    // (spray-fix2) _PSXCarDrops.w < 0: DRYING (a washed or rained-on car indoors): no new drops land, each
+    // bead stays put and shrinks away as the water goes (density falling), instead of coming and going
+    float dryK = step(_PSXCarDrops.w, -0.5);
+    float alive = step(h.z, density) * lerp(smoothstep(0.0, 0.08, life) * (1.0 - smoothstep(0.75, 1.0, life)), 1.0, dryK);
+    float r = cell * lerp(rMin, rMax, h.w) * lerp(1.0, saturate((density - h.z) * 6.0 + 0.35), dryK);
     float2 n = (q - c) / r;
     return float4(saturate(1.0 - dot(n, n)) * alive, n, r);
 }
@@ -230,7 +236,8 @@ float CarDropsH(float3 p, float3 n, float3 down, float3 air, float up, float win
         float2 md = adir * smoothstep(0.15, 0.5, alen) * 1.6 + gdir * glen * 0.5;
         float ml = length(md);
         float wipeP, wipeM;
-        float hRP = CD2Rivulets(qm, gdir, _Time.y, rain * 0.10 * smoothstep(0.3, 0.7, glen), 4.1, fp, 1.0, wipeP);
+        float hRP = CD2Rivulets(qm, gdir, _Time.y, rain * (0.10 + 0.75 * saturate(_PSXCarDrops.w)) * smoothstep(0.3, 0.7, glen), 4.1, fp, 1.0, wipeP);
+        // (spray-fix2: _PSXCarDrops.w > 0 = a wash's running water: streams down every panel's fall line)
         float hRM = CD2Rivulets(qm, md / max(ml, 1e-4), blowT * 2.0, rain * 0.40 * smoothstep(0.05, 0.3, ml), 7.7, fp, 0.0, wipeM);
         float hR = max(hRP * (1.0 - streakW), hRM * streakW);
         float wipe = max(wipeP * (1.0 - streakW), wipeM * streakW);
@@ -240,6 +247,16 @@ float CarDropsH(float3 p, float3 n, float3 down, float3 air, float up, float win
         float hL = CD2Beads(qm, CD2_CELL_L, CD2_RL_MIN, CD2_RL_MAX, rain * lerp(0.30, 0.08, streakW), 9.3, fp, creep);
         float hB = max(hS, hL) * (1.0 - wipe);
         hRain = max(hB, hR);
+        // (spray-fix2) A WASH (_PSXCarDrops.w > 0): a sheet of water over every panel, its ripples
+        // running down the fall line (across a flat roof, slowly), thinning as it runs off
+        float sheetW = saturate(_PSXCarDrops.w);
+        if (sheetW > 0.001)
+        {
+            float2 sd = glen > 0.3 ? gdir : float2(0.7071, 0.7071);
+            float sAlong = dot(qm, sd), sAcross = dot(qm, float2(sd.y, -sd.x));
+            float rip = sin(sAlong * 55.0 - _Time.y * lerp(2.0, 9.0, saturate(glen)) + sin(sAcross * 23.0) * 1.7) * 0.5 + 0.5;
+            hRain = max(hRain, sheetW * (0.32 + 0.36 * rip));
+        }
     }
     else if (rain > 0.002)
     {

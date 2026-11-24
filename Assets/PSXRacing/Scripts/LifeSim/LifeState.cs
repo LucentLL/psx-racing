@@ -472,6 +472,11 @@ namespace PSXRacing.LifeSim
         // it costs the paint nothing, it only dulls the shine (PaintGloss)
         // until the car is washed. ADDED field, so old saves read clean.
         public float dirt;
+        // (spray-fix2) The water on the body (CarWater): how wet it was when it got wet (the rain it
+        // came home in, a wash), and the day and time slot that was in - dry once the slot has
+        // passed. ADDED fields, so old saves read dry.
+        public float wet;
+        public int wetDay, wetSlot;
 
         // === the cooling system (see CoolingModel) ===
         // Three parts and what is in them, rather than one "cooling" number,
