@@ -71,7 +71,7 @@ namespace PSXRacing
             if (!On)
             {
                 // switched off live: hand the lights back to the hour, the beam to its constant
-                if (applied) { applied = false; CarLights.LampEase = 1f; CarLights.SetAll(TimeOfDay.At(TimeOfDay.Current).lightsOn); }
+                if (applied) { applied = false; CarLights.SetLampEase(1f); CarLights.SetAll(TimeOfDay.At(TimeOfDay.Current).lightsOn); }
                 if (overridden) { overridden = false; beamK = lampK = 0f; CarLights.BeamIntensityOverride = 0f; }
                 Holding = InBore = false;
                 return;
@@ -91,17 +91,17 @@ namespace PSXRacing
             // THE SWITCH, EASED (tunnel2b: "lights may not pop"): on = the field's lights switched on and their
             // lamps (lamp maps, tail-lamp light, CarLights.LampEase) and the beam brought up together over EaseS;
             // off = both brought down over EaseS, and only then the switch handed back to the hour.
-            if (zone && !applied && !CarLights.AllOn) { lampK = 0f; CarLights.LampEase = 0f; CarLights.SetAll(true); applied = true; }
+            if (zone && !applied && !CarLights.AllOn) { lampK = 0f; CarLights.SetLampEase(0f); CarLights.SetAll(true); applied = true; }
             else if (applied && zone && !CarLights.AllOn) CarLights.SetAll(true);   // an hour re-applied in the bore
             bool want = applied && zone;
             lampK = Mathf.MoveTowards(lampK, want ? 1f : 0f, Time.deltaTime / EaseS);
             if (applied)
             {
-                CarLights.LampEase = lampK;
+                CarLights.SetLampEase(lampK);
                 if (!want && lampK <= 0f)
                 {
                     applied = false;
-                    CarLights.LampEase = 1f;
+                    CarLights.SetLampEase(1f);
                     CarLights.SetAll(TimeOfDay.At(TimeOfDay.Current).lightsOn);
                 }
             }
@@ -121,7 +121,7 @@ namespace PSXRacing
 
         void OnDestroy()
         {
-            CarLights.LampEase = 1f;
+            CarLights.SetLampEase(1f);
             if (applied) CarLights.SetAll(TimeOfDay.At(TimeOfDay.Current).lightsOn);
             if (overridden) CarLights.BeamIntensityOverride = 0f;
             Holding = InBore = false;

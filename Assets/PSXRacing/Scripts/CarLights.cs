@@ -78,6 +78,17 @@ namespace PSXRacing
         /// eases it with the beam, so no lens pops). Play time.</summary>
         public static float LampEase = 1f;
 
+        /// <summary>(tunnel2b) Set <see cref="LampEase"/> and fade the running lenses (the head and tail lens sprites,
+        /// PSX/Glow _Strength) and the beam in the air (PSX/Beam) with it, for every car: the switch eases, no lens pops.</summary>
+        public static void SetLampEase(float k)
+        {
+            k = Mathf.Clamp01(k);
+            LampEase = k;
+            void S(Material m, float baseS) { if (m != null && m.HasProperty("_Strength")) m.SetFloat("_Strength", baseS * k); }
+            S(HeadMat, 1.6f); S(HeadFarMat, 1.6f); S(TailDimMat, TailLensDim); S(TailDimFarMat, TailLensDim);
+            S(BeamMat, ConeStrengthNow);
+        }
+
         /// <summary>Turn every car's running lights on or off. Called by
         /// <see cref="TimeOfDay.Apply"/>; the hour owns this, not the car.
         /// </summary>
