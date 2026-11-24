@@ -16,7 +16,8 @@ namespace PSXRacing
     /// </summary>
     public class TunnelHeadlights : MonoBehaviour
     {
-        public static bool On => System.Environment.GetEnvironmentVariable("PSX_TUNNEL3") != "0";
+        /// <summary>A play-time switch (read every frame; the LAB page may flip it live). Default from PSX_TUNNEL3.</summary>
+        public static bool On = System.Environment.GetEnvironmentVariable("PSX_TUNNEL3") != "0";
         public const float ZoneM = 50f, EaseS = 0.6f;
         const float BoreLatM = 7f;
 
@@ -67,6 +68,14 @@ namespace PSXRacing
         void LateUpdate()
         {
             if (ExposureAdapt.ForceTunnel) return;   // NEW GAME's tunnel drives the lights itself
+            if (!On)
+            {
+                // switched off live: hand the lights back to the hour, the beam to its constant
+                if (applied) { applied = false; CarLights.SetAll(TimeOfDay.At(TimeOfDay.Current).lightsOn); }
+                if (beamK > 0f) { beamK = 0f; CarLights.BeamIntensityOverride = 0f; }
+                Holding = InBore = false;
+                return;
+            }
             var rm = RaceManager.Instance;
             Transform car = rm != null && rm.playerCar != null ? rm.playerCar.transform
                           : ChaseCamera.Active != null ? ChaseCamera.Active.target : null;
