@@ -204,6 +204,7 @@ namespace PSXRacing.EditorTools
 
                 TestSpray2();
                 TestCarDrops2();
+                TestCarWater();
 
                 // ---- the two wet passes read the same pools
                 string dir = System.IO.Path.Combine(Application.dataPath, "PSXRacing/Shaders");
@@ -394,6 +395,47 @@ namespace PSXRacing.EditorTools
             Check(river > 200 && beadPx > 2000, "CARDROPS2: the patch has rivulets and beads to judge", river + " / " + beadPx);
             Check(widest < 8f, "CARDROPS2: a rivulet is under 8 mm wide", widest.ToString("0.0") + " mm");
             Check(both == 0, "CARDROPS2: no rivulet pixel over a standing bead (a rivulet takes the beads in its path)", both);
+        }
+
+        /// <summary>(spray-fix2) A car's own water: wet from a wash, the wash's streams then beads drying
+        /// over minutes, dry once a time slot has passed, and saved with the car.</summary>
+        static void TestCarWater()
+        {
+            var s = new PSXRacing.LifeSim.LifeState { day = 12, slotIndex = 2, money = 100 };
+            var car = new PSXRacing.LifeSim.OwnedCar { id = "washtest", displayName = "TEST", dirt = 0.6f };
+            s.cars.Add(car);
+            try
+            {
+                PSXRacing.LifeSim.CarWater.Reset();
+                PSXRacing.LifeSim.CarWater.ClockOverride = 1000f;
+                Check(PSXRacing.LifeSim.CarWater.Now(s, car) == Vector3.zero, "CARWATER: a car never rained on or washed is dry");
+                string why = PSXRacing.LifeSim.LifeRules.WashCar(s, car);
+                Check(why == null && car.dirt == 0f && s.money == 100 - PSXRacing.LifeSim.LifeRules.WashCost,
+                      "CARWATER: WASH clears the road dirt for its price", why ?? s.money.ToString());
+                var mid = PSXRacing.LifeSim.CarWater.Now(s, car);
+                PSXRacing.LifeSim.CarWater.ClockOverride = 1000f + PSXRacing.LifeSim.CarWater.WashSeconds - 0.5f;
+                var runoff = PSXRacing.LifeSim.CarWater.Now(s, car);
+                PSXRacing.LifeSim.CarWater.ClockOverride = 1000f + PSXRacing.LifeSim.CarWater.WashSeconds + 1f;
+                var after = PSXRacing.LifeSim.CarWater.Now(s, car);
+                PSXRacing.LifeSim.CarWater.ClockOverride = 1000f + PSXRacing.LifeSim.CarWater.WashSeconds + 90f;
+                var half = PSXRacing.LifeSim.CarWater.Now(s, car);
+                Line("  wash: during " + mid + ", running off " + runoff + ", just after " + after + ", 90 s on " + half);
+                Check(mid.y >= 0.99f && mid.z >= 0.99f && runoff.z < mid.z && runoff.z > 0f, "CARWATER: the wash sheets and streams, then runs off");
+                Check(after.x > 0.95f && after.z < -0.5f && half.x > 0.3f && half.x < after.x && half.y == 0f,
+                      "CARWATER: after the wash the body is beaded and dries (the film first, the beads over minutes)");
+                var json = JsonUtility.ToJson(car);
+                var back = JsonUtility.FromJson<PSXRacing.LifeSim.OwnedCar>(json);
+                Check(back.wet > 0f && back.wetDay == 12 && back.wetSlot == 2, "CARWATER: the water is saved with the car", json.Length);
+                s.slotIndex = 3;
+                Check(PSXRacing.LifeSim.CarWater.Now(s, car) == Vector3.zero, "CARWATER: a time slot later the car is dry");
+                s.slotIndex = 2;
+                PSXRacing.LifeSim.CarWater.ClockOverride = 1000f + PSXRacing.LifeSim.CarWater.WashSeconds + PSXRacing.LifeSim.CarWater.DrySeconds + 1f;
+                Check(PSXRacing.LifeSim.CarWater.Now(s, car) == Vector3.zero, "CARWATER: and inside its slot it is dry after a few minutes");
+                string inc = System.IO.File.ReadAllText(System.IO.Path.Combine(Application.dataPath, "PSXRacing/Shaders/PSXCarDrops.cginc"));
+                Check(inc.Contains("step(_PSXCarDrops.w, -0.5)") && inc.Contains("saturate(_PSXCarDrops.w)"),
+                      "CARWATER: the body shader draws the drying (no new drops) and the wash's streams");
+            }
+            finally { PSXRacing.LifeSim.CarWater.ClockOverride = -1f; PSXRacing.LifeSim.CarWater.Reset(); }
         }
     }
 }

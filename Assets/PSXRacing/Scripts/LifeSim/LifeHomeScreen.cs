@@ -3783,7 +3783,8 @@ namespace PSXRacing.LifeSim
                     Toast(wasOpen ? "back under " + Clip(car.displayName, 30)
                                   : "inspecting " + Clip(car.displayName, 30));
                 }, 16, away ? MenuKit.BtnBgDisabled : new Color(0.16f, 0.30f, 0.34f, 1f));
-            bool clean = car.dirt < 0.02f;
+            // (spray-fix2) a clean car can be washed too, and is seen washing on the turntable
+            bool clean = car.dirt < 0.02f && !TireSpray.CarDrops2;
             bool canWash = !away && !clean && S.money >= LifeRules.WashCost;
             MenuKit.Button(body,
                 clean ? "WASH" : "WASH  " + MenuKit.Money(LifeRules.WashCost),
