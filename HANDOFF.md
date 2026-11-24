@@ -57,7 +57,7 @@ The same check in an editor (a hidden play check, allowed while the owner plays)
 Other one-line declaration changes: TireSpray.cs Spray2 / CarDrops2 (readonly dropped), TrafficSystem.cs OneWayHoldOn, AIDriver.cs ShutBrakeOn, RouteMap.cs OldArrow (readonly dropped), TimeOfDay.cs FarHaze2 (env property given a backing field; writing the variable's own value returns it to following the variable, so FarHazeCheck's mid-run env flips still work). New: Rain2Traffic.Discard. SettingsCatalog (LAB row, SettingItem.dim), SettingsPanel (dim colour), PauseMenu (LAB line, debug line, RestartForLab), PerfTour.cs / PerfTour.Stage.cs (lab= arg, the park hook).
 
 ## At merge
-Code only: no scene pass, no bake. New files with metas: Scripts/Lab/ (LabSwitches, LabCatalog), Scripts/Dev/PerfTour.Lab.cs, Editor/LifeSimSelfTest.Lab.cs, tools/lab-check.ps1. When city-night4 and parkway-tunnel2 merge, their rows appear by themselves; confirm NIGHT 4's timing (change `when` in its Register block) and, if TunnelLamps.WallLampsOn comes back as a property from the tunnel2 merge, keep the field form (the row hides itself otherwise).
+Code only: no scene pass, no bake. New files with metas: Scripts/Lab/ (LabSwitches, LabCatalog), Scripts/Dev/LabCheck.cs, Scripts/Dev/PerfTour.Lab.cs, Editor/LifeSimSelfTest.Lab.cs, Editor/LabPlayCheck.cs, tools/lab-check.ps1. When city-night4 and parkway-tunnel2 merge, their rows appear by themselves; confirm NIGHT 4's timing (change `when` in its Register block) and, if TunnelLamps.WallLampsOn comes back as a property from the tunnel2 merge, keep the field form (the row hides itself otherwise).
 
 # HANDOFF - CARDOTS: the dark dots on a dry car's paint in shade (agent "cardots", branch car-dots from 28480caf)
 
