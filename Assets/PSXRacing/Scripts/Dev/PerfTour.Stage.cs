@@ -450,6 +450,13 @@ namespace PSXRacing
                     car.ResetTo(path.GetPoint(i0) + Vector3.up * 0.45f, Quaternion.LookRotation(Flat(path.GetTangent(i0)), Vector3.up), seated: true);
                     yield return new WaitForSecondsRealtime(2f);
                 }
+                if (LabRequested)
+                {
+                    // (the LAB check, standing here: PerfTour.Lab.cs)
+                    for (float w0 = Time.realtimeSinceStartup; Time.realtimeSinceStartup - w0 < 4f;) { car.brakeInput = 1f; car.throttleInput = 0f; yield return null; }
+                    yield return LabCheck(id);
+                    continue;
+                }
                 if (probeArg == "park")
                 {
                     // (the probe, standing here: PerfTour.Probe.cs)

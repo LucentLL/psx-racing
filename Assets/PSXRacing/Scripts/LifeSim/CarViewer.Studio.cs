@@ -180,6 +180,9 @@ namespace PSXRacing.LifeSim
         /// editor's pictures), one and a half on a handheld.</summary>
         static float Supersample => PlatformProfile.PC || Application.isEditor ? 2f : 1.5f;
 
+        /// <summary>(preview tools) the studio frame zoomed in this many times about its centre (1 = the game).</summary>
+        public static float PreviewZoom = 1f;
+
         void RenderStudio()
         {
             EnsureStudioTargets();
@@ -189,7 +192,7 @@ namespace PSXRacing.LifeSim
             rig.localRotation = Quaternion.Euler(0f, yaw, 0f);
             float aspect = (float)studioRt.width / Mathf.Max(1, studioRt.height);
             cam.orthographic = false;
-            cam.fieldOfView = StudioFov;
+            cam.fieldOfView = StudioFov / Mathf.Max(1f, PreviewZoom);
             cam.aspect = aspect;
             PlaceStudioCamera(aspect);
 
@@ -213,6 +216,7 @@ namespace PSXRacing.LifeSim
             Shader.SetGlobalFloat(EnvLodBiasId, Mathf.Log(pano.width / 512f, 2f));
             Shader.SetGlobalVector(EnvEyeId, Vector4.zero);
 
+            ApplyWater();
             var req = new UnityEngine.Rendering.RenderPipeline.StandardRequest { destination = studioSs };
             if (UnityEngine.Rendering.RenderPipeline.SupportsRenderRequest(cam, req))
                 UnityEngine.Rendering.RenderPipeline.SubmitRenderRequest(cam, req);

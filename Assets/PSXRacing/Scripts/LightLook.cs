@@ -38,7 +38,7 @@ namespace PSXRacing
         public static bool CarPoints = Env("PSX_LIGHT_LOOK_CARPOINTS");
         /// <summary>Read once: whether a lamp-map body gets its far-point
         /// sprites at all (with the look off at start, none are made).</summary>
-        public static readonly bool CarPointsAtStart = On && CarPoints;
+        public static bool CarPointsAtStart = On && CarPoints;
 
         /// <summary>5. Sodium ceiling lamps in the stage tunnels (TunnelLamps). DEFAULT OFF since the merge
         /// (2026-11-23): the real Blue Ridge Parkway bores are unlit, and the lit tunnel follows another

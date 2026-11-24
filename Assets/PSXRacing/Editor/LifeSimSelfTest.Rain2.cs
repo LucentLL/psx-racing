@@ -202,6 +202,10 @@ namespace PSXRacing.EditorTools
                 Check(TireSpray.PoolIn > TireSpray.PoolOut && TireSpray.TailFull > TireSpray.TailFrom && TireSpray.TailCapacity >= TireSpray.Capacity,
                       "the tyres' pool has a way in above its way out; the rooster tail has room");
 
+                TestSpray2();
+                TestCarDrops2();
+                TestCarWater();
+
                 // ---- the two wet passes read the same pools
                 string dir = System.IO.Path.Combine(Application.dataPath, "PSXRacing/Shaders");
                 string lit = System.IO.File.ReadAllText(System.IO.Path.Combine(dir, "PSXLit.shader"));
@@ -217,6 +221,221 @@ namespace PSXRacing.EditorTools
                 Rain2.On = keepOn; Rain2.Pools = keepPools; Rain2.Rings = keepRings;
                 Rain2.Push(0f, 0f);
             }
+        }
+
+        // ---- SPRAY 2 and CARDROPS 2 (sprayfix 2026-11-23) ------------------------------------------
+
+        /// <summary>The spray is born at the tyres: no puff or droplet above a third of its tyre's
+        /// height at birth (TireSpray's births, every tail, three tyre sizes, a banked road); and drawn
+        /// over the scene it can never outshine the light it is lit by.</summary>
+        static void TestSpray2()
+        {
+            Random.InitState(1123);
+            float worstNew = 0f, worstOld = 0f;
+            Vector3 n = new Vector3(0.08f, 1f, 0.03f).normalized;       // an 8 % bank on a grade
+            Vector3 fwd = Vector3.ProjectOnPlane(Vector3.forward, n).normalized;
+            Vector3 side = Vector3.Cross(n, fwd).normalized;
+            Vector3 pt = new Vector3(10f, 2f, 5f);
+            foreach (float r in new[] { 0.28f, 0.31f, 0.36f })
+                for (int i = 0; i < 3000; i++)
+                {
+                    float tail = (i % 5) / 4f;
+                    float dir = i % 7 == 0 ? -1f : 1f;
+                    TireSpray.Mist2Birth(pt, n, fwd, side, r, dir, tail, fwd * 40f, out var bp, out _, out _, out _);
+                    Vector3 dp = TireSpray.Drop2Birth(pt, n, fwd, side, r, dir);
+                    worstNew = Mathf.Max(worstNew, Mathf.Max(Vector3.Dot(bp - pt, n), Vector3.Dot(dp - pt, n)) / (2f * r));
+                    Vector3 op = TireSpray.MistOldBirth(pt, n, fwd, side, dir), od = TireSpray.DropOldBirth(pt, n, fwd, side, dir);
+                    worstOld = Mathf.Max(worstOld, Mathf.Max(Vector3.Dot(op - pt, n), Vector3.Dot(od - pt, n)) / (2f * r));
+                }
+            Line("  spray births: highest " + worstNew.ToString("0.00") + " of the tyre's height (a99a8ef1: " + worstOld.ToString("0.00") +
+                 "; its traffic mist 0.25 m over the body's origin)");
+            if (!TireSpray.Spray2) { Line("  (PSX_SPRAY2=0: a99a8ef1's spray, its checks skipped)"); return; }
+            Check(worstNew <= TireSpray.BirthShareMax + 1e-4f, "SPRAY2: every puff and droplet is born at its tyre, under a third of the tyre's height",
+                  worstNew.ToString("0.000"));
+            // Drawn OVER: n stacked puffs of opacity a, lit L, over a road R give R(1-a)^n + L(1-(1-a)^n), never past L.
+            // The PSX/Rain constants read from the shader; the tint is TireSpray's.
+            string rain = System.IO.File.ReadAllText(System.IO.Path.Combine(Application.dataPath, "PSXRacing/Shaders/PSXRain.shader"));
+            float sprayBase = ShaderDefine(rain, "SPRAY_BASE"), oldBase = ShaderDefine(rain, "RAIN_BASE"), cap = ShaderDefine(rain, "SPRAY_LAMP_CAP");
+            // a rainy noon, and a night right behind a lit tail lamp, in the shader's linear units
+            // (scene = ambient + sky/2 + sun x 0.35); the road behind: wet asphalt (albedo 0.10) in the same light
+            var cases = new[] { ("rainy day", 0.55f, 0.0f), ("night behind a lit tail lamp", 0.02f, 2.5f) };
+            foreach (var (what, scene, lamp) in cases)
+            {
+                float road = 0.10f * (scene + lamp * 0.3f);
+                float lit = 0.82f * (scene * sprayBase + lamp / (1f + lamp / cap));
+                float over = road, add = road;
+                for (int k = 0; k < 16; k++)
+                {
+                    over = over * (1f - TireSpray.Alpha2) + lit * TireSpray.Alpha2;
+                    add += 0.82f * (scene * oldBase + lamp * 1.4f) * TireSpray.Alpha;
+                }
+                Line("  " + what + ": 16 stacked puffs over the road (" + road.ToString("0.000") + "): " + over.ToString("0.000") +
+                     " (a99a8ef1 added: " + add.ToString("0.000") + ")");
+                Check(over <= lit + 1e-4f && over <= Mathf.Max(road * 6f, 0.30f) && lit <= 0.82f * (scene * sprayBase + cap) + 1e-4f,
+                      "SPRAY2 (" + what + "): the plume never outshines the light it takes, and the lamps' share is capped", over.ToString("0.000"));
+            }
+            var m = TireSpray.SprayMaterial2();
+            Check(m == null || (m.GetFloat("_Over") > 0.5f && Mathf.Approximately(m.GetFloat("_DstBlend"), (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha)),
+                  "SPRAY2: the spray's material draws over the scene, not added to it");
+            Check(rain.Contains("Blend [_SrcBlend] [_DstBlend], Zero One"), "PSX/Rain never writes the emitter mask (alpha: Zero One)");
+        }
+
+        static float ShaderDefine(string src, string name)
+        {
+            var mt = System.Text.RegularExpressions.Regex.Match(src, @"#define\s+" + name + @"\s+([0-9.]+)");
+            return mt.Success ? float.Parse(mt.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture) : float.NaN;
+        }
+
+        // ---- a CPU port of PSXCarDrops.cginc's CARDROPS 2 layers (the resolved look: a close camera) ----
+        static float Frac(float x) => x - Mathf.Floor(x);
+        static Vector4 CD2Hash(Vector2 p)
+        {
+            Vector4 p4 = new Vector4(Frac(p.x * 0.1031f), Frac(p.y * 0.1030f), Frac(p.x * 0.0973f), Frac(p.y * 0.1099f));
+            float d = p4.x * (p4.w + 33.33f) + p4.y * (p4.z + 33.33f) + p4.z * (p4.x + 33.33f) + p4.w * (p4.y + 33.33f);
+            p4 += new Vector4(d, d, d, d);
+            return new Vector4(Frac((p4.x + p4.y) * p4.z), Frac((p4.x + p4.z) * p4.y), Frac((p4.y + p4.z) * p4.w), Frac((p4.z + p4.w) * p4.x));
+        }
+        static float CD2Dome(Vector2 d, float r) => Mathf.Clamp01(1f - Vector2.Dot(d, d) / (r * r));
+        const float CellS = 0.0070f, RSMin = 0.150f, RSMax = 0.415f, CellL = 0.0160f, RLMin = 0.120f, RLMax = 0.260f, ColW = 0.0140f;
+        static float CD2Bead(Vector2 q, float cell, float rMin, float rMax, float seed, float time, float density)
+        {
+            Vector2 id = new Vector2(Mathf.Floor(q.x / cell), Mathf.Floor(q.y / cell));
+            Vector4 h = CD2Hash(id + new Vector2(seed, seed));
+            Vector2 c = (id + new Vector2(0.5f + (h.x - 0.5f) * 0.5f, 0.5f + (h.y - 0.5f) * 0.5f)) * cell;
+            float life = Frac(time * (0.05f + 0.08f * h.w) + h.z);
+            float alive = (h.z <= density ? 1f : 0f) * Mathf.SmoothStep(0f, 1f, life / 0.08f) * (1f - Mathf.SmoothStep(0f, 1f, (life - 0.75f) / 0.25f));
+            return CD2Dome(q - c, cell * Mathf.Lerp(rMin, rMax, h.w)) * alive;
+        }
+        static float CD2Riv(Vector2 q, Vector2 dir, float t, float seed, out float wipe)
+        {
+            Vector2 sd = new Vector2(dir.y, -dir.x);
+            float along = Vector2.Dot(q, dir), x = Vector2.Dot(q, sd) / ColW, col = Mathf.Floor(x);
+            Vector4 h = CD2Hash(new Vector2(col, seed));
+            float span = Mathf.Lerp(0.06f, 0.30f, h.z);
+            float y = along / span - t * Mathf.Lerp(0.6f, 1.4f, h.x) * 0.5f / span + h.y * 7f, cyc = Mathf.Floor(y);
+            Vector4 k = CD2Hash(new Vector2(col, cyc + seed * 3.1f));
+            float f = Frac(y);
+            float wob = (Mathf.Sin(along * 41f + k.y * 6.28f) * 0.6f + Mathf.Sin(along * 97f + k.z * 6.28f) * 0.4f) * 0.0022f;
+            float dx = (Frac(x) - 0.5f - (k.z - 0.5f) * 0.4f) * ColW - wob;
+            float rHead = Mathf.Lerp(0.0012f, 0.0025f, k.w);
+            float head = CD2Dome(new Vector2(dx, (f - 0.92f) * span), rHead);
+            float back = (0.92f - f) * span, len = span * Mathf.Lerp(0.35f, 0.85f, k.y);
+            float tr = (back >= 0f ? 1f : 0f) * (1f - Mathf.SmoothStep(0f, 1f, (back - len * 0.6f) / (len * 0.4f)));
+            float halfW = Mathf.Max(rHead * 0.55f * Mathf.Lerp(1f, 0.55f, Mathf.Clamp01(back / len)), 1e-4f);
+            float trail = Mathf.Clamp01(1f - Mathf.Abs(dx) / halfW) * tr * 0.55f;
+            float wHalf = rHead * 1.2f;
+            wipe = (Mathf.Abs(dx) <= wHalf ? 1f : 0f) * (back >= -rHead * 1.2f ? 1f : 0f) * (1f - Mathf.SmoothStep(0f, 1f, (back - len) / (len * 0.6f)));
+            return Mathf.Max(head, trail);
+        }
+
+        /// <summary>Beads 2-10 mm across in the body's own metres on three panels of three cars; rivulets
+        /// under 8 mm wide; no rivulet pixel over a standing bead (the CPU port of the shader, 0.25 mm pixels).</summary>
+        static void TestCarDrops2()
+        {
+            string inc = System.IO.File.ReadAllText(System.IO.Path.Combine(Application.dataPath, "PSXRacing/Shaders/PSXCarDrops.cginc"));
+            Check(Mathf.Approximately(ShaderDefine(inc, "CD2_CELL_S"), CellS) && Mathf.Approximately(ShaderDefine(inc, "CD2_RS_MAX"), RSMax) &&
+                  Mathf.Approximately(ShaderDefine(inc, "CD2_CELL_L"), CellL) && Mathf.Approximately(ShaderDefine(inc, "CD2_RL_MAX"), RLMax) &&
+                  Mathf.Approximately(ShaderDefine(inc, "CD2_COL_W"), ColW),
+                  "CARDROPS2: the self-test's port reads the shader's own sizes");
+            // three cars: the body frame is the car's own metres (the bead sizes are set there)
+            int cars = 0;
+            // (the catalog has no pickup or van today: then an estate or an off-roader, the tallest flat tailgates it has)
+            foreach (var body in new[] { CarModelLibrary.Body.Hatch, CarModelLibrary.Body.Saloon, CarModelLibrary.Body.Pickup, CarModelLibrary.Body.Van,
+                                         CarModelLibrary.Body.Offroad, CarModelLibrary.Body.Estate })
+            {
+                if (cars >= 3) break;
+                CarSpec spec = null;
+                foreach (var c in CarCatalog.All) if (CarModelLibrary.BodyOf(c) == body) { spec = c; break; }
+                if (spec == null) continue;
+                var def = CarModelLibrary.LoadFor(spec);
+                if (def == null || def.bodyMesh == null) continue;
+                var fit = CarModelLibrary.Fit(def, spec);
+                var sz = def.bodyMesh.bounds.size;
+                float len = Mathf.Max(sz.x * Mathf.Max(fit.sx, 0.01f), sz.z * Mathf.Max(fit.sz, 0.01f));
+                cars++;
+                // three panels: the roof (flat), a door (upright), the boot lid / tailgate (35 degrees): a bead's
+                // true diameter on the panel is its plane diameter over the cosine of the panel to its plane
+                float dMin = 2f * CellS * RSMin * 1000f, dMax = 0f;
+                foreach (float slant in new[] { 0f, 0f, 35f })
+                {
+                    float cos = Mathf.Cos(slant * Mathf.Deg2Rad);
+                    dMax = Mathf.Max(dMax, Mathf.Max(2f * CellL * RLMax, 2f * CellS * RSMax) * 1000f / cos);
+                }
+                Line("  " + body + " '" + spec.id + "' (" + def.key + "): " + len.ToString("0.00") + " m long; beads " + dMin.ToString("0.0") + "-" +
+                     dMax.ToString("0.0") + " mm on the roof, a door and a 35-degree lid");
+                Check(len > 3.0f && len < 6.5f && dMin >= 2f - 1e-3f && dMax <= 10.2f, "CARDROPS2: " + body + " beads 2-10 mm across in the car's own metres",
+                      len.ToString("0.00") + " m, " + dMin.ToString("0.0") + "-" + dMax.ToString("0.0") + " mm");
+            }
+            Check(cars >= 3, "CARDROPS2: three body types tried (hatch, saloon, and a pickup, van, off-roader or estate)", cars);
+            // rivulets and beads on a 20 x 20 cm patch, parked (down) and at speed (back along the air), at three times
+            int both = 0, river = 0, beadPx = 0;
+            float widest = 0f;
+            var runs = new[] { (new Vector2(0f, -1f), 3.1f), (new Vector2(0f, -1f), 17.7f), (new Vector2(-0.8f, -0.6f), 41.3f) };
+            foreach (var (dir, t) in runs)
+            {
+                const float px = 0.00025f;
+                for (int j = 0; j < 800; j++)
+                {
+                    int run = 0;
+                    for (int i = 0; i < 800; i++)
+                    {
+                        var q = new Vector2(0.3f + i * px, -0.2f + j * px);
+                        float h = CD2Riv(q, dir, t, 4.1f, out float wipe);
+                        float b = Mathf.Max(CD2Bead(q, CellS, RSMin, RSMax, 1.7f, t, 0.6f), CD2Bead(q, CellL, RLMin, RLMax, 9.3f, t, 0.3f)) * (1f - wipe);
+                        bool w = h > 0.05f, bb = b > 0.05f;
+                        if (w) river++;
+                        if (bb) beadPx++;
+                        if (w && bb) both++;
+                        // the widest run of water across a line (the parked rivulets run along y here)
+                        if (w && dir.x == 0f) { run++; widest = Mathf.Max(widest, run * px * 1000f); } else run = 0;
+                    }
+                }
+            }
+            Line("  rivulet pixels " + river + ", bead pixels " + beadPx + ", both at once " + both + "; widest rivulet " + widest.ToString("0.0") + " mm");
+            Check(river > 200 && beadPx > 2000, "CARDROPS2: the patch has rivulets and beads to judge", river + " / " + beadPx);
+            Check(widest < 8f, "CARDROPS2: a rivulet is under 8 mm wide", widest.ToString("0.0") + " mm");
+            Check(both == 0, "CARDROPS2: no rivulet pixel over a standing bead (a rivulet takes the beads in its path)", both);
+        }
+
+        /// <summary>(spray-fix2) A car's own water: wet from a wash, the wash's streams then beads drying
+        /// over minutes, dry once a time slot has passed, and saved with the car.</summary>
+        static void TestCarWater()
+        {
+            var s = new PSXRacing.LifeSim.LifeState { day = 12, slotIndex = 2, money = 100 };
+            var car = new PSXRacing.LifeSim.OwnedCar { id = "washtest", displayName = "TEST", dirt = 0.6f };
+            s.cars.Add(car);
+            try
+            {
+                PSXRacing.LifeSim.CarWater.Reset();
+                PSXRacing.LifeSim.CarWater.ClockOverride = 1000f;
+                Check(PSXRacing.LifeSim.CarWater.Now(s, car) == Vector3.zero, "CARWATER: a car never rained on or washed is dry");
+                string why = PSXRacing.LifeSim.LifeRules.WashCar(s, car);
+                Check(why == null && car.dirt == 0f && s.money == 100 - PSXRacing.LifeSim.LifeRules.WashCost,
+                      "CARWATER: WASH clears the road dirt for its price", why ?? s.money.ToString());
+                var mid = PSXRacing.LifeSim.CarWater.Now(s, car);
+                PSXRacing.LifeSim.CarWater.ClockOverride = 1000f + PSXRacing.LifeSim.CarWater.WashSeconds - 0.5f;
+                var runoff = PSXRacing.LifeSim.CarWater.Now(s, car);
+                PSXRacing.LifeSim.CarWater.ClockOverride = 1000f + PSXRacing.LifeSim.CarWater.WashSeconds + 1f;
+                var after = PSXRacing.LifeSim.CarWater.Now(s, car);
+                PSXRacing.LifeSim.CarWater.ClockOverride = 1000f + PSXRacing.LifeSim.CarWater.WashSeconds + 90f;
+                var half = PSXRacing.LifeSim.CarWater.Now(s, car);
+                Line("  wash: during " + mid + ", running off " + runoff + ", just after " + after + ", 90 s on " + half);
+                Check(mid.y >= 0.99f && mid.z >= 0.99f && runoff.z < mid.z && runoff.z > 0f, "CARWATER: the wash sheets and streams, then runs off");
+                Check(after.x > 0.95f && after.z < -0.5f && half.x > 0.3f && half.x < after.x && half.y == 0f,
+                      "CARWATER: after the wash the body is beaded and dries (the film first, the beads over minutes)");
+                var json = JsonUtility.ToJson(car);
+                var back = JsonUtility.FromJson<PSXRacing.LifeSim.OwnedCar>(json);
+                Check(back.wet > 0f && back.wetDay == 12 && back.wetSlot == 2, "CARWATER: the water is saved with the car", json.Length);
+                s.slotIndex = 3;
+                Check(PSXRacing.LifeSim.CarWater.Now(s, car) == Vector3.zero, "CARWATER: a time slot later the car is dry");
+                s.slotIndex = 2;
+                PSXRacing.LifeSim.CarWater.ClockOverride = 1000f + PSXRacing.LifeSim.CarWater.WashSeconds + PSXRacing.LifeSim.CarWater.DrySeconds + 1f;
+                Check(PSXRacing.LifeSim.CarWater.Now(s, car) == Vector3.zero, "CARWATER: and inside its slot it is dry after a few minutes");
+                string inc = System.IO.File.ReadAllText(System.IO.Path.Combine(Application.dataPath, "PSXRacing/Shaders/PSXCarDrops.cginc"));
+                Check(inc.Contains("step(_PSXCarDrops.w, -0.5)") && inc.Contains("saturate(_PSXCarDrops.w)"),
+                      "CARWATER: the body shader draws the drying (no new drops) and the wash's streams");
+            }
+            finally { PSXRacing.LifeSim.CarWater.ClockOverride = -1f; PSXRacing.LifeSim.CarWater.Reset(); }
         }
     }
 }

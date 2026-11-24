@@ -122,6 +122,8 @@ namespace PSXRacing.LifeSim
         {
             if (!Persists) return;   // CITY: no career, nothing written (see State)
             if (state == null) return;
+            // (spray-fix2) the water on each car as it is now (it dries while the game runs)
+            if (state.cars != null) foreach (var c in state.cars) CarWater.Bank(state, c);
             // R1c-A: a career that ended in death is written once more, then locked
             if (state.fate != null && state.fate.dead)
             {
