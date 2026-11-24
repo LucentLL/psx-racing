@@ -281,7 +281,7 @@ namespace PSXRacing.EditorTools
                     {
                         if (!System.Enum.TryParse(vn.Trim(), true, out ChaseCamera.View view)) view = ChaseCamera.View.Chase;
                         ChaseCamera.PreviewView(view);
-                        for (int k = 0; k < 40; k++) { car.ResetTo(pos, rot, seated: true); yield return null; }
+                        for (int k = 0; k < 90; k++) { car.ResetTo(pos, rot, seated: true); yield return null; }   // (tunnel2) 90: a chase camera settled after a long jump
                         string seg = "tunnel" + no + "_" + (back ? "r" : "") + offRaw.Trim().TrimStart('r').Replace("-", "m").Replace("@", "x") + "_" + view.ToString().ToLowerInvariant();
                         LightLookShotRunner.Queue(System.IO.Path.Combine(LightPopMeter.OutDir, "shots"), seg); yield return null;
                         LightPopCheck.Line("shot " + seg + " at " + pos.ToString("F0") + " (path m " + m.ToString("0") + "); tunnel lamps " + TunnelLamps.Count + ", forests queued " + LightLookShots.ForestsQueued + (LightLookShots.ShotForest ? "" : " (PSX_SHOT_FOREST=0)"));
