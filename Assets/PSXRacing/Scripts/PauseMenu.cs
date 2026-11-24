@@ -136,6 +136,7 @@ namespace PSXRacing
             if (v && exitLabel != null) exitLabel.text = ExitLabel();
             // And the temperatures out there (weather layers, 2026-10-25).
             if (v && weatherLabel != null) weatherLabel.text = Seasons.TempLine(Seasons.Now);
+            if (v) RefreshLabLine();
 
             // Put the cursor on RESUME when the panel opens, and take it off
             // when it closes. A UGUI navigation event goes to whatever is
@@ -149,6 +150,26 @@ namespace PSXRacing
 
         // ---- actions -------------------------------------------------------
         void Resume() => SetOpen(false);
+
+        /// <summary>The LAB page's RELOAD (LabCatalog): the drive restarted, as RESTART does, so the rows that
+        /// wait for a load show.</summary>
+        public void RestartForLab()
+        {
+            if (settings != null && settings.IsOpen) settings.Close();
+            RestartRace();
+        }
+
+        // (LAB) the rows off their default, in small print under the pause screen
+        Text labLabel;
+        int labVersion = -1;
+        void RefreshLabLine()
+        {
+            if (labLabel == null || labVersion == LabSwitches.Version) return;
+            labVersion = LabSwitches.Version;
+            labLabel.text = LabSwitches.ChangedLine ?? "";
+            labLabel.gameObject.SetActive(!string.IsNullOrEmpty(labLabel.text));
+            LifeSim.MenuKit.FitOneLine(labLabel, labLabel.rectTransform.sizeDelta.x);
+        }
 
         void RestartRace()
         {
@@ -298,6 +319,7 @@ namespace PSXRacing
                 {
                     if (this == null || !open) return;
                     if (panel != null) panel.SetActive(true);
+                    RefreshLabLine();
                     MenuNav.Select(pageBtns.Count > 0 ? pageBtns[0] : (menuItems.Count > 0 ? menuItems[0] : null));
                 };
             }
@@ -493,6 +515,8 @@ namespace PSXRacing
             sb.Append("grip mult : ").Append(car.gripBonus.ToString("0.00"))
               .Append("   road mu ").Append(car.roadGrip.ToString("0.00"))
               .Append("  off mu ").Append(car.offroadGrip.ToString("0.00"));
+            // (LAB) which rows are off their default, so a screenshot says what was on
+            if (LabSwitches.ChangedLine != null) sb.Append('\n').Append(LabSwitches.ChangedLine);
             debugText.text = sb.ToString();
         }
 
@@ -619,6 +643,13 @@ namespace PSXRacing
                                                  new Vector2(0f, y), TextAnchor.MiddleCenter, LifeSim.MenuKit.Dim,
                                                  stripW, 26f);
             weatherLabel.name = "Weather";
+            y -= 30f;
+            labLabel = LifeSim.MenuKit.Label(panel.transform, "", LifeSim.MenuKit.MinLabelSize, top,
+                                             new Vector2(0f, y), TextAnchor.MiddleCenter, LifeSim.MenuKit.Dim,
+                                             stripW, 26f);
+            labLabel.name = "LabLine";
+            labVersion = -1;
+            RefreshLabLine();
 
             MenuNav.Column(menuItems);
             var navWatch = MenuNav.Watch(gameObject, menuItems[0]);

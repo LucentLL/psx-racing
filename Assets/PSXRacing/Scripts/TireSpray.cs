@@ -80,10 +80,89 @@ namespace PSXRacing
         /// headroom for the life jitter.</summary>
         public const int Capacity = 96;
 
+        // SPRAY 2 (sprayfix, 2026-11-23; the owner on a PC61 camcorder replay in the rain: "Why are the
+        // water trails shooting out of the car's taillights, when they should be coming off the
+        // ground/rear tires?"). What he saw was THIS mist from 130 km/h up (RAIN 2's rooster tail):
+        // puffs born 22 cm up, thrown up at 3.5-4.8 m/s with nothing slowing them, living 0.94 s and
+        // dying 2.9 m wide - the cloud's centre 1.2-2.6 m above the road, from just behind the rear
+        // bumper (the low part is hidden by the body) to well over the roof - and drawn ADDITIVELY,
+        // so a dozen stacked puffs added two to four times the scene's light: a white-blue jet
+        // brighter than the sky, tinted red where it passed the tail lamps' point lights. Now
+        // (PSX_SPRAY2, default on; =0 is a99a8ef1's spray to the value): every puff and droplet is
+        // born at its tyre's contact patch, behind the tread, at most a third of the tyre's height
+        // up, tyre-sized; the air slows it (drag) so it rises a little and spreads behind; the mist
+        // is drawn OVER the scene (premultiplied alpha, PSX/Rain _Over), so however many puffs stack
+        // they can only reach the light the scene gives them, and the lamps' share of it is capped.
+        // The same particle counts as before.
+        public static bool Spray2 = System.Environment.GetEnvironmentVariable("PSX_SPRAY2") != "0";
+        /// <summary>(sprayfix) The rain ON the cars' bodies and glass at real size, one water (PSXCarDrops.cginc
+        /// CARDROPS 2), and the chase lens's drops at 0.6 of their size (PSXLens). PSX_CARDROPS2=0: a99a8ef1's.
+        /// Pushed as _PSXCarDrops2Off (x body, y lens: 1 = the old), so an unset global is the new look.</summary>
+        public static bool CarDrops2 = System.Environment.GetEnvironmentVariable("PSX_CARDROPS2") != "0";
+        static readonly int CarDrops2OffId = Shader.PropertyToID("_PSXCarDrops2Off");
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
+#if UNITY_EDITOR
+        [UnityEditor.InitializeOnLoadMethod]
+#endif
+        public static void PushCarDrops2()
+        {
+            float off = CarDrops2 ? 0f : 1f;
+            Shader.SetGlobalVector(CarDrops2OffId, new Vector4(off, off, 0f, 0f));
+        }
+        /// <summary>(Spray2) a puff's size at birth (about a tyre's width) and at death (m).</summary>
+        public const float Size2Start = 0.28f, Size2End = 1.1f;
+        /// <summary>(Spray2) the air's drag on a puff (1/s) and its fall (gravity share): mist floats.</summary>
+        public const float Drag2 = 1.5f, Gravity2 = 0.15f;
+        /// <summary>(Spray2) peak opacity of a puff, drawn over the scene.</summary>
+        public const float Alpha2 = 0.30f;
+        /// <summary>(Spray2) the highest a puff or droplet may be born, as a share of its tyre's height.</summary>
+        public const float BirthShareMax = 1f / 3f;
+        /// <summary>For the checks: the highest birth seen, as a share of the tyre's height
+        /// (2 x radius), over every car's mist and droplets since the last reset; and how many.</summary>
+        public static float MaxBirthShare;
+        public static int Births;
+        public static void ResetBirthStats() { MaxBirthShare = 0f; Births = 0; }
+        internal static void NoteBirth(Vector3 pos, Vector3 contact, Vector3 n, float radius)
+        {
+            float share = Vector3.Dot(pos - contact, n) / Mathf.Max(0.1f, 2f * radius);
+            if (share > MaxBirthShare) MaxBirthShare = share;
+            Births++;
+        }
+
+        /// <summary>(Spray2) Where a mist puff is born and how it leaves: just behind the tread,
+        /// on the road, inside the tyre's width. Pure, for the self-test.</summary>
+        public static void Mist2Birth(Vector3 point, Vector3 n, Vector3 fwd, Vector3 side, float radius, float dir, float tail,
+                                      Vector3 carVel, out Vector3 pos, out Vector3 vel, out float life, out float size)
+        {
+            pos = point + n * Random.Range(0.03f, 0.10f) - fwd * (radius * Random.Range(0.75f, 1.0f) * dir)
+                  + side * Random.Range(-0.10f, 0.10f);
+            vel = carVel * Inherit
+                  + n * (Random.Range(0.4f, 1.1f) + 1.4f * tail)
+                  - fwd * (Random.Range(0.5f, 1.6f) * dir)
+                  + side * Random.Range(-0.7f, 0.7f);
+            life = Life * Random.Range(0.8f, 1.15f) * (1f + 0.5f * tail);
+            size = Size2End * Random.Range(0.8f, 1.2f) * (1f + 0.3f * tail);
+        }
+
+        /// <summary>(Spray2) Where a droplet is born: off the tread's back, low.</summary>
+        public static Vector3 Drop2Birth(Vector3 point, Vector3 n, Vector3 fwd, Vector3 side, float radius, float dir)
+        {
+            return point + n * Random.Range(0.02f, 0.14f) - fwd * (radius * Random.Range(0.6f, 0.95f) * dir)
+                   + side * Random.Range(-0.12f, 0.12f);
+        }
+
+        /// <summary>The old (a99a8ef1) births, for the self-test's before column.</summary>
+        public static Vector3 MistOldBirth(Vector3 point, Vector3 n, Vector3 fwd, Vector3 side, float dir)
+            => point + n * 0.22f - fwd * (0.30f * dir) + side * Random.Range(-0.18f, 0.18f);
+        public static Vector3 DropOldBirth(Vector3 point, Vector3 n, Vector3 fwd, Vector3 side, float dir)
+            => point + n * Random.Range(0.05f, 0.30f) - fwd * (Random.Range(0.15f, 0.35f) * dir) + side * Random.Range(-0.15f, 0.15f);
+
         /// <summary>The water's own tint, a touch greyer than the falling rain
         /// (road water carries grime). The light that actually colours it
         /// comes from the shader.</summary>
         static readonly Color SprayColour = new Color(0.80f, 0.82f, 0.86f, Alpha);
+        static readonly Color Spray2Colour = new Color(0.80f, 0.82f, 0.86f, Alpha2);
+        int wheelK;
 
         // THE SPLASH (2026-10-12, owner: "I'd also like water splash for
         // driving and sliding in the rain"). The mist above is the cloud a
@@ -211,6 +290,7 @@ namespace PSXRacing
             for (int k = 0; k < 4; k++)
             {
                 var c = contacts[k];
+                wheelK = k;
                 float share = k < 2 ? FrontShare : 1f;
                 float pool = pools && c.grounded && c.onRoad ? Rain2.PoolAt(c.point, c.normal) : 0f;
                 if (!pools || !c.grounded || !c.onRoad) inPool[k] = false;
@@ -273,6 +353,20 @@ namespace PSXRacing
             Vector3 side = Vector3.Cross(n, fwd);
             if (side.sqrMagnitude > 1e-6f) side.Normalize(); else side = car.transform.right;
 
+            if (Spray2)
+            {
+                float rad = car.WheelRadiusOf(wheelK);
+                Mist2Birth(c.point, n, fwd, side, rad, dir, tail, carVel, out var bp, out var bv, out float bl, out float bs);
+                emit.position = bp;
+                emit.velocity = bv;
+                emit.startLifetime = bl;
+                emit.startSize = bs;
+                emit.startColor = Spray2Colour;
+                emit.rotation = Random.Range(0f, 360f);
+                NoteBirth(bp, c.point, n, rad);
+                ps.Emit(emit, 1);
+                return;
+            }
             // Just behind and above the contact patch - where the tread leaves
             // the road and flings the water it picked up.
             emit.position = c.point + n * 0.22f - fwd * (0.30f * dir)
@@ -299,7 +393,7 @@ namespace PSXRacing
         /// never sprays.</summary>
         bool Build()
         {
-            var mat = SprayMaterial();
+            var mat = Spray2 ? SprayMaterial2() : SprayMaterial();
             if (mat == null) { enabled = false; return false; }
 
             holder = new GameObject(car.name + " Spray") { layer = CarReflections.NoReflectLayer };
@@ -319,7 +413,8 @@ namespace PSXRacing
             main.startColor = SprayColour;
             // A light pull back down: the mist lifts off the tread to about
             // the car's waist and settles, instead of climbing like smoke.
-            main.gravityModifier = 0.35f;
+            main.gravityModifier = Spray2 ? Gravity2 : 0.35f;
+            if (Spray2) Spray2Look(ps);
 
             // No automatic emission and no shape: every puff comes from an
             // explicit Emit at a contact patch.
@@ -332,7 +427,7 @@ namespace PSXRacing
             // spends most of its life as a spreading cloud.
             var sol = ps.sizeOverLifetime;
             sol.enabled = true;
-            float s0 = SizeStart / SizeEnd;
+            float s0 = Spray2 ? Size2Start / Size2End : SizeStart / SizeEnd;
             sol.size = new ParticleSystem.MinMaxCurve(1f, new AnimationCurve(
                 new Keyframe(0f, s0, 2.2f, 2.2f),
                 new Keyframe(1f, 1f, 0.15f, 0.15f)));
@@ -355,9 +450,21 @@ namespace PSXRacing
             r.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
             r.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
 
+            if (Spray2) r.sortMode = ParticleSystemSortMode.Distance;   // drawn over: back to front
             emit = new ParticleSystem.EmitParams();
             ps.Play();
             return true;
+        }
+
+        /// <summary>(Spray2) The air slows a puff: it rises a little, spreads and is left behind.</summary>
+        internal static void Spray2Look(ParticleSystem p)
+        {
+            var lv = p.limitVelocityOverLifetime;
+            lv.enabled = true;
+            lv.limit = new ParticleSystem.MinMaxCurve(200f);
+            lv.drag = new ParticleSystem.MinMaxCurve(Drag2);
+            lv.multiplyDragByParticleSize = false;
+            lv.multiplyDragByParticleVelocity = false;
         }
 
         /// <summary>The shared spray material: PSX/Rain, or PSX/Decal if the
@@ -372,9 +479,11 @@ namespace PSXRacing
             Vector3 fwd = c.forward.sqrMagnitude > 1e-6f ? c.forward.normalized : car.transform.forward;
             Vector3 side = Vector3.Cross(n, fwd);
             if (side.sqrMagnitude > 1e-6f) side.Normalize(); else side = car.transform.right;
+            float rad = car.WheelRadiusOf(wheelK);
             var e = new ParticleSystem.EmitParams
             {
-                position = c.point + n * Random.Range(0.05f, 0.30f) - fwd * (Random.Range(0.15f, 0.35f) * dir)
+                position = Spray2 ? Drop2Birth(c.point, n, fwd, side, rad, dir)
+                         : c.point + n * Random.Range(0.05f, 0.30f) - fwd * (Random.Range(0.15f, 0.35f) * dir)
                            + side * Random.Range(-0.15f, 0.15f),
                 velocity = carVel * 0.55f
                            + n * Random.Range(1.2f, 3.6f)
@@ -395,6 +504,7 @@ namespace PSXRacing
                 e.velocity += new Vector3(Random.Range(-1.2f, 1.2f), Random.Range(-0.6f, 0.9f), Random.Range(-1.2f, 1.2f));
             }
             ApplyDropLook();
+            if (Spray2) NoteBirth(e.position, c.point, n, rad);
             drops.Emit(e, 1);
         }
 
@@ -432,7 +542,7 @@ namespace PSXRacing
 
         bool BuildDrops()
         {
-            var mat = SprayMaterial();
+            var mat = Spray2 ? SprayMaterial2() : SprayMaterial();
             if (mat == null) { enabled = false; return false; }
             dropHolder = new GameObject(car.name + " Splash") { layer = CarReflections.NoReflectLayer };
             dropHolder.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
@@ -468,8 +578,26 @@ namespace PSXRacing
             r.receiveShadows = false;
             r.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
             r.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
+            if (Spray2) r.sortMode = ParticleSystemSortMode.Distance;
             drops.Play();
             return true;
+        }
+
+        static Material sharedMat2;
+
+        /// <summary>(Spray2) PSX/Rain drawn OVER the scene (premultiplied alpha; the target's alpha,
+        /// the emitter mask, untouched) with the lamps' share capped: water in the air takes the
+        /// light round it and can never be brighter than that light, however many puffs stack.</summary>
+        public static Material SprayMaterial2()
+        {
+            if (sharedMat2 != null) return sharedMat2;
+            var baseMat = SprayMaterial();
+            if (baseMat == null) return null;
+            sharedMat2 = new Material(baseMat) { name = "TireSpray2 (runtime)", hideFlags = HideFlags.HideAndDontSave };
+            sharedMat2.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.One);
+            sharedMat2.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            sharedMat2.SetFloat("_Over", 1f);
+            return sharedMat2;
         }
 
         internal static Material SprayMaterial()

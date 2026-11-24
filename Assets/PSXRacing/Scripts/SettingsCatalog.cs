@@ -197,6 +197,8 @@ namespace PSXRacing
         public System.Func<int> get;
         public System.Action<int> set;
         public System.Func<int, string> show;
+        /// <summary>Drawn greyed: a row that only reports (the LAB's built-in and locked rows).</summary>
+        public bool dim;
         public bool IsSlider => get != null;
     }
 
@@ -417,6 +419,10 @@ namespace PSXRacing
                      "Faults, parts, the hour and the weather, and another car - onto this drive.",
                      open);
             }
+            // THE LAB (owner, 2026-11-23: the test launchers as toggles in the game): its own page over this one.
+            Step(SettingsTab.System, "LAB", LabCatalog.Summary,
+                 "New features beside the old ones, switched live: try each, then keep it or not.",
+                 LabCatalog.OpenFromSettings);
             if (openCredits != null)
                 Step(SettingsTab.System, "CREDITS", () => "OPEN",
                      "The map, terrain and model credits, in full.",

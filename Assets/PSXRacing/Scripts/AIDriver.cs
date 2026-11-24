@@ -1508,7 +1508,7 @@ namespace PSXRacing
         /// metres of it (or over it) at this lateral speed, the give-way brake is held to this share so the front
         /// tyres can still turn the car back (no ABS: a locked front goes where it points).</summary>
         const float SteerBrakeLineM = 1.4f, SteerBrakeDriftMps = 0.4f, SteerBrakeCap = 0.55f;
-        static readonly bool ShutBrakeOn = System.Environment.GetEnvironmentVariable("PSX_AI_SHUT_BRAKE") != "0";
+        static bool ShutBrakeOn = System.Environment.GetEnvironmentVariable("PSX_AI_SHUT_BRAKE") != "0";
         /// <summary>Another racer level with this car on its right, close enough across that this car cannot steer
         /// back into its own lane: its centre 0.5-3.2 m to the right and less than a car length ahead or behind.</summary>
         bool RacerBesideRight(Vector3 right)

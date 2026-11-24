@@ -127,6 +127,9 @@ namespace PSXRacing
             t.probeArg = ShotLink.Query(url, "probe") ?? "";
             t.pvArg = ShotLink.Query(url, "pv") ?? "";
             t.probeCfg = ShotLink.Query(url, "pcfg") ?? "";
+            // &lab=1: every LAB row flipped and back, standing here (PerfTour.Lab.cs)
+            t.labArg = ShotLink.Query(url, "lab") ?? "";
+            t.labSnapsArg = ShotLink.Query(url, "labsnaps") ?? "";
             // &scale=75: RENDER SCALE for this run only
             string rs = ShotLink.Query(url, "scale");
             if (!string.IsNullOrEmpty(rs) && int.TryParse(rs, out int rsv)) RenderScalePrefs.Override = rsv;
@@ -590,6 +593,13 @@ namespace PSXRacing
             }
             float settleS = Time.realtimeSinceStartup - settle0;
             yield return new WaitForSecondsRealtime(1.5f);
+            if (LabRequested)
+            {
+                for (float w0 = Time.realtimeSinceStartup; Time.realtimeSinceStartup - w0 < 6f;) { car.brakeInput = 1f; car.throttleInput = 0f; yield return null; }
+                yield return LabCheck(id);
+                Destroy(pgo);
+                yield break;
+            }
             if (probeArg == "park")
             {
                 // (the probe, standing here: PerfTour.Probe.cs)

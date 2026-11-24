@@ -110,7 +110,7 @@ namespace PSXRacing
         public static int WallCount { get; private set; }
 
         /// <summary>PSX_TUNNEL_LAMPS=1: the wall lamp row lit (default OFF: the real tunnel is unlit).</summary>
-        public static bool WallLampsOn => System.Environment.GetEnvironmentVariable("PSX_TUNNEL_LAMPS") == "1";
+        public static bool WallLampsOn = System.Environment.GetEnvironmentVariable("PSX_TUNNEL_LAMPS") == "1";
 
         /// <summary>Unlit tunnel: the builder's lamp fixtures are not drawn. True when the scene has a
         /// wall row (a Tunnel2 scene), so the old ceiling rows are not made either.</summary>

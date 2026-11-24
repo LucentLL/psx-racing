@@ -1,3 +1,156 @@
+# HANDOFF - LABSWITCHES: the test launchers as toggles in the game (SETTINGS > LAB) (agent "labswitches", branch lab-switches from e7c3bed2)
+
+Owner 11-23 (PC64), over the build folder's eight PSXRacing_*.cmd files: "I really don't like all these being individual builds that I have to load up separately to test each. Why can't they be toggles in the main build and I can approve to keep as option or make default?"
+
+## What the owner will notice
+SETTINGS has a new row LAB (value "ALL DEFAULT" / "n CHANGED"), in the pause menu and in MAIN / CITY OPTIONS. It opens a page with five tabs (RAIN, LIGHTS, WORLD, CARS, TRAFFIC), one row per decision, NEW / OLD (ON / OFF for the tunnel lamps) with DEFAULT / CHANGED / NEXT LOAD / LOCKED after it; the help line says AT ONCE / NEXT LOAD / BUILT IN, what to look at, and the variable in small print. Choices are remembered. While any row is off its default, the pause screen and the DEBUG INFO readout carry one line, e.g. "LAB: SPRAY FROM TYRES old (next load), NIGHT 3 old, FAR HAZE old". The .cmd files still work (a set variable wins and the row shows LOCKED).
+
+## Rows (Scripts/Lab/LabSwitches.cs RegisterAll; 17 on PC, 12 on a phone)
+| tab | row | variable(s) -> statics | default | takes effect | why |
+|---|---|---|---|---|---|
+| RAIN | RAIN 2 | PSX_RAIN2 -> Rain2.On | NEW on PC (hidden on phones) | NEXT LOAD | gutter pans are tagged and spray systems sized at build; a live ON would leave them missing |
+| RAIN | RAIN ON GLASS: ROUND 1 | PSX_RAIN2_STREAKS, _BEADS2, _WIPERMAP, _CARGLASS -> Rain2.* | NEW | AT ONCE | all read per frame / per push (Rain2.PushGlass2 on flip). WIPERMODEL left out: not in his RainAsPC54 file, and it is built per cockpit (next load) |
+| RAIN | RAIN ON GLASS: ROUND 2 | PSX_RAIN2_BANK2, _COVER, _CLEAR, _LENSDROPS, _CARBEADS | NEW | AT ONCE | shader globals pushed every frame |
+| RAIN | SPRAY FROM TYRES | PSX_SPRAY2 -> TireSpray.Spray2 | NEW | NEXT LOAD | per-car spray systems are built with its material/drag; the traffic's session mist is discarded at the load (Rain2Traffic.Discard) |
+| LIGHTS | LIGHT LOOK | PSX_LIGHT_LOOK + PSX_RAIN2_LAMPGLOW -> LightLook.On, Rain2.LampGlow | NEW | AT ONCE | globals per camera; LightLook.CarPointsAtStart rewritten on the flip |
+| LIGHTS | LIGHTS: NO POP-IN | PSX_LIGHT_NOPOP -> StreetLights.NoPop | NEW | AT ONCE | per frame |
+| LIGHTS | NIGHT 3 | PSX_NIGHT3 -> StreetLights.Night3 | NEW | AT ONCE | per frame (NightDark cuts on change) |
+| LIGHTS | NIGHT 4 | PSX_NIGHT4 -> StreetLights.Night4 | NEW | NEXT LOAD (to confirm at merge) | registered by name: hidden until city-night4 is merged |
+| LIGHTS | CITY LAMP ROWS 3 | PSX_CITY_LAMPS3 | - | BUILT IN (greyed) | placed per city tile and part of the tile-cache signature |
+| WORLD | FAR HAZE | PSX_FARHAZE2 -> TimeOfDay.FarHaze2 | NEW | AT ONCE | TimeOfDay.RefreshSky on the flip |
+| WORLD | TUNNEL WALL LAMPS | PSX_TUNNEL_LAMPS -> TunnelLamps.WallLampsOn | OFF | NEXT LOAD | made / hidden once per scene (EnsureVenueLamps) |
+| WORLD | MAP ARROWS | PSX_MAP_ARROW_OLD -> RouteMapGraphic.OldArrow (NEW = false) | NEW | AT ONCE | maps marked dirty on the flip |
+| WORLD | FALL COLOURS 2 | PSX_FALL2 | - | BUILT IN | the FALL 2 materials are made by the scene build |
+| WORLD | PARKWAY TUNNELS | PSX_TUNNEL2 | - | BUILT IN | bore and fixtures in the stage scenes |
+| WORLD | TUNNELS: ROUND 3 / ROAD TEXTURE LENGTH | PSX_TUNNEL3 / PSX_ROADUV2 | - | BUILT IN | registered; hidden until parkway-tunnel2 (TunnelHeadlights) is merged |
+| CARS | NO DOTS ON PAINT IN SHADE | PSX_CARDOTS -> CarDots.On | NEW (PC only) | AT ONCE | passes per frame; every PSX/CarPaint material re-marked on the flip |
+| CARS | SMALL BEADS ON CARS | PSX_CARDROPS2 -> TireSpray.CarDrops2 | NEW | AT ONCE | TireSpray.PushCarDrops2 on the flip |
+| TRAFFIC | ONE-WAY STREETS | PSX_TRAFFIC_ONEWAY_HOLD -> TrafficSystem.OneWayHoldOn | NEW | AT ONCE | per step |
+| TRAFFIC | RIVALS SHUT IN: BRAKE | PSX_AI_SHUT_BRAKE -> AIDriver.ShutBrakeOn | NEW | AT ONCE | per step |
+
+## Rules it keeps
+- Precedence: a set variable wins (row LOCKED), then the saved choice (PlayerPrefs psx.lab.<id>, 1 NEW / 0 OLD; choosing the default deletes the key), then the default. Saved choices are written into the statics BEFORE the first scene; a NEXT LOAD row's change waits for sceneUnloaded / sceneLoaded.
+- Test runs neither read nor write the saved choices: the editor (unless PSX_LAB_PREFS=1), -batchmode, -perftour, -titleshots, -psx-title-hour, -nographics, -psx-lab-ignore, PSX_LAB_IGNORE=1, a WebGL perftour/shot URL; and any flip while PerfTour.Active is not saved.
+- Cost: none per frame. The game's code still reads its own static; the lab runs at boot, on a press and at a level load (reflection there only). The pause line is rebuilt only when LabSwitches.Version changes while the pause screen is open; the debug readout appends a cached string.
+- RELOAD (pause, only where CareerDrive.RestartOffered, only with a row waiting, second press within 4 s) restarts the drive through PauseMenu.RestartForLab.
+
+## Retiring a row (one line each)
+- MAKE IT THE DEFAULT, delete the old path: delete its Register(...) block in LabSwitches.RegisterAll, then the old branch and the static.
+- KEEP AS A PLAYER OPTION: add a Step row in SettingsCatalog over a *Prefs class (LabSwitches.SavedChoice("<id>") gives his last choice once), delete the Register block.
+- DROP THE NEW PATH: set the row's def to OLD for a build if wanted, then delete the Register block and the new branch.
+- A retired row's psx.lab.<id> key is simply never read again.
+
+## The built-exe check (goes into the smoke)
+`powershell -ExecutionPolicy Bypass -File tools\lab-check.ps1 -Exe <build>\PSXRacing.exe [-Snaps] [-View cockpit]` = two hidden batch runs of `-perftour "stage=LakeLure&from=7970&hour=night&weather=rain&lab=1"` and `"routes=trade&from=1700&hour=night&lab=1"`; per row: base, base again (noise), flipped, back; PASS / NO CHANGE / NOT BACK / EXCEPTION / PENDING OK (NEXT LOAD: statics untouched, picture unchanged) / BUILT IN / LOCKED. Exit 1 on NOT BACK, EXCEPTION or HALF STATE. Refuses to start while the owner's game runs. Do not pass offscreen= with lab=1.
+The same check in an editor (a hidden play check, allowed while the owner plays): `-executeMethod PSXRacing.EditorTools.LabPlayCheck.Run` (no -quit), PSX_LAB_PLACE=city | <stage id>, PSX_LAB_VIEW, PSX_LAB_SNAPS=1. Both call Scripts/Dev/LabCheck.cs.
+
+## Proof (PSXRec, Android target with PSX_PROFILE=PC, PSX_PC_CONTENT=1; scratch labswitches\)
+- lab_sheet.png: SETTINGS with LAB and every LAB tab from the pause menu and from MAIN OPTIONS at the six preview sizes (owner 2000x1077, phone_wide, 16:9, 4:3, 640x360, 780x340); three rows changed (values + the pause screen's LAB line); NIGHT 3 (city, chase) and RAIN ON GLASS: ROUND 1 (LakeLure, cockpit) flipped live, same frozen frame before | after.
+- LabPlayCheck, night rain, frozen clock (noise 0.00): city chase pass 8 (rainglass1 1.47 mean / 4.6 % px, rainglass2 1.92 / 6.1, lightlook 1.79 / 5.7, night3 2.73 / 1.9, cardrops2 1.35 / 4.6, and the 3 NEXT LOAD rows PENDING OK), no change 6, fail 0; LakeLure cockpit pass 6 (rainglass1 1.45 / 5.1, rainglass2 0.76 / 2.2, lightlook 0.20 / 0.5 + 3 PENDING OK), no change 8, fail 0. Every flipped row came back to 0.00. NO CHANGE where the feature is not in that frame: NO POP-IN (needs driving), FAR HAZE (no far land judged in these frames), MAP ARROWS (the HUD is not in the camera's picture), NO DOTS (the player SSAO is player-only: ApplyAO returns in the editor), the two TRAFFIC rows (behaviour), NIGHT 3 and BEADS ON CARS on the stage.
+- Self-test: TestLab (RunLab: 62 ok, 0 fail); full LifeSimSelfTest e7c3bed2 88 FAIL lines vs this branch 88, the same set (no new failures).
+- Preview (DebugBenchPreview.CaptureLab): every control on the canvas and reachable by pad at all six sizes; CLIP lines only of the kinds e7c3bed2's own settings pages show at 640x360 / 780x340 (row captions "cut on the LEFT" by the scroll list, GAMEPLAY over CONTROLS in the strip at 780x340) - checked with e7c3bed2's Capture.
+
+## Shared-file lines (night4 / tunnel2 own these files)
+- Scripts/TunnelLamps.cs:111 `public static bool WallLampsOn => ... == "1";` -> `public static bool WallLampsOn = ... == "1";` (tunnel2's file; parkway-tunnel2 has the same line at :113)
+- Scripts/LightLook.cs:41 `public static readonly bool CarPointsAtStart` -> `public static bool CarPointsAtStart` (lighting, not on either list, listed anyway)
+- No line in StreetLights*, CarLights*, NightGlow or PSXAtmosphere.cginc.
+Other one-line declaration changes: TireSpray.cs Spray2 / CarDrops2 (readonly dropped), TrafficSystem.cs OneWayHoldOn, AIDriver.cs ShutBrakeOn, RouteMap.cs OldArrow (readonly dropped), TimeOfDay.cs FarHaze2 (env property given a backing field; writing the variable's own value returns it to following the variable, so FarHazeCheck's mid-run env flips still work). New: Rain2Traffic.Discard. SettingsCatalog (LAB row, SettingItem.dim), SettingsPanel (dim colour), PauseMenu (LAB line, debug line, RestartForLab), PerfTour.cs / PerfTour.Stage.cs (lab= arg, the park hook).
+
+## At merge
+Code only: no scene pass, no bake. New files with metas: Scripts/Lab/ (LabSwitches, LabCatalog), Scripts/Dev/LabCheck.cs, Scripts/Dev/PerfTour.Lab.cs, Editor/LifeSimSelfTest.Lab.cs, Editor/LabPlayCheck.cs, tools/lab-check.ps1. When city-night4 and parkway-tunnel2 merge, their rows appear by themselves; confirm NIGHT 4's timing (change `when` in its Register block) and, if TunnelLamps.WallLampsOn comes back as a property from the tunnel2 merge, keep the field form (the row hides itself otherwise).
+
+# HANDOFF - CARDOTS: the dark dots on a dry car's paint in shade (agent "cardots", branch car-dots from 28480caf)
+
+Owner 11-23 (PC61): "weird shadow dots on car in shade (driving and menus)"; then "Dots in shade...I see them when selecting a car to start the game. In menus. When parked in house driveway. Its been an issue for a long time and I've pointed it out multiple times."
+
+## What it was
+- URP's screen-space ambient occlusion as the PC profile runs it since 4b84a323 (11-02): `PlatformProfile.ApplyAO` sets the SSAO feature to AFTER OPAQUE, source DEPTH, intensity 0.85, radius 0.6 m, and every pixel of the frame is multiplied by it, the cars' paint included. PerfSwitches (AO driver only) keeps it in the driver's view, the replays and the car viewer's showroom (NEW GAME pick, car page, MY CARS, dealers).
+- On a car body (a few thousand flat facets) the normal SSAO rebuilds from depth jumps at every facet; its blur is normal-aware and stops there, so the blue-noise samples stay on the panel as 1-2 px dark specks (median blob 1-2 px, p90 6-16 px; a speck is 57-116 of 255 darker than its neighbourhood). At 4.2 m and 50 deg FOV on 2054 lines a pixel is about 1.9 mm of car: specks of 2-4 mm, clusters to ~3 cm in creases. The pattern is fixed to the SCREEN (blue noise), so it swims over the paint as the car or the camera moves and sits still when both are parked. On a lit panel it is lost in the light; in shade the paint is a smooth dark gradient and the specks are what the owner saw.
+- Why it survived: `ApplyAO` runs in the PLAYER only (`Application.isEditor` returns early), so every editor tool frame was drawn without it. Editor/CarDotsShots now turns the player's SSAO on in memory for its frames (CarDotsShots.PlayerAO; nothing dirtied or saved).
+
+## Cause table (PSXLab editor, 3832x2054 through PSX/Blit 8-bit + FXAA + grade; the "speck" is the frame minus the same frame without SSAO, minus its 9x9 mean, inside the paint mask (PSX/CarPaint debug 12); dots = speck pixels < -0.035)
+| switched | speck rms /255 | specks /10k paint px | verdict |
+|---|---|---|---|
+| player SSAO on (28480caf picture) | 1.2-5.1 | 20-340 | THE DOTS (every place, every paint) |
+| SSAO 12 samples (High) | same | same | no help |
+| SSAO blur Low | worse | 54-320 | worse |
+| SSAO interleaved-gradient noise | about half | 11-210 | less, still there |
+| SSAO from depth+normals (the asset's own mode) | 0 | 0 | draws nothing: the PSX shaders have no DepthNormals pass (no world AO either) |
+| SSAO off (the editor's picture) | 0 | 0 | clean |
+| this round (PSX_CARDOTS on, SSAO on) | 0.00 studio + stage; 0.5-0.9 garage | 0 studio + stage; 1.2-4.9 garage | clean (garage remainder: FXAA/halation carrying the world's AO 1-2 px over the car's edge) |
+Not the cause (checked in code/textures, no picture change expected): the sun / car shadow maps (strength 0 indoors and in menus; a car never shades itself, bias 0.45 m), the sky map, the HD sheets (civic_eg red colour/normal/ORM are flat on the panels: normal 128,128,255 sd 0.05; AO 255; roughness 0.28 < the 0.5 threshold), the dither (8 bits on PC HD), rain beads (the viewers and menus are dry since sprayfix; nothing of PSXCarDrops changed). No TAA in the game.
+
+## The fix (PSX_CARDOTS, default ON; =0 = 28480caf)
+- Scripts/CarDots.cs: every PSX/CarPaint material writes stencil bit 128 (`CarDots.Mark`, called from `PSXTexDecode.Stamp` - every car material passes through it; DamageCabin's hole materials (bit 64) are left alone; =0 takes the mark back off; an editor asset stays clean).
+- SpeedBlurFeature.AddRenderPasses (one line) enqueues `CarDots.Add`: for a base camera whose SSAO is active and after-opaque, a stencil-gated copy of the car pixels OUT just before the SSAO (event 449) and BACK just after it (451, before the transparents: glass, smoke, spray and rain still draw over the car). Shader: PSX/SpeedBlur pass 4 "CarKeep" (always in the build through the feature's serialized shader).
+- The ground under and beside the car keeps its occlusion (the car is still in the depth the SSAO reads). Where an opaque drawn after a car covers it, that pixel keeps its pre-SSAO colour (never a wrong colour).
+- Honest trade: the car's own crevices (grille, arch liners, under the bumper) lose the SSAO's broad darkening as well as its specks; they keep the paint's own sill-to-roof fall-off and, on HD cars, their baked AO map (garage rows of the sheet show it: the grille is lighter).
+
+## Proof
+- `scratchpad\cardots\dots_sheet.png`: 28480caf | this round, 1:1 crops (centre 180 px at 2x): showroom red / white / silver / gtr_99, garage red / black, Blue Ridge shaded flank red / white / black. Full logs: t2\cardots.txt (studio, garage, the bisect variants), t3\cardots.txt (stage).
+- Self-test `LifeSimSelfTest.RunCarDots` (also in RunPaint and the full Run): showroom, far flank in fill, player SSAO on: speck rms red 1.70 -> 0.00, white 3.78 -> 0.00, black 3.75 -> 0.00 /255; specks 54 / 185 / 208 -> 0 per 10k (limit 0.5); silver added. Full self-test: this branch 65 FAIL = 28480caf 65 FAIL, the same set (no new failures).
+- Cost (EDITOR perf tour, Blue Ridge park, 3832x2054 offscreen, 20 x 30 frames, AO after-opaque in all variants): fix on vs off: frame +0.0..+0.5 ms, gpu wait +0.2..+0.3 ms, set-pass +2; A/A nulls 0.55 ms frame / 0.14 ms gpu (one off-block outlier, sd 12). Below what the editor can resolve; expected ~0.05-0.1 ms on the GPU (two full-frame stencil-gated passes, a full-size transient). Re-measure in the PC build with -perftour pv `keep_off=set:CarDots.On:0;aa=set:CarDots.On:1`.
+
+## Not done / not verified
+- Not seen in a player: the player-only AO is emulated in the editor (the same feature settings ApplyAO writes). The HD car tier is not in PSXLab (no HDSrc), so HD shells were drawn with their 512 sheets; the fix is independent of the tier.
+- The house driveway in the Charlotte home was not shot (the edit-mode city streams nothing); the garage (indoors), the showroom and a stage's shaded flank stand in. No overcast weather in the edit-mode shot (noon, shaded flank).
+- Traffic and rivals: the same material path (Stamp) and the same pass; not shot separately.
+
+## At merge
+- Shared files: Scripts/SpeedBlurFeature.cs (AddRenderPasses, +2 lines), Scripts/PSXTexDecode.cs (Stamp, +2 lines), Shaders/PSXSpeedBlur.shader (pass 4 appended). New: Scripts/CarDots.cs, Editor/CarDotsShots.cs, Editor/LifeSimSelfTest.CarDots.cs (+metas); LifeSimSelfTest.cs wires TestCarDotsShade into RunPaint and the full run.
+- No scene, kit or data change; no re-bake. A PC build picks it up as is.
+
+## What the owner will notice
+The dark speckle is gone from the cars' paint in shade and indoors - the NEW GAME car pick, the showroom pages, the garage, the driveway, and every car on the road - with the world's ambient shading unchanged.
+
+# HANDOFF - SPRAY-FIX2: cars stay wet in the menus and dry; WASH seen on the turntable (agent "sprayfix", branch spray-fix2 from 28480caf)
+
+Owner 11-23: "Cars can be wet in the menu. I was actually going to request an option to 'wash' car in garage. My complaint was about the size of the water beads."
+
+## What changed (all under PSX_CARDROPS2, default on)
+- The dry gate is gone: no DryBegin/DryEnd in CarViewer, no "new scene starts dry" reset (TireSpray.cs). Bead/rivulet scale, one water, no dark dots in shade, lens drops all kept.
+- An owned car carries its OWN water (new Scripts/LifeSim/CarWater.cs, meta committed): OwnedCar.wet / wetDay / wetSlot (added fields; old saves read dry), set when a drive ends on a wet road (LifeRules.ApplyRaceResult, Seasons.RoadWetT > 0.3) or by a WASH. On the turntable (CarViewer.ApplyWater: a property block on the rig's renderers for its own render, over the world's globals) it dries over 3 minutes of play (film in 45 s; beads shrink away, no new drops land), and is dry once a life-sim time slot has passed. Cars with no owner (dealers, ads) take the world's globals as before. LifeSimManager.Save banks the current level.
+- WASH (the existing button on the MY CARS car page, LifeHomeScreen.BuildCarMenu): kept the life sim's own pattern, $8 and no time slot (LifeRules.WashCost); now also allowed on a clean car. It clears OwnedCar.dirt - the ONLY grime the game keeps (road dirt that dulls the shine, PaintGloss); there is no tyre-mark or mud state (proposal: a per-panel grime map later). The wash on the turntable: 6 s of a water sheet with ripples running down each panel and streams down the fall lines (PSXCarDrops.cginc, _PSXCarDrops.w > 0), 2.5 s run-off, then real-size beads drying (w < 0: static beads that shrink).
+- Tools: LifeHomePreview.Wash.cs (CaptureWash: the page on pad / mouse / touch, before / during / run-off / after / drying / dry, whole and 6x close frames, mm-per-pixel line); CarViewer.PreviewZoom (preview only, 1 in the game); TestRain2 gains TestCarWater (8 checks).
+
+## Proof (scratch sprayfix\)
+- wash_sheet.png: the car page with WASH by pad focus (2000x1077), pointer (16:9), touch press (phone_wide, 477x70 px); the turntable before, during, run-off, after, drying, dry; 6x close frames (1.1 mm/px: beads 2-6 mm = 2-5 px; the whole-car frame is 6.6 mm/px, beads sub-pixel = sheen).
+- Pad reach: all 6 controls reachable on every shot; 0 CLIP lines on the wash pages. Menu sweep (LifeHomePreview.Capture): no CLIP/OVERLAP line on garage / carmenu / mycars pages.
+- RAIN2 SELF-TEST OK (CARWATER 8/8). Full self-test: 100 FAIL lines on 28480caf and 100 on this branch, the same set (no new failures).
+
+## Left / merge
+- Other cars drawn in menu scenes with no CarLights (the 3D garage bays) still show the last pushed global (wet stays, does not dry) - the viewer is per car.
+- Drying uses real seconds of play inside a slot (the menus have no finer clock).
+- Shared files: CarViewer.cs, CarViewer.Studio.cs, TireSpray.cs, LifeState.cs (OwnedCar fields), LifeSimManager.Save, LifeRules (ApplyRaceResult, WashCar), LifeHomeScreen (WASH enable), PSXCarDrops.cginc. New: CarWater.cs(.meta), LifeHomePreview.Wash.cs(.meta). Code and shaders only.
+
+# HANDOFF - SPRAYFIX: rain spray off the tyres and the road, not out of the tail lamps; rain on the cars at real size (agent "sprayfix", branch spray-fix from a99a8ef1)
+
+Owner 11-23 (PC61): "Why are the water trails shooting out of the car's taillights, when they should be coming off the ground/rear tires?"; "these water droplets are MASSIVE ... like a Hot Wheel ... streaks moving in a straight light past droplets that aren't moving"; "weird shadow dots on car in shade (driving and menus)".
+
+## What the plume was
+- TireSpray's MIST (Scripts/TireSpray.cs Spawn/Build), with RAIN 2's rooster tail from 130 km/h: puffs born 0.22 m over the contact, thrown up at 3.5-4.8 m/s with no drag, gravity 0.35, life up to 0.94 s, dying 2.9 m wide: cloud centre 1.2-2.6 m above the road (simulated), from just behind the rear wheel (its low part hidden under the body and by OwnCarClip) to above the roof.
+- Drawn ADDITIVE with PSX/Rain (Shaders/PSXRain.shader, Blend One One) and lit by the lamp table, tail lamps included (RAIN_LAMP 1.4): a dozen stacked puffs = 2-4x the scene's light. Self-test model: 16 puffs over a wet road add 1.64 by day, 10.2 behind a lit tail lamp at night (linear). Measured in real frames (a99a8ef1): plume p95 0.94 over a road of 0.25 at night, added p95 up to 0.60; 0.82 over 0.40 in the noon replay.
+- Rain2Traffic's mist was born 0.25 m over the traffic body's ORIGIN, not the road. Droplets were born up to 0.30 m up (0.54 of a tyre's height).
+- It reads as "from the lamps" because the first visible puffs appear above the bumper at lamp height, are reddened by the tail-lamp point lights, and saturate into a white-blue jet (the camcorder's look blooms it further). Not a lamp halo: night4's lamps are untouched.
+
+## What changed
+- PSX_SPRAY2 (default on; =0 is a99a8ef1's spray): every puff and droplet born at its tyre's contact patch behind the tread, at most 1/3 of the tyre height up (measured 0.27 max over ~160k births per race), tyre-sized (0.28 m -> 1.1 m, x1.3 in the rooster tail); air drag 1.5/s, gravity 0.15 (rooster-tail centre ~0.7 m, top about the roof); drawn OVER the scene (PSX/Rain _SrcBlend/_DstBlend/_Over, alpha channel untouched: "Zero One") at SPRAY_BASE 0.45 of the scene light, lamps' share rolled off at SPRAY_LAMP_CAP 0.22: it can never outshine the light it takes. Same rates and caps as before (no more particles). Traffic (Rain2Traffic): born at the rear tyres on the road (body origin minus its colliders' ride height). Player, rivals, traffic, every view, replays.
+- PSX_CARDROPS2 (default on; =0 is a99a8ef1's body rain and lens drops; pushed as _PSXCarDrops2Off): PSXCarDrops.cginc beads in the body's own metres, 2-6 mm and merged ones to 8.3 mm (10 at a 35-degree slant), averaged into a sheen under a pixel; rivulets 2.4-5 mm wide, wandering, varied length, down each panel's fall line parked (creep-pause-go) and back along that panel's air at speed (cross-faded, each on its own clock); a rivulet wipes the beads in its track (one water); big beads creep back with speed. In shade a bead's darkening and rim are scaled by the light that would show them (PSXCarPaint.shader, CarBeadShade2). Chase-lens drops x0.6 (PSXLens.shader DROP2_R_FIX).
+- Dry where it should be: a car viewer (CarViewer RenderClassic/RenderStudio) holds _PSXCarDrops and _PSXCarWet at 0 for its own render and puts them back; a new scene starts with both at 0 (the globals were only pushed by CarLights, so a menu/home scene kept a rainy race's beads).
+- Snow and dust do not share the emitter (TireSpray is rain-only; dust is TireSmoke's own pool): unchanged.
+
+## Proof (scratch sprayfix\)
+- spray_sheet.png: owner frame | a99a8ef1 | this round: roadside replay noon + night, chase player 40/60, rival 60 (noon) and 70/105 (night), cockpit night, body rain macro/close/whole (1920 renders), a viewer opened in rain, a dry dusk stage.
+- Camcorder rain run (GillespieGap noon + night, PSXRec hidden, tools/camcorder-shots.ps1 with PSX_CAMSHOT_WEATHER=rain): worst plume added p95 0.40 day / 0.60 night (before) -> 0.21 / 0.14 (after2); limits 0.25 / 0.15 pass. Births check passes.
+- TestRain2: new checks (births under 1/3: 0.25 vs a99a8ef1 0.54; stacked plume <= its light: 0.20 day / 0.23 night vs added 1.64 / 10.2; over-blend material; bead 2-10 mm on hatch, saloon, off-roader (no pickup/van in the catalog); rivulet <= 4.8 mm; 0 rivulet pixels over a standing bead). RAIN2 SELF-TEST OK on and off. Full self-test: the same FAIL set as with both switches off (no new failures; ~100 pre-existing in PSXRec).
+- Cost: NOT measured with the perf tour (the owner's PC61 was running all round). Same particle counts and caps; smaller puffs (about a third of the fill of the old 1.8-2.9 m quads), one distance sort per spray system; body rain evaluates the same number of layers. Editor replay mean frame (hidden, noisy, no A/A): 12.7/12.1 ms before, 8.0/7.2 ms after. Coordinator: re-measure in the next PC build.
+
+## Left
+- The owner's dots on a DRY stage were not reproduced: in fresh processes a dry (fog) stage has _PSXCarDrops.x = 0 and no dots with either switch; the menu/next-scene stale global is fixed. If dots persist on a dry stage in the PC build, bisect PSX_RAIN2_CARBEADS/CARGLASS/RAIN2, then PSX_NIGHT3/PSX_LIGHT_LOOK.
+- No drying time: under a roof the body rain still goes by WeatherFx.CarRain (inRoom, buildings only; tunnels not covered) - in CarLights, night4's file.
+- The 120 mph cells and the traffic mist were not photographed (the stage to CP2 tops out near 105 mph; sanctioned races have no traffic); the showroom proper (LifeHome studio) was not shot - the viewer cell is the turntable path.
+- Merge: shared files TireSpray.cs, Rain2Traffic.cs, PSXRain.shader, PSXCarDrops.cginc, PSXCarPaint.shader (one block near "darkD"), PSXLens.shader (DROP2_R), CarViewer.cs/.Studio.cs (DryBegin/End), CamcorderShots.cs (SprayFrames), LifeSimSelfTest.Rain2.cs. Code and shaders only: no scene pass, no bake.
+
 # HANDOFF - FALLCOLOUR: fall on the mountain stages in the owner's colours (golden yellow, flame orange, scarlet, copper), leaves that glow, a leaf carpet and leaves on the road (agent "fallcolour", branch fall-colour from c96b5178)
 
 Owner 11-23 after PC59: "Its very dull, the yellows are wrong, the oranges are wrong, the reds are wrong, the browns are wrong." Judged by our frame beside his picture, measured in OKLCH per colour class (scratch `fallcolour\leafmeasure.py`).

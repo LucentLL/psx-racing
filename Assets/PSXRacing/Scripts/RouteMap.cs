@@ -671,7 +671,7 @@ namespace PSXRacing
         /// diagonal line the eye read one of its back corners as the point - against the run. Now it is a slender
         /// head with a notch cut in its back (2.0 long, 1.5 wide), which has only one way to point.
         /// PSX_MAP_ARROW_OLD=1: the old head.</summary>
-        static readonly bool OldArrow = System.Environment.GetEnvironmentVariable("PSX_MAP_ARROW_OLD") == "1";
+        static bool OldArrow = System.Environment.GetEnvironmentVariable("PSX_MAP_ARROW_OLD") == "1";
         static void Chevron(VertexHelper vh, Vector2 at, Vector2 dir, float size)
         {
             var side = new Vector2(-dir.y, dir.x);

@@ -447,6 +447,7 @@ namespace PSXRacing.LifeSim
             // its own Update.
             if (globals != null) globals.SendMessage("Apply", SendMessageOptions.DontRequireReceiver);
 
+            ApplyWater();
             var req = new UnityEngine.Rendering.RenderPipeline.StandardRequest { destination = rt };
             if (UnityEngine.Rendering.RenderPipeline.SupportsRenderRequest(cam, req))
                 UnityEngine.Rendering.RenderPipeline.SubmitRenderRequest(cam, req);
@@ -464,8 +465,48 @@ namespace PSXRacing.LifeSim
             // Paint's answer, which is CarBody's answer, so the car on the
             // turntable is the car on the grid rather than a different colour
             // of it.
+            waterCar = null;
             Show(def, Paint.FactorySkin(spec, def), CarModelLibrary.SpecGeometry.Of(spec));
             SetWheelsOff(false);
+        }
+
+        // (spray-fix2, PSX_CARDROPS2; the owner 11-23: "Cars can be wet in the menu. I was actually
+        // going to request an option to 'wash' car in garage.") An OWNED car on the turntable carries
+        // its own water (CarWater: the rain it came home in, or a wash, drying over a few minutes):
+        // the body rain (_PSXCarDrops) and the water film (_PSXCarWet) are set on its renderers for
+        // this render, over the world's globals. A car with no owner (a dealer's, an ad's) takes the
+        // world's, as before.
+        OwnedCar waterCar;
+        MaterialPropertyBlock waterBlock;
+        static readonly int WaterDropsId = Shader.PropertyToID("_PSXCarDrops"), WaterWetId = Shader.PropertyToID("_PSXCarWet");
+        readonly System.Collections.Generic.List<Renderer> waterRenderers = new System.Collections.Generic.List<Renderer>(16);
+        /// <summary>For the checks: the water last drawn on the turntable (x beads, y film, w running).</summary>
+        public Vector4 WaterShown { get; private set; }
+
+        void ApplyWater()
+        {
+            if (!TireSpray.CarDrops2 || rig == null) return;
+            var s = LifeSimManager.State;
+            bool own = waterCar != null && s != null;
+            Vector4 d = Vector4.zero;
+            float film = 0f;
+            if (own)
+            {
+                var w = CarWater.Now(s, waterCar);
+                d = new Vector4(w.x, 0f, Rain2.On && Rain2.CarGlass ? 1f : 0f, w.z);
+                film = w.y;
+            }
+            WaterShown = own ? new Vector4(d.x, film, 0f, d.w) : Vector4.zero;
+            if (waterBlock == null) waterBlock = new MaterialPropertyBlock();
+            rig.GetComponentsInChildren(true, waterRenderers);
+            foreach (var r in waterRenderers)
+            {
+                if (r == null || r is ParticleSystemRenderer) continue;
+                r.GetPropertyBlock(waterBlock);
+                if (own) { waterBlock.SetVector(WaterDropsId, d); waterBlock.SetFloat(WaterWetId, film); }
+                else { waterBlock.SetVector(WaterDropsId, Shader.GetGlobalVector(WaterDropsId)); waterBlock.SetFloat(WaterWetId, Shader.GetGlobalFloat(WaterWetId)); }
+                r.SetPropertyBlock(waterBlock);
+            }
         }
 
         /// <summary>
@@ -483,6 +524,7 @@ namespace PSXRacing.LifeSim
             if (def == null) return;
             nextWheelKey = car != null ? car.wheelKey : "";
             dressNext = car;   // its condition, as the drive shows it (DamageView)
+            waterCar = car;    // and its own water: rain it came home in, a wash (CarWater)
             Show(def, skinOverride >= 0 ? skinOverride : Paint.SkinFor(car, spec, def), CarModelLibrary.SpecGeometry.Of(spec));
             // A car whose wheels are in storage is shown on its stands, everywhere.
             SetWheelsOff(car != null && car.noWheels);

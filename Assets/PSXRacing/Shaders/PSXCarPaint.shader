@@ -1044,6 +1044,12 @@ Shader "PSX/CarPaint"
                     float glintD = pow(saturate(-gradD.y * 0.7 + gradD.x * 0.3), 6.0) * smoothstep(0.25, 0.6, hW);
                     // (RAINGLASS) the whole bead no longer darkened like a spot of dirt: its rim is (below)
                     float darkD = _PSXCarDrops.z > 0.5 ? lerp(0.04, 0.22, edgeD) : lerp(0.18, 0.45, edgeD);
+                    // (sprayfix CARDROPS2; the owner: "weird shadow dots on car in shade") a bead is a lens of
+                    // the paint under it, not a spot of dirt: in shade, with nothing to glint, it must not
+                    // read as a dark speck - its darkening is a faint third of the old, and only where
+                    // there is light to balance it (the sky's dome term below adds that light back)
+                    if (_PSXCarDrops2Off.x < 0.5)
+                        darkD *= 0.3 * saturate(dot(sky + (headD + lampD) * expo, float3(0.30, 0.59, 0.11)) * 4.0);
                     col = col * (1.0 - coverD * darkD)
                         + coverD * (1.0 - edgeD) * sky * lerp(0.16, 0.30, glass)
                         + glintD * (sky * 0.6 + (_PSXLightColor.rgb * (0.35 * sunVis) + (headD + lampD) * DROP_LAMP) * expo);
