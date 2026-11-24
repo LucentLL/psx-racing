@@ -698,6 +698,35 @@ namespace PSXRacing.EditorTools
                             if (nn.y >= 0f) { gT.Add(i0); gT.Add(i1); gT.Add(i2); } else { gT.Add(i0); gT.Add(i2); gT.Add(i1); }
                         }
                     }
+            // (2b) SKIRTS: every open edge of the hill (its rim, and its edge along the road in front of each mouth)
+            // carried 1.5 m straight down, both faces: nothing is ever seen under its edge
+            if (Tunnel3B)
+            {
+                var edgeCount = new Dictionary<long, int>();
+                long Key(int a, int b) => a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a;
+                foreach (var lst in new[] { gT, rT })
+                    for (int k = 0; k + 2 < lst.Count; k += 3)
+                        for (int e = 0; e < 3; e++)
+                        {
+                            long kk = Key(lst[k + e], lst[k + (e + 1) % 3]);
+                            edgeCount[kk] = edgeCount.TryGetValue(kk, out int cc) ? cc + 1 : 1;
+                        }
+                int nSkirt = 0;
+                foreach (var kv in edgeCount)
+                {
+                    if (kv.Value != 1) continue;   // shared by two triangles (a double-sided step counts twice: skipped)
+                    int a = (int)(kv.Key >> 32), b = (int)(kv.Key & 0xffffffff);
+                    if (a >= v.Length || b >= v.Length) continue;   // the floors' own corners
+                    Vector3 pa = verts[a], pb = verts[b];
+                    int i0 = verts.Count;
+                    verts.Add(pa); verts.Add(pb); verts.Add(pb - Vector3.up * 1.5f); verts.Add(pa - Vector3.up * 1.5f);
+                    for (int q = 0; q < 4; q++) uvs.Add(new Vector2(verts[i0 + q].x + verts[i0 + q].z, verts[i0 + q].y) / tile);
+                    rT.Add(i0); rT.Add(i0 + 1); rT.Add(i0 + 2); rT.Add(i0); rT.Add(i0 + 2); rT.Add(i0 + 3);
+                    rT.Add(i0); rT.Add(i0 + 2); rT.Add(i0 + 1); rT.Add(i0); rT.Add(i0 + 3); rT.Add(i0 + 2);
+                    nSkirt++;
+                }
+                Log($"Tunnel hill: {nSkirt} rim edges skirted.");
+            }
             if (gT.Count + rT.Count == 0) return;
             var mesh = new Mesh { indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 };
             mesh.SetVertices(verts); mesh.SetUVs(0, uvs);
