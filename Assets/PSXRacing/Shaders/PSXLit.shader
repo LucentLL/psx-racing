@@ -2835,6 +2835,11 @@ Shader "PSX/Lit"
                 {
                     float effA = dot(tex.rgb, float3(0.2126, 0.7152, 0.0722)) * lampGain;
                     lampGain *= min(1.0, _PSXNight4.z / max(effA, 1e-4));
+                    // (4b) the HEADLIGHTS too, on the ground: a pale pavement or plaza in a car's beam reads at
+                    // most the same cap (about 1.3x the lit asphalt beside it, which the beam floor lifts to
+                    // ~0.09), never the whole pale albedo - his side street reads 89-104 where ours read 200+
+                    float effB = dot(tex.rgb, float3(0.2126, 0.7152, 0.0722)) * beamGain;
+                    beamGain *= lerp(1.0, min(1.0, _PSXNight4.z / max(effB, 1e-4)), saturate(N.y * 3.0 - 1.5));
                 }
                 float3 light = (sunAmb + (headD * beamGain + lampD * lampGain) * roadN) * expo;
             #ifdef PSX_FACADE

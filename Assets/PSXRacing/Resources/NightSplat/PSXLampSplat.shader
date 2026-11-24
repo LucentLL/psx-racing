@@ -108,7 +108,7 @@ Shader "Hidden/PSX/LampSplat"
                 float slope = fy / max(fz, 0.25);
                 float cut = 1.0 - smoothstep(BEAM_CUT_LO, BEAM_CUT_HI, slope);
                 float front = saturate(fz * 1.5);
-                float range = max(i.lamp.w, 1.0);
+                float range = max(_SplatCos.z, 1.0);
                 float att = lerp(BEAM_NEAR, 1.0, smoothstep(BEAM_NEAR_FROM, BEAM_NEAR_TO, dist))
                           * (1.0 - smoothstep(range - BEAM_FADE_M, range, dist));
                 float spill = BEAM_SPILL * smoothstep(BEAM_SPILL_COS, _SplatCos.x, hz)
@@ -119,8 +119,11 @@ Shader "Hidden/PSX/LampSplat"
                 float a = (spread * cut * att + spill) * front * facing * i.amt.x;
                 if (i.amt.z >= 0.0)
                 {
-                    float r = tex2Dlod(_PSXHeadVis, float4(0.5 + atan2(fx, fz) * 0.38197186, i.amt.z, 0.0, 0.0)).r;
-                    a *= 1.0 - smoothstep(r + 0.3, r + 1.8, sqrt(fx * fx + fz * fz));
+                    // (4b) the bearing and the distance from the fan's own origin, where the reaches were measured
+                    float2 d0 = i.w - float2(i.lamp.w, i.amt.w);
+                    float ox = dot(d0, Rt.xz), oz = dot(d0, F.xz);
+                    float r = tex2Dlod(_PSXHeadVis, float4(0.5 + atan2(ox, oz) * 0.38197186, i.amt.z, 0.0, 0.0)).r;
+                    a *= 1.0 - smoothstep(r + 0.3, r + 1.8, sqrt(ox * ox + oz * oz));
                 }
                 return float4(a, a * (gyT - _SplatBaseY), 0.0, 0.0);
             }

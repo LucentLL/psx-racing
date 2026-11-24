@@ -117,12 +117,13 @@ namespace PSXRacing
                     int v = pV.Count;
                     Vector2 c0 = P2 - F2 * back - R2 * side, c1 = P2 - F2 * back + R2 * side, c2 = P2 + F2 * ahead + R2 * side, c3 = P2 + F2 * ahead - R2 * side;
                     pV.Add(new Vector3(c0.x, c0.y, 0f)); pV.Add(new Vector3(c1.x, c1.y, 0f)); pV.Add(new Vector3(c2.x, c2.y, 0f)); pV.Add(new Vector3(c3.x, c3.y, 0f));
-                    var u0 = new Vector4(p.x, p.y, p.z, BeamRange);
+                    var oxz = l.OccOriginXZ();
+                    var u0 = new Vector4(p.x, p.y, p.z, oxz.x);   // w: the fan's origin x (4b; the range is _SplatCos.z)
                     // w: the ground plane's slopes (P1; the beam's two cosines are the material's _SplatCos)
                     var u1 = new Vector4(f.x, f.y, f.z, gx);
                     var u2 = new Vector4(r.x, r.y, r.z, gz);
                     // y: the ground under the lamp, z: NIGHT 4's row (-1 none)
-                    var u3 = new Vector4(w, groundNow, l.OccV, 0f);
+                    var u3 = new Vector4(w, groundNow, l.OccV, oxz.y);   // w: the fan's origin z
                     for (int k = 0; k < 4; k++) { pU0.Add(u0); pU1.Add(u1); pU2.Add(u2); pU3.Add(u3); }
                     pI.Add(v); pI.Add(v + 1); pI.Add(v + 2); pI.Add(v); pI.Add(v + 2); pI.Add(v + 3);
                     lamps++;
@@ -152,7 +153,7 @@ namespace PSXRacing
             poolCmd.ClearRenderTarget(false, true, Color.clear);
             poolCmd.SetViewProjectionMatrices(Matrix4x4.identity, StreetLights.SplatProj(span));
             poolMat.SetFloat(PoolBaseId, baseY);
-            poolMat.SetVector(SplatCosId, new Vector4(cosOuter, cosInner, 0f, 0f));
+            poolMat.SetVector(SplatCosId, new Vector4(cosOuter, cosInner, BeamRange, 0f));
             poolCmd.DrawMesh(poolMesh, Matrix4x4.Translate(new Vector3(-origin.x, -origin.y, 0f)), poolMat, 0, 1);
             Graphics.ExecuteCommandBuffer(poolCmd);
             Shader.SetGlobalTexture(PoolTexId, poolTex);
