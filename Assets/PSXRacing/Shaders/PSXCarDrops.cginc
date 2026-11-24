@@ -247,6 +247,16 @@ float CarDropsH(float3 p, float3 n, float3 down, float3 air, float up, float win
         float hL = CD2Beads(qm, CD2_CELL_L, CD2_RL_MIN, CD2_RL_MAX, rain * lerp(0.30, 0.08, streakW), 9.3, fp, creep);
         float hB = max(hS, hL) * (1.0 - wipe);
         hRain = max(hB, hR);
+        // (spray-fix2) A WASH (_PSXCarDrops.w > 0): a sheet of water over every panel, its ripples
+        // running down the fall line (across a flat roof, slowly), thinning as it runs off
+        float sheetW = saturate(_PSXCarDrops.w);
+        if (sheetW > 0.001)
+        {
+            float2 sd = glen > 0.3 ? gdir : float2(0.7071, 0.7071);
+            float sAlong = dot(qm, sd), sAcross = dot(qm, float2(sd.y, -sd.x));
+            float rip = sin(sAlong * 55.0 - _Time.y * lerp(2.0, 9.0, saturate(glen)) + sin(sAcross * 23.0) * 1.7) * 0.5 + 0.5;
+            hRain = max(hRain, sheetW * (0.22 + 0.20 * rip));
+        }
     }
     else if (rain > 0.002)
     {

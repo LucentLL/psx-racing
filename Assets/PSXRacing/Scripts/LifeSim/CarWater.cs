@@ -98,7 +98,7 @@ namespace PSXRacing.LifeSim
         {
             if (s == null || car == null || car.wet <= 0f) return;
             var w = Now(s, car);
-            car.wet = Mathf.Max(w.x, 0f);
+            car.wet = Mathf.Max(Mathf.Max(w.x, w.y), 0f);   // (mid-wash the film is whole)
         }
 
         /// <summary>A new game or a load: forget the clocks (the saved levels stand).</summary>
