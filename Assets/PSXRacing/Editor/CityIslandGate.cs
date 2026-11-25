@@ -173,6 +173,8 @@ namespace PSXRacing.EditorTools
                     }
                 }
                 Physics.queriesHitBackfaces = oldQ;
+                log.Append($"rays: {raysCast} cast, {raysEscaped} met nothing, {raysUnder} of them went under the land (SEETHRU hits)
+");
                 log.Append(string.Format(inv, "TOTAL | RAISED {0} SEETHRU {1} OVERLAY {2} LINEUNDER {3}\n", totals[0], totals[1], totals[2], totals[3]));
                 log.Append(string.Format(inv, "tiles built {0}, {1:0} ms a tile; islands {2} ({3:0} m2), tips paved {4} cells, overlays out {5}, inside out {6}, poke verts {7}, skipped at a border {8}, too big {9}; median runs filled {10} sections, dropped {11} runs; {12:0} s\n",
                     built, built > 0 ? buildMs / built : 0, CityMeshes.IslandCount, CityMeshes.IslandAreaM2, CityMeshes.IslandTipCells, CityMeshes.IslandOverlayTris, CityMeshes.IslandInsideTris, CityMeshes.IslandPokeVerts,
@@ -224,6 +226,7 @@ namespace PSXRacing.EditorTools
             return go;
         }
 
+        static int raysCast, raysEscaped, raysUnder;
         static readonly float[] Heights = { 0.6f, 1.1f, 1.8f };
         static readonly float[] Pitches = { -2f, -4f, -7f, -12f, -20f, -35f };
 
@@ -241,7 +244,9 @@ namespace PSXRacing.EditorTools
                         var dir = (dYaw * Mathf.Cos(pitch * Mathf.Deg2Rad) + Vector3.up * Mathf.Sin(pitch * Mathf.Deg2Rad)).normalized;
                         float expect = h / Mathf.Sin(-pitch * Mathf.Deg2Rad);
                         if (expect > 60f) continue;
+                        raysCast++;
                         if (Physics.Raycast(o, dir, 120f)) continue;
+                        raysEscaped++;
                         // nothing in front: a hole only where the ray went under the land (the terrain may fall away)
                         Vector3 at = Vector3.zero; bool under = false;
                         for (float d = 1f; d <= 60f; d += 1f)
@@ -250,6 +255,7 @@ namespace PSXRacing.EditorTools
                             if (q.y < CityElevation.GroundY(map, q.x, q.z) - 0.5f) { at = q; under = true; break; }
                         }
                         if (!under) continue;
+                        raysUnder++;
                         long k = Key(Mathf.FloorToInt(at.x / CityMeshes.TileSize), Mathf.FloorToInt(at.z / CityMeshes.TileSize));
                         if (cache.TryGetValue(k, out var th)) th.hits[1].Add(at);
                     }
@@ -265,9 +271,10 @@ namespace PSXRacing.EditorTools
             int N = Mathf.CeilToInt((CityMeshes.TileSize + 16f) / Cell);
             float m0 = -8f;
             var pave = new float[N * N];
+            var paveHi = new float[N * N];
             var paint = new bool[N * N];
             var high = new float[N * N];
-            for (int k = 0; k < pave.Length; k++) { pave[k] = float.NaN; high[k] = float.NegativeInfinity; }
+            for (int k = 0; k < pave.Length; k++) { pave[k] = float.NaN; paveHi[k] = float.NegativeInfinity; high[k] = float.NegativeInfinity; }
             // the cost (what the tile draws)
             foreach (var m in new[] { tm.ground, tm.roads, tm.kerbs, tm.barriers, tm.structure, tm.guardrails, tm.buildings, tm.banks, tm.water, tm.medianPlants, tm.lampPosts })
                 if (m != null) { th.verts += m.vertexCount; th.draws += m.subMeshCount; for (int s = 0; s < m.subMeshCount; s++) th.tris += (int)m.GetIndexCount(s) / 3; }
@@ -293,7 +300,7 @@ namespace PSXRacing.EditorTools
                                 if (ua >= lo && ua <= hi && ub >= lo && ub <= hi && uc >= lo && uc <= hi) { isPaint = true; break; }
                             }
                         }
-                        Raster(a, b, c, N, m0, (k, y) => { if (float.IsNaN(pave[k]) || y < pave[k]) pave[k] = y; if (isPaint) paint[k] = true; });
+                        Raster(a, b, c, N, m0, (k, y) => { if (float.IsNaN(pave[k]) || y < pave[k]) pave[k] = y; if (y > paveHi[k]) paveHi[k] = y; if (isPaint) paint[k] = true; });
                     }
                 }
             }
@@ -315,7 +322,12 @@ namespace PSXRacing.EditorTools
                 for (int i = r; i < N - r; i++)
                 {
                     int k = j * N + i;
-                    if (float.IsNaN(pave[k]) || float.IsNegativeInfinity(high[k])) continue;
+                    if (float.IsNaN(pave[k])) continue;
+                    // two road sheets over one spot, 5 cm - 2.5 m apart: one stands on the other (a fan's lip on a
+                    // ribbon, a branch laid over its host) - a step in the driving surface
+                    float layered = paveHi[k] - pave[k];
+                    if (layered > 0.05f && layered < 2.5f && high[k] < paveHi[k] + 0.003f) high[k] = paveHi[k];
+                    if (float.IsNegativeInfinity(high[k])) continue;
                     float rise = high[k] - pave[k];
                     if (rise <= -0.003f) continue;   // within 3 mm under it: coplanar, the two fight (OVERLAY)
                     bool inside = !float.IsNaN(pave[k - r]) && !float.IsNaN(pave[k + r]) && !float.IsNaN(pave[k - r * N]) && !float.IsNaN(pave[k + r * N])
