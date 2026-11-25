@@ -28,6 +28,7 @@ namespace PSXRacing
     {
         public static bool On = System.Environment.GetEnvironmentVariable("PSX_CP_TURNS") != "0";
         public const float MinDeg = 30f, MaxDeg = 170f;
+        public static float KerbMinM = 1.15f, NearNodeM = 60f;
         public static float KerbClearM = 1.4f, PaveKeepM = 1.0f, TanMaxM = 30f, PastTrimM = 6f, MinR = 4f, StepM = 0.5f;
 
         public struct Join { public int idx, node, ein, eout; public float turnDeg; }
@@ -45,6 +46,39 @@ namespace PSXRacing
         static float[] arcBuf = new float[0];
 
         static float Cr(Vector2 a, Vector2 b) => a.x * b.y - a.y * b.x;
+
+        static readonly List<Vector2> oneFan = new List<Vector2>(128);
+        static readonly List<int> nearNodes = new List<int>(16);
+        /// <summary>The fan kerbs of the join's node AND of every node within <see cref="NearNodeM"/> of it, two hops
+        /// along the graph: an arc may reach a neighbouring junction's island (a split's nose, a channelised turn's
+        /// island at the next node).</summary>
+        static void NearKerbs(CityMap map, CityMeshes.Trims tr, int node, List<Vector2> segs)
+        {
+            nearNodes.Clear(); nearNodes.Add(node);
+            var c = map.nodes[node];
+            for (int hop = 0, from = 0; hop < 2; hop++)
+            {
+                int to = nearNodes.Count;
+                for (int q = from; q < to; q++)
+                {
+                    var ne = map.nodeEdges[nearNodes[q]];
+                    if (ne == null) continue;
+                    foreach (int ei in ne)
+                    {
+                        var e = map.edges[ei];
+                        int o = e.a == nearNodes[q] ? e.b : e.a;
+                        if (o < 0 || nearNodes.Contains(o) || (map.nodes[o] - c).sqrMagnitude > NearNodeM * NearNodeM) continue;
+                        nearNodes.Add(o);
+                    }
+                }
+                from = to;
+            }
+            foreach (int nd in nearNodes)
+            {
+                CityMeshes.FanKerbs(map, tr, nd, oneFan);
+                segs.AddRange(oneFan);
+            }
+        }
 
         static float KerbDist(Vector2 q, List<Vector2> segs)
         {
@@ -178,14 +212,17 @@ namespace PSXRacing
                 if (tr == null) tr = CityWorld.TrimsFor(map);
                 var ein = map.edges[J.ein]; var eout = map.edges[J.eout];
                 kerbSegs.Clear();
-                if (tr != null) CityMeshes.FanKerbs(map, tr, J.node, kerbSegs);
+                if (tr != null) NearKerbs(map, tr, J.node, kerbSegs);
                 var ks = kerbSegs.Count >= 2 ? kerbSegs : null;
                 // the corner's own clearance (an arc need not beat what the lanes themselves keep)
                 float lineClr = float.MaxValue;
                 if (ks != null)
                     for (float a = Mathf.Max(prev, aJ - 25f); a <= Mathf.Min(next, aO + 25f); a += 0.5f)
                         lineClr = Mathf.Min(lineClr, KerbDist(At(a, out _, out _), ks));
-                float clear = Mathf.Min(KerbClearM, lineClr - 0.05f);
+                // never closer than a half-width and a margin: the corner's own line may run over an island's nose
+                // (CltC7's link off W T Harris: the arc laid at the corner's 0.0 m clearance put cars on node 8006's
+                // nose, and the autopilot stood on it 184 s)
+                float clear = Mathf.Max(KerbMinM, Mathf.Min(KerbClearM, lineClr - 0.05f));
                 float tanH = Mathf.Tan(0.5f * defl * Mathf.Deg2Rad);
                 float trimIn = TrimAt(tr, ein, J.node), trimOut = TrimAt(tr, eout, J.node);
                 float Tcap = TanMaxM;
