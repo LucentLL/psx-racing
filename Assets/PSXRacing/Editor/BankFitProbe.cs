@@ -206,6 +206,67 @@ namespace PSXRacing.EditorTools
             if (Application.isBatchMode) EditorApplication.Exit(0);
         }
 
+        /// <summary>(stage3, D) Do the stage path's stored curvatures (what the AI plans its speed on) stand where the
+        /// waypoints bend? Per PSX_BF_VENUES scene: the curvature measured again off the waypoints as they are
+        /// (flattened, 5-tap as BuildWaypoints), the best index shift between the two and the error, and listed spots
+        /// (PSX_BF_WPS = "a-b,c-d"). PSXRacing_curvprobe.txt.</summary>
+        public static void Curv()
+        {
+            var sb = new StringBuilder();
+            string ids = System.Environment.GetEnvironmentVariable("PSX_BF_VENUES");
+            if (string.IsNullOrEmpty(ids)) ids = "LittleSwitzerland";
+            foreach (var raw in ids.Split(','))
+            {
+                string id = raw.Trim(); if (id.Length == 0) continue;
+                string scenePath = "Assets/PSXRacing/Scenes/" + id + ".unity";
+                if (!File.Exists(scenePath)) { sb.AppendLine(id + ": no scene"); continue; }
+                EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Single);
+                var path = Object.FindFirstObjectByType<TrackPath>();
+                if (path == null || path.curvatures == null) { sb.AppendLine(id + ": no path / curvatures"); continue; }
+                int n = path.Count;
+                var w = path.waypoints;
+                var k = new float[n];
+                for (int i = 0; i < n; i++)
+                {
+                    Vector3 a = w[(i - 1 + n) % n], b = w[i], c = w[(i + 1) % n];
+                    a.y = b.y = c.y = 0f;
+                    k[i] = Vector3.Angle(b - a, c - b) * Mathf.Deg2Rad / path.spacing;
+                }
+                var ks = new float[n];
+                for (int i = 0; i < n; i++) { float s = 0f; for (int o = -2; o <= 2; o++) s += k[(i + o + n) % n]; ks[i] = s / 5f; }
+                var cv = path.curvatures;
+                sb.AppendLine($"{id}: {n} waypoints, {cv.Length} stored curvatures, spacing {path.spacing}");
+                int best = 0; double bestErr = double.MaxValue;
+                for (int sh = -40; sh <= 40; sh++)
+                {
+                    double e = 0;
+                    for (int i = 0; i < n; i++) { float d = cv[(i + sh + n) % n] - ks[i]; e += d * d; }
+                    if (e < bestErr) { bestErr = e; best = sh; }
+                }
+                double e0 = 0; float worst = 0f; int worstI = 0;
+                for (int i = 0; i < n; i++)
+                {
+                    float d = cv[i] - ks[i]; e0 += d * d;
+                    if (Mathf.Abs(d) > Mathf.Abs(worst)) { worst = d; worstI = i; }
+                }
+                sb.AppendLine($"  rms stored - measured {System.Math.Sqrt(e0 / n):0.00000} /m; best shift {best} (rms {System.Math.Sqrt(bestErr / n):0.00000}); worst {worst:+0.0000;-0.0000} at wp {worstI}");
+                int under = 0;
+                for (int i = 0; i < n; i++) if (ks[i] > 1f / 120f && cv[i] < ks[i] * 0.7f) under++;
+                sb.AppendLine($"  waypoints bending tighter than 120 m whose stored curvature is under 70 % of it: {under}");
+                foreach (var rng in (System.Environment.GetEnvironmentVariable("PSX_BF_WPS") ?? "").Split(','))
+                {
+                    var ab = rng.Split('-');
+                    if (ab.Length != 2 || !int.TryParse(ab[0], out int a0) || !int.TryParse(ab[1], out int a1)) continue;
+                    var line = new StringBuilder($"  wp {a0}-{a1} stored/measured radius m:");
+                    for (int i = a0; i <= a1 && i < n; i++)
+                        line.Append($" {i}:{(cv[i] > 1e-5f ? 1f / cv[i] : 9999f):0}/{(ks[i] > 1e-5f ? 1f / ks[i] : 9999f):0}");
+                    sb.AppendLine(line.ToString());
+                }
+            }
+            File.WriteAllText(Path.Combine(Path.GetDirectoryName(Application.dataPath), "PSXRacing_curvprobe.txt"), sb.ToString());
+            if (Application.isBatchMode) EditorApplication.Exit(0);
+        }
+
         struct Spot { public int wp; public float gap, h; public string coll; public Vector3 at; }
 
         public static string One(string id)
