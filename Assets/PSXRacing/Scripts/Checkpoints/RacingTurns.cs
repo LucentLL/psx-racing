@@ -53,7 +53,7 @@ namespace PSXRacing
         static readonly Dictionary<int, Vector2[]> kerbCache = new Dictionary<int, Vector2[]>(1024);
         static CityMap kerbCacheMap;
         /// <summary>Each turn's tangent (node, road in, road out), once per map (-1: no arc fits).</summary>
-        static readonly Dictionary<long, float> tCache = new Dictionary<long, float>(1024);
+        static readonly Dictionary<long, float> tCache = new Dictionary<long, float>(1024), clrCache = new Dictionary<long, float>(1024);
         /// <summary>The fan kerbs of the join's node AND of every node within <see cref="NearNodeM"/> of it, two hops
         /// along the graph: an arc may reach a neighbouring junction's island (a split's nose, a channelised turn's
         /// island at the next node).</summary>
@@ -78,7 +78,7 @@ namespace PSXRacing
                 }
                 from = to;
             }
-            if (kerbCacheMap != map) { kerbCache.Clear(); tCache.Clear(); kerbCacheMap = map; }
+            if (kerbCacheMap != map) { kerbCache.Clear(); tCache.Clear(); clrCache.Clear(); kerbCacheMap = map; }
             foreach (int nd in nearNodes)
             {
                 if (!kerbCache.TryGetValue(nd, out var arr))
@@ -226,10 +226,16 @@ namespace PSXRacing
                 if (tr != null) NearKerbs(map, tr, J.node, kerbSegs);
                 var ks = kerbSegs.Count >= 2 ? kerbSegs : null;
                 // the corner's own clearance (an arc need not beat what the lanes themselves keep)
-                float lineClr = float.MaxValue;
-                if (ks != null)
-                    for (float a = Mathf.Max(prev, aJ - 25f); a <= Mathf.Min(next, aO + 25f); a += 0.5f)
-                        lineClr = Mathf.Min(lineClr, KerbDist(At(a, out _, out _), ks));
+                // (once per turn per map: 100 kerb distances against every stretch two hops round was most of a plan's cost)
+                long ckey = ((long)J.node * 1000003L + J.ein) * 1000003L + J.eout;
+                if (!clrCache.TryGetValue(ckey, out float lineClr))
+                {
+                    lineClr = float.MaxValue;
+                    if (ks != null)
+                        for (float a = Mathf.Max(prev, aJ - 25f); a <= Mathf.Min(next, aO + 25f); a += 0.5f)
+                            lineClr = Mathf.Min(lineClr, KerbDist(At(a, out _, out _), ks));
+                    if (prev <= aJ - 25f && next >= aO + 25f) clrCache[ckey] = lineClr;
+                }
                 // never closer than a half-width and a margin: the corner's own line may run over an island's nose
                 // (CltC7's link off W T Harris: the arc laid at the corner's 0.0 m clearance put cars on node 8006's
                 // nose, and the autopilot stood on it 184 s)
