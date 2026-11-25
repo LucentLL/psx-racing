@@ -350,12 +350,14 @@ namespace PSXRacing
             if (cl != null && patchD > 0f)
             {
                 StreetLights.Night4 = true; StreetLights.N4Touch(); cl.enabled = true;
-                for (int i = 0; i < 30; i++) { car.ResetTo(bPos + Vector3.up * 0.45f, rot, seated: true); Pump(); yield return null; }
+                for (int i = 0; i < 6; i++) { car.ResetTo(bPos + Vector3.up * 0.45f, rot, seated: true); Pump(); yield return null; }
+                // settled on its wheels (a car held 0.45 m up by ResetTo casts its fan over a Jersey), then cleared
+                for (float t1 = Time.time; Time.time - t1 < 1.5f;) { Pump(); yield return null; }
                 cl.ToolOccClear();
                 float ts = Time.time; int fs = 0; string res = "never in 2 s";
                 while (Time.time - ts < 2f && fs < 4000)
                 {
-                    car.ResetTo(bPos + Vector3.up * 0.45f, rot, seated: true); Pump(); yield return null; fs++;
+                    Pump(); yield return null; fs++;
                     float rr = cl.OccReachToward(bP);
                     if (rr >= 0f && rr < patchD) { res = fs + " frames " + (Time.time - ts).ToString("0.000", CultureInfo.InvariantCulture) + " s (mean frame " + ((Time.time - ts) / fs * 1000f).ToString("0.0", CultureInfo.InvariantCulture) + " ms)"; break; }
                 }
