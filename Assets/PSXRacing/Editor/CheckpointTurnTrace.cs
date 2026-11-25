@@ -79,6 +79,40 @@ namespace PSXRacing.EditorTools
                 tsb.Append(k).Append(',').Append(F(turnC[k].x)).Append(',').Append(F(turnC[k].y)).Append(',').Append(F(turnC[k].z)).Append(',')
                    .Append(F(turnDeg[k])).Append(',').Append(F(turnC[k].x - PlanM / 2)).Append(',').Append(F(turnC[k].z - PlanM / 2)).Append(',').Append(F(PlanM)).Append('\n');
             File.WriteAllText(Path.Combine(outDir, "turns.csv"), tsb.ToString());
+            // the map round each turn: every edge within 150 m (its line, class, lanes, width, pavement either side at
+            // each point) and the fan kerbs of every node within 70 m, to draw the lanes and islands in plan
+            var map = PSXRacing.City.CityMap.Get();
+            if (map != null)
+            {
+                var esb = new StringBuilder("turn,edge,cls,link,oneway,lanes,width,i,x,z,padL,padR\n");
+                var ksb = new StringBuilder("turn,node,x0,z0,x1,z1\n");
+                var tr = PSXRacing.City.CityWorld.TrimsFor(map);
+                var segs = new List<Vector2>();
+                for (int k = 0; k < turnC.Count; k++)
+                {
+                    var c2 = new Vector2(turnC[k].x, turnC[k].z);
+                    foreach (var e in map.edges)
+                    {
+                        if (e.pts == null) continue;
+                        bool near = false;
+                        foreach (var q in e.pts) if ((q - c2).sqrMagnitude < 150f * 150f) { near = true; break; }
+                        if (!near) continue;
+                        for (int i = 0; i < e.pts.Length; i++)
+                            esb.Append(k).Append(',').Append(e.index).Append(',').Append(e.cls).Append(',').Append(e.link ? 1 : 0).Append(',').Append(e.oneway ? 1 : 0).Append(',')
+                               .Append(e.lanes).Append(',').Append(F(e.width)).Append(',').Append(i).Append(',').Append(F(e.pts[i].x)).Append(',').Append(F(e.pts[i].y)).Append(',')
+                               .Append(F(e.PaveEdgeM(e.s[i], -1))).Append(',').Append(F(e.PaveEdgeM(e.s[i], 1))).Append('\n');
+                    }
+                    for (int nd = 0; nd < map.nodes.Length; nd++)
+                    {
+                        if ((map.nodes[nd] - c2).sqrMagnitude > 70f * 70f) continue;
+                        PSXRacing.City.CityMeshes.FanKerbs(map, tr, nd, segs);
+                        for (int i = 0; i + 1 < segs.Count; i += 2)
+                            ksb.Append(k).Append(',').Append(nd).Append(',').Append(F(segs[i].x)).Append(',').Append(F(segs[i].y)).Append(',').Append(F(segs[i + 1].x)).Append(',').Append(F(segs[i + 1].y)).Append('\n');
+                    }
+                }
+                File.WriteAllText(Path.Combine(outDir, "edges.csv"), esb.ToString());
+                File.WriteAllText(Path.Combine(outDir, "kerbs.csv"), ksb.ToString());
+            }
             RacePlayCheck.Note($"TURN TRACE: {turnC.Count} turns of 30 deg or more on the course line, out {outDir}");
             planOn = false; planDone = new bool[turnC.Count];
             bool gfx = SystemInfo.graphicsDeviceType != UnityEngine.Rendering.GraphicsDeviceType.Null;
