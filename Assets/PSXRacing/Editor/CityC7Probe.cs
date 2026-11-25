@@ -179,7 +179,7 @@ namespace PSXRacing.EditorTools
 
                     bool doInv = views.Contains("inv");
                     if (doInv) { recs.Clear(); spotsXZ = new[] { p2 }; CityMeshes.ProvHook = Hook; }
-                    RaceHandoff.CalendarDay = ColourSpots.DayIn(Season.Fall);
+                    RaceHandoff.CalendarDay = ColourSpots.DayIn(Season.Winter);
                     RaceHandoff.WeatherOverride = (int)Weather.Clear;
                     Dress();
                     if (car != null) car.TeleportTo(pos, rot); else player.transform.SetPositionAndRotation(pos, rot);
@@ -207,8 +207,8 @@ namespace PSXRacing.EditorTools
                         Vector3 eye; Quaternion look; float shift = 0f;
                         if (view == "plan")
                         {
-                            eye = new Vector3(x, y + 200f, z);
-                            look = Quaternion.LookRotation(Vector3.down, fwd);
+                            eye = new Vector3(x, y + 45f, z);
+                            look = Quaternion.LookRotation(Vector3.down, fwd); eye.y = y + 45f;
                             cam.orthographic = true;
                             cam.orthographicSize = planHalf;
                         }
