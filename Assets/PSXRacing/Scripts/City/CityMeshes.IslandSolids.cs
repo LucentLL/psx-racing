@@ -85,6 +85,8 @@ namespace PSXRacing.City
         static float[] isY;        // pavement height per cell (lowest), NaN none
         static short[] isSlot;     // the road slot that paved it
         static int[] isDist;       // BFS distance (cells) to pavement, land only
+        static int[] isDist2;      // the same, a lane's band counted as pavement
+        static bool[] isBand;      // inside some road's lanes (its ribbon less its shoulders)
         static float[] isNearY;    // the nearest pavement's height, land only
         static int[] isComp;       // component id of land cells
         static byte[] isFlag;      // 1 land, 2 island, 3 tip
@@ -98,9 +100,9 @@ namespace PSXRacing.City
             int N = IsN, NN = N * N;
             if (isY == null || isY.Length != NN)
             {
-                isY = new float[NN]; isSlot = new short[NN]; isDist = new int[NN]; isNearY = new float[NN]; isComp = new int[NN]; isFlag = new byte[NN];
+                isY = new float[NN]; isSlot = new short[NN]; isDist = new int[NN]; isDist2 = new int[NN]; isBand = new bool[NN]; isNearY = new float[NN]; isComp = new int[NN]; isFlag = new byte[NN];
             }
-            for (int k = 0; k < NN; k++) { isY[k] = float.NaN; isSlot[k] = -1; isComp[k] = -1; isFlag[k] = 0; isDist[k] = int.MaxValue; }
+            for (int k = 0; k < NN; k++) { isY[k] = float.NaN; isSlot[k] = -1; isComp[k] = -1; isFlag[k] = 0; isDist[k] = int.MaxValue; isBand[k] = false; }
             // ---- the drawn pavement ----------------------------------------------------------------
             bool any = false;
             for (int s = 0; s < buckets.Length; s++)
@@ -115,6 +117,10 @@ namespace PSXRacing.City
             if (!any) return;
             // ---- 1. overlays: nothing is laid on the pavement ---------------------------------------
             foreach (var bk in IslandSheetBuckets()) IsDropOverlays(bk);
+            // ---- the lanes: every grounded road's ribbon less its shoulders, as designed -----------------
+            // (a branch clipped against its host, a sliver at a split node: where the drawn pavement stops short
+            // of a lane, the lane still runs there - no island may stand in it)
+            IsRasterBands(map, tm.origin);
             // ---- distance (chamfer 10 / 14 a cell) and the nearest pavement's height into the land ----
             for (int k = 0; k < NN; k++)
             {
@@ -136,6 +142,23 @@ namespace PSXRacing.City
                     if (isDist[k] == 0) continue;
                     if (i + 1 < N) IsRelax(k, k + 1, 10);
                     if (j + 1 < N) { IsRelax(k, k + N, 10); if (i + 1 < N) IsRelax(k, k + N + 1, 14); if (i > 0) IsRelax(k, k + N - 1, 14); }
+                }
+            for (int k = 0; k < NN; k++) isDist2[k] = (isDist[k] == 0 || isBand[k]) ? 0 : int.MaxValue / 2;
+            for (int j = 0; j < N; j++)
+                for (int i = 0; i < N; i++)
+                {
+                    int k = IsIdx(i, j);
+                    if (isDist2[k] == 0) continue;
+                    if (i > 0) IsRelax2(k, k - 1, 10);
+                    if (j > 0) { IsRelax2(k, k - N, 10); if (i > 0) IsRelax2(k, k - N - 1, 14); if (i + 1 < N) IsRelax2(k, k - N + 1, 14); }
+                }
+            for (int j = N - 1; j >= 0; j--)
+                for (int i = N - 1; i >= 0; i--)
+                {
+                    int k = IsIdx(i, j);
+                    if (isDist2[k] == 0) continue;
+                    if (i + 1 < N) IsRelax2(k, k + 1, 10);
+                    if (j + 1 < N) { IsRelax2(k, k + N, 10); if (i + 1 < N) IsRelax2(k, k + N + 1, 14); if (i > 0) IsRelax2(k, k + N - 1, 14); }
                 }
             // ---- 2. the land's components -------------------------------------------------------------
             var o = tm.origin;
@@ -182,7 +205,7 @@ namespace PSXRacing.City
                 if (IsHasBuilding(cells)) continue;
                 // the core: cells half the minimum width from the pavement; an island is the core grown back
                 int coreN = 0;
-                foreach (int k in cells) if (isDist[k] >= tipCells) coreN++;
+                foreach (int k in cells) if (!isBand[k] && isDist2[k] >= tipCells) coreN++;
                 if (coreN == 0)
                 {
                     // all of it narrower than a nose: a long one is a narrow median (as it was); a short one is the
@@ -196,10 +219,43 @@ namespace PSXRacing.City
                     }
                     continue;
                 }
-                foreach (int k in cells) isFlag[k] = (byte)(isDist[k] >= tipCells ? 2 : 3);
+                foreach (int k in cells) isFlag[k] = (byte)(!isBand[k] && isDist2[k] >= tipCells ? 2 : 3);
                 // grow the core back over tip cells within tipCells of it (an opening)
                 IsGrowCore(cells, growCells);
                 IsEmitComponent(map, tm, cells, o);
+            }
+        }
+
+        static void IsRelax2(int k, int from, int w)
+        {
+            int d = isDist2[from] + w;
+            if (d < isDist2[k]) isDist2[k] = d;
+        }
+
+        static void IsRasterBands(CityMap map, Vector3 o)
+        {
+            float x0 = o.x - IsMargin, z0 = o.z - IsMargin, x1 = o.x + TileSize + IsMargin, z1 = o.z + TileSize + IsMargin;
+            foreach (var e in map.edges)
+            {
+                if (e.pts == null || e.pts.Length < 2 || e.a == e.b || e.bridge || e.tunnel) continue;
+                float bx0 = float.MaxValue, bz0 = float.MaxValue, bx1 = float.MinValue, bz1 = float.MinValue;
+                foreach (var q in e.pts) { bx0 = Mathf.Min(bx0, q.x); bz0 = Mathf.Min(bz0, q.y); bx1 = Mathf.Max(bx1, q.x); bz1 = Mathf.Max(bz1, q.y); }
+                float pad = e.HalfMax + 2f;
+                if (bx1 + pad < x0 || bx0 - pad > x1 || bz1 + pad < z0 || bz0 - pad > z1) continue;
+                for (float sv = 0f; sv <= e.length; sv += 0.25f)
+                {
+                    var pt = e.PointAt(sv);
+                    if (pt.x < x0 - pad || pt.x > x1 + pad || pt.y < z0 - pad || pt.y > z1 + pad) continue;
+                    if (e.ElevatedAt(sv)) continue;
+                    LineModel.Extents(e, sv, out float eM, out float eP);
+                    var tg = e.TangentAt(sv); var left = new Vector2(-tg.y, tg.x);
+                    float lo = -(eM - e.shr), hi = eP - e.shl;
+                    for (float l = lo; l <= hi; l += 0.2f)
+                    {
+                        var q = pt + left * l;
+                        if (IsCellAt(q.x - o.x, q.y - o.z, out int k)) isBand[k] = true;
+                    }
+                }
             }
         }
 
@@ -406,7 +462,7 @@ namespace PSXRacing.City
                     int ii = i + (q == 0 ? 1 : q == 1 ? -1 : 0), jj = j + (q == 2 ? 1 : q == 3 ? -1 : 0);
                     if (ii < 0 || jj < 0 || ii >= N || jj >= N) continue;
                     int kk = IsIdx(ii, jj);
-                    if (isFlag[kk] != 3 || dist.ContainsKey(kk)) continue;
+                    if (isFlag[kk] != 3 || isBand[kk] || dist.ContainsKey(kk)) continue;
                     dist[kk] = d + 1; isFlag[kk] = 2; isQ.Enqueue(kk);
                 }
             }
