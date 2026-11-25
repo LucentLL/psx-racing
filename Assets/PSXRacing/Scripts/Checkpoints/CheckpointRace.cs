@@ -681,7 +681,7 @@ namespace PSXRacing
         }
 
         /// <summary>The ruler holds across a lane's width (<see cref="RulerHold"/>, cityai 11-25). PSX_CP_RULER_HOLD=0:
-        /// as before (LAB row AI RACING TURNS does not hold it: its own env switch only).</summary>
+        /// as before. LAB row RACE DISTANCE: LANE HOLD (at once).</summary>
         public static bool RulerHoldOn = CheckpointFile.On("PSX_CP_RULER_HOLD");
         /// <summary>Holds begun, all cars (the harness).</summary>
         public static int RulerHolds;
