@@ -247,6 +247,9 @@ namespace PSXRacing.EditorTools
                     for (int k = 0; k < 4; k++) sc.Add(cs);
                     foreach (var p in new[] { sv[b2], sv[b2 + 1], sv[b2 + 2], sv[b2 + 3] }) suv.Add(new Vector2(p.x + p.z, p.y) / 1.9f);
                     QuadFacing(sv, st, b2, b2 + 1, b2 + 2, b2 + 3, -(right * mid.x + Vector3.up * (mid.y - T2SpringY)) * 0.3f + face);
+                    // and from inside the bore: a ray grazing out along the lining meets its back
+                    { int b3 = sv.Count; for (int k = 0; k < 4; k++) { sv.Add(sv[b2 + k]); sc.Add(cs); suv.Add(suv[b2 + k]); }
+                      QuadFacing(sv, st, b3, b3 + 1, b3 + 2, b3 + 3, (right * mid.x + Vector3.up * (mid.y - T2SpringY)) * 0.3f - face); }
                 }
             }
             // the ring's outer edge at height y on one side (the extrados of the stone that spans it)
@@ -341,6 +344,8 @@ namespace PSXRacing.EditorTools
                             for (int m = 0; m < 4; m++) sc.Add(cs);
                             foreach (var p in new[] { sv[b2], sv[b2 + 1], sv[b2 + 2], sv[b2 + 3] }) suv.Add(new Vector2(p.x + p.z, p.y) / 1.9f);
                             QuadFacing(sv, st, b2, b2 + 1, b2 + 2, b2 + 3, -right * s * 0.3f + face);
+                            { int b3 = sv.Count; for (int m = 0; m < 4; m++) { sv.Add(sv[b2 + m]); sc.Add(cs); suv.Add(suv[b2 + m]); }
+                              QuadFacing(sv, st, b3, b3 + 1, b3 + 2, b3 + 3, right * s * 0.3f - face); }
                         }
                         xa = R + qw + j * 0.5f; xb = xa;
                     }
