@@ -190,6 +190,12 @@ namespace PSXRacing.EditorTools
         struct Mouth { public Vector3 c, right, fwd; }   // fwd: along the path (into the bore at the entry)
 
         /// <summary>The self-test's gap probe (see the class).</summary>
+        /// <summary>(stage3) The probe's mouths on the builder's portal stations (PSX_T2_EXACTMOUTHS=0 = round 2b's
+        /// rounded span metres).</summary>
+        /// <summary>(stage3) The off-grid cameras (PSX_T2_EXTRA=0 = round 2b's 444 alone).</summary>
+        public static bool ExtraCams = System.Environment.GetEnvironmentVariable("PSX_T2_EXTRA") != "0";
+        public static bool TunnelMouthsExact = System.Environment.GetEnvironmentVariable("PSX_T2_EXACTMOUTHS") != "0";
+
         public static string Gaps(TrackCatalog.TrackDef def, string scenePath, string tag, out int failCams)
         {
             var sb = new StringBuilder();
@@ -231,11 +237,22 @@ namespace PSXRacing.EditorTools
             Vector3 Fwd(int i) { var f = pts[Mathf.Min(i + 1, n - 1)] - pts[Mathf.Max(i - 1, 0)]; f.y = 0f; return f.normalized; }
             float R = def.roadWidth * 0.5f + 1.1f;   // the bore's half-width (PSXRacingBuilder TunnelWallOut)
             var results = new List<(string name, int gaps, Vector2 at, Texture2D shot)>();
-            int cams = 0, totalGap = 0;
+            int cams = 0, totalGap = 0, xCams = 0, xFail = 0;
             int no = 0;
             foreach (var span in def.tunnels)
             {
                 int iA = Mathf.Clamp(Mathf.RoundToInt(span.x / sp), 1, n - 2), iB = Mathf.Clamp(Mathf.RoundToInt(span.y / sp), 1, n - 2);
+                // (stage3) the mouths where the builder puts its portals: the first and last stations in the tunnel
+                // (TrackCatalog.InTunnel, BuildStageTunnels' runs). Rounding the span's metres put the far mouth's
+                // plane a station out past its portal, and a ray rising through the real opening's crown passed over
+                // the plane's opening there: sky through the far mouth read as a "gap" (round 2b's three slivers).
+                if (TunnelMouthsExact)
+                {
+                    int a2 = -1, b2 = -1;
+                    for (int q = Mathf.Max(0, iA - 3); q <= Mathf.Min(n - 1, iB + 3); q++)
+                        if (TrackCatalog.InTunnel(def, q * sp)) { if (a2 < 0) a2 = q; b2 = q; }
+                    if (a2 > 0 && b2 > a2) { iA = Mathf.Clamp(a2, 1, n - 2); iB = Mathf.Clamp(b2, 1, n - 2); }
+                }
                 var mouths = new[] { new Mouth { c = pts[iA], fwd = Fwd(iA) }, new Mouth { c = pts[iB], fwd = Fwd(iB) } };
                 for (int k = 0; k < 2; k++) mouths[k].right = Vector3.Cross(Vector3.up, mouths[k].fwd).normalized;
                 bool InOpening(Mouth mo, Vector3 o, Vector3 d)
@@ -260,9 +277,14 @@ namespace PSXRacing.EditorTools
                     for (float d = -10f; d <= 30f; d += 2.5f) marks.Add(d);
                     var exitMarks = new List<float>();
                     for (float d = -30f; d <= 60f; d += 5f) exitMarks.Add(d);
-                    foreach (var (list, baseM, tagM) in new[] { (marks, entryM, "in"), (exitMarks, exitM, "out") })
+                    // (stage3, PSX_T2_EXTRA, default on) cameras OFF the grid above, so a fix is not fitted to it: other
+                    // lanes (the centre, both shoulders), eyes 0.3 m and 2.5 m up, and replay spots 3 m and 8 m up
+                    var xIn = new List<float>(); var xOut = new List<float>();
+                    if (ExtraCams) { xIn.AddRange(new[] { -97.5f, -27.5f, -6.25f, 1.25f, 13.75f }); xOut.AddRange(new[] { -22.5f, -2.5f, 7.5f, 22.5f, 47.5f }); }
+                    foreach (var (list, baseM, tagM) in new[] { (marks, entryM, "in"), (exitMarks, exitM, "out"), (xIn, entryM, "xin"), (xOut, exitM, "xout") })
                         foreach (float d in list)
                         {
+                            bool extra = tagM[0] == 'x';
                             float m = baseM + dir * d;
                             int i = Mathf.Clamp(Mathf.RoundToInt(m / sp), 1, n - 2);
                             Vector3 f = Fwd(i) * dir, r = Vector3.Cross(Vector3.up, f).normalized;
@@ -270,14 +292,28 @@ namespace PSXRacing.EditorTools
                             // (the eye's own metre decides inside / outside: a chase camera is 6 m behind its car)
                             bool EyeIn(float em) => em > span.x + 0.3f && em < span.y - 0.3f;
                             var poses = new List<(string v, Vector3 eye, Vector3 look, float fov, bool eyeIn)>();
-                            foreach (float lane in new[] { 1.6f, -1.6f })
+                            if (extra)
+                            {
+                                float edge = def.roadWidth * 0.5f;
+                                Vector3 cC = pts[i], cR = pts[i] + r * (edge - 0.6f), cL = pts[i] - r * (edge - 0.6f);
+                                poses.Add(("xlowC", cC + Vector3.up * 0.3f, cC + f * 30f + Vector3.up * 0.5f, 65f, EyeIn(m)));
+                                poses.Add(("xlowL", cL + Vector3.up * 0.3f, cL + f * 30f + Vector3.up * 0.5f, 65f, EyeIn(m)));
+                                poses.Add(("xhighR", cR - f * 4f + Vector3.up * 2.5f, cR + f * 6f + Vector3.up * 1.0f, 60f, EyeIn(m - dir * 4f)));
+                                if (!insideBore && Mathf.Abs(m - span.x) > 2f && Mathf.Abs(m - span.y) > 2f)
+                                {
+                                    float sd = (Mathf.RoundToInt(Mathf.Abs(d) * 4f) % 2 == 0) ? 1f : -1f;
+                                    poses.Add(("xrep3" + (sd > 0 ? "R" : "L"), pts[i] + r * sd * (edge + 4f) + Vector3.up * 3f, pts[i] + f * 8f + Vector3.up * 0.8f, 45f, false));
+                                    poses.Add(("xrep8" + (sd > 0 ? "L" : "R"), pts[i] - r * sd * (edge + 10f) + Vector3.up * 8f, pts[i] + f * 12f + Vector3.up * 0.8f, 45f, false));
+                                }
+                            }
+                            foreach (float lane in extra ? new float[0] : new[] { 1.6f, -1.6f })
                             {
                                 Vector3 car = pts[i] + r * lane;
                                 poses.Add(("chase" + (lane > 0 ? "R" : "L"), car - f * 6f + Vector3.up * 2.0f, car + f * 4f + Vector3.up * 1.0f, 60f, EyeIn(m - dir * 6f)));
                                 poses.Add(("cockpit" + (lane > 0 ? "R" : "L"), car + Vector3.up * 1.15f - r * 0.35f, car + f * 30f + Vector3.up * 1.0f, 65f, EyeIn(m)));
                             }
                             // (a replay camera stands beside the road, never inside a portal's masonry: none on the planes)
-                            if (!insideBore && Mathf.Abs(d) > 1f && Mathf.Abs(Mathf.Round(d / 30f) * 30f - d) < 0.1f)
+                            if (!extra && !insideBore && Mathf.Abs(d) > 1f && Mathf.Abs(Mathf.Round(d / 30f) * 30f - d) < 0.1f)
                                 foreach (float side in new[] { 1f, -1f })
                                 {
                                     Vector3 car = pts[i] + r * 1.6f;
@@ -318,9 +354,11 @@ namespace PSXRacing.EditorTools
                                         px[y * W + x] = new Color32(0, 255, 0, 255);   // marked green in the kept frame
                                     }
                                 cams++;
+                                if (p.v[0] == 'x') xCams++;
                                 if (gaps == 0) continue;
                                 totalGap += gaps;
                                 failCams++;
+                                if (p.v[0] == 'x') xFail++;
                                 string name = $"t{no}_{(dir > 0 ? "fwd" : "rev")}_{tagM}{d:+0.0;-0.0}_{p.v}";
                                 Texture2D keep = null;
                                 if (results.Count < 400)
@@ -346,7 +384,7 @@ namespace PSXRacing.EditorTools
                 no++;
             }
             results.Sort((a, b) => b.gaps.CompareTo(a.gaps));
-            L(sb, $"tunnel gap probe: {cams} cameras (chase, cockpit, replay; both lanes, both directions, both mouths), " +
+            L(sb, $"tunnel gap probe: {cams} cameras (chase, cockpit, replay; both lanes, both directions, both mouths; {xCams} of them off the grid, {xFail} of those see through), " +
                   $"{failCams} see through ({totalGap} px at {W}x{H}) - " + (failCams == 0 ? "ok" : "FAIL"));
             int kept = 0;
             foreach (var res in results)

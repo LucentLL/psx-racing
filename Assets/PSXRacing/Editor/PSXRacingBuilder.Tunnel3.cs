@@ -37,6 +37,8 @@ namespace PSXRacing.EditorTools
         /// (no rail collider with a hill a few metres behind it), the hill's first row hard against the face and a
         /// floor under the verge at each mouth. PSX_TUNNEL3B=0 = round 2 (b1bd5967).</summary>
         public static bool Tunnel3B = System.Environment.GetEnvironmentVariable("PSX_TUNNEL3B") != "0";
+        /// <summary>(stage3) The portal wall's end slab drawn both ways (BUILD TIME; PSX_PORTALEND=0 = 77f4abf8).</summary>
+        public static bool PortalEndBoth = System.Environment.GetEnvironmentVariable("PSX_PORTALEND") != "0";
 
         /// <summary>The voussoir ring's radial depth (mean), the wall past the ring each side, the top over the
         /// ring's crown, the end step.</summary>
@@ -372,6 +374,11 @@ namespace PSXRacing.EditorTools
                 Slab(P(s * stepX, stepTop, 0.08f), P(s * wallX, stepTop, 0.08f), P(s * wallX, stepTop, Back), P(s * stepX, stepTop, Back), Vector3.up, 0.9f);
                 Slab(P(s * stepX, stepTop, 0.08f), P(s * stepX, top, 0.08f), P(s * stepX, top, Back), P(s * stepX, stepTop, Back), right * s, 0.5f);
                 Slab(P(s * wallX, T3Bottom, 0.08f), P(s * wallX, stepTop, 0.08f), P(s * wallX, stepTop, Back), P(s * wallX, T3Bottom, Back), right * s, 0.2f);
+                // (stage3, PSX_PORTALEND) the wall's END seen from the road side: a ray grazing the face past the last
+                // stone's bevelled corner met the end slab from inside the masonry - a back face, not drawn (the gap
+                // probe's 85 px at portal A, forward chase, right lane). The end is masonry both ways.
+                if (PortalEndBoth)
+                    Slab(P(s * wallX, T3Bottom, 0.08f), P(s * wallX, stepTop, 0.08f), P(s * wallX, stepTop, Back), P(s * wallX, T3Bottom, Back), -right * s, 0.2f);
             }
             // (2b) THE WALL'S BACK: the masonry was an open shell 1.25 m deep; with the hill no longer heaped beside its
             // ends, a ray past an end looked into it and out through the stones' backs. Closed at the slab's back
