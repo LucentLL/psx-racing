@@ -1,3 +1,56 @@
+# HANDOFF - CITYAI: rivals take junction turns on an arc, not a 90 degree pivot; the race distance holds in a slip lane (agent "cityai", 11-25; branch `city-ai-turns` from mountain-nm e472b9da + 8a5737c0 (mute); NOT pushed, NOT merged)
+
+Owner, CltC7, PC68: "AI can't even turn on this track, they make 90 deg turns. Very unnatural to see." All runs are EDITOR runs in
+PSXCity (hidden batch, 8-car field, the play check's autopilot as the player). Scratch: `scratchpad\cityai\` (sheet, runs\, tables).
+
+## What was wrong
+1. `Scripts/Checkpoints/RoutedPath.cs` (header, "PSX_CP_FILLET_R = 0 ... the racing-radius fillet (M7) is not built yet"): a rival's
+   routed road ran the lanes' centre of one road to the node and the next road's from it, a corner, its curvature smeared over 5
+   waypoints. Measured on CltC7 (3 laps, MEDIUM): through the 118 deg Univ City -> N Tryon turn the rivals' tightest driven radius
+   was 4.4 m (median; 0.8 m min), apex 16.5 km/h, 8 stops and 13 pivots (yaw > 0.5 rad/s under 4 m/s) in 21 passes, 90 % of the
+   heading change inside 14 m of travel; the field jammed there for 2 minutes in the first run (stops, back-ups, traffic hits).
+   The same shape at every 80-120 deg city junction (C1, C2, H7: r_min median 5.4-6.2 m, apex 22-34 km/h).
+2. `Scripts/AIDriver.cs` UpdateMistake: a planned mistake was kept out of junctions only by where the CAR was, not the corner it
+   was braking for: the 180SX's mistake began 200 m short of C7's N Tryon / W T Harris turn and arrived at 158 km/h (retired).
+3. `Scripts/Checkpoints/CheckpointRace.cs` RemainingToGate (graph locate, the player): the locate picks ONE line; in the right lane
+   of Univ City Blvd 80 m before gate 2 the channelised right turn's line (edge 13224) is 3.6 m away, so the ruler read 1,219 m
+   instead of 64 m (reproduced by the self-test's new lane walk, exactly the owner's edges). Same class on 9 of 10 files.
+
+## What changed (all ON by default; old paths kept)
+- NEW `Scripts/Checkpoints/RacingTurns.cs` + RoutedPath: every join of 30 deg+ laid on the LARGEST circular arc tangent to the two
+  lanes' lines that keeps 1.4 m (never under 1.15 m) off the fan kerbs of the node and every node within 60 m (islands, noses),
+  inside each arm's pavement past its trim, checked on the arc AND on the car's own-lane line; its tangent at most the trim + 6 m
+  (30 m cap); curvature written as 1/r, not smoothed; edge/s back-map through the cornered line's arc. Switch `RacingTurns.On`,
+  PSX_CP_TURNS, LAB row **AI RACING TURNS** (Traffic tab, NEXT LOAD: the next race; mid-race at each rival's next re-plan).
+- AIRoutePlanner: a re-plan within 30 m past a node keeps the road it came by, so the new path lays the same arc.
+- AIDriver: no planned mistake whose corner is in a junction zone (with RacingTurns.On).
+- NEW `Scripts/Checkpoints/RulerHold.cs`: every edge whose pavement holds the car is read; the lowest reading wins when it beats
+  the locate's by 25 m+. `CheckpointRace.RulerHoldOn`, PSX_CP_RULER_HOLD, LAB row **RACE DISTANCE: LANE HOLD** (at once).
+- Harness: NEW `Editor/CheckpointTurnTrace.cs` (PSX_TT_OUT: 20 Hz trace of every car, hits, the map round each turn, plan + chase
+  frames), hooked in RacePlayCheck; CheckpointSelfTest lane walk (every lane of every route, with/without the hold).
+
+## Proof
+Sheet: `scratchpad\cityai\cityai_sheet.png` (C7 T0/T1/T2 plan before|after with all traces, chase frames through T0 before|after;
+editor frames, noon; the white boxes on T1/T2 are building roofs in the top-down frame).
+CltC7 3 laps MEDIUM (a1 off | b2 on): T0 r_min med 4.4 -> 13.9 m, apex 16.5 -> 45.4 km/h, stops 8 -> 0, pivots 13 -> 4;
+T1 5.5 -> 18.9 m, 19 -> 54 km/h, pivots 6 -> 0; T2 (46 deg) unchanged 19 m / 50 km/h; race 597 -> 460 s; back-ups 21 -> 1.
+Matrix (1 lap, before dA | after dC/dD/dE): see the hand-back table. Head-ons 0 in every race both arms. On-road start checks OK in all.
+aipass matrix (after): 1 head-on (TryonSprint MEDIUM s0, 180SX at 6 km/h in the start pack, a traffic car into it at 16 km/h);
+the SAME race with turns off also has 1 (36 m/s). Tryon has no junction turn of 30 deg+.
+Plan cost per plan (editor, debug Mono; C7 / C1 / H7): p50 0.60/0.59/0.98 -> 2.24/1.79/1.56 ms, p99 1.1/4.6/9.8 -> 5.3/7.8/5.5 ms.
+
+## Not done / not verified
+- No PC exe; no watched run; no night run of the matrix; no seed variety beyond 0/1; the player's own (human) line not driven.
+- Lane walk still FAILs on h6, i485west, independence, tryon, uptown (2-17 steps each: a car 6-10 m LEFT of the route's line on
+  a wide road / a ramp line, outside the route edge's drawn pavement + 0.5 m).
+- Routing never uses a channelised slip lane for a right turn (the router picks the node); the arc goes through the box.
+- X1 finish run-out: finishers coast into a building at up to 43 m/s at (-1403, 5529) in both arms (not junction, not touched).
+- Kerb strike metric is indirect (wheel-height spread / off-road wheel bits); collisions with kerb/island colliders: 0 both arms.
+
+## At merge
+Code only (Scripts/Checkpoints, AIDriver, Lab row, Editor harness, RacePlayCheck hook). No bake input, no scene pass, no re-bake.
+New metas: RacingTurns.cs.meta, RulerHold.cs.meta, CheckpointTurnTrace.cs.meta (committed).
+
 # HANDOFF - NIGHT5: NIGHT 4 keeps the lane paint and the paving joints, no light past medians and corners, the LAB row back from OFF, two tool faults (agent "night5", 11-25; branch `city-night5` from cdf3fc87; NOT pushed, NOT merged)
 
 All frames and timings are EDITOR runs in PSXPerf (hidden batch editor, PSX_PROFILE=PC, PSX_PC_CONTENT=1, StandaloneWindows64, city tiles built live), except the two PC67 exe leak runs (hidden, -batchmode, no other PSXRacing.exe running). No player was built. NIGHT 4 stays OFF by default.
