@@ -50,6 +50,7 @@ namespace PSXRacing.EditorTools
             hits = new StringBuilder();
             hits.AppendLine("t,car,x,z,v,hit,hard,what,layer");
             CollisionResponder.HitReportedOn += OnHit;
+            AIRoutePlanner.BuildMsLog.Clear(); RacingTurns.ResetStats();
             // the course line and its turns
             var p = rm.path;
             var sb = new StringBuilder("i,x,y,z\n");
@@ -227,6 +228,10 @@ namespace PSXRacing.EditorTools
             File.WriteAllText(Path.Combine(outDir, "hits.csv"), hits.ToString());
             if (chaseCam != null) Object.DestroyImmediate(chaseCam.gameObject);
             RacePlayCheck.Note($"TURN TRACE: {trace.Length / 1024} KB of trace written");
+            var bl = new List<float>(AIRoutePlanner.BuildMsLog); bl.Sort();
+            if (bl.Count > 0) RacePlayCheck.Note($"PLAN COST: {bl.Count} plans, p50 {bl[bl.Count / 2]:0.00} ms, p99 {bl[Mathf.Min(bl.Count - 1, (int)(bl.Count * 0.99f))]:0.00} ms, max {bl[bl.Count - 1]:0.00} ms (racing turns {(RacingTurns.On ? "ON" : "OFF")})");
+            var lr = new List<float>(RacingTurns.LaidR); lr.Sort();
+            RacePlayCheck.Note($"RACING TURNS: tried {RacingTurns.Tried}, laid {RacingTurns.Laid}, no fit {RacingTurns.NoFit}; radius min {(lr.Count > 0 ? lr[0] : 0f):0.0} m, median {(lr.Count > 0 ? lr[lr.Count / 2] : 0f):0.0} m");
             outDir = null; rm = null; trace = null; hits = null;
         }
     }

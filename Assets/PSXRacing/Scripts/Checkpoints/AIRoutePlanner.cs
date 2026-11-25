@@ -37,6 +37,8 @@ namespace PSXRacing
         public int Rebuilds { get; private set; }
         public float LastBuildMs { get; private set; }
         public float WorstBuildMs { get; private set; }
+        /// <summary>Every plan's build time, ms, all cars (the harness's p50 / p99; cleared by it).</summary>
+        public static readonly List<float> BuildMsLog = new List<float>(4096);
         /// <summary>The leg signature of the last plan, for the play check: the edges it drives.</summary>
         public string LastSignature { get; private set; } = "";
         /// <summary>For the play check: legs planned off the optimum (variety), and re-plans for being off its road.</summary>
@@ -275,6 +277,7 @@ namespace PSXRacing
             LastSignature = sig.ToString();
             LastBuildMs = (float)sw.Elapsed.TotalMilliseconds;
             WorstBuildMs = Mathf.Max(WorstBuildMs, LastBuildMs);
+            if (BuildMsLog.Count < 100000) BuildMsLog.Add(LastBuildMs);
         }
 
         float variedLastT;
