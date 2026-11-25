@@ -128,8 +128,10 @@ namespace PSXRacing.EditorTools
             foreach (var cc in carCols)
             {
                 if (cc == null || cc.isTrigger) continue;
-                Vector3 c0 = cc.bounds.center - car.transform.position;
-                noseD = Mathf.Max(noseD, Vector3.Dot(c0, dir) + Mathf.Abs(dir.x) * cc.bounds.extents.x + Mathf.Abs(dir.z) * cc.bounds.extents.z);
+                var mcc = cc as MeshCollider;
+                if (mcc != null && !mcc.convex) continue;
+                Vector3 far = cc.ClosestPoint(car.transform.position + dir * 20f + Vector3.up * 0.3f);
+                noseD = Mathf.Max(noseD, Vector3.Dot(far - car.transform.position, dir));
             }
             // the drawn surface ahead of the nose, as the probe asks it
             var temp = new List<GameObject>();
@@ -153,8 +155,8 @@ namespace PSXRacing.EditorTools
             var gaps = new StringBuilder();
             foreach (float hy in new[] { 0.3f, 0.6f, 0.9f })
             {
-                Vector3 o = car.transform.position + dir * (noseD - 0.3f); o.y = g2.y + hy;
-                float d = Physics.Raycast(o, dir, out RaycastHit dh, 6f, 1 << ProbeLayer) ? dh.distance - 0.3f : 9.99f;
+                Vector3 o = car.transform.position + dir * (noseD - 1.0f); o.y = g2.y + hy;
+                float d = Physics.Raycast(o, dir, out RaycastHit dh, 6f, 1 << ProbeLayer) ? dh.distance - 1.0f : float.NaN;
                 gaps.Append($" {hy:0.0} m {d * 100f:0} cm;");
             }
             Physics.queriesHitBackfaces = hb;
