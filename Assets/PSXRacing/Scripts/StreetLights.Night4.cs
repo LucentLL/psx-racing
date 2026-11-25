@@ -672,6 +672,9 @@ namespace PSXRacing
 
         /// <summary>Tools: force the field to be gathered and splatted again now.</summary>
         public static void N4Touch() => n3Version++;
+        /// <summary>(night5) A switch flipped: gathered and splatted again on the next frame, past the half-second gate.</summary>
+        public static void N4TouchNow() { n3Version++; n3ForceGather = true; }
+        static bool n3ForceGather;
 
         // ---- ONE NIGHT SKY ----
         // The owner's two clips: on I-77 black cloud shapes with hard edges against a navy sky
@@ -726,7 +729,7 @@ namespace PSXRacing
             Shader.SetGlobalFloat(N4TightId, Night4 && N4Tight ? 1f : 0f);
             // (night5) any of NIGHT 4's switches changed (the LAB row, a tool's variant): the field is gathered and
             // splatted again (a lamp's view, the splat's edges) - a tool setting the static alone left it stale
-            if (Night4 != n4SeenOn || N4Tight != n4SeenTight) { n4SeenOn = Night4; n4SeenTight = N4Tight; N4Touch(); }
+            if (Night4 != n4SeenOn || N4Tight != n4SeenTight) { n4SeenOn = Night4; n4SeenTight = N4Tight; N4TouchNow(); }
             if (!Night4) { Shader.SetGlobalVector(N4Id, Vector4.zero); return; }
             if (Time.frameCount != n4SkyFrame)
             {
