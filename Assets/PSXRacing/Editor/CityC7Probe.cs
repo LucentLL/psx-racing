@@ -179,6 +179,7 @@ namespace PSXRacing.EditorTools
 
                     bool doInv = views.Contains("inv");
                     if (doInv) { recs.Clear(); spotsXZ = new[] { p2 }; CityMeshes.ProvHook = Hook; }
+                    CityMeshes.IslandDebugAt = p2; CityMeshes.IslandDebug.Clear();
                     RaceHandoff.CalendarDay = ColourSpots.DayIn(Season.Winter);
                     RaceHandoff.WeatherOverride = (int)Weather.Clear;
                     Dress();
@@ -187,6 +188,8 @@ namespace PSXRacing.EditorTools
                     world.EnsureRing(pos, 1);
                     world.EnsureRing(pos + fwd * 60f, 1);
                     CityMeshes.ProvHook = null;
+                    CityMeshes.IslandDebugAt = null;
+                    log.Append(CityMeshes.IslandDebug.ToString());
                     Dress();
                     if (doInv) Inventory(id, p2, map, tsv, rtsv, log);
 

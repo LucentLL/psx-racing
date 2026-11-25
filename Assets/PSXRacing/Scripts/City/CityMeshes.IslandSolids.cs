@@ -70,11 +70,17 @@ namespace PSXRacing.City
         /// <summary>Never within this of the tile's border (the next tile has the rest of it).</summary>
         const float IslandBorderM = 2f;
 
+        public static int IslandGores;
+        /// <summary>A sliver narrower than a nose everywhere, at most this big and this long, is a gore: paved.</summary>
+        public const float IslandGoreMaxM2 = 30f, IslandGoreMaxM = 20f;
         public static int IslandCount, IslandSkippedBorder, IslandSkippedBig, IslandTipCells, IslandOverlayTris, IslandInsideTris, IslandPokeVerts;
         public static float IslandAreaM2;
         /// <summary>The islands of the last tile builds (world plan outlines), for the gate and the pictures.</summary>
         public static readonly List<Vector2[]> IslandOutlines = new List<Vector2[]>();
         public static bool IslandRecord;
+        /// <summary>The probe's trace: every land component within 30 m of this point (world plan), with what was decided.</summary>
+        public static Vector2? IslandDebugAt;
+        public static readonly System.Text.StringBuilder IslandDebug = new System.Text.StringBuilder();
 
         static float[] isY;        // pavement height per cell (lowest), NaN none
         static short[] isSlot;     // the road slot that paved it
@@ -159,6 +165,17 @@ namespace PSXRacing.City
                 }
                 comp++;
                 float area = cells.Count * IsCell * IsCell;
+                if (IslandDebugAt.HasValue)
+                {
+                    int ck = cells[0]; var cw = new Vector2((ck % N + 0.5f) * IsCell - IsMargin + o.x, (ck / N + 0.5f) * IsCell - IsMargin + o.z);
+                    float best = float.MaxValue; foreach (int k in cells) { var w = new Vector2((k % N + 0.5f) * IsCell - IsMargin + o.x, (k / N + 0.5f) * IsCell - IsMargin + o.z); best = Mathf.Min(best, (w - IslandDebugAt.Value).magnitude); }
+                    if (best < 30f)
+                    {
+                        int cn = 0; foreach (int k in cells) if (isDist[k] >= tipCells) cn++;
+                        IsSpan(cells, out float sp);
+                        IslandDebug.Append($"    land at {best:0.0} m: {area:0.0} m2, span {sp:0.0} m, border {border}, wide {wide}, core cells {cn}\n");
+                    }
+                }
                 if (border) { if (area < IslandMaxAreaM2 && !wide) IslandSkippedBorder++; continue; }
                 if (wide || area > IslandMaxAreaM2) { IslandSkippedBig++; continue; }
                 if (area < 0.5f) continue;
@@ -166,7 +183,19 @@ namespace PSXRacing.City
                 // the core: cells half the minimum width from the pavement; an island is the core grown back
                 int coreN = 0;
                 foreach (int k in cells) if (isDist[k] >= tipCells) coreN++;
-                if (coreN == 0) continue;   // all of it narrower than a nose: a narrow median or a sliver, as it was
+                if (coreN == 0)
+                {
+                    // all of it narrower than a nose: a long one is a narrow median (as it was); a short one is the
+                    // knife edge between two roads that part (a gore): paved
+                    IsSpan(cells, out float spanM);
+                    if (area <= IslandGoreMaxM2 && spanM <= IslandGoreMaxM)
+                    {
+                        foreach (int k in cells) { isFlag[k] = 3; IsPaveCell(k, o); }
+                        IslandTipCells += cells.Count; IslandGores++;
+                        foreach (var bk in IslandSheetBuckets()) IsDropCells(bk);
+                    }
+                    continue;
+                }
                 foreach (int k in cells) isFlag[k] = (byte)(isDist[k] >= tipCells ? 2 : 3);
                 // grow the core back over tip cells within tipCells of it (an opening)
                 IsGrowCore(cells, growCells);
@@ -177,7 +206,41 @@ namespace PSXRacing.City
         static void IsRelax(int k, int from, int w)
         {
             int d = isDist[from] + w;
-            if (d < isDist[k]) { isDist[k] = d; isNearY[k] = isNearY[from]; }
+            if (d < isDist[k]) { isDist[k] = d; isNearY[k] = isNearY[from]; isSlot[k] = isSlot[from]; }
+        }
+
+        static void IsSpan(List<int> cells, out float spanM)
+        {
+            int i0 = int.MaxValue, i1 = int.MinValue, j0 = int.MaxValue, j1 = int.MinValue;
+            foreach (int k in cells) { int i = k % IsN, j = k / IsN; i0 = Mathf.Min(i0, i); i1 = Mathf.Max(i1, i); j0 = Mathf.Min(j0, j); j1 = Mathf.Max(j1, j); }
+            spanM = Mathf.Sqrt((i1 - i0 + 1) * (i1 - i0 + 1) + (j1 - j0 + 1) * (j1 - j0 + 1)) * IsCell;
+        }
+
+        /// <summary>Take out the sheets lying wholly on cells just paved (a gore's verges, skirts, curbs).</summary>
+        static void IsDropCells(Bucket bk)
+        {
+            for (int pass = 0; pass < 2; pass++)
+            {
+                var tl = pass == 0 ? bk.t : bk.tn;
+                if (tl == null || tl.Count == 0) continue;
+                isKeep.Clear();
+                int dropped = 0;
+                for (int t = 0; t + 2 < tl.Count; t += 3)
+                {
+                    Vector3 a = bk.v[tl[t]], b = bk.v[tl[t + 1]], c = bk.v[tl[t + 2]];
+                    bool all = true;
+                    foreach (var q in new[] { a, b, c })
+                    {
+                        if (!IsCellAt(q.x, q.z, out int k) || !(isFlag[k] == 3 || !float.IsNaN(isY[k]))) { all = false; break; }
+                    }
+                    var m = (a + b + c) / 3f;
+                    if (all && IsCellAt(m.x, m.z, out int km) && isFlag[km] == 3 && (m.y > isNearY[km] - 1.5f)) { dropped++; continue; }
+                    isKeep.Add(tl[t]); isKeep.Add(tl[t + 1]); isKeep.Add(tl[t + 2]);
+                }
+                if (dropped == 0) continue;
+                IslandInsideTris += dropped;
+                tl.Clear(); tl.AddRange(isKeep);
+            }
         }
 
         static void IsGrow(int kk, int comp)
@@ -274,13 +337,13 @@ namespace PSXRacing.City
                     if (IsPaveAt(a.x, a.z, out float ya) && IsPaveAt(b.x, b.z, out float yb) && IsPaveAt(c.x, c.z, out float yc))
                     {
                         var m = (a + b + c) / 3f;
-                        if (IsPaveInside(m.x, m.z, 0.5f))
+                        if (IsPaveAt(m.x, m.z, out _))
                         {
                             float rise = Mathf.Max(a.y - ya, Mathf.Max(b.y - yb, c.y - yc));
                             float low = Mathf.Min(a.y - ya, Mathf.Min(b.y - yb, c.y - yc));
                             // laid on it or standing in it (a foreslope rising over a lane, a verge sliver, a
                             // flat slab): out. A sheet well under the road (a lattice below a deck) stays.
-                            if (rise > 0.003f && low > -1.5f && rise < 2.5f) drop = true;
+                            if (rise > 0.003f && low > -1.5f && rise < 1.0f) drop = true;
                         }
                     }
                     if (drop) { dropped++; continue; }
@@ -390,14 +453,21 @@ namespace PSXRacing.City
             }
         }
 
+        /// <summary>The junction slab's slot of the same surface (new / old asphalt, concrete) as the road
+        /// that paved the cell or is nearest to it: a fill or an apron reads as the road beside it.</summary>
+        static Bucket IsFillBucket(int k)
+        {
+            int surf = (int)Surface.AsphaltOld;
+            if (k >= 0 && isSlot[k] >= 0 && RoadSlot(isSlot[k], out _, out int sf)) surf = sf;
+            return buckets[(int)SlotOf(JunctionProfile, (Surface)surf)];
+        }
+
         static void IsPaveCell(int k, Vector3 o)
         {
             int i = k % IsN, j = k / IsN;
             float x0 = i * IsCell - IsMargin, z0 = j * IsCell - IsMargin, e = 0.12f;
             float y = isNearY[k] - 0.004f;
-            int surf = 1;
-            // the surface of the pavement it was nearest
-            var bk = buckets[(int)SlotOf(JunctionProfile, (Surface)surf)];
+            var bk = IsFillBucket(k);   // the surface of the pavement it was nearest
             Vector3 a = new Vector3(x0 - e, y, z0 - e), b = new Vector3(x0 + IsCell + e, y, z0 - e), c = new Vector3(x0 + IsCell + e, y, z0 + IsCell + e), d = new Vector3(x0 - e, y, z0 + IsCell + e);
             bk.Up(a, b, c, d, FanUV(a, o), FanUV(b, o), FanUV(c, o), FanUV(d, o));
         }
@@ -482,7 +552,8 @@ namespace PSXRacing.City
             foreach (var bk in IslandSheetBuckets()) IsDropInside(bk, poly, yP);
             // ---- the solid ----------------------------------------------------------------------------
             var walk = buckets[(int)Slot.Sidewalk];
-            var apron = buckets[(int)SlotOf(JunctionProfile, Surface.AsphaltOld)];
+            int k0 = part[0];
+            var apron = IsFillBucket(k0);
             for (int q = 0; q < n; q++)
             {
                 int r = (q + 1) % n;
