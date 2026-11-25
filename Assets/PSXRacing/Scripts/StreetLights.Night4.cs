@@ -112,7 +112,12 @@ namespace PSXRacing
         /// <summary>Find the view of every lit field lamp that has none (N3BuildMesh, before the mesh).</summary>
         static void N4UpdateVis()
         {
-            if (!Night4 || !Application.isPlaying) return;
+            if (!Night4 || !Application.isPlaying) { n4WasOn = false; return; }
+            // (night5) NIGHT 4 SWITCHED ON in the middle of a drive (it starts OFF; the LAB row): every lamp that
+            // has no view yet is found at once, as at a load - the 24-a-look budget would have left lamps NIGHT 3
+            // had lit dark, to come on one by one down the street
+            bool flippedOn = !n4WasOn && N4FlipAll;
+            n4WasOn = true;
             if (n4Known.Length < entries.Length)
             {
                 System.Array.Resize(ref n4Known, entries.Length);
@@ -147,7 +152,8 @@ namespace PSXRacing
             n4Backlog = false;
             var camN = Camera.main;
             Vector3 eyeN = camN != null ? camN.transform.position : Vector3.zero;
-            bool jumped = !n4EyeKnown || (eyeN - n4LastEye).sqrMagnitude > 200f * 200f;
+            bool jumped = !n4EyeKnown || (eyeN - n4LastEye).sqrMagnitude > 200f * 200f || flippedOn;
+            if (flippedOn) N4FlipLamps = n4Todo.Count;
             n4LastEye = eyeN; n4EyeKnown = true;
             if (!jumped && n4Todo.Count > N4LampsPerLook)
             {
@@ -507,6 +513,30 @@ namespace PSXRacing
                 && world.TileLive(new Vector2(p.x - r, p.z + r)) && world.TileLive(new Vector2(p.x + r, p.z + r));
         }
 
+        static bool n4WasOn, n4SeenOn, n4SeenTight;
+        /// <summary>(night5) NIGHT 4 switched on mid-drive finds every lamp's view at once (false: the budget's way,
+        /// cdf3fc87). PSX_N4_FLIPALL=0.</summary>
+        public static bool N4FlipAll = System.Environment.GetEnvironmentVariable("PSX_N4_FLIPALL") != "0";
+        /// <summary>Tools: the lamps found at the last switch-on.</summary>
+        public static int N4FlipLamps { get; private set; }
+
+        /// <summary>Tools (night5): the field street lamps within r of p that NIGHT 3 lights (on, with light), and how
+        /// many of them NIGHT 4 holds back now (no view yet).</summary>
+        public static int N4WithheldNear(Vector3 p, float r, out int lit)
+        {
+            lit = 0; int held = 0;
+            for (int i = 0; i < high; i++)
+            {
+                ref Entry e = ref entries[i];
+                if (!e.used || !e.field || !e.on || e.kind != Kind.Street || e.intensity <= 0f) continue;
+                if (e.owned && e.owner == null) continue;
+                if ((e.pos - p).sqrMagnitude > r * r) continue;
+                lit++;
+                if (N4Withheld(i)) held++;
+            }
+            return held;
+        }
+
         /// <summary>Under NIGHT 4 in play, a field lamp joins the splat only once its view is known.</summary>
         static bool N4Withheld(int slot) => Night4 && Application.isPlaying && City.CityWorld.Active != null
                                             && (slot >= n4Known.Length || !n4Known[slot]);
@@ -670,6 +700,19 @@ namespace PSXRacing
         /// pavement, plaza or face no brighter than lit asphalt), and the share of a face lit above
         /// its lamp's head (PSXLamps.cginc w=3).</summary>
         public static float N4AlbedoCap = 0.12f;
+        /// <summary>(night5) The cap limits each lamp-lit surface's MEAN (its texture's last mip), not each
+        /// texel: lane paint, crosswalks and stop bars stay brighter than the asphalt beside them and paving
+        /// joints, kerb edges and grain keep their contrast (PC67: the per-texel cap flattened them all).
+        /// PSX_N4_PAINT=0 = cdf3fc87's per-texel cap. Pushed as _PSXNight4.w 2 (1 = per texel).</summary>
+        public static bool N4PaintKeep = System.Environment.GetEnvironmentVariable("PSX_N4_PAINT") != "0";
+        /// <summary>(night5) No light past a solid's far side: the lamp field's and the car pools' 2 m texels
+        /// are lit only as much as the least-lit corner of their footprint (a surface reads them bilinearly,
+        /// so a lit texel at a shadow's edge spread up to 2 m into it), the per-pixel beam ends 0.5 m past
+        /// the face its fan hit (it faded out 1.8 m past), and a car's reach that SHRINKS (a barrier or a
+        /// wall cutting into the beam) follows within CarLights.OccShrinkS while one that grows still eases
+        /// in over OccEaseS. PSX_N4_TIGHT=0 = cdf3fc87's edges.</summary>
+        public static bool N4Tight = System.Environment.GetEnvironmentVariable("PSX_N4_TIGHT") != "0";
+        static readonly int N4TightId = Shader.PropertyToID("_PSXN4Tight");
         static float n4CityW;
         static int n4SkyFrame = -1;
         static readonly int N4Id = Shader.PropertyToID("_PSXNight4");
@@ -680,6 +723,10 @@ namespace PSXRacing
         /// albedo cap, w on) and the gradient; once a frame the city weight eases to its target.</summary>
         static void PushNight4Globals(float night)
         {
+            Shader.SetGlobalFloat(N4TightId, Night4 && N4Tight ? 1f : 0f);
+            // (night5) any of NIGHT 4's switches changed (the LAB row, a tool's variant): the field is gathered and
+            // splatted again (a lamp's view, the splat's edges) - a tool setting the static alone left it stale
+            if (Night4 != n4SeenOn || N4Tight != n4SeenTight) { n4SeenOn = Night4; n4SeenTight = N4Tight; N4Touch(); }
             if (!Night4) { Shader.SetGlobalVector(N4Id, Vector4.zero); return; }
             if (Time.frameCount != n4SkyFrame)
             {
@@ -689,7 +736,7 @@ namespace PSXRacing
                 n4CityW = Mathf.MoveTowards(n4CityW, target, dt * 0.5f);
             }
             float w = n4CityW * Mathf.Clamp01(night);
-            Shader.SetGlobalVector(N4Id, new Vector4(w, N4SkyMix, N4AlbedoCap, 1f));
+            Shader.SetGlobalVector(N4Id, new Vector4(w, N4SkyMix, N4AlbedoCap, N4PaintKeep ? 2f : 1f));
             Shader.SetGlobalVector(N4ZenId, (Vector4)(N4SkyZenith * N4SkyLevel));
             Shader.SetGlobalVector(N4HorId, new Vector4(N4SkyHorizon.r * N4SkyLevel, N4SkyHorizon.g * N4SkyLevel, N4SkyHorizon.b * N4SkyLevel, N4GlowMul));
         }

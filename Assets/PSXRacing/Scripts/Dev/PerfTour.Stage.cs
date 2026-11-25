@@ -299,11 +299,21 @@ namespace PSXRacing
         /// <paramref name="after"/> s of racing: every car within 2 m of its road's height and with ground
         /// under it. Writes &lt;id&gt;_onroad.txt (a line per car, then ONROAD OK / ONROAD FAIL).</summary>
         float gridLowest = float.MaxValue; string gridLowestWho = "-";
+        /// <summary>(night5) The field run's on-road file is written (the stage loop waits for it before it moves
+        /// on or the app quits: on a LOOP stage the grid stands behind the line and the drive ended at once).</summary>
+        bool onRoadDone;
+
         IEnumerator OnRoadAfter(string id, RaceManager rm, TrackPath path, float after)
         {
+            onRoadDone = false;
             float t0 = Time.time;
             while (Time.time - t0 < after) yield return null;
-            if (rm == null || path == null) yield break;
+            if (rm == null || path == null)
+            {
+                Post(id + "_onroad.txt", "ONROAD FAIL the race or its path was gone " + after.ToString("0", CultureInfo.InvariantCulture) + " s after the green");
+                onRoadDone = true;
+                yield break;
+            }
             var sb = new StringBuilder();
             int bad = 0, n = 0;
             foreach (var c in rm.allCars)
@@ -323,6 +333,16 @@ namespace PSXRacing
             gridLowest = float.MaxValue; gridLowestWho = "-";
             Post(id + "_onroad.txt", sb.ToString());
             Say(id + " " + sb.ToString().Replace('\n', '|'));
+            onRoadDone = true;
+        }
+
+        /// <summary>(night5) A field run waits here for its on-road file (game time, 30 s at most).</summary>
+        IEnumerator WaitOnRoad(string id, bool fieldRun)
+        {
+            if (!fieldRun) yield break;
+            float t0 = Time.realtimeSinceStartup;
+            while (!onRoadDone && Time.realtimeSinceStartup - t0 < 30f) yield return null;
+            if (!onRoadDone) { Post(id + "_onroad.txt", "ONROAD FAIL no check within 30 s of the drive's end"); Say(id + " ONROAD FAIL (timeout)"); }
         }
 
         IEnumerator StageTour(int hour, int weather)
@@ -500,6 +520,7 @@ namespace PSXRacing
                 Say("STAGE " + id + " from " + (i0 * path.spacing).ToString("0") + " m, up in " + loadS.ToString("0.0") + " s");
 
                 float dist = 0f; var last = car.transform.position;
+                bool onLap = false;
                 float slowFor = 0f; int nudges = 0; string end = "time";
                 float nextSnap = snapEvery > 0f ? 2f : float.MaxValue; int snapN = 0;
                 double bSum = 0, sSum = 0, tSum = 0; long bMax = 0, tMax = 0; int rn = 0;
@@ -541,7 +562,10 @@ namespace PSXRacing
                         continue;
                     }
                     if (slowFor > 10f) { end = "stuck at " + p.x.ToString("0") + "," + p.z.ToString("0"); break; }
-                    if (ai.PathIndex >= path.Count - 14) { end = "road end"; break; }
+                    // (night5) on a LOOP the grid stands behind the line, at the path's END: the road end counts
+                    // only once the car has been on the lap itself (it fired on the first frame)
+                    if (ai.PathIndex < path.Count - 14) onLap = true;
+                    if (onLap && ai.PathIndex >= path.Count - 14) { end = "road end"; break; }
                     if (n >= Cap) { end = "frame cap"; break; }
                 }
                 recording = false;
@@ -621,6 +645,7 @@ namespace PSXRacing
                 Post(id + "_summary.txt", sum1.ToString());
                 Say("STAGE " + sum1.ToString().Replace("\n", " | "));
                 Destroy(ai);
+                yield return WaitOnRoad(id, fieldRun);
                 yield return new WaitForSecondsRealtime(1f);
             }
         }

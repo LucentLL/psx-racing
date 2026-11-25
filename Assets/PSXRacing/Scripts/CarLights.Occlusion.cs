@@ -36,6 +36,10 @@ namespace PSXRacing
         public const float OccClear = 99f;
         /// <summary>The time a reach takes to follow a change (s).</summary>
         public static float OccEaseS = 0.10f;
+        /// <summary>(night5, StreetLights.N4Tight) the time a SHRINKING reach takes: a solid cutting into the beam
+        /// takes the light off what lies behind it within about a frame at 60 fps (it took 0.28 s to clear
+        /// ground 11 m out from a 99 m reach), while a reach that grows still eases in (no pop).</summary>
+        public static float OccShrinkS = 0.01f;
         static Texture2D occTex;
         static ushort[] occData;
         static readonly int OccTexId = Shader.PropertyToID("_PSXHeadVis");
@@ -134,6 +138,10 @@ namespace PSXRacing
                     for (int r = 0; r < OccRows; r++) if (occRowOwner[r] == null) { free = r; break; }
                     if (free < 0) continue;
                     occRowOwner[free] = l; l.occRowHeld = free;
+                    // (night5, N4Tight) a car whose reaches are unknown or stale (another place, another
+                    // moment) starts with NO reach and eases in from its first rays: it never lights, for the
+                    // frames its rays are out, ground behind a barrier it has not looked at yet
+                    if (StreetLights.N4Tight && l.occCur != null && l.occFrame < Time.frameCount - 8) System.Array.Clear(l.occCur, 0, OccBins);
                     OccWriteRow(l);
                     occTexDirty = true;
                 }
@@ -216,7 +224,7 @@ namespace PSXRacing
         {
             if (occData == null || l.occRowHeld < 0) return;
             int o = l.occRowHeld * OccBins;
-            if (l.occCur == null) { ushort clear = Mathf.FloatToHalf(OccClear); for (int b = 0; b < OccBins; b++) occData[o + b] = clear; return; }
+            if (l.occCur == null) { ushort clear = Mathf.FloatToHalf(StreetLights.N4Tight ? 0f : OccClear); for (int b = 0; b < OccBins; b++) occData[o + b] = clear; return; }
             for (int b = 0; b < OccBins; b++) occData[o + b] = Mathf.FloatToHalf(l.occCur[b]);
         }
 
@@ -235,7 +243,11 @@ namespace PSXRacing
                 var up = l.transform.up;
                 bool snap = l.occCur == null || l.occFrame < Time.frameCount - 8;
                 if (l.occCur == null) l.occCur = new float[OccBins];
-                float k = snap ? 1f : 1f - Mathf.Exp(-Mathf.Min(now - l.occAt, 0.1f) / Mathf.Max(OccEaseS, 1e-3f));
+                // (night5, N4Tight) no snap: from no reach (above) the first rays ease the light IN, never pop it
+                if (snap && StreetLights.N4Tight) { System.Array.Clear(l.occCur, 0, OccBins); snap = false; l.occAt = now - 0.1f; }
+                float dtE = Mathf.Min(now - l.occAt, 0.1f);
+                float k = snap ? 1f : 1f - Mathf.Exp(-dtE / Mathf.Max(OccEaseS, 1e-3f));
+                float kIn = !StreetLights.N4Tight ? k : snap ? 1f : 1f - Mathf.Exp(-dtE / Mathf.Max(OccShrinkS, 1e-3f));
                 l.occFrame = Time.frameCount; l.occAt = now;
                 for (int b = 0; b < OccBins; b++)
                 {
@@ -249,7 +261,7 @@ namespace PSXRacing
                         if (Vector3.Dot(h.normal, up) > 0.8f) continue;
                         reach = Mathf.Min(reach, h.distance);
                     }
-                    l.occCur[b] = snap ? reach : l.occCur[b] + (reach - l.occCur[b]) * k;
+                    l.occCur[b] = snap ? reach : l.occCur[b] + (reach - l.occCur[b]) * (reach < l.occCur[b] ? kIn : k);
                 }
                 OccWriteRow(l);
                 occTexDirty = true;
@@ -311,6 +323,26 @@ namespace PSXRacing
             var req = UnityEngine.Rendering.AsyncGPUReadback.Request(poolTex, 0, x, 1, z, 1, 0, 1, TextureFormat.RGBAFloat, null);
             req.WaitForCompletion();
             return req.hasError ? -1f : req.GetData<Color>()[0].r;
+        }
+
+        /// <summary>Tools (the leak probe, night5): every bearing's reach set clear (the worst case: open road
+        /// before), as the next rays find the solids again.</summary>
+        public void ToolOccClear()
+        {
+            if (occCur == null) occCur = new float[OccBins];
+            for (int b = 0; b < OccBins; b++) occCur[b] = OccClear;
+            occFrame = Time.frameCount; occAt = Time.unscaledTime;
+            OccWriteRow(this); occTexDirty = true;
+        }
+
+        /// <summary>Tools (night5): this car's fan has a row and reaches from rays of the last few frames.</summary>
+        public bool OccKnownNow => occRow >= 0 && occCur != null && occFrame >= Time.frameCount - 8;
+
+        /// <summary>Tools (night5): the plan distance from the fan's origin to p (m).</summary>
+        public float OccPatchDist(Vector3 p)
+        {
+            OccOrigin(out var o, out _, out _);
+            return new Vector2(p.x - o.x, p.z - o.z).magnitude;
         }
 
         /// <summary>Tools (the leak probe): a car's reach on the bearing toward p (m, eased), or -1.</summary>

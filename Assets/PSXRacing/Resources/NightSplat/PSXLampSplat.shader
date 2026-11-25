@@ -26,6 +26,18 @@ Shader "Hidden/PSX/LampSplat"
             // NIGHT 4 (StreetLights.Night4.cs): what each lamp's head sees - per bearing, up to two
             // shadowed stretches of ground (from s.x to s.y, from s.z to s.w, plan metres from the head)
             sampler2D _LampVis;
+            float _PSXN4Tight;   // (night5) StreetLights.N4Tight: the texel's whole footprint, a hard shadow edge
+            // one point's visibility from the lamp's head (d: plan offset from the head)
+            float LampVisAt(float2 d, float4 lamp, float zScale, float tight)
+            {
+                float a = frac(atan2(d.y, d.x) * 0.15915494);
+                float4 s = tex2Dlod(_LampVis, float4(lamp.z + a * zScale, lamp.w, 0.0, 0.0));
+                float r = length(d);
+                float lo = lerp(0.4, 0.3, tight), hi = lerp(1.2, 0.3, tight);
+                float sh = smoothstep(s.x - lo, s.x + hi, r) * (1.0 - smoothstep(s.y - 1.0, s.y + 0.5, r))
+                         + smoothstep(s.z - lo, s.z + hi, r) * (1.0 - smoothstep(s.w - 1.0, s.w + 0.5, r));
+                return saturate(1.0 - sh);
+            }
             struct appdata { float3 vertex : POSITION; float4 lamp : TEXCOORD0; float4 amt : TEXCOORD1; };
             struct v2f { float4 pos : SV_POSITION; float2 w : TEXCOORD0; float4 lamp : TEXCOORD1; float4 amt : TEXCOORD2; };
             v2f vert(appdata v)
@@ -44,12 +56,16 @@ Shader "Hidden/PSX/LampSplat"
                 // lamp.z >= 0: this lamp's view is in the atlas (u of its first bearing, v its row)
                 if (i.lamp.z >= 0.0)
                 {
-                    float a = frac(atan2(d.y, d.x) * 0.15915494);
-                    float4 s = tex2Dlod(_LampVis, float4(i.lamp.z + a * _SplatR.z, i.lamp.w, 0.0, 0.0));
-                    float r = sqrt(d2);
-                    float sh = smoothstep(s.x - 0.4, s.x + 1.2, r) * (1.0 - smoothstep(s.y - 1.0, s.y + 0.5, r))
-                             + smoothstep(s.z - 0.4, s.z + 1.2, r) * (1.0 - smoothstep(s.w - 1.0, s.w + 0.5, r));
-                    float vis = saturate(1.0 - sh);
+                    float vis = LampVisAt(d, i.lamp, _SplatR.z, _PSXN4Tight);
+                    // (night5) a surface reads this 2 m texel BILINEARLY: a lit texel beside a shadow's edge
+                    // spread its light up to 2 m into the shadow (the pavement round a building's corner, the
+                    // exe's +11). With N4Tight a texel is lit only as much as the least-lit corner of its own
+                    // footprint, so the light ends within a metre of the edge, softly.
+                    if (_PSXN4Tight > 0.5)
+                    {
+                        vis = min(vis, min(min(LampVisAt(d + float2(-0.9, -0.9), i.lamp, _SplatR.z, 1.0), LampVisAt(d + float2(0.9, -0.9), i.lamp, _SplatR.z, 1.0)),
+                                           min(LampVisAt(d + float2(-0.9, 0.9), i.lamp, _SplatR.z, 1.0), LampVisAt(d + float2(0.9, 0.9), i.lamp, _SplatR.z, 1.0))));
+                    }
                     p *= vis; g *= vis;
                 }
                 float pool = i.amt.x * p, glow = i.amt.y * g;
@@ -83,6 +99,16 @@ Shader "Hidden/PSX/LampSplat"
             float4 _SplatCos;   // x cos of the outer half-spread, y of the inner (P1: fwd.w / rgt.w carry the ground's slopes)
             // NIGHT 4 (CarLights.Occlusion.cs): per car, the beam's reach on 64 bearings (+-75 deg)
             sampler2D _PSXHeadVis;
+            float _PSXN4Tight;
+            // what of the beam reaches plan point w past the fan's origin o (F, Rt: the car's axes)
+            float PoolReachAt(float2 w, float2 o, float2 F, float2 Rt, float v, float tight)
+            {
+                float2 d0 = w - o;
+                float ox = dot(d0, Rt), oz = dot(d0, F);
+                float r = tex2Dlod(_PSXHeadVis, float4(0.5 + atan2(ox, oz) * 0.38197186, v, 0.0, 0.0)).r;
+                float dd = sqrt(ox * ox + oz * oz);
+                return tight > 0.5 ? 1.0 - smoothstep(r + 0.15, r + 0.5, dd) : 1.0 - smoothstep(r + 0.3, r + 1.8, dd);
+            }
             // vertex.xy = the quad corner (world xz); lamp: xyz the lamp (world), w range;
             // fwd: xyz axis, w cos outer; right: xyz, w cos inner; amt: x weight, y the ground's height under the lamp
             struct appdata { float3 vertex : POSITION; float4 lamp : TEXCOORD0; float4 fwd : TEXCOORD1; float4 rgt : TEXCOORD2; float4 amt : TEXCOORD3; };
@@ -120,10 +146,16 @@ Shader "Hidden/PSX/LampSplat"
                 if (i.amt.z >= 0.0)
                 {
                     // (4b) the bearing and the distance from the fan's own origin, where the reaches were measured
-                    float2 d0 = i.w - float2(i.lamp.w, i.amt.w);
-                    float ox = dot(d0, Rt.xz), oz = dot(d0, F.xz);
-                    float r = tex2Dlod(_PSXHeadVis, float4(0.5 + atan2(ox, oz) * 0.38197186, i.amt.z, 0.0, 0.0)).r;
-                    a *= 1.0 - smoothstep(r + 0.3, r + 1.8, sqrt(ox * ox + oz * oz));
+                    float2 o0 = float2(i.lamp.w, i.amt.w);
+                    float vr = PoolReachAt(i.w, o0, F.xz, Rt.xz, i.amt.z, _PSXN4Tight);
+                    // (night5) the pool's texel is 2 m and read bilinearly: lit only as much as the least-lit
+                    // corner of its footprint (the scalloped strip of grass behind a Jersey, editor and exe +40)
+                    if (_PSXN4Tight > 0.5)
+                    {
+                        vr = min(vr, min(min(PoolReachAt(i.w + float2(-0.9, -0.9), o0, F.xz, Rt.xz, i.amt.z, 1.0), PoolReachAt(i.w + float2(0.9, -0.9), o0, F.xz, Rt.xz, i.amt.z, 1.0)),
+                                         min(PoolReachAt(i.w + float2(-0.9, 0.9), o0, F.xz, Rt.xz, i.amt.z, 1.0), PoolReachAt(i.w + float2(0.9, 0.9), o0, F.xz, Rt.xz, i.amt.z, 1.0))));
+                    }
+                    a *= vr;
                 }
                 return float4(a, a * (gyT - _SplatBaseY), 0.0, 0.0);
             }
