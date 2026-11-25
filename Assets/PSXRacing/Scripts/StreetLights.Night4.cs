@@ -525,7 +525,8 @@ namespace PSXRacing
         static readonly HashSet<Material> n4MeanAsked = new HashSet<Material>();
         static readonly Queue<Material> n4MeanQueue = new Queue<Material>();
         static Object n4MeanCity; static int n4MeanDress = -99; static float n4MeanAgainAt = -1f; static bool n4MeanForce;
-        public static int N4MeanPerFrame = 8;
+        public static int N4MeanPerFrame = 8, N4MeanPerFrameFast = 64;
+        static int n4MeanFastLeft;
         /// <summary>Tools: materials given a mean, the last scan's ms.</summary>
         public static int N4MeanDone { get; private set; }
         public static float N4MeanScanMs { get; private set; }
@@ -534,12 +535,15 @@ namespace PSXRacing
 
         static void N4MeanTick()
         {
-            if (!Application.isPlaying || !N4PaintKeep) return;
+            // (PC68, the coordinator) nothing at all while NIGHT 4 is off, which is its default: no material scan, no
+            // blits. Switched on (or a city coming up with it on) the scan runs at once and the queue drains
+            // N4MeanPerFrameFast a frame, so the paint is back within a few frames of the flip, not a second later.
+            if (!Application.isPlaying || !N4PaintKeep || !Night4) return;
             var city = City.CityWorld.Active;
             if (city == null) return;
-            bool scan = n4MeanForce;
+            bool scan = n4MeanForce, fast = n4MeanForce;
             if (!ReferenceEquals(city, n4MeanCity) || SeasonDress.AppliedDress != n4MeanDress)
-            { scan = true; n4MeanCity = city; n4MeanDress = SeasonDress.AppliedDress; n4MeanAgainAt = Time.unscaledTime + 10f; }
+            { scan = true; fast = true; n4MeanCity = city; n4MeanDress = SeasonDress.AppliedDress; n4MeanAgainAt = Time.unscaledTime + 10f; }
             else if (n4MeanAgainAt > 0f && Time.unscaledTime > n4MeanAgainAt) { scan = true; n4MeanAgainAt = -1f; }
             n4MeanForce = false;
             if (scan)
@@ -551,8 +555,12 @@ namespace PSXRacing
                     n4MeanQueue.Enqueue(m);
                 }
                 N4MeanScanMs = (float)clock.Elapsed.TotalMilliseconds;
+                Debug.Log("[N4Mean] scan " + N4MeanScanMs.ToString("0.00") + " ms, " + n4MeanQueue.Count + " materials queued, " + n4MeanAsked.Count + " known, " + N4MeanDone + " means read" + (fast ? " (fast)" : ""));
             }
-            for (int k = 0; k < N4MeanPerFrame && n4MeanQueue.Count > 0; k++)
+            if (fast) n4MeanFastLeft = n4MeanQueue.Count;
+            int per = n4MeanFastLeft > 0 ? N4MeanPerFrameFast : N4MeanPerFrame;
+            n4MeanFastLeft = Mathf.Max(0, n4MeanFastLeft - per);
+            for (int k = 0; k < per && n4MeanQueue.Count > 0; k++)
             {
                 var m = n4MeanQueue.Dequeue();
                 if (m == null) continue;

@@ -60,6 +60,9 @@ namespace PSXRacing
             var cam = Camera.main;
             if (cam == null) { say("LAB " + id + ": no main camera"); yield break; }
             const int W = 640, H = 360, Settle = 12;
+            // (PC68) a step also waits a quarter second of REAL time: at the exe's hidden ~400 fps 12 frames are 30 ms,
+            // inside which work spread over frames (NIGHT 4's lamp views and surface means) had not landed
+            const float SettleS = 0.25f; float t0;
             var full = new RenderTexture(1280, 720, PlatformProfile.PC ? 32 : 24, RenderTextureFormat.Default) { antiAliasing = 1, name = "LabCheckFull" };
             full.Create();
             var screen = new RenderTexture(1280, 720, 0, RenderTextureFormat.Default) { antiAliasing = 1, name = "LabCheckScreen" };
@@ -104,13 +107,13 @@ namespace PSXRacing
                 errors = 0; errText.Length = 0;
                 bool was = r.Chosen, liveWas = LabSwitches.Live(r);
                 var b0 = LabGrab(Pic(), W, H, tex);
-                for (int i = 0; i < Settle; i++) yield return null;
+                t0 = Time.realtimeSinceStartup; for (int i = 0; i < Settle || Time.realtimeSinceStartup - t0 < SettleS; i++) yield return null;
                 var b1 = LabGrab(Pic(), W, H, tex);
                 LabDiff(b0, b1, out float nM, out float nS);
                 bool setOk;
                 try { setOk = LabSwitches.Set(r, !was, false); }
                 catch (System.Exception e) { setOk = false; errors++; errText.Append(e.Message); }
-                for (int i = 0; i < Settle; i++) yield return null;
+                t0 = Time.realtimeSinceStartup; for (int i = 0; i < Settle || Time.realtimeSinceStartup - t0 < SettleS; i++) yield return null;
                 var f = LabGrab(Pic(), W, H, tex);
                 LabDiff(b1, f, out float fM, out float fS);
                 bool liveFlipped = LabSwitches.Live(r);
@@ -120,7 +123,7 @@ namespace PSXRacing
                 }
                 try { LabSwitches.Set(r, was, false); }
                 catch (System.Exception e) { errors++; errText.Append(e.Message); }
-                for (int i = 0; i < Settle; i++) yield return null;
+                t0 = Time.realtimeSinceStartup; for (int i = 0; i < Settle || Time.realtimeSinceStartup - t0 < SettleS; i++) yield return null;
                 var bk = LabGrab(Pic(), W, H, tex);
                 LabDiff(b1, bk, out float kM, out float kS);
                 if (snaps) post(tag + "_" + id + "_lab_" + r.id + "_back.jpg", tex.EncodeToJPG(88));
