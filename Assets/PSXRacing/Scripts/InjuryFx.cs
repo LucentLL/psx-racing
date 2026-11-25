@@ -101,7 +101,7 @@ namespace PSXRacing
                 ghost.color = new Color(1f, 0.92f, 0.92f, smear * 0.45f);
             }
             black.color = new Color(0f, 0f, 0f, dark);
-            AudioListener.volume = Mathf.Clamp01(1f - Mathf.Max(dark, smear * 0.35f));
+            MasterOut.Level = Mathf.Clamp01(1f - Mathf.Max(dark, smear * 0.35f));
             if (w >= WakeSeconds) Destroy(gameObject);
         }
 
@@ -182,7 +182,7 @@ namespace PSXRacing
                 ghost.color = new Color(1f, 0.92f, 0.92f, smear * 0.45f);
             }
             black.color = new Color(0f, 0f, 0f, blur.texture != null ? dark : Mathf.Max(dark, smear * 0.6f));
-            AudioListener.volume = 1f - Mathf.Clamp01(Mathf.Max(dark, smear * 0.5f));
+            MasterOut.Level = 1f - Mathf.Clamp01(Mathf.Max(dark, smear * 0.5f));
             if (!ended && t >= HoldSeconds)
             {
                 ended = true;
@@ -204,7 +204,7 @@ namespace PSXRacing
 
         void OnDestroy()
         {
-            AudioListener.volume = 1f;
+            MasterOut.Level = 1f;
             if (small != null) small.Release();
             if (Active == this) Active = null;
         }

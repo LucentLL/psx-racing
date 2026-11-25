@@ -452,14 +452,14 @@ namespace PSXRacing.EditorTools
 
             var rate = typeof(RaceReplay).GetProperty("Rate");
             var paused = typeof(RaceReplay).GetField("paused", Priv);
-            float vol = AudioListener.volume;
+            float vol = MasterOut.Level;
 
             // FF
             float a = rp.ReplayTime;
             rate.SetValue(rp, RaceReplay.ScanRate);
             yield return Real(0.6f);
             Check(Camcorder.Transport == 2 && Camcorder.ScanRate > 1f, "FF scans", "transport " + Camcorder.Transport + " x" + Camcorder.ScanRate);
-            Check(AudioListener.volume == 0f, "with the sound off");
+            Check(MasterOut.Level == 0f, "with the sound off");
             yield return Shot("ff");
             float b = rp.ReplayTime;
             Check(b - a > 1.5f, "the picture runs fast forward", (b - a).ToString("0.0") + " s of tape in 0.6 s");
@@ -474,7 +474,7 @@ namespace PSXRacing.EditorTools
             // PLAY again: the sound comes back.
             rate.SetValue(rp, 1f);
             yield return Real(0.4f);
-            Check(Mathf.Approximately(AudioListener.volume, vol) && Camcorder.Transport == 0, "PLAY brings the sound back", AudioListener.volume);
+            Check(Mathf.Approximately(MasterOut.Level, vol) && Camcorder.Transport == 0, "PLAY brings the sound back", MasterOut.Level);
 
             // PAUSE holds the frame.
             paused.SetValue(rp, true);

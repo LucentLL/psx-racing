@@ -237,7 +237,7 @@ namespace PSXRacing.EditorTools
             Check(!NewGameIntro.EarOutside && ExposureAdapt.Scripted < 0f && !ExposureAdapt.ForceTunnel, "the intro's hooks are released");
             float tw = Time.realtimeSinceStartup;
             while (Time.realtimeSinceStartup - tw < 2.5f) yield return null;
-            Check(AudioListener.volume > 0.5f * AudioPrefs.Master, "the sound is back up", AudioListener.volume.ToString("0.00"));
+            Check(MasterOut.Level > 0.5f * AudioPrefs.Master, "the sound is back up", MasterOut.Level.ToString("0.00"));
             ShotMenus("14_home");
             Done();
         }
