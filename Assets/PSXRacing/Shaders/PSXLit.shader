@@ -2904,12 +2904,20 @@ Shader "PSX/Lit"
                       #endif
                         // the measured mean when the material has one (most of the city's textures carry no mips,
                         // so the last mip IS the texel: the PC67 per-texel cap again); else the last mip
-                        float3 n4M = PSXTexDecode(_PSXN4Mean.w > 0.5 ? _PSXN4Mean.rgb : tex2Dlod(_MainTex, float4(n4UV, 0.0, n4Lod)).rgb, _MainTexRaw);
+                        float3 n4M = _PSXN4Mean.rgb;
+                        [branch] if (_PSXN4Mean.w < 0.5) n4M = tex2Dlod(_MainTex, float4(n4UV, 0.0, n4Lod)).rgb;   // (no fetch once measured)
+                        n4M = PSXTexDecode(n4M, _MainTexRaw);
                       #ifdef PSX_HD
                         [branch] if (_RoadBaseOn > 0.5)
                         {
-                            n4M = _PSXN4MeanRB.w > 0.5 ? _PSXN4MeanRB.rgb : PSX_RB_LOD(_RoadBaseTex, hdUV, 14.0).rgb;
-                            if (rbGutter > 0.0) n4M = lerp(n4M, _PSXN4MeanG.w > 0.5 ? _PSXN4MeanG.rgb : PSX_RB_LOD(_GutterTex, gUV, 14.0).rgb, rbGutter);
+                            n4M = _PSXN4MeanRB.rgb;
+                            if (_PSXN4MeanRB.w < 0.5) n4M = PSX_RB_LOD(_RoadBaseTex, hdUV, 14.0).rgb;
+                            if (rbGutter > 0.0)
+                            {
+                                float3 n4G = _PSXN4MeanG.rgb;
+                                if (_PSXN4MeanG.w < 0.5) n4G = PSX_RB_LOD(_GutterTex, gUV, 14.0).rgb;
+                                n4M = lerp(n4M, n4G, rbGutter);
+                            }
                         }
                       #endif
                         n4M *= _Color.rgb;
