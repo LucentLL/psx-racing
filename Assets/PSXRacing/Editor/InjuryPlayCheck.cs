@@ -174,7 +174,7 @@ namespace PSXRacing.EditorTools
         {
             if (InjuryFx.Active != null) Destroy(InjuryFx.Active.gameObject);
             yield return null;
-            AudioListener.volume = 1f;
+            MasterOut.Level = 1f;
             ended = -1;
             var L = Fresh();
             float v = kmh / 3.6f;
@@ -241,8 +241,8 @@ namespace PSXRacing.EditorTools
                   InjuryFx.WakeSeconds.ToString("0.0") + " s and the drive goes on (no tow)",
                   "ended " + (ended < 0 ? "no" : CrashFates.OutcomeName(ended)) + ", fx " + (InjuryFx.Active != null ? "still up" : "gone") +
                   " after " + wait.ToString("0.0") + " s");
-            Check(car.faultAccelMult > 0.5f && AudioListener.volume > 0.99f, "  the controls and the sound come back",
-                  "accel x" + car.faultAccelMult.ToString("0.00") + ", volume " + AudioListener.volume.ToString("0.00"));
+            Check(car.faultAccelMult > 0.5f && MasterOut.Level > 0.99f, "  the controls and the sound come back",
+                  "accel x" + car.faultAccelMult.ToString("0.00") + ", volume " + MasterOut.Level.ToString("0.00"));
             car.TeleportTo(NextStart(), Quaternion.identity);
             yield return Fixed(0.2f);
             hold = true; holdMps = 12f;
