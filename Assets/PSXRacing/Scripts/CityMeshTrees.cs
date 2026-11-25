@@ -56,6 +56,8 @@ namespace PSXRacing.City
     {
         public static bool Enabled = System.Environment.GetEnvironmentVariable("PSX_CITY_MESHTREES") != "0";
         public static CityMeshTrees Instance { get; private set; }
+        /// <summary>Cities this run has started mesh trees for (one a level load; the smoke counts the log line).</summary>
+        public static int Worlds;
 
         /// <summary>Milliseconds of fitting a frame may spend (play mode); 0 = a
         /// whole tile in the frame it stands up (round 1).</summary>
@@ -175,12 +177,19 @@ namespace PSXRacing.City
         static void OnTreeFrame(long key, CityTrees.TreeTile tt)
         {
             if (tt == null || !On) return;
-            if (Instance == null)
+            // (PC69, owner 11-25: "Why do I still see tree cards (x-shape) on PC") This object is DontSave, so Unity
+            // keeps it over a level load, still holding the city that was unloaded: Work() and Flush() stop at
+            // world == null and EVERY city after the first of a run kept its card trees (seen on the PC68 exe: no pool
+            // line in the log at the second city of a run). A new city takes a new instance and a new pool.
+            var w = CityWorld.Active;
+            if (Instance == null || (Application.isPlaying && w != null && Instance.world != w))
             {
-                var w = CityWorld.Active;
                 if (w == null || !Application.isPlaying) return;
+                bool again = Instance != null;
                 EnsureFor(w);
                 if (Instance == null) return;
+                Worlds++;
+                Debug.Log("[CityMeshTrees] city " + Worlds + " of this run: mesh trees started" + (again ? " again (the last city's pool is released)" : ""));
             }
             Instance.Queue(key, tt);
         }
@@ -350,6 +359,9 @@ namespace PSXRacing.City
 
         void LateUpdate()
         {
+            // (PC69) the city this instance drew was unloaded: go with it, or the pool's culling and draws run on in
+            // the next level (OnDestroy releases the pool)
+            if (Application.isPlaying && world == null) { Destroy(gameObject); return; }
             Work(SliceMs > 0f ? SliceMs : float.MaxValue);
             Flush(FillsPerFrame);
             if (frameFitMs > FitMsMaxFrame) FitMsMaxFrame = frameFitMs;
