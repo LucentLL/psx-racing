@@ -166,7 +166,7 @@ namespace PSXRacing.EditorTools
             var camGo = new GameObject("BFShotCam") { hideFlags = HideFlags.HideAndDontSave };
             var cam = camGo.AddComponent<Camera>();
             cam.enabled = false; cam.targetTexture = rt; cam.fieldOfView = 38f; cam.nearClipPlane = 0.05f; cam.farClipPlane = 3000f;
-            cam.transform.position = nose + tan * 4.5f + Vector3.up * 0.5f - dir * 0.6f;
+            cam.transform.position = nose + tan * 5.5f + Vector3.up * 0.5f - dir * 1.6f;
             cam.transform.rotation = Quaternion.LookRotation(nose + dir * 0.4f - cam.transform.position, Vector3.up);
             cam.Render();
             RenderTexture.active = rt;
