@@ -344,6 +344,8 @@ namespace PSXRacing.City
             int ka = a ? cmTop[i - 1] : cmTop[i], kb = b ? cmTop[i] : cmTop[i - 1];
             if (ka == MedianTopConcrete || kb == MedianTopConcrete) return MedianTopConcrete;
             if (!MedianDressOn) return ka;
+            // (c7roads) a flat median at grade has no nose: grass end to end
+            if (MedianRunsOn && (a ? cmK[i - 1] : cmK[i]) < 0.5f && (b ? cmK[i] : cmK[i - 1]) < 0.5f) return MedianTopGrass;
             // an end without an island is where it stops: its nose
             if (!a || !b) return MedianTopConcrete;
             return ka == MedianTopBed || kb == MedianTopBed ? MedianTopBed : MedianTopGrass;

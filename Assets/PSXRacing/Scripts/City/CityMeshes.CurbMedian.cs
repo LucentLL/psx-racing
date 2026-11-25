@@ -176,6 +176,8 @@ namespace PSXRacing.City
             int n = sections.Count;
             if (cmW.Length < n) { cmW = new float[n * 2]; cmY = new float[n * 2]; cmH = new float[n * 2]; cmC = new float[n * 2]; cmK = new float[n * 2]; cmT = new float[n * 2]; }
             System.Array.Clear(cmW, 0, n); System.Array.Clear(cmH, 0, n); System.Array.Clear(cmC, 0, n);
+            if (cmMiss.Length < n) cmMiss = new bool[n * 2];
+            System.Array.Clear(cmMiss, 0, n);
             MedianDressSize(n);
             System.Array.Clear(cmEv, 0, n);
             cmEdgeNow = e.index;
@@ -211,6 +213,7 @@ namespace PSXRacing.City
                 // a median nose graded flush (Five Points) stays as it is
                 if (NoseFlushAt(map, trims, pw, outw, ed.y, out _) > 0f) { if (tr) CmWhy(e, S.s, "nose graded flush"); continue; }
                 float reach = CurbMedianAll ? CurbMedianWideMaxM : CurbMedianMaxM;
+                cmMiss[k] = true;   // (c7roads) from here a section without an island is one the ray missed
                 GatherNear(map, pw, pw, reach + 1f);
                 ClearRun(map, trims, pw, outw, ed.y, reach, out float oy, out float edgeRun, out bool intoFan);
                 int blk = clearRunBlockEdge;
@@ -247,6 +250,7 @@ namespace PSXRacing.City
                 cmFast[k] = fastE && MedianFast(map, tw);
                 cmW[k] = 0.5f * edgeRun;
                 if (tr) CmWhy(e, S.s, $"island {edgeRun:0.00}");
+                cmMiss[k] = false;
                 // the mean of the two edges: the curbed island's top 15 cm over
                 // it, a wide grass median's at the edges' own grade
                 cmY[k] = 0.5f * (ed.y + oy);
@@ -255,12 +259,15 @@ namespace PSXRacing.City
                 if (FastMedianFlatOn && cmFast[k] && edgeRun >= MedianConcreteMaxW) cmK[k] = cmC[k] = 0f;
                 any = true;
             }
+            // (c7roads) one median, not fragments: short runs out, the ray's short misses filled
+            if (any && MedianRunsOn) any = CurbMedianRuns(n);
             if (!any) return;
             // the ramp: in from every stop (a section without an island, a
             // junction end, a node where the carriageway goes on as one that
             // lays none - a deck, a refuge pair, a ramp)
             float s0 = sections[0].s, s1 = sections[n - 1].s;
             bool endA = CurbMedianStops(map, e, e.a), endB = CurbMedianStops(map, e, e.b);
+            cmEndA = endA; cmEndB = endB;
             for (int k = 0; k < n; k++)
             {
                 if (cmW[k] <= 0f) continue;
@@ -272,7 +279,7 @@ namespace PSXRacing.City
                     if (cmW[j] <= 0f) d = Mathf.Min(d, Mathf.Abs(sections[j].s - sk));
                     else if (cmK[j] != cmK[k]) dc = Mathf.Min(dc, 0.5f * Mathf.Abs(sections[j].s - sk));
                 }
-                cmH[k] = LineModel.Smooth(d / KerbEndRampM);
+                cmH[k] = MedianRunsOn ? 1f : LineModel.Smooth(d / KerbEndRampM);   // (c7roads) full height to its end, closed by a face
                 // the curb fades out where the median widens past CurbMedianMaxM
                 // (and in where it narrows): the change half way between
                 if (dc < float.MaxValue) cmC[k] = cmK[k] > 0.5f ? 0.5f + 0.5f * LineModel.Smooth(dc / KerbEndRampM) : 0.5f - 0.5f * LineModel.Smooth(dc / KerbEndRampM);
@@ -341,6 +348,75 @@ namespace PSXRacing.City
             return true;
         }
 
+        // ------------------------------------------------------------------
+        //  MEDIAN RUNS (c7roads, 2026-11-25; the owner's 78 on North Tryon:
+        //  "irregular pale concrete slabs lying on the grass"). The island was
+        //  decided section by section: where the ray to the twin missed now and
+        //  then (a 25-40 m median at the edge of the ray's reach), the median
+        //  became a string of fragments, each stop a "nose" with a concrete top
+        //  and an end face. Now: a miss of the ray shorter than MedianGapFillM
+        //  between two runs of the same kind and twin is filled; a flat (wide,
+        //  at grade) run shorter than MedianFlatRunMinM and any run shorter
+        //  than MedianRunMinM is dropped; a flat median's top is grass end to
+        //  end (a nose is a curbed island's); and an island stands at its full
+        //  height to its last section, closed by its end face there - no 1.5 m
+        //  ramp down to the road. PSX_CITY_MEDIANRUNS=0: as before.
+        // ------------------------------------------------------------------
+        public static bool MedianRunsOn = System.Environment.GetEnvironmentVariable("PSX_CITY_MEDIANRUNS") != "0";
+        const float MedianGapFillM = 8f, MedianFlatRunMinM = 20f, MedianRunMinM = 3f;
+        static bool[] cmMiss = new bool[128];
+        static bool cmEndA, cmEndB;
+        public static int MedianRunsFilled, MedianRunsDropped;
+
+        static bool CurbMedianRuns(int n)
+        {
+            // fill the ray's short misses between two runs of one kind and one twin
+            int k = 0;
+            while (k < n)
+            {
+                if (cmW[k] > 0f || !cmMiss[k]) { k++; continue; }
+                int g0 = k;
+                while (k < n && cmW[k] <= 0f && cmMiss[k]) k++;
+                int g1 = k - 1, l = g0 - 1, r = k;
+                if (l < 0 || r >= n || cmW[l] <= 0f || cmW[r] <= 0f) continue;
+                if (cmTw[l] != cmTw[r] || Mathf.Abs(cmK[l] - cmK[r]) > 0.01f) continue;
+                if (sections[r].s - sections[l].s > MedianGapFillM + 2f * 4f || sections[g1].s - sections[g0].s > MedianGapFillM) continue;
+                float sl = sections[l].s, sr = sections[r].s;
+                for (int j = g0; j <= g1; j++)
+                {
+                    float f = Mathf.InverseLerp(sl, sr, sections[j].s);
+                    cmW[j] = Mathf.Lerp(cmW[l], cmW[r], f); cmY[j] = Mathf.Lerp(cmY[l], cmY[r], f);
+                    cmG[j] = Mathf.Lerp(cmG[l], cmG[r], f); cmK[j] = cmK[l]; cmC[j] = cmC[l];
+                    cmT[j] = Mathf.Min(cmT[l], cmT[r]); cmTw[j] = cmTw[l]; cmTwS[j] = Mathf.Lerp(cmTwS[l], cmTwS[r], f); cmFast[j] = cmFast[l];
+                    cmMiss[j] = false;
+                    MedianRunsFilled++;
+                }
+            }
+            // drop the short runs
+            bool any = false;
+            k = 0;
+            while (k < n)
+            {
+                if (cmW[k] <= 0f) { k++; continue; }
+                int r0 = k;
+                while (k < n && cmW[k] > 0f) k++;
+                int r1 = k - 1;
+                float len = sections[r1].s - sections[r0].s;
+                bool flat = true;
+                for (int j = r0; j <= r1; j++) if (cmK[j] > 0.5f) { flat = false; break; }
+                // a run the evaluated window cuts off is not known to be short: kept
+                bool clipped = (r0 > 0 && !cmEv[r0 - 1]) || (r1 + 1 < n && !cmEv[r1 + 1]);
+                if (!clipped && (len < MedianRunMinM || (flat && len < MedianFlatRunMinM)))
+                {
+                    for (int j = r0; j <= r1; j++) cmW[j] = 0f;
+                    MedianRunsDropped++;
+                    continue;
+                }
+                any = true;
+            }
+            return any;
+        }
+
         static readonly Vector3[] cmProfA = new Vector3[5], cmProfB = new Vector3[5];
 
         /// <summary>Span i's side has the island at both ends: its curb hides the inch under the edge (as FullWalkSpan).</summary>
@@ -405,8 +481,8 @@ namespace PSXRacing.City
             }
             // a stop mid-run: the verge beside falls away under the flat end, so
             // its end is closed by a face down into it
-            if (cmW[i - 1] <= 0f) CurbMedianCap(tb, o, cmProfA, -Flat2(eB - eA));
-            if (cmW[i] <= 0f) CurbMedianCap(tb, o, cmProfB, Flat2(eB - eA));
+            if (cmW[i - 1] <= 0f || (MedianRunsOn && i - 1 == 0 && cmEndA)) CurbMedianCap(tb, o, cmProfA, -Flat2(eB - eA));
+            if (cmW[i] <= 0f || (MedianRunsOn && i == sections.Count - 1 && cmEndB)) CurbMedianCap(tb, o, cmProfB, Flat2(eB - eA));
             // a bed's plants, on the risen island only
             if (top == MedianTopBed && cmW[i - 1] > 0f && cmW[i] > 0f && hA > 0.99f && hB > 0.99f)
                 MedianPlantSpan(e, i, eA, eB, outA, outB, sA, sB, cmProfA, cmProfB, wA, wB);
