@@ -659,9 +659,9 @@ namespace PSXRacing.EditorTools
                                     "S: STEERING and the volumes come back after a reload",
                                     SteerPrefs.Percent + "% / engine " + AudioPrefs.Percent(AudioPrefs.Channel.Engine) +
                                     "% / master " + AudioPrefs.Percent(AudioPrefs.Channel.Master) + "%");
-            HandlingPlayCheck.Check(Mathf.Abs(AudioListener.volume - 0.8f) < 0.02f,
+            HandlingPlayCheck.Check(Mathf.Abs(MasterOut.Level - 0.8f) < 0.02f,
                                     "S: MASTER 80% is the listener's level once the reload has faded in",
-                                    AudioListener.volume.ToString("0.000"));
+                                    MasterOut.Level.ToString("0.000"));
             SteerPrefs.Percent = steerWas;
             AudioPrefs.SetPercent(AudioPrefs.Channel.Master, masterWas);
             AudioPrefs.SetPercent(AudioPrefs.Channel.Engine, engineWas);
