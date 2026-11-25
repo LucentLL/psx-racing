@@ -38,6 +38,8 @@ namespace PSXRacing.EditorTools
         /// floor under the verge at each mouth. PSX_TUNNEL3B=0 = round 2 (b1bd5967).</summary>
         public static bool Tunnel3B = System.Environment.GetEnvironmentVariable("PSX_TUNNEL3B") != "0";
         /// <summary>(stage3) The portal wall's end slab drawn both ways (BUILD TIME; PSX_PORTALEND=0 = 77f4abf8).</summary>
+        /// <summary>(stage3) The portal's arris strip from the soffit to the stones' faces (BUILD TIME; PSX_PORTALARRIS=0 = 77f4abf8).</summary>
+        public static bool PortalArris = System.Environment.GetEnvironmentVariable("PSX_PORTALARRIS") != "0";
         public static bool PortalEndBoth = System.Environment.GetEnvironmentVariable("PSX_PORTALEND") != "0";
 
         /// <summary>The voussoir ring's radial depth (mean), the wall past the ring each side, the top over the
@@ -234,6 +236,18 @@ namespace PSXRacing.EditorTools
                 foreach (var p in new[] { sv[b], sv[b + 1], sv[b + 2], sv[b + 3] }) suv.Add(new Vector2(p.x + p.z, p.y) / 1.9f);
                 Vector2 mid = (i0 + i1) * 0.5f;
                 QuadFacing(sv, st, b, b + 1, b + 2, b + 3, -(right * mid.x + Vector3.up * (mid.y - T2SpringY)));
+                // (stage3, PSX_PORTALARRIS) THE ARRIS: from the soffit's front edge out to the stones' bevelled
+                // faces, so a ray from inside the bore grazing the arch's intrados cannot slip between the soffit
+                // and the stone in front of the face (the gap probe's 1-5 px of sky at each mouth's crown)
+                if (PortalArris)
+                {
+                    int b2 = sv.Count;
+                    Vector2 o0 = Pt(a0s[q], R + 0.07f), o1 = Pt(a0s[q + 1], R + 0.07f);
+                    sv.Add(P(i0.x, i0.y, 0.05f)); sv.Add(P(i1.x, i1.y, 0.05f)); sv.Add(P(o1.x, o1.y, 0.14f)); sv.Add(P(o0.x, o0.y, 0.14f));
+                    for (int k = 0; k < 4; k++) sc.Add(cs);
+                    foreach (var p in new[] { sv[b2], sv[b2 + 1], sv[b2 + 2], sv[b2 + 3] }) suv.Add(new Vector2(p.x + p.z, p.y) / 1.9f);
+                    QuadFacing(sv, st, b2, b2 + 1, b2 + 2, b2 + 3, -(right * mid.x + Vector3.up * (mid.y - T2SpringY)) * 0.3f + face);
+                }
             }
             // the ring's outer edge at height y on one side (the extrados of the stone that spans it)
             float ExtX(float y, float s)
@@ -319,6 +333,15 @@ namespace PSXRacing.EditorTools
                         for (int m = 0; m < 4; m++) sc.Add(cs);
                         foreach (var p in new[] { sv[b], sv[b + 1], sv[b + 2], sv[b + 3] }) suv.Add(new Vector2(p.x + p.z, p.y) / 1.9f);
                         QuadFacing(sv, st, b, b + 1, b + 2, b + 3, -right * s);
+                        if (PortalArris)
+                        {
+                            int b2 = sv.Count;
+                            float xo = s * (R + 0.07f);
+                            sv.Add(P(xr, levels[k], 0.05f)); sv.Add(P(xr, levels[k + 1], 0.05f)); sv.Add(P(xo, levels[k + 1], 0.14f)); sv.Add(P(xo, levels[k], 0.14f));
+                            for (int m = 0; m < 4; m++) sc.Add(cs);
+                            foreach (var p in new[] { sv[b2], sv[b2 + 1], sv[b2 + 2], sv[b2 + 3] }) suv.Add(new Vector2(p.x + p.z, p.y) / 1.9f);
+                            QuadFacing(sv, st, b2, b2 + 1, b2 + 2, b2 + 3, -right * s * 0.3f + face);
+                        }
                         xa = R + qw + j * 0.5f; xb = xa;
                     }
                     else
