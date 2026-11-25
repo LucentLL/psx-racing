@@ -69,6 +69,9 @@ namespace PSXRacing
         static NativeArray<Vector2> occDirs;
         static bool occQuitHooked;
 
+        /// <summary>Before a physics step (Night4PhysicsFence): the fan's job finished (its hits read later).</summary>
+        internal static void OccFence() { if (occPending) occJob.Complete(); }
+
         static void OccDisposeAll()
         {
             if (occPending) { occJob.Complete(); occPending = false; }
@@ -184,6 +187,7 @@ namespace PSXRacing
                         .Schedule(total, 64);
                     occJob = RaycastCommand.ScheduleBatch(occCmds.GetSubArray(0, total), occHits.GetSubArray(0, total * 2), 32, 2, fill);
                     occPending = true;
+                    Night4PhysicsFence.Ensure();
                     Unity.Jobs.JobHandle.ScheduleBatchedJobs();
                     if (!OccAsync) OccCollect(true);
                 }

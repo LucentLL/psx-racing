@@ -380,10 +380,14 @@ namespace PSXRacing
                 qp = new QueryParameters(N4Mask, false, QueryTriggerInteraction.Ignore, false), cmds = n4Cmds.GetSubArray(0, total),
             }.Schedule(total, 128);
             n4Job = RaycastCommand.ScheduleBatch(n4Cmds.GetSubArray(0, total), n4Hits.GetSubArray(0, total * 2), 64, 2, fill);
+            Night4PhysicsFence.Ensure();
             Unity.Jobs.JobHandle.ScheduleBatchedJobs();
             n4JobPending = true;
             n4JobRead = 0;
         }
+
+        /// <summary>Before a physics step (Night4PhysicsFence): the lamps' job finished (read back later).</summary>
+        internal static void N4Fence() { if (n4JobPending) n4Job.Complete(); }
 
         /// <summary>A jump or a load while a batch is out: wait for it (its lamps are found again with the rest).</summary>
         static void N4DropAsync()
