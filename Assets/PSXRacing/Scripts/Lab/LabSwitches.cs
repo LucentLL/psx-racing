@@ -272,6 +272,18 @@ namespace PSXRacing
                 look = "A rival boxed in on its right brakes fully and drops back, instead of a head-on.",
                 env = new[] { "PSX_AI_SHUT_BRAKE" }, members = new[] { "AIDriver.ShutBrakeOn" },
             });
+            Register(new LabRow
+            {
+                id = "airacingturns", group = LabGroup.Traffic, name = "AI RACING TURNS", when = LabWhen.NextLoad,
+                look = "City races: rivals take junction turns on a smooth arc on the pavement, not a 90 degree pivot.",
+                env = new[] { "PSX_CP_TURNS" }, members = new[] { "RacingTurns.On" },
+            });
+            Register(new LabRow
+            {
+                id = "rulerhold", group = LabGroup.Traffic, name = "RACE DISTANCE: LANE HOLD", when = LabWhen.Now,
+                look = "City races: your distance to the gate and your place do not jump in a slip lane or turn bay.",
+                env = new[] { "PSX_CP_RULER_HOLD" }, members = new[] { "CheckpointRace.RulerHoldOn" },
+            });
         }
 
         /// <summary>Add a row (at boot, in RegisterAll). Resolves its members by name; a row whose member is missing

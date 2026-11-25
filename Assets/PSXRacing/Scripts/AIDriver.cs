@@ -195,6 +195,7 @@ namespace PSXRacing
                                                                Vector3.Cross(Vector3.up, path.GetTangent(nearestIdx)).normalized);
             }
             target += right * (lineOffset + avoidBias + cutBack);
+            DebugAim = target;
 
             Vector3 local = transform.InverseTransformPoint(target);
             float steerCmd;
@@ -369,6 +370,8 @@ namespace PSXRacing
         const float OncomingGuardM = 130f, OwnLaneInnerM = 1.0f;
         /// <summary>For the race harness: the line, the give-way offset and
         /// the limit on it this tick (-infinity when nothing is coming).</summary>
+        /// <summary>For the race harness (cityai 11-25): the point the steering chased this tick.</summary>
+        public Vector3 DebugAim { get; private set; }
         public float DebugLine => lineOffset;
         public float DebugBias => avoidBias;
         public float DebugLeftLimit { get; private set; } = float.NegativeInfinity;
@@ -615,6 +618,9 @@ namespace PSXRacing
             if (mistakeAt < 0f || rm.RaceFraction(car) < mistakeAt) return false;
             // never into a city junction's 90-degree corner (a routed road's junction zone): that is a wall
             if (InJunctionZone) return false;
+            // ...nor a missed braking point FOR one (cityai 11-25: the 180SX's planned mistake began 200 m short of
+            // CltC7's N Tryon / W T Harris turn and arrived at 158 km/h on full throttle; the race retired it there)
+            if (RacingTurns.On && path.Routed && path.junction[path.Wrap(nearestIdx + Mathf.RoundToInt(cornerAtM / Mathf.Max(path.spacing, 0.1f)))]) return false;
             if (speed - cornerSafeSpeed < MistakeMinShedMps || speed < 15f) return false;
             // Until the car is AT the corner and a little past: from the start of a
             // 200 m braking zone at 140 km/h, 3.5 s ran out before the bend

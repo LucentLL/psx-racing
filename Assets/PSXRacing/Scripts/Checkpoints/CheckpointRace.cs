@@ -102,6 +102,8 @@ namespace PSXRacing
             public AIDriver ai;
             /// <summary>A two-way street where turning round is clearly the better way (WRONG WAY's two-way rule).</summary>
             public bool turnBack; public float turnBackT;
+            // the ruler's hold (RulerHoldOn)
+            public RulerHold hold = RulerHold.Fresh;
             /// <summary>The road the GPS route takes next, preferred by the locate where two overlap (a ramp's gore);
             /// held for 80 m after the car was located elsewhere (it is usually still on the ramp: the H2 race of
             /// 02:15 read the main line for the I-485 exit ramp, +19 km, until the ramp was 10 m off the main line).</summary>
@@ -432,6 +434,7 @@ namespace PSXRacing
                 c.sweptFrom = pos; c.prevSt = -1;
                 c.closestRem = float.PositiveInfinity; c.closestD3 = float.PositiveInfinity;
                 c.lastRg = -1f; c.towardAcc = 0f; c.lastRemGateSample = float.PositiveInfinity;
+                c.hold = RulerHold.Fresh;
             }
 
             // ---- where the car is on the graph (its state and arc along it), for the ruler and the arc pass
@@ -667,9 +670,21 @@ namespace PSXRacing
                 else c.flipT = 0f;
             }
             float r = R.Remaining(F, pos, ref c.loc, ref c.rDir);
+            if (RulerHoldOn)
+            {
+                bool was = c.hold.on;
+                r = RulerHold.Step(R, map, ref c.hold, F, pos, car.Body != null ? car.Body.linearVelocity : Vector3.zero, car.transform.forward, c.loc, c.rDir, r);
+                if (c.hold.on && !was && RulerHolds++ < 40) { Debug.Log($"[Checkpoints] {car.name}: ruler reads edge {c.hold.loc.edge} under the car ({r:0} m), not the located edge {c.loc.edge}"); }
+            }
             c.bestDir = c.rDir == -1 ? -1 : 1;
             return r;
         }
+
+        /// <summary>The ruler holds across a lane's width (<see cref="RulerHold"/>, cityai 11-25). PSX_CP_RULER_HOLD=0:
+        /// as before. LAB row RACE DISTANCE: LANE HOLD (at once).</summary>
+        public static bool RulerHoldOn = CheckpointFile.On("PSX_CP_RULER_HOLD");
+        /// <summary>Holds begun, all cars (the harness).</summary>
+        public static int RulerHolds;
 
         void UpdateNearestIdx(RaceManager.CarProgress p, Vector3 pos)
         {
@@ -749,6 +764,7 @@ namespace PSXRacing
             c.closestRem = float.PositiveInfinity; c.closestD3 = float.PositiveInfinity;
             c.lastRemGateSample = float.PositiveInfinity;
             c.lastRg = -1f; c.towardAcc = 0f; c.rDir = 0;
+            c.hold = RulerHold.Fresh;   // a new gate: a new ruler
             if (c.isPlayer && !finish)
             {
                 c.flash = FlashText(c, k);
