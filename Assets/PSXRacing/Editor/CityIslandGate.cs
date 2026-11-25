@@ -131,7 +131,7 @@ namespace PSXRacing.EditorTools
                                 var sw = System.Diagnostics.Stopwatch.StartNew();
                                 var tm = CityMeshes.Build(map, trims, buildings, (int)(k >> 32), (int)(k & 0xffffffff));
                                 buildMs += sw.Elapsed.TotalMilliseconds; built++;
-                                th = Analyse(map, tm, corridor);
+                                th = Analyse(map, trims, tm, corridor);
                                 th.go = Stand(tm, k);
                                 cache[k] = th;
                             }
@@ -258,7 +258,7 @@ namespace PSXRacing.EditorTools
         }
 
         /// <summary>RAISED, OVERLAY, LINEUNDER of one tile, from its meshes.</summary>
-        static TileHits Analyse(CityMap map, CityMeshes.TileMeshes tm, HashSet<int> corridor)
+        static TileHits Analyse(CityMap map, CityMeshes.Trims trims, CityMeshes.TileMeshes tm, HashSet<int> corridor)
         {
             var th = new TileHits();
             var o = tm.origin;
@@ -352,7 +352,81 @@ namespace PSXRacing.EditorTools
                     }
                 }
             }
+            // the paths through the corridor's junctions: from each arm's lanes at the fan to each other arm's
+            // (through and gentle turns, under 50 degrees: a sharp turn's corner is the slip lane's), 1.5 m each side
+            var nodes = new HashSet<int>();
+            foreach (int ei in corridor) { nodes.Add(map.edges[ei].a); nodes.Add(map.edges[ei].b); }
+            foreach (int n in nodes)
+            {
+                var np = map.nodes[n];
+                if (np.x < o.x - 40f || np.y < o.z - 40f || np.x > o.x + CityMeshes.TileSize + 40f || np.y > o.z + CityMeshes.TileSize + 40f) continue;
+                var arms = map.nodeEdges[n];
+                if (arms == null || arms.Count < 2) continue;
+                foreach (int ia in arms)
+                {
+                    var ein = map.edges[ia];
+                    if (ein.a == ein.b) continue;
+                    bool inAtB = ein.b == n;
+                    if (ein.oneway && !inAtB) continue;   // a one-way arm must arrive
+                    float sIn = inAtB ? ein.length - (trims.atB != null ? trims.atB[ia] : 0f) : (trims.atA != null ? trims.atA[ia] : 0f);
+                    sIn = Mathf.Clamp(sIn, 0f, ein.length);
+                    var tIn = ein.TangentAt(sIn) * (inAtB ? 1f : -1f);
+                    var pIn = ArmLane(ein, sIn, inAtB ? 1 : -1);
+                    foreach (int oa in arms)
+                    {
+                        if (oa == ia) continue;
+                        var eo = map.edges[oa];
+                        if (eo.a == eo.b) continue;
+                        bool outAtA = eo.a == n;
+                        if (eo.oneway && !outAtA) continue;   // a one-way arm must leave
+                        float sOut = outAtA ? (trims.atA != null ? trims.atA[oa] : 0f) : eo.length - (trims.atB != null ? trims.atB[oa] : 0f);
+                        sOut = Mathf.Clamp(sOut, 0f, eo.length);
+                        var tOut = eo.TangentAt(sOut) * (outAtA ? 1f : -1f);
+                        if (Vector2.Angle(tIn, tOut) > 50f) continue;
+                        var pOut = ArmLane(eo, sOut, outAtA ? 1 : -1);
+                        float L = (pOut - pIn).magnitude;
+                        if (L < 0.5f || L > 120f) continue;
+                        Vector2 c1 = pIn + tIn.normalized * (L / 3f), c2 = pOut - tOut.normalized * (L / 3f);
+                        float yIn = ein.YAt(sIn), yOut = eo.YAt(sOut);
+                        int steps = Mathf.CeilToInt(L / 0.5f);
+                        for (int q = 0; q <= steps; q++)
+                        {
+                            float u = q / (float)steps, w0 = (1 - u) * (1 - u) * (1 - u), w1 = 3 * u * (1 - u) * (1 - u), w2 = 3 * u * u * (1 - u), w3 = u * u * u;
+                            var pt = pIn * w0 + c1 * w1 + c2 * w2 + pOut * w3;
+                            var dv = 3 * (1 - u) * (1 - u) * (c1 - pIn) + 6 * (1 - u) * u * (c2 - c1) + 3 * u * u * (pOut - c2);
+                            if (dv.sqrMagnitude < 1e-8f) continue;
+                            dv.Normalize(); var lf = new Vector2(-dv.y, dv.x);
+                            float yL = Mathf.Lerp(yIn, yOut, u);
+                            for (float l = -1.5f; l <= 1.51f; l += 0.5f)
+                            {
+                                var qq = pt + lf * l;
+                                if (qq.x < o.x || qq.y < o.z || qq.x >= o.x + CityMeshes.TileSize || qq.y >= o.z + CityMeshes.TileSize) continue;
+                                int i = Mathf.FloorToInt((qq.x - o.x - m0) / Cell), j = Mathf.FloorToInt((qq.y - o.z - m0) / Cell);
+                                if (i < 0 || j < 0 || i >= N || j >= N) continue;
+                                int k = j * N + i;
+                                if (float.IsNegativeInfinity(high[k])) continue;
+                                float baseY = float.IsNaN(pave[k]) ? yL : pave[k];
+                                float rise = high[k] - baseY;
+                                if (rise > 0.05f && rise < 2.5f) th.hits[0].Add(new Vector3(qq.x, baseY, qq.y));
+                            }
+                        }
+                    }
+                }
+            }
             return th;
+        }
+
+        /// <summary>The lanes' middle of an arm at s, for traffic moving along +dir: a one-way road's lanes, a
+        /// two-way road's half on the right of travel.</summary>
+        static Vector2 ArmLane(CityMap.Edge e, float s, int dir)
+        {
+            var lp = LineModel.OwnLanePoint(e, s);
+            if (e.oneway) return lp;
+            var t = e.TangentAt(s) * dir;
+            var right = new Vector2(t.y, -t.x);
+            LineModel.Extents(e, s, out float eM, out float eP);
+            float quarter = 0.25f * ((eP - e.shl) + (eM - e.shr));
+            return lp + right * quarter;
         }
 
         static void Raster(Vector3 a, Vector3 b, Vector3 c, int N, float m0, System.Action<int, float> put)
