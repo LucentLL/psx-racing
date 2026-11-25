@@ -25,7 +25,7 @@ namespace PSXRacing.City
     //
     //  THE RULE. After every sheet of the tile is laid (after the closing
     //  pass), the tile's DRAWN pavement - every driving-surface triangle,
-    //  ribbon, fan, gore and slab - is rasterised (0.25 m). Then:
+    //  ribbon, fan, gore and slab - is rasterised (0.5 m). Then:
     //    1. OVERLAYS: a ground, verge, curb or skirt triangle lying over the
     //       pavement (all three corners over drawn pavement, its middle at
     //       least half a metre inside it, above the pavement there) is taken
@@ -54,7 +54,7 @@ namespace PSXRacing.City
     {
         public static bool IslandSolidsOn = System.Environment.GetEnvironmentVariable("PSX_CITY_ISLANDSOLID") != "0";
 
-        const float IsCell = 0.25f;
+        const float IsCell = 0.5f;
         const float IsMargin = 8f;
         static readonly int IsN = Mathf.CeilToInt((TileSize + 2f * IsMargin) / IsCell);
         /// <summary>An island is at most this big (m2) ...</summary>
@@ -64,7 +64,7 @@ namespace PSXRacing.City
         /// <summary>Narrower than this it is a tip: paved, not island (AASHTO: a raised island's nose is 2-4 ft wide).</summary>
         public const float IslandMinWidthM = 1.2f;
         /// <summary>The asphalt apron round an island's foot: this wide, this far under the road.</summary>
-        const float IslandApronM = 0.45f, IslandApronDownM = 0.02f;
+        const float IslandApronM = 0.7f, IslandApronDownM = 0.02f;
         /// <summary>The curb face starts this far under the pavement.</summary>
         const float IslandFootM = 0.06f;
         /// <summary>Never within this of the tile's border (the next tile has the rest of it).</summary>
@@ -96,7 +96,7 @@ namespace PSXRacing.City
         static int IsIdx(int i, int j) => j * IsN + i;
 
         /// <summary>The pass (TileSteps, after the closing faces).</summary>
-        static void IslandSolids(CityMap map, Trims trims, TileMeshes tm)
+        static IEnumerable<int> IslandSolids(CityMap map, Trims trims, TileMeshes tm)
         {
             int N = IsN, NN = N * N;
             if (isY == null || isY.Length != NN)
@@ -115,14 +115,17 @@ namespace PSXRacing.City
                 IsRasterPave(bk, bk.t, s);
                 if (bk.tn != null) IsRasterPave(bk, bk.tn, s);
             }
-            if (!any) return;
+            if (!any) yield break;
+            yield return 0;
             // ---- 1. overlays: nothing is laid on the pavement ---------------------------------------
             foreach (var bk in IslandSheetBuckets()) IsDropOverlays(bk);
+            yield return 0;
             // ---- the lanes: every grounded road's ribbon less its shoulders, as designed -----------------
             // (a branch clipped against its host, a sliver at a split node: where the drawn pavement stops short
             // of a lane, the lane still runs there - no island may stand in it)
             IsRasterBands(map, trims, tm.origin);
             IsMarkJunctions(map, tm.origin);
+            yield return 0;
             // ---- distance (chamfer 10 / 14 a cell) and the nearest pavement's height into the land ----
             for (int k = 0; k < NN; k++)
             {
@@ -162,6 +165,7 @@ namespace PSXRacing.City
                     if (i + 1 < N) IsRelax2(k, k + 1, 10);
                     if (j + 1 < N) { IsRelax2(k, k + N, 10); if (i + 1 < N) IsRelax2(k, k + N + 1, 14); if (i > 0) IsRelax2(k, k + N - 1, 14); }
                 }
+            yield return 0;
             // ---- 2. the land's components -------------------------------------------------------------
             var o = tm.origin;
             int comp = 0;
@@ -225,6 +229,7 @@ namespace PSXRacing.City
                 // grow the core back over tip cells within tipCells of it (an opening)
                 IsGrowCore(cells, growCells);
                 IsEmitComponent(map, tm, cells, o);
+                yield return 0;
             }
             if (isTipsPending) { isTipsPending = false; foreach (var bk in IslandSheetBuckets()) IsDropCells(bk); }
         }
@@ -292,7 +297,7 @@ namespace PSXRacing.City
                 // the ribbon's own run, not inside a fan (a junction's corners are the fan's)
                 float sA = trims != null && trims.atA != null && trims.patch != null && trims.patch[e.a] ? trims.atA[e.index] : 0f;
                 float sB = trims != null && trims.atB != null && trims.patch != null && trims.patch[e.b] ? e.length - trims.atB[e.index] : e.length;
-                for (float sv = sA; sv <= sB; sv += 0.25f)
+                for (float sv = sA; sv <= sB; sv += 0.4f)
                 {
                     var pt = e.PointAt(sv);
                     if (pt.x < x0 - pad || pt.x > x1 + pad || pt.y < z0 - pad || pt.y > z1 + pad) continue;
@@ -300,7 +305,7 @@ namespace PSXRacing.City
                     LineModel.Extents(e, sv, out float eM, out float eP);
                     var tg = e.TangentAt(sv); var left = new Vector2(-tg.y, tg.x);
                     float lo = -(eM - e.shr), hi = eP - e.shl;
-                    for (float l = lo; l <= hi; l += 0.2f)
+                    for (float l = lo; l <= hi; l += 0.35f)
                     {
                         var q = pt + left * l;
                         if (IsCellAt(q.x - o.x, q.y - o.z, out int k)) isBand[k] = true;
@@ -441,7 +446,7 @@ namespace PSXRacing.City
                     if (IsPaveAt(a.x, a.z, out float ya) && IsPaveAt(b.x, b.z, out float yb) && IsPaveAt(c.x, c.z, out float yc))
                     {
                         var m = (a + b + c) / 3f;
-                        if (IsPaveAt(m.x, m.z, out _))
+                        if (IsPaveInside(m.x, m.z, 0.35f))
                         {
                             float rise = Mathf.Max(a.y - ya, Mathf.Max(b.y - yb, c.y - yc));
                             float low = Mathf.Min(a.y - ya, Mathf.Min(b.y - yb, c.y - yc));
@@ -640,7 +645,7 @@ namespace PSXRacing.City
             if (outer < 0 || loops.Count > 1) { IslandSkippedBig++; return; }
             // simplified (0.2 m), then one round of corner cutting for the noses
             isPoly.Clear();
-            DouglasPeuckerClosed(loops[outer], 0.2f, isPoly);
+            DouglasPeuckerClosed(loops[outer], 0.35f, isPoly);
             if (isPoly.Count < 3) return;
             var poly = Chaikin(isPoly);
             if (poly.Count < 3 || SignedArea(poly) < 0.5f) return;
