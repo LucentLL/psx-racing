@@ -213,11 +213,16 @@ namespace PSXRacing.City
                 // a median nose graded flush (Five Points) stays as it is
                 if (NoseFlushAt(map, trims, pw, outw, ed.y, out _) > 0f) { if (tr) CmWhy(e, S.s, "nose graded flush"); continue; }
                 float reach = CurbMedianAll ? CurbMedianWideMaxM : CurbMedianMaxM;
-                cmMiss[k] = true;   // (c7roads) from here a section without an island is one the ray missed
                 GatherNear(map, pw, pw, reach + 1f);
                 ClearRun(map, trims, pw, outw, ed.y, reach, out float oy, out float edgeRun, out bool intoFan);
                 int blk = clearRunBlockEdge;
-                if (float.IsNaN(edgeRun) || intoFan || blk < 0 || edgeRun < CurbMedianMinM || edgeRun > reach) { if (tr) CmWhy(e, S.s, $"ray: run {edgeRun:0.00} fan {intoFan} block e{blk}"); continue; }
+                if (float.IsNaN(edgeRun) || intoFan || blk < 0 || edgeRun < CurbMedianMinM || edgeRun > reach)
+                {
+                    // (c7roads) a MISS is the ray finding nothing in reach - never a fan or another road (an opening, a
+                    // crossing street: the median stops there and is not filled across it)
+                    cmMiss[k] = !intoFan && (float.IsNaN(edgeRun) || blk < 0 || edgeRun > reach);
+                    if (tr) CmWhy(e, S.s, $"ray: run {edgeRun:0.00} fan {intoFan} block e{blk}"); continue;
+                }
                 if (Mathf.Abs(oy - ed.y) > CurbMedianMaxDyM) { if (tr) CmWhy(e, S.s, $"height step {oy - ed.y:0.00}"); continue; }
                 // the pavement met is the twin: one-way, this name, running the
                 // other way, and itself of the island's class (a deck, ramp or

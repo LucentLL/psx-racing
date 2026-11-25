@@ -90,6 +90,7 @@ namespace PSXRacing.City
         static int[] isDist2;      // the same, a lane's band counted as pavement
         static bool[] isBand;      // inside some road's lanes (its ribbon less its shoulders)
         static int[] isBandEdge;   // ... whose (the last one drawn)
+        static bool[] isBandUp;    // under a deck's or a tunnel's lanes, or an elevated section's: never island, never paved
         static bool[] isNearJ;     // within IslandLaneTipNodeM of a node where three or more roads meet (a split, a junction)
         static float[] isNearY;    // the nearest pavement's height, land only
         static int[] isComp;       // component id of land cells
@@ -104,10 +105,10 @@ namespace PSXRacing.City
             int N = IsN, NN = N * N;
             if (isY == null || isY.Length != NN)
             {
-                isY = new float[NN]; isSlot = new short[NN]; isDist = new int[NN]; isDist2 = new int[NN]; isBand = new bool[NN]; isBandEdge = new int[NN]; isNearJ = new bool[NN]; isNearY = new float[NN]; isComp = new int[NN]; isFlag = new byte[NN];
+                isY = new float[NN]; isSlot = new short[NN]; isDist = new int[NN]; isDist2 = new int[NN]; isBand = new bool[NN]; isBandEdge = new int[NN]; isBandUp = new bool[NN]; isNearJ = new bool[NN]; isNearY = new float[NN]; isComp = new int[NN]; isFlag = new byte[NN];
             }
             isGone.Clear();
-            for (int k = 0; k < NN; k++) { isY[k] = float.NaN; isSlot[k] = -1; isComp[k] = -1; isFlag[k] = 0; isDist[k] = int.MaxValue; isBand[k] = false; isBandEdge[k] = -1; isNearJ[k] = false; }
+            for (int k = 0; k < NN; k++) { isY[k] = float.NaN; isSlot[k] = -1; isComp[k] = -1; isFlag[k] = 0; isDist[k] = int.MaxValue; isBand[k] = false; isBandEdge[k] = -1; isBandUp[k] = false; isNearJ[k] = false; }
             // ---- the drawn pavement ----------------------------------------------------------------
             bool any = false;
             for (int s = 0; s < buckets.Length; s++)
@@ -215,7 +216,7 @@ namespace PSXRacing.City
                 if (IsHasBuilding(cells)) { IsPaveLaneTips(map, cells, o, tipCells); continue; }
                 // the core: cells half the minimum width from the pavement; an island is the core grown back
                 int coreN = 0;
-                foreach (int k in cells) if (!isBand[k] && isDist2[k] >= tipCells) coreN++;
+                foreach (int k in cells) if (!isBand[k] && !isBandUp[k] && isDist2[k] >= tipCells) coreN++;
                 if (coreN == 0)
                 {
                     // all of it narrower than a nose: a long one is a narrow median (as it was); a short one is the
@@ -229,7 +230,7 @@ namespace PSXRacing.City
                     }
                     continue;
                 }
-                foreach (int k in cells) isFlag[k] = (byte)(!isBand[k] && isDist2[k] >= tipCells ? 2 : 3);
+                foreach (int k in cells) isFlag[k] = (byte)(isBandUp[k] ? 4 : !isBand[k] && isDist2[k] >= tipCells ? 2 : 3);
                 // grow the core back over tip cells within tipCells of it (an opening)
                 IsGrowCore(cells, growCells);
                 IsEmitComponent(map, tm, cells, o);
@@ -366,7 +367,8 @@ namespace PSXRacing.City
             float x0 = o.x - IsMargin, z0 = o.z - IsMargin, x1 = o.x + TileSize + IsMargin, z1 = o.z + TileSize + IsMargin;
             foreach (var e in map.edges)
             {
-                if (e.pts == null || e.pts.Length < 2 || e.a == e.b || e.bridge || e.tunnel) continue;
+                if (e.pts == null || e.pts.Length < 2 || e.a == e.b) continue;
+                bool up = e.bridge || e.tunnel;
                 float bx0 = float.MaxValue, bz0 = float.MaxValue, bx1 = float.MinValue, bz1 = float.MinValue;
                 foreach (var q in e.pts) { bx0 = Mathf.Min(bx0, q.x); bz0 = Mathf.Min(bz0, q.y); bx1 = Mathf.Max(bx1, q.x); bz1 = Mathf.Max(bz1, q.y); }
                 float pad = e.HalfMax + 2f;
@@ -378,14 +380,16 @@ namespace PSXRacing.City
                 {
                     var pt = e.PointAt(sv);
                     if (pt.x < x0 - pad || pt.x > x1 + pad || pt.y < z0 - pad || pt.y > z1 + pad) continue;
-                    if (e.ElevatedAt(sv)) continue;
+                    bool upHere = up || e.ElevatedAt(sv);
                     LineModel.Extents(e, sv, out float eM, out float eP);
                     var tg = e.TangentAt(sv); var left = new Vector2(-tg.y, tg.x);
                     float lo = -(eM - e.shr), hi = eP - e.shl;
                     for (float l = lo; l <= hi; l += 0.35f)
                     {
                         var q = pt + left * l;
-                        if (IsCellAt(q.x - o.x, q.y - o.z, out int k)) { isBand[k] = true; isBandEdge[k] = e.index; }
+                        if (!IsCellAt(q.x - o.x, q.y - o.z, out int k)) continue;
+                        if (upHere) { isBandUp[k] = true; continue; }
+                        isBand[k] = true; isBandEdge[k] = e.index;
                     }
                 }
             }
