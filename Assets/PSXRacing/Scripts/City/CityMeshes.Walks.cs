@@ -278,6 +278,9 @@ namespace PSXRacing.City
         {
             if (Vector2.Distance(c, map.uptown) < 1000f) return true;
             bool old = map.AnyFootprintNear(c, 20f, nonHouseOnly: true) || WalkFrontage(map, c);
+            // (c7roads, MEDIANRUNS) a cell between a divided road's two carriageways is its median, not a building's
+            // forecourt: the 78 slabs were 8 m lattice cells paved for a building 20 m off, lying on the median's grass
+            if (old && MedianRunsOn && InTwinMedian(map, c)) old = false;
             if (!MedianGrassOn) return old;
             // round 3 (perf): a cell the old rule leaves unpaved can only change
             // where a concrete-topped median might be (its bucket lists one)
@@ -286,6 +289,29 @@ namespace PSXRacing.City
             // round 5b: a median cell only between an accepted refuge pair's carriageways
             if (mk != 0 && !MedCellAccepted()) mk = 0;
             return mk != 0 ? mk == 2 : old;
+        }
+
+        /// <summary>(c7roads) Is the plan point in a divided road's median: on the left of its nearest one-way
+        /// named carriageway (the median side), with the same road's opposing carriageway the next road met
+        /// going on across, within 40 m.</summary>
+        static bool InTwinMedian(CityMap map, Vector2 c)
+        {
+            if (!map.NearestRoadPoint(c, 30f, true, out int e1, out float s1, out float d1) || e1 < 0) return false;
+            var E1 = map.edges[e1];
+            if (!E1.oneway || string.IsNullOrEmpty(E1.name)) return false;
+            var p1 = E1.PointAt(s1);
+            var dir = c - p1;
+            if (dir.sqrMagnitude < 1f) return false;
+            dir.Normalize();
+            var t1 = E1.TangentAt(s1);
+            if (Vector2.Dot(new Vector2(-t1.y, t1.x), dir) < 0.3f) return false;
+            for (float k = 2f; k <= 40f; k += 2f)
+            {
+                if (!map.NearestRoadPoint(c + dir * k, 2.5f, true, out int e2, out float s2, out _) || e2 < 0 || e2 == e1) continue;
+                var E2 = map.edges[e2];
+                return E2.oneway && E2.name == E1.name && Vector2.Dot(E2.TangentAt(s2), t1) < -0.7f;
+            }
+            return false;
         }
 
         /// <summary>Round 5b: is the pair the last MedianCellKind call chose
