@@ -7005,14 +7005,14 @@ namespace PSXRacing.EditorTools
         /// </summary>
         public static bool BankFit = System.Environment.GetEnvironmentVariable("PSX_BANKFIT") != "0";
         /// <summary>The top of the band (over the tarmac edge) where the drawn rock keeps to the solid.</summary>
-        const float BankFitBandH = 1.8f;
+        const float BankFitBandH = 2.1f;
         /// <summary>The most the drawn rock stands behind the solid's surface in the band (blocks, cracks).</summary>
         const float BankFitRelief = 0.09f;
         /// <summary>The solid's face this far in front of the drawn rock's nearest surface.</summary>
         const float BankFitSeat = 0.03f;
         /// <summary>The solid follows the bays only where the face (this station and both neighbours) is at least
         /// this tall: lower, the relief's taper at the crest reaches into the band.</summary>
-        const float BankFitMinH = 2.6f;
+        const float BankFitMinH = 2.9f;
         /// <summary>How far the solid (and the drawn band) steps back into a bay at <paramref name="a"/> along the
         /// cut: the relief's own bay term, scaled as the old band scaled it.</summary>
         static float BankFitDepth(float a, int seed) => Mathf.Clamp(RNoise(a / 15f, 0.37f, seed + 5) * 0.9f * 0.32f, 0f, 0.29f);
