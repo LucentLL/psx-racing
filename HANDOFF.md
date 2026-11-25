@@ -1,3 +1,11 @@
+# TEST RUNS ARE SILENT (coordinator, 11-25; mountain-nm 8a5737c0)
+
+Owner 2026-11-25: "please mute all testing. I constantly hear the game without ever seeing it". Measured at 18:02: two hidden batch editors (RacePlayCheck in PSXPerf and PSXCity) were at full-scale peak on his speakers. Batch mode hides the window, not the sound.
+
+- `MasterOut` (Scripts/AudioFader.cs) is the only writer of `AudioListener.volume`. Game code and checks set and read `MasterOut.Level`. In a test run (batch mode, or `-psx-mute` on a windowed run) the level stays what the game set and the listener is held at zero. The mix still runs, so frame times stay comparable. `-psx-sound` is for a run the owner asked to hear.
+- A muted run logs `[MasterOut] test run: the sound is muted`. `tools/lab-check.ps1` fails a run without that line (NOT SILENT). The coordinator's smoke also measures each tour's audio session peak; it must be 0.0000.
+- Never run an exe built before 8a5737c0 as a test. Never mute a game exe in the Windows volume mixer: Windows keeps that setting per exe path, so it would silence the owner's own game.
+
 # HANDOFF - NIGHT5: NIGHT 4 keeps the lane paint and the paving joints, no light past medians and corners, the LAB row back from OFF, two tool faults (agent "night5", 11-25; branch `city-night5` from cdf3fc87; NOT pushed, NOT merged)
 
 All frames and timings are EDITOR runs in PSXPerf (hidden batch editor, PSX_PROFILE=PC, PSX_PC_CONTENT=1, StandaloneWindows64, city tiles built live), except the two PC67 exe leak runs (hidden, -batchmode, no other PSXRacing.exe running). No player was built. NIGHT 4 stays OFF by default.
