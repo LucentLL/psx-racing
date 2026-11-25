@@ -2402,6 +2402,9 @@ namespace PSXRacing.EditorTools
         /// solid's point, on the line from the road, hides that point
         /// (HiddenFromRoad).</summary>
         const float GhostHiddenM = 0.3f;
+        /// <summary>(stage3) A height hidden from the road by a drawn surface counts as drawn barrier
+        /// (PSX_GHOST_HIDDENDRAWN=0 = 77f4abf8's audit).</summary>
+        public static bool GhostHiddenIsDrawn = System.Environment.GetEnvironmentVariable("PSX_GHOST_HIDDENDRAWN") != "0";
 
         static string FacesText(List<(Vector3 origin, Vector3 dir)> faces)
         {
@@ -2469,6 +2472,11 @@ namespace PSXRacing.EditorTools
                     if (askHidden && HiddenFromRoad(road, y, faces[0].origin))
                     {
                         if (why != null) why.Append($" y{y:0.0}:hidden");
+                        // (stage3, PSX_GHOST_HIDDENDRAWN) a car from this chord meets the drawn surface in front of
+                        // the solid first: at this height the barrier IS drawn (it used to leave drawnTop where it
+                        // was, and a solid hidden at every height - a cut's end trimmed onto a portal's masonry face -
+                        // read as "collider tall over NOTHING drawn")
+                        if (GhostHiddenIsDrawn) { anyDrawn = true; drawnTop = y; lastNear = y; }
                         continue;
                     }
                     if (why != null) why.Append($" y{y:0.0}:{(hit < 0f ? "-" : hit.ToString("0.00") + "@" + who)}");
