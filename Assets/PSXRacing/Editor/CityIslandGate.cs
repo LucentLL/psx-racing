@@ -19,8 +19,8 @@ namespace PSXRacing.EditorTools
     ///              driven band (the ribbon less its shoulders, 0.3 m in) of any road of the corridor
     ///   SEETHRU    a car's eye (bumper 0.6 m, cockpit 1.1 m, chase 1.8 m over each lane centre of the route,
     ///              every 6 m) looking down at the ground ahead and to the sides (pitch -2..-35 degrees, yaw
-    ///              +-70) meets no front face within 120 m: a hole, a gap between sheets, or a single-sided
-    ///              face seen from behind (the renderer culls it as the ray does)
+    ///              +-70) meets a face from BEHIND first (a single-sided face the renderer culls: what is behind
+    ///              it shows through), or meets nothing and goes under the land (a hole, a gap between sheets)
     ///   OVERLAY    a non-road surface from 3 mm under to 5 cm over the drawn pavement half a metre inside its edge (coplanar or a flat
     ///              layer laid on the asphalt: the two fight, or a slab lies on the road)
     ///   LINEUNDER  painted line texels (a road triangle whose U lies in a line column of its profile's
@@ -176,7 +176,7 @@ namespace PSXRacing.EditorTools
                 long sumT = 0, sumV = 0, sumD = 0; foreach (var th in cache.Values) { sumT += th.tris; sumV += th.verts; sumD += th.draws; }
                 log.Append(string.Format(inv, "cost: {0} tiles, {1:0} triangles, {2:0} vertices, {3:0.0} submeshes (draws) a tile; build {4:0} ms a tile\n",
                     cache.Count, cache.Count > 0 ? sumT / (double)cache.Count : 0, cache.Count > 0 ? sumV / (double)cache.Count : 0, cache.Count > 0 ? sumD / (double)cache.Count : 0, built > 0 ? buildMs / built : 0));
-                log.Append($"rays: {raysCast} cast, {raysEscaped} met nothing, {raysUnder} of them went under the land (SEETHRU hits)\n");
+                log.Append($"rays: {raysCast} cast, {raysEscaped} met nothing, {raysUnder} of them went under the land, {raysBack} met a face from behind first (SEETHRU hits)\n");
                 log.Append(string.Format(inv, "TOTAL | RAISED {0} SEETHRU {1} OVERLAY {2} LINEUNDER {3}\n", totals[0], totals[1], totals[2], totals[3]));
                 log.Append(string.Format(inv, "tiles built {0}, {1:0} ms a tile; islands {2} ({3:0} m2), tips paved {4} cells, overlays out {5}, inside out {6}, poke verts {7}, skipped at a border {8}, too big {9}; median runs filled {10} sections, dropped {11} runs; {12:0} s\n",
                     built, built > 0 ? buildMs / built : 0, CityMeshes.IslandCount, CityMeshes.IslandAreaM2, CityMeshes.IslandTipCells, CityMeshes.IslandOverlayTris, CityMeshes.IslandInsideTris, CityMeshes.IslandPokeVerts,
@@ -228,7 +228,7 @@ namespace PSXRacing.EditorTools
             return go;
         }
 
-        static int raysCast, raysEscaped, raysUnder;
+        static int raysCast, raysEscaped, raysUnder, raysBack;
         static readonly float[] Heights = { 0.6f, 1.1f, 1.8f };
         static readonly float[] Pitches = { -2f, -4f, -7f, -12f, -20f, -35f };
 
@@ -247,6 +247,18 @@ namespace PSXRacing.EditorTools
                         float expect = h / Mathf.Sin(-pitch * Mathf.Deg2Rad);
                         if (expect > 60f) continue;
                         raysCast++;
+                        // a face seen from behind first (single-sided, culled by the renderer): what is behind it shows
+                        // through - a transparency, where the face meets the ray
+                        Physics.queriesHitBackfaces = true;
+                        bool anyB = Physics.Raycast(o, dir, out var hb, 120f);
+                        Physics.queriesHitBackfaces = false;
+                        if (anyB && Vector3.Dot(hb.normal, dir) > 0.05f)
+                        {
+                            raysBack++;
+                            long kb = Key(Mathf.FloorToInt(hb.point.x / CityMeshes.TileSize), Mathf.FloorToInt(hb.point.z / CityMeshes.TileSize));
+                            if (cache.TryGetValue(kb, out var thb)) thb.hits[1].Add(hb.point);
+                            continue;
+                        }
                         if (Physics.Raycast(o, dir, 120f)) continue;
                         raysEscaped++;
                         // nothing in front: a hole only where the ray went under the land (the terrain may fall away)
