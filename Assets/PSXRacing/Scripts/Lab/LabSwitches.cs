@@ -241,7 +241,7 @@ namespace PSXRacing
             Register(new LabRow
             {
                 id = "islandsolid", group = LabGroup.World, name = "JUNCTION ISLANDS AS SOLIDS", when = LabWhen.BuiltIn,
-                look = "Built into the city tiles: a junction's islands are closed curbed solids standing in one paved surface; nothing is laid on the road. A city bake.",
+                look = "OPT-IN (PSX_CITY_ISLANDSOLID=1), built into the city tiles: a junction's islands are closed curbed solids standing in one paved surface; nothing is laid on the road. A city bake.",
                 env = new[] { "PSX_CITY_ISLANDSOLID" }, requires = "CityMeshes.IslandSolidsOn",
             });
             Register(new LabRow
