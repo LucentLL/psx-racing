@@ -328,7 +328,7 @@ namespace PSXRacing.EditorTools
 
             float half = path.roadWidth * 0.5f;
             int n = path.Count, chords = path.HasEnds ? n - 1 : n;
-            int spots = 0, spotsOver = 0, spotsUnder = 0, samples = 0, sOver = 0, sUnder = 0;
+            int spots = 0, spotsOver = 0, spotsUnder = 0, samples = 0, sOver = 0, sUnder = 0, sUnderOther = 0;
             float worst = 0f, worstNeg = 0f;
             var bandOver = new int[3]; var bandN = new int[3];
             var worstList = new List<Spot>();
@@ -375,13 +375,15 @@ namespace PSXRacing.EditorTools
                                     { dc = rh.distance; hitS = s; }
                                 }
                                 if (hitS == null) continue;
-                                float dd = Physics.Raycast(ray, out RaycastHit dh, dc + 3f, mask) ? dh.distance : dc + 3f;
+                                bool hitD = Physics.Raycast(ray, out RaycastHit dh, dc + 3f, mask); float dd = hitD ? dh.distance : dc + 3f;
+                                bool rockHit = hitD && dh.collider.name.StartsWith("BF_Bank");
                                 float gap = dd - dc;
                                 spot = true; samples++;
                                 int band = h < 0.65f ? 0 : h < 1.15f ? 1 : 2;
                                 bandN[band]++;
                                 if (gap > Over) { sOver++; bandOver[band]++; spotOver = true; if (gap > spotWorst) { spotWorst = gap; hW = h; cW = hitS.sharedMesh.name; } }
-                                if (gap < Under) { sUnder++; spotUnder = true; if (gap < spotNeg) { spotNeg = gap; hN = h; } }
+                                if (gap < Under && !rockHit) sUnderOther++;
+                                if (gap < Under && rockHit) { sUnder++; spotUnder = true; if (gap < spotNeg) { spotNeg = gap; hN = h; } }
                             }
                             if (!spot) continue;
                             spots++;
@@ -411,7 +413,7 @@ namespace PSXRacing.EditorTools
             negList.Sort((x, y) => x.gap.CompareTo(y.gap));
             sb.AppendLine($"bankfit {id}: {spots} spots (0.5 m, a side) where a level ray 0.2-1.6 m over the edge meets a cut solid; " +
                           $"held off > {Over:0.00} m: {spotsOver} ({100f * spotsOver / Mathf.Max(1, spots):0.0}%), worst {worst:0.00} m; " +
-                          $"drawn in front of the solid (< {Under:0.00} m): {spotsUnder}, worst {worstNeg:0.00} m");
+                          $"cut rock drawn in front of the solid (< {Under:0.00} m): {spotsUnder}, worst {worstNeg:0.00} m; other drawn things in front (rails, walls, plants): {sUnderOther} samples");
             sb.AppendLine($"  samples {samples}: over {sOver}, under {sUnder}; over by band 0.2-0.6 {bandOver[0]}/{bandN[0]}, 0.7-1.1 {bandOver[1]}/{bandN[1]}, 1.2-1.6 {bandOver[2]}/{bandN[2]}");
             sb.AppendLine($"  cut solids (BankColl): {cutN} MeshColliders, {cutTris} triangles; with the rock tops' colliders {solids.Count} / {solidTris}; cooked in {cookMs:0} ms (editor); drawn meshes asked: {temp.Count}");
             var cl = new List<KeyValuePair<string, int>>(byColl);
