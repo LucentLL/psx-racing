@@ -28,7 +28,7 @@ namespace PSXRacing
     {
         public static bool On = System.Environment.GetEnvironmentVariable("PSX_CP_TURNS") != "0";
         public const float MinDeg = 30f, MaxDeg = 170f;
-        public static float KerbMinM = 1.15f, NearNodeM = 60f;
+        public static float KerbMinM = 1.15f, NearNodeM = 60f, CoarseStepM = 2f;
         public static float KerbClearM = 1.4f, PaveKeepM = 1.0f, TanMaxM = 30f, PastTrimM = 6f, MinR = 4f, StepM = 0.5f;
 
         public struct Join { public int idx, node, ein, eout; public float turnDeg; }
@@ -49,6 +49,9 @@ namespace PSXRacing
 
         static readonly List<Vector2> oneFan = new List<Vector2>(128);
         static readonly List<int> nearNodes = new List<int>(16);
+        /// <summary>Each node's fan kerbs, once per map (the trims and the map do not change during a session).</summary>
+        static readonly Dictionary<int, Vector2[]> kerbCache = new Dictionary<int, Vector2[]>(1024);
+        static CityMap kerbCacheMap;
         /// <summary>The fan kerbs of the join's node AND of every node within <see cref="NearNodeM"/> of it, two hops
         /// along the graph: an arc may reach a neighbouring junction's island (a split's nose, a channelised turn's
         /// island at the next node).</summary>
@@ -73,10 +76,16 @@ namespace PSXRacing
                 }
                 from = to;
             }
+            if (kerbCacheMap != map) { kerbCache.Clear(); kerbCacheMap = map; }
             foreach (int nd in nearNodes)
             {
-                CityMeshes.FanKerbs(map, tr, nd, oneFan);
-                segs.AddRange(oneFan);
+                if (!kerbCache.TryGetValue(nd, out var arr))
+                {
+                    CityMeshes.FanKerbs(map, tr, nd, oneFan);
+                    arr = oneFan.ToArray();
+                    kerbCache[nd] = arr;
+                }
+                segs.AddRange(arr);
             }
         }
 
@@ -229,40 +238,51 @@ namespace PSXRacing
                 if (trimIn > 0f) Tcap = Mathf.Min(Tcap, trimIn + PastTrimM + Mathf.Max(0f, -uP));
                 if (trimOut > 0f) Tcap = Mathf.Min(Tcap, trimOut + PastTrimM + Mathf.Max(0f, -vP));
                 Vector2 oIn = ownInOut != null && k < ownInOut.Count ? ownInOut[k] : Vector2.zero;
-                bool fit = false;
-                for (float T = Tcap; T >= 1f - 1e-3f; T -= StepM)
+                // the arc of tangent T: false when it leaves the pavement (or its line is a turn the car cannot make)
+                bool Arc(float T, out float a0, out float a1, out Vector2 c, out float r, out float ang0, out float sweep)
                 {
-                    float r = T / tanH;
-                    if (r < MinR) break;
-                    float a0 = aJ + uP - T, a1 = aO + vP + T;
-                    if (a0 > aJ + 1e-3f || a1 < aO - 1e-3f) continue;
-                    if (a0 < prev + 0.5f || a1 > next - 0.5f) continue;
+                    r = T / tanH; a0 = aJ + uP - T; a1 = aO + vP + T; c = Vector2.zero; ang0 = 0f;
+                    sweep = (left ? 1f : -1f) * defl * Mathf.Deg2Rad;
+                    if (r < MinR) return false;
+                    if (a0 > aJ + 1e-3f || a1 < aO - 1e-3f) return false;
+                    if (a0 < prev + 0.5f || a1 > next - 0.5f) return false;
+                    // the car's own line must still be a turn it can make: a right turn's own side is inside the arc
+                    if (!left && r - oIn.x < MinR) return false;
                     var p0 = P - tIn * T;
                     var nIn = left ? new Vector2(-tIn.y, tIn.x) : new Vector2(tIn.y, -tIn.x);
-                    var c = p0 + nIn * r;
-                    float ang0 = Mathf.Atan2(p0.y - c.y, p0.x - c.x);
-                    float sweep = (left ? 1f : -1f) * defl * Mathf.Deg2Rad;
+                    c = p0 + nIn * r;
+                    ang0 = Mathf.Atan2(p0.y - c.y, p0.x - c.x);
                     // the arc and the car's line on it (own side, eased from the in-road's to the out-road's)
-                    bool ok = true;
                     int m = Mathf.Max(6, Mathf.CeilToInt(r * Mathf.Abs(sweep)));
-                    for (int q = 0; q <= m && ok; q++)
+                    for (int q = 0; q <= m; q++)
                     {
                         float u = q / (float)m, ang = ang0 + sweep * u;
                         var pt = c + new Vector2(Mathf.Cos(ang), Mathf.Sin(ang)) * r;
                         var tan = left ? new Vector2(-Mathf.Sin(ang), Mathf.Cos(ang)) : new Vector2(Mathf.Sin(ang), -Mathf.Cos(ang));
                         var rightV = new Vector2(tan.y, -tan.x);
                         float own = Mathf.Lerp(oIn.x, oIn.y, u);
-                        if (!OnPavement(map, tr, J.node, ein, eout, pt, clear, ks, out _)) ok = false;
-                        else if (Mathf.Abs(own) > 0.2f && !OnPavement(map, tr, J.node, ein, eout, pt + rightV * own, clear, ks, out _)) ok = false;
+                        if (!OnPavement(map, tr, J.node, ein, eout, pt, clear, ks, out _)) return false;
+                        if (Mathf.Abs(own) > 0.2f && !OnPavement(map, tr, J.node, ein, eout, pt + rightV * own, clear, ks, out _)) return false;
                     }
-                    // the car's own line must still be a turn it can make: a right turn's own side is inside the arc
-                    if (ok && !left && r - oIn.x < MinR) ok = false;
-                    if (!ok) continue;
-                    found.Add((a0, a1, c, r, ang0, sweep, defl));
-                    lastA1 = a1;
+                    return true;
+                }
+                // the largest that fits: 2 m steps down, then 0.5 m steps up from the first fit (cost: the planner
+                // builds a whole road per gate, and 60 full trials a join was 5-30 ms a plan in the editor)
+                bool fit = false; float bestT = -1f;
+                for (float T = Tcap; T >= 1f - 1e-3f; T -= CoarseStepM)
+                {
+                    if (T / tanH < MinR) break;
+                    if (Arc(T, out _, out _, out _, out _, out _, out _)) { bestT = T; break; }
+                }
+                if (bestT > 0f)
+                {
+                    for (float T = Mathf.Min(Tcap, bestT + CoarseStepM - StepM); T > bestT + 1e-3f; T -= StepM)
+                        if (Arc(T, out _, out _, out _, out _, out _, out _)) { bestT = T; break; }
+                    Arc(bestT, out float fa0, out float fa1, out var fc, out float fr, out float fang0, out float fsweep);
+                    found.Add((fa0, fa1, fc, fr, fang0, fsweep, defl));
+                    lastA1 = fa1;
                     fit = true;
-                    Laid++; LaidR.Add(r); MinLaidR = Mathf.Min(MinLaidR, r);
-                    break;
+                    Laid++; LaidR.Add(fr); MinLaidR = Mathf.Min(MinLaidR, fr);
                 }
                 if (!fit) NoFit++;
             }
