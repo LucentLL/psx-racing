@@ -36,7 +36,9 @@ namespace PSXRacing
     public static partial class StreetLights
     {
         /// <summary>The round's one switch (live: the tools flip it in-run).</summary>
-        public static bool Night4 = System.Environment.GetEnvironmentVariable("PSX_NIGHT4") != "0";
+        // (11-25, PC67: OFF by default. On the exe the albedo cap below flattens the white lane paint and the paving joints
+        //  to the lit asphalt under a lamp and in a beam: the lines vanish. The LAB row stays; PSX_NIGHT4=1 = on for the tools.)
+        public static bool Night4 = System.Environment.GetEnvironmentVariable("PSX_NIGHT4") == "1";
 
         // ---- the static field's occlusion ----
         public const int N4Bearings = 48;
