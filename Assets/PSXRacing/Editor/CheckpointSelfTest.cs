@@ -257,7 +257,8 @@ namespace PSXRacing.EditorTools
             int N = cps.Length;
             float start = cps[0].routeM;
             float span = loop ? L : (cps[N - 1].routeM - start);
-            int walks = 0, steps = 0, bad = 0, jumps = 0;
+            int walks = 0, steps = 0, bad = 0, jumps = 0, badRaw = 0, jumpsRaw = 0;
+            float worstRaw = 0f; string worstRawAt = "";
             float worst = 0f; string worstAt = "";
             var where = new Dictionary<string, int>();
             for (int w = 0; w < 6; w++)
@@ -265,8 +266,9 @@ namespace PSXRacing.EditorTools
                 float latWant = w == 0 ? 1.5f : 1.5f + 3f * w;
                 var loc = new CityRouter.Loc();
                 var pref = CityRouter.PreferState.None;
+                var hold = RulerHold.Fresh;
                 int dir = 0, rEdge = -1, target = 1, settle = 0, walkSteps = 0;
-                float now = 9000f + w * 1000f, prevV = -1f, prevWant = -1f;
+                float now = 9000f + w * 1000f, prevV = -1f, prevWant = -1f, prevRaw = -1f;
                 for (float u = 1f; u < span - 1f; u += 2f)
                 {
                     float m = start + u; if (loop) m = Mathf.Repeat(m, L);
@@ -276,7 +278,7 @@ namespace PSXRacing.EditorTools
                     {
                         target = loop ? (target + 1) % N : target + 1;
                         if (!loop && target >= N) break;
-                        settle = 0; prevV = -1f;
+                        settle = 0; prevV = -1f; prevRaw = -1f; hold = RulerHold.Fresh;
                     }
                     int i = 0; while (i < n - 1 && cum[i + 1] <= m) i++;
                     int e = route.edges[i]; var ed = map.edges[e];
@@ -295,11 +297,20 @@ namespace PSXRacing.EditorTools
                     now += 0.1f;
                     R.Locate(pos, fwd * 20f, fwd, ref loc, now, R.Prefer(ref pref, F[target], target, loc, dir, pos));
                     if (loc.edge != rEdge) { rEdge = loc.edge; dir = 0; }
-                    float v = R.Remaining(F[target], pos, ref loc, ref dir);
+                    float vRaw = R.Remaining(F[target], pos, ref loc, ref dir);
+                    // as the race reads a car on the graph locate: with the ruler's hold (PSX_CP_RULER_HOLD)
+                    float v = CheckpointRace.RulerHoldOn ? RulerHold.Step(R, map, ref hold, F[target], pos, fwd * 20f, fwd, loc, dir, vRaw) : vRaw;
                     float want = R.RouteFrom(F[target], st, t);
                     walkSteps++;
-                    if (settle++ < 3) { prevV = v; prevWant = want; continue; }
+                    if (settle++ < 3) { prevV = v; prevRaw = vRaw; prevWant = want; continue; }
                     steps++;
+                    if (Mathf.Abs(vRaw - want) > 30f)
+                    {
+                        badRaw++;
+                        if (Mathf.Abs(vRaw - want) > worstRaw) { worstRaw = Mathf.Abs(vRaw - want); worstRawAt = $"gate {target}, route edge {e} read as edge {loc.edge} at {t:0} m, {lat:0.0} m right of its line: {vRaw:0} m, the route {want:0} m"; }
+                    }
+                    if (prevRaw >= 0f && Mathf.Abs((vRaw - prevRaw) - (want - prevWant)) > 30f) jumpsRaw++;
+                    prevRaw = vRaw;
                     if (Mathf.Abs(v - want) > 30f)
                     {
                         bad++;
@@ -318,6 +329,7 @@ namespace PSXRacing.EditorTools
                 top.Sort((x, y) => y.Value.CompareTo(x.Value));
                 for (int i = 0; i < top.Count && i < 8; i++) sb.AppendLine($"      lane misreads: {top[i].Value} x {top[i].Key}");
             }
+            sb.AppendLine($"      every lane WITHOUT the ruler's hold: {badRaw} steps over 30 m off, {jumpsRaw} jumps; worst {worstRaw:0} m{(badRaw > 0 ? ": " + worstRawAt : "")}");
             if (bad > 0) { sb.AppendLine($"FAIL  every lane: the ruler left the route's metres by over 30 m at {bad} of {steps} steps ({jumps} jumps) on {walks} lane walks; worst {worst:0} m: {worstAt}"); fails++; }
             else sb.AppendLine($"ok    every lane: {walks} lane walks, {steps} steps of 2 m: the ruler stayed within 30 m of the route's metres");
         }
