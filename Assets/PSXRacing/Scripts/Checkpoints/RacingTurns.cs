@@ -52,6 +52,8 @@ namespace PSXRacing
         /// <summary>Each node's fan kerbs, once per map (the trims and the map do not change during a session).</summary>
         static readonly Dictionary<int, Vector2[]> kerbCache = new Dictionary<int, Vector2[]>(1024);
         static CityMap kerbCacheMap;
+        /// <summary>Each turn's tangent (node, road in, road out), once per map (-1: no arc fits).</summary>
+        static readonly Dictionary<long, float> tCache = new Dictionary<long, float>(1024);
         /// <summary>The fan kerbs of the join's node AND of every node within <see cref="NearNodeM"/> of it, two hops
         /// along the graph: an arc may reach a neighbouring junction's island (a split's nose, a channelised turn's
         /// island at the next node).</summary>
@@ -76,7 +78,7 @@ namespace PSXRacing
                 }
                 from = to;
             }
-            if (kerbCacheMap != map) { kerbCache.Clear(); kerbCacheMap = map; }
+            if (kerbCacheMap != map) { kerbCache.Clear(); tCache.Clear(); kerbCacheMap = map; }
             foreach (int nd in nearNodes)
             {
                 if (!kerbCache.TryGetValue(nd, out var arr))
@@ -269,15 +271,27 @@ namespace PSXRacing
                 // the largest that fits: 2 m steps down, then 0.5 m steps up from the first fit (cost: the planner
                 // builds a whole road per gate, and 60 full trials a join was 5-30 ms a plan in the editor)
                 bool fit = false; float bestT = -1f;
-                for (float T = Tcap; T >= 1f - 1e-3f; T -= CoarseStepM)
+                // the same turn (node, road in, road out) is the same arc for every car: the first plan searches it,
+                // the rest check the answer once (8 cars re-plan at every gate)
+                long key = ((long)J.node * 1000003L + J.ein) * 1000003L + J.eout;
+                bool memo = tCache.TryGetValue(key, out float tm);
+                if (memo && tm > 0f && tm <= Tcap + 1e-3f && Arc(tm, out _, out _, out _, out _, out _, out _)) bestT = tm;
+                else if (memo && tm < 0f) bestT = -1f;
+                else
                 {
-                    if (T / tanH < MinR) break;
-                    if (Arc(T, out _, out _, out _, out _, out _, out _)) { bestT = T; break; }
+                    for (float T = Tcap; T >= 1f - 1e-3f; T -= CoarseStepM)
+                    {
+                        if (T / tanH < MinR) break;
+                        if (Arc(T, out _, out _, out _, out _, out _, out _)) { bestT = T; break; }
+                    }
+                    if (bestT > 0f)
+                        for (float T = Mathf.Min(Tcap, bestT + CoarseStepM - StepM); T > bestT + 1e-3f; T -= StepM)
+                            if (Arc(T, out _, out _, out _, out _, out _, out _)) { bestT = T; break; }
+                    // a no-fit is remembered only for a whole corner (not one cut short by the path's own ends)
+                    if (bestT > 0f || (prev <= 0.01f && next >= total - 0.01f) || Tcap >= TanMaxM - 0.01f) tCache[key] = bestT;
                 }
                 if (bestT > 0f)
                 {
-                    for (float T = Mathf.Min(Tcap, bestT + CoarseStepM - StepM); T > bestT + 1e-3f; T -= StepM)
-                        if (Arc(T, out _, out _, out _, out _, out _, out _)) { bestT = T; break; }
                     Arc(bestT, out float fa0, out float fa1, out var fc, out float fr, out float fang0, out float fsweep);
                     found.Add((fa0, fa1, fc, fr, fang0, fsweep, defl));
                     lastA1 = fa1;
