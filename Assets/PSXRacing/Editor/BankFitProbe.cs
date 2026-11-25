@@ -40,6 +40,145 @@ namespace PSXRacing.EditorTools
             if (Application.isBatchMode) EditorApplication.Exit(0);
         }
 
+        /// <summary>
+        /// THE NOSE AGAINST THE ROCK (the proof sheet's side views): per PSX_BF_SHOTS = "Venue:wp:L|R;..." the scene's
+        /// first car stood square to the cut at that waypoint and moved toward it 1 cm at a time until one of its
+        /// colliders meets a solid; then a side view along the face (PNG beside the project, PSXRacing_bfshots/,
+        /// PSX_BF_TAG in the name) and the gap from the car's nose to the first DRAWN surface ahead of it.
+        /// </summary>
+        public static void Shots()
+        {
+            var sb = new StringBuilder();
+            string tag = System.Environment.GetEnvironmentVariable("PSX_BF_TAG") ?? "x";
+            string outDir = Path.Combine(Path.GetDirectoryName(Application.dataPath), "PSXRacing_bfshots");
+            Directory.CreateDirectory(outDir);
+            try
+            {
+                foreach (var spec in (System.Environment.GetEnvironmentVariable("PSX_BF_SHOTS") ?? "").Split(';'))
+                {
+                    var f = spec.Trim().Split(':');
+                    if (f.Length < 3 || !int.TryParse(f[1], out int wp)) continue;
+                    sb.AppendLine(Shot(f[0], wp, f[2].Trim().ToUpperInvariant() == "L" ? -1 : 1, tag, outDir));
+                }
+            }
+            catch (System.Exception e) { sb.AppendLine("THREW " + e); }
+            File.WriteAllText(Path.Combine(Path.GetDirectoryName(Application.dataPath), "PSXRacing_bfshots.txt"), sb.ToString());
+            Debug.Log("[BF] " + sb);
+            if (Application.isBatchMode) EditorApplication.Exit(0);
+        }
+
+        static bool GroundName(string on) =>
+            on.StartsWith("Road") || on.StartsWith("Kerb") || on.StartsWith("Verge") || on.StartsWith("Ground") || on.StartsWith("Shoulder") || on.StartsWith("Apron") || on.StartsWith("StandIn");
+
+        static string Shot(string id, int wp, int sd, string tag, string outDir)
+        {
+            string scenePath = "Assets/PSXRacing/Scenes/" + id + ".unity";
+            if (!File.Exists(scenePath)) return id + ": NO SCENE";
+            if (UnityEngine.SceneManagement.SceneManager.GetActiveScene().path != scenePath)
+                EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Single);
+            var path = Object.FindFirstObjectByType<TrackPath>();
+            CarController car = null;
+            foreach (var c in Object.FindObjectsByType<CarController>(FindObjectsInactive.Include, FindObjectsSortMode.None)) { car = c; break; }
+            if (path == null || car == null) return id + ": no path / car";
+            car.gameObject.SetActive(true);
+            Vector3 p = path.GetPoint(wp), tan = path.GetTangent(wp); tan.y = 0f; tan.Normalize();
+            Vector3 right = Vector3.Cross(Vector3.up, tan).normalized, dir = right * sd;
+            var carCols = new List<Collider>(car.GetComponentsInChildren<Collider>(true));
+            var rb = car.GetComponent<Rigidbody>();
+            const float lift = 0.45f;
+            var rot = Quaternion.LookRotation(dir, Vector3.up);
+            float half = path.roadWidth * 0.5f;
+            Vector3 Ground(Vector3 q)
+            {
+                float best = float.MinValue; Vector3 at = q;
+                foreach (var h in Physics.RaycastAll(q + Vector3.up * 5f, Vector3.down, 12f))
+                    if (!carCols.Contains(h.collider) && !h.collider.isTrigger && GroundName(h.collider.name) && h.point.y > best) { best = h.point.y; at = h.point; }
+                return at;
+            }
+            float e = half - 2.6f, touch = -1f;
+            string hitName = "-";
+            for (; e < half + 8f; e += 0.01f)
+            {
+                Vector3 g = Ground(p + dir * e);
+                car.transform.SetPositionAndRotation(g + Vector3.up * lift, rot);
+                if (rb != null) { rb.position = car.transform.position; rb.rotation = rot; }
+                Physics.SyncTransforms();
+                bool hit = false;
+                foreach (var cc in carCols)
+                {
+                    if (cc == null || cc.isTrigger || !cc.enabled) continue;
+                    foreach (var o in Physics.OverlapBox(cc.bounds.center, cc.bounds.extents + Vector3.one * 0.02f, Quaternion.identity))
+                    {
+                        if (o == null || carCols.Contains(o) || o.isTrigger || GroundName(o.name)) continue;
+                        if (Physics.ComputePenetration(cc, cc.transform.position, cc.transform.rotation, o, o.transform.position, o.transform.rotation, out _, out float depth) && depth > 0.001f)
+                        { hit = true; hitName = o.name; break; }
+                    }
+                    if (hit) break;
+                }
+                if (hit) { touch = e; break; }
+            }
+            if (touch < 0f) return $"{id} wp {wp} {(sd > 0 ? "R" : "L")}: nothing met within {half + 8f:0.0} m";
+            e = touch - 0.01f;
+            Vector3 g2 = Ground(p + dir * e);
+            car.transform.SetPositionAndRotation(g2 + Vector3.up * lift, rot);
+            if (rb != null) { rb.position = car.transform.position; rb.rotation = rot; }
+            Physics.SyncTransforms();
+            // the nose: the car's colliders' furthest point along dir
+            float noseD = float.MinValue;
+            foreach (var cc in carCols)
+            {
+                if (cc == null || cc.isTrigger) continue;
+                Vector3 c0 = cc.bounds.center - car.transform.position;
+                noseD = Mathf.Max(noseD, Vector3.Dot(c0, dir) + Mathf.Abs(dir.x) * cc.bounds.extents.x + Mathf.Abs(dir.z) * cc.bounds.extents.z);
+            }
+            // the drawn surface ahead of the nose, as the probe asks it
+            var temp = new List<GameObject>();
+            var near = new Bounds(car.transform.position + dir * 2f, new Vector3(12f, 8f, 12f));
+            foreach (var mf in Object.FindObjectsByType<MeshFilter>(FindObjectsSortMode.None))
+            {
+                if (mf == null || mf.sharedMesh == null || !mf.gameObject.activeInHierarchy) continue;
+                if (mf.gameObject.layer == 2 || mf.gameObject.layer == 10) continue;
+                var ren = mf.GetComponent<MeshRenderer>();
+                if (ren == null || !ren.enabled || mf.GetComponentInParent<CarController>() != null) continue;
+                if (!ren.bounds.Intersects(near)) continue;
+                var go = new GameObject("BFS") { layer = ProbeLayer, hideFlags = HideFlags.DontSave };
+                go.transform.SetPositionAndRotation(mf.transform.position, mf.transform.rotation);
+                go.transform.localScale = mf.transform.lossyScale;
+                go.AddComponent<MeshCollider>().sharedMesh = mf.sharedMesh;
+                temp.Add(go);
+            }
+            Physics.SyncTransforms();
+            bool hb = Physics.queriesHitBackfaces;
+            Physics.queriesHitBackfaces = false;
+            var gaps = new StringBuilder();
+            foreach (float hy in new[] { 0.3f, 0.6f, 0.9f })
+            {
+                Vector3 o = car.transform.position + dir * (noseD - 0.3f); o.y = g2.y + hy;
+                float d = Physics.Raycast(o, dir, out RaycastHit dh, 6f, 1 << ProbeLayer) ? dh.distance - 0.3f : 9.99f;
+                gaps.Append($" {hy:0.0} m {d * 100f:0} cm;");
+            }
+            Physics.queriesHitBackfaces = hb;
+            foreach (var g in temp) Object.DestroyImmediate(g);
+            // the side view: along the face, from 4.5 m down the road
+            Vector3 nose = car.transform.position + dir * noseD; nose.y = g2.y + 0.7f;
+            const int W = 960, H = 540;
+            var rt = new RenderTexture(W, H, 24, RenderTextureFormat.ARGB32) { antiAliasing = 1 };
+            var camGo = new GameObject("BFShotCam") { hideFlags = HideFlags.HideAndDontSave };
+            var cam = camGo.AddComponent<Camera>();
+            cam.enabled = false; cam.targetTexture = rt; cam.fieldOfView = 38f; cam.nearClipPlane = 0.05f; cam.farClipPlane = 3000f;
+            cam.transform.position = nose + tan * 4.5f + Vector3.up * 0.5f - dir * 0.6f;
+            cam.transform.rotation = Quaternion.LookRotation(nose + dir * 0.4f - cam.transform.position, Vector3.up);
+            cam.Render();
+            RenderTexture.active = rt;
+            var tex = new Texture2D(W, H, TextureFormat.RGB24, false);
+            tex.ReadPixels(new Rect(0, 0, W, H), 0, 0); tex.Apply(false);
+            RenderTexture.active = null;
+            string fn = $"{id}_{wp}{(sd > 0 ? "R" : "L")}_{tag}.png";
+            File.WriteAllBytes(Path.Combine(outDir, fn), tex.EncodeToPNG());
+            Object.DestroyImmediate(camGo); rt.Release();
+            return $"{id} wp {wp} {(sd > 0 ? "R" : "L")}: the car stops with its centre {touch:0.00} m out from the centreline, on {hitName}; nose to the drawn surface ahead:{gaps} -> {fn}";
+        }
+
         struct Spot { public int wp; public float gap, h; public string coll; public Vector3 at; }
 
         public static string One(string id)

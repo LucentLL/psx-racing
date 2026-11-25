@@ -1129,6 +1129,8 @@ namespace PSXRacing.EditorTools
                                          PassNote(ai) +
                                          // pedals, gear, and what the give-way asked for
                                          $" th {c.throttleInput:0.00} br {c.brakeInput:0.00} g {c.currentGear}" +
+                                         // (stage3) the speed the planner allowed here
+                                         $" tg {Mathf.Min(ai.DebugTarget * 3.6f, 999f):0}" +
                                          (ai.DebugLift > 0f || ai.DebugTrafficBrake > 0f
                                              ? $" give {ai.DebugLift:0.00}/{ai.DebugTrafficBrake:0.00}" : "") : "");
                 if (!trail.TryGetValue(c.name, out var q)) trail[c.name] = q = new Queue<string>();
