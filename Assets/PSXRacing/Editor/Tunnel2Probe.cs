@@ -280,7 +280,7 @@ namespace PSXRacing.EditorTools
                     // (stage3, PSX_T2_EXTRA, default on) cameras OFF the grid above, so a fix is not fitted to it: other
                     // lanes (the centre, both shoulders), eyes 0.3 m and 2.5 m up, and replay spots 3 m and 8 m up
                     var xIn = new List<float>(); var xOut = new List<float>();
-                    if (ExtraCams) { xIn.AddRange(new[] { -97.5f, -27.5f, -6.25f, 1.25f, 13.75f }); xOut.AddRange(new[] { -22.5f, -2.5f, 7.5f, 22.5f, 47.5f }); }
+                    if (ExtraCams) { xIn.AddRange(new[] { -97.5f, -45f, -27.5f, -6.25f, 1.25f, 13.75f, 26.25f }); xOut.AddRange(new[] { -22.5f, -12.5f, -2.5f, 7.5f, 22.5f, 32.5f, 47.5f }); }
                     foreach (var (list, baseM, tagM) in new[] { (marks, entryM, "in"), (exitMarks, exitM, "out"), (xIn, entryM, "xin"), (xOut, exitM, "xout") })
                         foreach (float d in list)
                         {

@@ -850,6 +850,13 @@ namespace PSXRacing
         /// <summary>For the harness: the speed planned this tick, the
         /// driver's shares and whether it drifts.</summary>
         public float DebugTarget { get; private set; }
+        /// <summary>For the harness (stage3): the slowest bend the planner saw ahead, how far, its curvature, the
+        /// bank it counted and its waypoint.</summary>
+        public float DebugBendSpeed { get; private set; }
+        public float DebugBendAt { get; private set; }
+        public float DebugBendK { get; private set; }
+        public float DebugBendBank { get; private set; }
+        public int DebugBendWp { get; private set; }
         public float LimitShare => limitShare;
         public float BrakeShare => brakeShare;
         public bool Drifter => drifter;
@@ -1011,7 +1018,7 @@ namespace PSXRacing
                 float ky = -(path.GetPoint(wi + 2).y - 2f * path.GetPoint(wi).y + path.GetPoint(wi - 2).y) / (4f * path.spacing * path.spacing);
                 if (ky > 1e-4f) vc = Mathf.Min(vc, Mathf.Max(Mathf.Sqrt(CrestG * 9.81f / ky), MinCornerMps * 3f));
                 vcBuf[j] = vc;
-                if (vc < bendSpeed) { bendSpeed = vc; bendAtM = Mathf.Max(0f, d); }
+                if (vc < bendSpeed) { bendSpeed = vc; bendAtM = Mathf.Max(0f, d); DebugBendK = k; DebugBendBank = bankIn; DebugBendWp = wi; }
             }
             float va = vcBuf[n];
             for (int j = n - 1; j >= 1; j--)
@@ -1242,6 +1249,7 @@ namespace PSXRacing
             var rmNow = RaceManager.Instance;
             float playerVmax = rmNow != null && rmNow.playerCar != null ? rmNow.playerCar.BuildTopSpeedMps : 0f;
             float planned = PlanSpeed(speed, out bool zone, out float planDecel, out float bendSpeed, out float bendAtM);
+            DebugBendSpeed = bendSpeed; DebugBendAt = bendAtM;
             float freeSpeed = Mathf.Min(Mathf.Min(planned, TargetSpeedCap(skill, playerVmax)), speedCapMps);
             float targetSpeed = Mathf.Min(freeSpeed, TrafficCap());
             lastFreeSpeed = freeSpeed;
