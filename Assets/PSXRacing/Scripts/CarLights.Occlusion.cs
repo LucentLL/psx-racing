@@ -338,6 +338,22 @@ namespace PSXRacing
         /// <summary>Tools (night5): this car's fan has a row and reaches from rays of the last few frames.</summary>
         public bool OccKnownNow => occRow >= 0 && occCur != null && occFrame >= Time.frameCount - 8;
 
+        /// <summary>Tools (night5): the fan's origin over the ground under it, and what one ray on the bearing toward p
+        /// (parallel to the car's floor, as the fan casts) hits first.</summary>
+        public string ToolFanProbe(Vector3 p)
+        {
+            OccOrigin(out var o, out _, out _);
+            var up = transform.up;
+            float gh = Physics.Raycast(o + up * 0.5f, -up, out var g, 5f, ~((1 << 2) | (1 << 10)), QueryTriggerInteraction.Ignore) ? Vector3.Distance(o, g.point) : -1f;
+            var d = p - o; d -= up * Vector3.Dot(d, up);
+            var hits = Physics.RaycastAll(o, d.normalized, 40f, ~((1 << 2) | (1 << 10)), QueryTriggerInteraction.Ignore);
+            System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+            var sb = new System.Text.StringBuilder("fan " + gh.ToString("0.00") + " m up; ray:");
+            for (int i = 0; i < Mathf.Min(3, hits.Length); i++)
+                sb.Append(" " + hits[i].collider.name + "@" + hits[i].distance.ToString("0.0") + "/ny" + Vector3.Dot(hits[i].normal, up).ToString("0.00"));
+            return sb.ToString().Replace(',', ' ');
+        }
+
         /// <summary>Tools (night5): the plan distance from the fan's origin to p (m).</summary>
         public float OccPatchDist(Vector3 p)
         {

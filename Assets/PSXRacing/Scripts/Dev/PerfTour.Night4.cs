@@ -340,7 +340,7 @@ namespace PSXRacing
                 yield return Shoot("leak_" + name + "_" + vr.v + ".jpg", cam, eye, bP, rt, screen, blit, tex, W, H, 50, LeakSettleS);
                 float y = PatchY(cam, tex, W, H, bP);
                 float pool = CarLights.PoolAt(bP);
-                string det = cl != null ? "reach " + cl.OccReachToward(bP).ToString("0.0", CultureInfo.InvariantCulture) + " patchD " + patchD.ToString("0.0", CultureInfo.InvariantCulture) + trace : "";
+                string det = cl != null ? "reach " + cl.OccReachToward(bP).ToString("0.0", CultureInfo.InvariantCulture) + " patchD " + patchD.ToString("0.0", CultureInfo.InvariantCulture) + trace + " " + cl.ToolFanProbe(bP) : "";
                 leakCsv.AppendLine(name + ",car-" + want + "," + bB + "," + vr.v + "," + y.ToString("0.0", CultureInfo.InvariantCulture) + "," + pool.ToString("0.0000", CultureInfo.InvariantCulture) + "," + where + " " + det);
             }
             CarLights.ToolPoolOnly = false;
