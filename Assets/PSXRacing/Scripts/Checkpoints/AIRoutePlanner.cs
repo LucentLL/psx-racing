@@ -166,6 +166,7 @@ namespace PSXRacing
             int st; float t;
             if (!StartState(R, pos, out st, out t)) { Debug.LogWarning("[Checkpoints] " + car.name + ": no road to plan from"); return; }
             // start 20 m behind the car on the same state, so the car is not at index 0
+            float tCar = t;
             t = Mathf.Max(0f, t - 20f);
             pieces.Clear();
             nextLegGate.Clear(); nextLegEnd.Clear();
@@ -185,6 +186,14 @@ namespace PSXRacing
                 // a sprint's finisher: the gentlest road on for the whole shutdown
                 ExtendStraight(R, st, t, need + 300f);
                 runOut = true;
+            }
+            // RACING TURNS (cityai 11-25): a car just past a node is still on the arc round it, which the next road's
+            // own line does not have: the plan keeps the road it came by (up to 30 m of it), so the new path lays the
+            // same arc and the car is not handed a corner to snap to (a gate at a junction re-plans there)
+            if (RacingTurns.On && !finished && tCar < 30f && PrevPiece(R, st, tCar, out var prevPc))
+            {
+                float L = Mathf.Min(30f, prevPc.t1 - prevPc.t0);
+                if (L > 1f) { AddPiece(prevPc.st, prevPc.t1 - L, prevPc.t1); have += L; carT += L; }
             }
             Persona();
             for (int leg = 0; leg < 64 && !(finished && !race.Loop); leg++)
@@ -334,6 +343,23 @@ namespace PSXRacing
             outStates.Clear();
             outStates.AddRange(vStates);
             return true;
+        }
+
+        /// <summary>The piece of the current plan that ran into state <paramref name="st"/> at its start node, when the
+        /// car (at <paramref name="t"/> on st) came that way.</summary>
+        bool PrevPiece(CityRouter R, int st, float t, out RoutedPath.Piece prev)
+        {
+            prev = default;
+            for (int i = 1; i < planPieces.Count; i++)
+            {
+                var pc = planPieces[i];
+                if (pc.st != st || t < pc.t0 - 0.5f || t > pc.t1 + 0.5f || pc.t0 > 0.05f) continue;
+                var pp = planPieces[i - 1];
+                if (pp.t1 < R.len[pp.st] - 0.05f || R.eNode[pp.st] != R.sNode[st]) return false;
+                prev = pp;
+                return true;
+            }
+            return false;
         }
 
         void AddPiece(int s, float t0, float t1)

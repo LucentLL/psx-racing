@@ -29,6 +29,8 @@ namespace PSXRacing.EditorTools
         static readonly List<Vector3> turnC = new List<Vector3>();
         static readonly List<float> turnDeg = new List<float>();
         static int chaseTurn = -1, chasePhase;
+        static bool[] planDone; static bool planOn;
+        static float chaseMin;
         static CarController chaseCar;
         static float chaseLast;
         static Camera chaseCam;
@@ -77,9 +79,10 @@ namespace PSXRacing.EditorTools
                    .Append(F(turnDeg[k])).Append(',').Append(F(turnC[k].x - PlanM / 2)).Append(',').Append(F(turnC[k].z - PlanM / 2)).Append(',').Append(F(PlanM)).Append('\n');
             File.WriteAllText(Path.Combine(outDir, "turns.csv"), tsb.ToString());
             RacePlayCheck.Note($"TURN TRACE: {turnC.Count} turns of 30 deg or more on the course line, out {outDir}");
+            planOn = false; planDone = new bool[turnC.Count];
             bool gfx = SystemInfo.graphicsDeviceType != UnityEngine.Rendering.GraphicsDeviceType.Null;
             if (gfx && System.Environment.GetEnvironmentVariable("PSX_TT_PLAN") == "1")
-                for (int k = 0; k < turnC.Count; k++) PlanShot(k, turnC[k], PlanM);
+                planOn = true;   // each turn shot when the autopilot comes within 70 m of it (its tiles are live then)
             string ch = System.Environment.GetEnvironmentVariable("PSX_TT_CHASE") ?? "-1";
             if (ch == "auto") { chaseTurn = -1; float best = 0f; for (int k = 0; k < turnDeg.Count; k++) if (turnDeg[k] > best) { best = turnDeg[k]; chaseTurn = k; } }
             else if (!int.TryParse(ch, out chaseTurn)) chaseTurn = -1;
@@ -131,6 +134,13 @@ namespace PSXRacing.EditorTools
             if (outDir == null || rm == null) return;
             float t = Time.time - t0;
             if (chaseTurn >= 0) ChaseStep(t);
+            if (planOn && rm.playerCar != null)
+                for (int k = 0; k < turnC.Count; k++)
+                {
+                    if (planDone[k]) continue;
+                    Vector3 d = rm.playerCar.transform.position - turnC[k]; d.y = 0f;
+                    if (d.magnitude < 70f) { planDone[k] = true; PlanShot(k, turnC[k], 100f); }
+                }
             if (t < nextSample) return;
             nextSample = t + 0.05f;
             var cp = rm.Checkpoints;
@@ -185,10 +195,11 @@ namespace PSXRacing.EditorTools
             float dist = dd.magnitude;
             bool approaching = Vector3.Dot(chaseCar.transform.forward, -dd) > 0f;
             if (chasePhase == 0 && approaching && dist <= 30f) { ChaseShot("entry"); chasePhase = 1; }
-            else if (chasePhase == 1 && dist > chaseLast + 0.2f) { ChaseShot("apex"); chasePhase = 2; }
+            else if (chasePhase == 1 && dist > chaseMin + 1f) { ChaseShot("apex"); chasePhase = 2; }
             else if (chasePhase == 2 && !approaching && dist >= 25f) { ChaseShot("exit"); chasePhase = 3; }
-            chaseLast = Mathf.Min(chaseLast, dist);
-            if (chasePhase == 1) chaseLast = dist;
+            if (chasePhase == 0) chaseMin = dist;
+            chaseMin = Mathf.Min(chaseMin, dist);
+            chaseLast = dist;
         }
 
         static void ChaseShot(string phase)

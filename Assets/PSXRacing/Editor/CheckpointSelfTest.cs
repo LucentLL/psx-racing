@@ -133,6 +133,9 @@ namespace PSXRacing.EditorTools
             // off the suggested line (the check race's blockers 1 and 3)
             OffRoad(map, R, cps, cost, loop, sb, ref fails);
             OffRoute(map, R, cps, cost, loop, sb, ref fails);
+            // THE RULER across every lane of the suggested route (cityai 11-25: the owner's RX-7 read 1,231 m to gate 2 for
+            // 80 m of University City Blvd's right lane, beside the channelised right turn's line, edge 13224)
+            if (ch.dir == "fwd") LaneWalk(map, R, route, cps, cost, loop, sb, ref fails);
             // routed paths on every leg's cost optimum
             var go = new GameObject("CheckpointSelfTest_path");
             try
@@ -236,6 +239,87 @@ namespace PSXRacing.EditorTools
             var e = map.edges[g.e];
             t = g.d == 1 ? g.s : e.length - g.s;
             return g.e * 2 + (g.d == 1 ? 0 : 1);
+        }
+
+        /// <summary>
+        /// THE RULER IN EVERY LANE (cityai 11-25). A car anywhere on the suggested route's own-direction pavement - a
+        /// right lane beside a slip lane's line, a turn bay, the left lane of a one-way - is measured as the player is
+        /// (the sticky locate with the route preference, 20 m/s, 2 m steps), and its remaining must stay the route's
+        /// own metres within 30 m: no jump of a kilometre for a lane's width. Walks at 1.5 m, then every 3 m across the
+        /// pavement to 1 m inside its edge. PSX_CP_RULER_HOLD (CheckpointRace) is what the race does about it.
+        /// </summary>
+        static void LaneWalk(CityMap map, CityRouter R, CityMap.Route route, CheckpointFile.Gate[] cps, CityRouter.Field[] F, bool loop, StringBuilder sb, ref int fails)
+        {
+            int n = route.edges.Length;
+            var cum = new float[n + 1];
+            for (int i = 0; i < n; i++) cum[i + 1] = cum[i] + map.edges[route.edges[i]].length;
+            float L = cum[n];
+            int N = cps.Length;
+            float start = cps[0].routeM;
+            float span = loop ? L : (cps[N - 1].routeM - start);
+            int walks = 0, steps = 0, bad = 0, jumps = 0;
+            float worst = 0f; string worstAt = "";
+            var where = new Dictionary<string, int>();
+            for (int w = 0; w < 6; w++)
+            {
+                float latWant = w == 0 ? 1.5f : 1.5f + 3f * w;
+                var loc = new CityRouter.Loc();
+                var pref = CityRouter.PreferState.None;
+                int dir = 0, rEdge = -1, target = 1, settle = 0, walkSteps = 0;
+                float now = 9000f + w * 1000f, prevV = -1f, prevWant = -1f;
+                for (float u = 1f; u < span - 1f; u += 2f)
+                {
+                    float m = start + u; if (loop) m = Mathf.Repeat(m, L);
+                    float tu = Mathf.Repeat(cps[target].routeM - start, loop ? L : 1e9f);
+                    if (target == 0) tu = L;
+                    if (u >= tu)
+                    {
+                        target = loop ? (target + 1) % N : target + 1;
+                        if (!loop && target >= N) break;
+                        settle = 0; prevV = -1f;
+                    }
+                    int i = 0; while (i < n - 1 && cum[i + 1] <= m) i++;
+                    int e = route.edges[i]; var ed = map.edges[e];
+                    float t = m - cum[i];
+                    if (t < 3f || t > ed.length - 3f) { prevV = -1f; continue; }   // inside a junction box: no lane to stand in
+                    int d = route.dirs[i] >= 0 ? 1 : -1;
+                    float s = d > 0 ? t : ed.length - t;
+                    int st = e * 2 + (d > 0 ? 0 : 1);
+                    // the pavement right of the travel direction (and left of it on a one-way), from the OSM line
+                    float rightEdge = ed.PaveEdgeM(s, d), leftEdge = ed.PaveEdgeM(s, -d);
+                    float lat = ed.oneway ? -leftEdge + latWant : latWant;
+                    if (lat > rightEdge - 1f) { prevV = -1f; continue; }
+                    var p = R.PointOn(st, t, out Vector2 tan);
+                    var pos = new Vector3(p.x, ed.YAt(s), p.y) + new Vector3(tan.y, 0f, -tan.x) * lat;
+                    var fwd = new Vector3(tan.x, 0f, tan.y);
+                    now += 0.1f;
+                    R.Locate(pos, fwd * 20f, fwd, ref loc, now, R.Prefer(ref pref, F[target], target, loc, dir, pos));
+                    if (loc.edge != rEdge) { rEdge = loc.edge; dir = 0; }
+                    float v = R.Remaining(F[target], pos, ref loc, ref dir);
+                    float want = R.RouteFrom(F[target], st, t);
+                    walkSteps++;
+                    if (settle++ < 3) { prevV = v; prevWant = want; continue; }
+                    steps++;
+                    if (Mathf.Abs(v - want) > 30f)
+                    {
+                        bad++;
+                        string key = $"gate {target}, route edge {e} read as edge {loc.edge}";
+                        where.TryGetValue(key, out int nk); where[key] = nk + 1;
+                        if (Mathf.Abs(v - want) > worst) { worst = Mathf.Abs(v - want); worstAt = $"{key} at {t:0} m, {lat:0.0} m right of its line: {v:0} m, the route {want:0} m"; }
+                    }
+                    if (prevV >= 0f && Mathf.Abs((v - prevV) - (want - prevWant)) > 30f) jumps++;
+                    prevV = v; prevWant = want;
+                }
+                if (walkSteps > 0) walks++;
+            }
+            if (bad > 0)
+            {
+                var top = new List<KeyValuePair<string, int>>(where);
+                top.Sort((x, y) => y.Value.CompareTo(x.Value));
+                for (int i = 0; i < top.Count && i < 8; i++) sb.AppendLine($"      lane misreads: {top[i].Value} x {top[i].Key}");
+            }
+            if (bad > 0) { sb.AppendLine($"FAIL  every lane: the ruler left the route's metres by over 30 m at {bad} of {steps} steps ({jumps} jumps) on {walks} lane walks; worst {worst:0} m: {worstAt}"); fails++; }
+            else sb.AppendLine($"ok    every lane: {walks} lane walks, {steps} steps of 2 m: the ruler stayed within 30 m of the route's metres");
         }
 
         static Vector3 At(CityMap map, CityRouter R, int st, float t, out Vector2 tan)

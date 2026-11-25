@@ -1,0 +1,265 @@
+using System.Collections.Generic;
+using UnityEngine;
+using PSXRacing.City;
+
+namespace PSXRacing
+{
+    /// <summary>
+    /// A RIVAL'S JUNCTION TURN IS A CORNER DRIVEN ON A RADIUS (cityai 11-25; the owner, CltC7: "AI can't even turn on
+    /// this track, they make 90 degree turns. Very unnatural to see."). A routed path (<see cref="RoutedPath"/>) ran
+    /// the lanes' centre of one road to the node and the next road's from it: a corner. Every rival drove the corner
+    /// as written - straight to the junction, a pivot at the node - because nothing between the two lines was a
+    /// line. This lays, at every join of <see cref="MinDeg"/> or more, the LARGEST circular arc tangent to the two
+    /// lanes' lines (searched from <see cref="TanMaxM"/> of tangent down) that keeps the car on drawn pavement:
+    /// - <see cref="KerbClearM"/> off every kerb stretch of the junction's fan (<see cref="CityMeshes.FanKerbs"/>:
+    ///   corner returns, islands, medians' noses, 15 m up each arm), or as far as the corner itself was where that is
+    ///   less;
+    /// - inside each arm's own pavement (<see cref="CityMap.Edge.PaveEdgeM"/>, <see cref="PaveKeepM"/> in) where the
+    ///   arc runs outside the junction box;
+    /// - both checked on the arc AND on the line the car drives it on: a two-way road's own side
+    ///   (<see cref="RoutedPath"/>'s ownLaneOff, the way AIDriver.LineOffset keeps right through a junction);
+    /// - its tangent no further back than the arm's trim (where the junction's pavement starts) + <see cref="PastTrimM"/>.
+    /// The geometry is the map's and the trims' at run time: nothing is baked. The arc's curvature is written as its
+    /// own 1/r (RoutedPath), so PlanSpeed brakes before the corner to what the tyres hold on it (AIGrip, the yaw
+    /// ceiling) and the car accelerates out. No arc of <see cref="MinR"/> or more fits: the corner as before.
+    /// PSX_CP_TURNS=0 (LAB row AI RACING TURNS): the corners as before (each car's next re-plan).
+    /// </summary>
+    public static class RacingTurns
+    {
+        public static bool On = System.Environment.GetEnvironmentVariable("PSX_CP_TURNS") != "0";
+        public const float MinDeg = 30f, MaxDeg = 170f;
+        public static float KerbClearM = 1.4f, PaveKeepM = 1.0f, TanMaxM = 30f, PastTrimM = 6f, MinR = 4f, StepM = 0.5f;
+
+        public struct Join { public int idx, node, ein, eout; public float turnDeg; }
+        public struct Cut { public int i0, i1; public float r; public float deg; }
+
+        /// <summary>Totals over every build since the last <see cref="ResetStats"/> (the self-test and the play check).</summary>
+        public static int Tried, Laid, NoFit;
+        public static float MinLaidR = float.PositiveInfinity;
+        public static readonly List<float> LaidR = new List<float>(256);
+        public static void ResetStats() { Tried = Laid = NoFit = 0; MinLaidR = float.PositiveInfinity; LaidR.Clear(); }
+
+        static readonly List<Vector2> np = new List<Vector2>(8192), lp = new List<Vector2>(256);
+        static readonly List<float> ny = new List<float>(8192), no = new List<float>(8192);
+        static readonly List<Vector2> kerbSegs = new List<Vector2>(256);
+        static float[] arcBuf = new float[0];
+
+        static float Cr(Vector2 a, Vector2 b) => a.x * b.y - a.y * b.x;
+
+        static float KerbDist(Vector2 q, List<Vector2> segs)
+        {
+            float best = float.MaxValue;
+            for (int i = 0; i + 1 < segs.Count; i += 2)
+            {
+                var a = segs[i]; var ab = segs[i + 1] - a;
+                float t = ab.sqrMagnitude > 1e-8f ? Mathf.Clamp01(Vector2.Dot(q - a, ab) / ab.sqrMagnitude) : 0f;
+                best = Mathf.Min(best, (q - (a + ab * t)).magnitude);
+            }
+            return best;
+        }
+
+        /// <summary>Where q stands against edge e near its end at <paramref name="node"/>: metres from the node along
+        /// the edge, and metres right of the edge's points' direction. False when q is not beside its first 80 m.</summary>
+        static bool Beside(CityMap.Edge e, int node, Vector2 q, out float fromNode, out float sAt, out float lat)
+        {
+            fromNode = sAt = lat = 0f;
+            var p = e.pts; var s = e.s;
+            if (p == null || p.Length < 2) return false;
+            bool atA = e.a == node;
+            float best = float.MaxValue;
+            for (int i = 0; i + 1 < p.Length; i++)
+            {
+                float segFrom = atA ? s[i] : e.length - s[i + 1];
+                if (segFrom > 80f) continue;
+                var a = p[i]; var ab = p[i + 1] - a;
+                float L2 = ab.sqrMagnitude;
+                if (L2 < 1e-8f) continue;
+                float t = Mathf.Clamp01(Vector2.Dot(q - a, ab) / L2);
+                var c = a + ab * t;
+                float d = (q - c).sqrMagnitude;
+                if (d < best)
+                {
+                    best = d;
+                    sAt = s[i] + t * (s[i + 1] - s[i]);
+                    var dir = ab / Mathf.Sqrt(L2);
+                    lat = Vector2.Dot(q - c, new Vector2(dir.y, -dir.x));
+                    fromNode = atA ? sAt : e.length - sAt;
+                }
+            }
+            return best < float.MaxValue;
+        }
+
+        /// <summary>The trim (where the arm's ribbon meets the junction's pavement) of edge e at node, or 0.</summary>
+        static float TrimAt(CityMeshes.Trims tr, CityMap.Edge e, int node)
+        {
+            if (tr == null || tr.atA == null || e.index >= tr.atA.Length) return 0f;
+            return e.a == node ? tr.atA[e.index] : e.b == node ? tr.atB[e.index] : 0f;
+        }
+
+        /// <summary>True when q (the car's line) is on drawn pavement for this turn: off the fan's kerbs by
+        /// <paramref name="clear"/>, and inside its arm's pavement where it is past the arm's trim.</summary>
+        static bool OnPavement(CityMap map, CityMeshes.Trims tr, int node, CityMap.Edge ein, CityMap.Edge eout, Vector2 q, float clear, List<Vector2> kerbs, out float kd)
+        {
+            kd = kerbs != null ? KerbDist(q, kerbs) : float.MaxValue;
+            if (kd < clear) return false;
+            // past the box on either arm: inside that arm's own pavement
+            for (int w = 0; w < 2; w++)
+            {
+                var e = w == 0 ? ein : eout;
+                if (!Beside(e, node, q, out float from, out float s, out float lat)) continue;
+                float trim = TrimAt(tr, e, node);
+                if (from <= trim + 0.5f) continue;
+                float right = e.PaveEdgeM(s, 1), left = e.PaveEdgeM(s, -1);
+                // only the arm the point is actually beside (within its pavement's reach either way)
+                if (lat > right + 6f || lat < -left - 6f) continue;
+                if (lat > right - PaveKeepM || lat < -left + PaveKeepM) return false;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Fillet the routed polyline's joins in place. <paramref name="orig"/> carries each point's arc on the
+        /// UNFILLETED line (RoutedPath maps a waypoint to its edge and arc through it); <paramref name="own"/> gives
+        /// a join's own-side offsets in and out (metres right of travel; 0 on a one-way). Cuts come back as index
+        /// ranges of the new polyline with their radius.
+        /// </summary>
+        public static void Apply(CityMap map, List<Vector2> pts, List<float> ys, List<float> orig, List<Join> joins,
+                                 List<Vector2> ownInOut, List<Cut> cuts)
+        {
+            cuts.Clear();
+            int n = pts.Count;
+            if (!On || map == null || n < 3 || joins.Count == 0) return;
+            if (arcBuf.Length < n) arcBuf = new float[n + 256];
+            var arc = arcBuf;
+            arc[0] = 0f;
+            for (int i = 1; i < n; i++) arc[i] = arc[i - 1] + Vector2.Distance(pts[i - 1], pts[i]);
+            float total = arc[n - 1];
+            int seg = 0;
+            Vector2 At(float a, out float y, out float o)
+            {
+                a = Mathf.Clamp(a, 0f, total);
+                if (seg > n - 2 || arc[seg] > a) seg = 0;
+                while (seg < n - 2 && arc[seg + 1] < a) seg++;
+                float L = arc[seg + 1] - arc[seg], t = L > 1e-5f ? Mathf.Clamp01((a - arc[seg]) / L) : 0f;
+                y = Mathf.Lerp(ys[seg], ys[seg + 1], t);
+                o = Mathf.Lerp(orig[seg], orig[seg + 1], t);
+                return Vector2.Lerp(pts[seg], pts[seg + 1], t);
+            }
+            CityMeshes.Trims tr = null;
+            var found = new List<(float a0, float a1, Vector2 c, float r, float ang0, float sweep, float deg)>();
+            float lastA1 = 0f;
+            for (int k = 0; k < joins.Count; k++)
+            {
+                var J = joins[k];
+                int j = J.idx, j1 = j + 1;
+                if (j <= 0 || j1 >= n - 1 || J.turnDeg < MinDeg || J.turnDeg > MaxDeg) continue;
+                Tried++;
+                float aJ = arc[j], aO = arc[j1];
+                float prev = lastA1;
+                // the next sharp join bounds this one's exit line (its own arc comes after)
+                float next = total;
+                for (int k2 = k + 1; k2 < joins.Count; k2++)
+                    if (joins[k2].turnDeg >= 10f && joins[k2].idx > j1) { next = arc[Mathf.Min(joins[k2].idx, n - 1)]; break; }
+                float probe = Mathf.Min(4f, 0.45f * (aJ - prev), 0.45f * (next - aO));
+                if (probe < 0.5f) { NoFit++; continue; }
+                var tIn = pts[j] - At(aJ - probe, out _, out _);
+                var tOut = At(aO + probe, out _, out _) - pts[j1];
+                if (tIn.sqrMagnitude < 1e-6f || tOut.sqrMagnitude < 1e-6f) { NoFit++; continue; }
+                tIn.Normalize(); tOut.Normalize();
+                float defl = Vector2.Angle(tIn, tOut);
+                float den = Cr(tIn, tOut);
+                if (defl < MinDeg || defl > MaxDeg || Mathf.Abs(den) < 1e-3f) continue;
+                bool left = den > 0f;
+                // where the two lanes' lines meet
+                float uP = Cr(pts[j1] - pts[j], tOut) / den;
+                var P = pts[j] + tIn * uP;
+                float vP = Vector2.Dot(P - pts[j1], tOut);
+                if (Mathf.Abs(uP) > 20f || Mathf.Abs(vP) > 20f) { NoFit++; continue; }
+                if (tr == null) tr = CityWorld.TrimsFor(map);
+                var ein = map.edges[J.ein]; var eout = map.edges[J.eout];
+                kerbSegs.Clear();
+                if (tr != null) CityMeshes.FanKerbs(map, tr, J.node, kerbSegs);
+                var ks = kerbSegs.Count >= 2 ? kerbSegs : null;
+                // the corner's own clearance (an arc need not beat what the lanes themselves keep)
+                float lineClr = float.MaxValue;
+                if (ks != null)
+                    for (float a = Mathf.Max(prev, aJ - 25f); a <= Mathf.Min(next, aO + 25f); a += 0.5f)
+                        lineClr = Mathf.Min(lineClr, KerbDist(At(a, out _, out _), ks));
+                float clear = Mathf.Min(KerbClearM, lineClr - 0.05f);
+                float tanH = Mathf.Tan(0.5f * defl * Mathf.Deg2Rad);
+                float trimIn = TrimAt(tr, ein, J.node), trimOut = TrimAt(tr, eout, J.node);
+                float Tcap = TanMaxM;
+                if (trimIn > 0f) Tcap = Mathf.Min(Tcap, trimIn + PastTrimM + Mathf.Max(0f, -uP));
+                if (trimOut > 0f) Tcap = Mathf.Min(Tcap, trimOut + PastTrimM + Mathf.Max(0f, -vP));
+                Vector2 oIn = ownInOut != null && k < ownInOut.Count ? ownInOut[k] : Vector2.zero;
+                bool fit = false;
+                for (float T = Tcap; T >= 1f - 1e-3f; T -= StepM)
+                {
+                    float r = T / tanH;
+                    if (r < MinR) break;
+                    float a0 = aJ + uP - T, a1 = aO + vP + T;
+                    if (a0 > aJ + 1e-3f || a1 < aO - 1e-3f) continue;
+                    if (a0 < prev + 0.5f || a1 > next - 0.5f) continue;
+                    var p0 = P - tIn * T;
+                    var nIn = left ? new Vector2(-tIn.y, tIn.x) : new Vector2(tIn.y, -tIn.x);
+                    var c = p0 + nIn * r;
+                    float ang0 = Mathf.Atan2(p0.y - c.y, p0.x - c.x);
+                    float sweep = (left ? 1f : -1f) * defl * Mathf.Deg2Rad;
+                    // the arc and the car's line on it (own side, eased from the in-road's to the out-road's)
+                    bool ok = true;
+                    int m = Mathf.Max(6, Mathf.CeilToInt(r * Mathf.Abs(sweep)));
+                    for (int q = 0; q <= m && ok; q++)
+                    {
+                        float u = q / (float)m, ang = ang0 + sweep * u;
+                        var pt = c + new Vector2(Mathf.Cos(ang), Mathf.Sin(ang)) * r;
+                        var tan = left ? new Vector2(-Mathf.Sin(ang), Mathf.Cos(ang)) : new Vector2(Mathf.Sin(ang), -Mathf.Cos(ang));
+                        var rightV = new Vector2(tan.y, -tan.x);
+                        float own = Mathf.Lerp(oIn.x, oIn.y, u);
+                        if (!OnPavement(map, tr, J.node, ein, eout, pt, clear, ks, out _)) ok = false;
+                        else if (Mathf.Abs(own) > 0.2f && !OnPavement(map, tr, J.node, ein, eout, pt + rightV * own, clear, ks, out _)) ok = false;
+                    }
+                    // the car's own line must still be a turn it can make: a right turn's own side is inside the arc
+                    if (ok && !left && r - oIn.x < MinR) ok = false;
+                    if (!ok) continue;
+                    found.Add((a0, a1, c, r, ang0, sweep, defl));
+                    lastA1 = a1;
+                    fit = true;
+                    Laid++; LaidR.Add(r); MinLaidR = Mathf.Min(MinLaidR, r);
+                    break;
+                }
+                if (!fit) NoFit++;
+            }
+            if (found.Count == 0) return;
+            // rebuild the polyline with the arcs laid in
+            np.Clear(); ny.Clear(); no.Clear();
+            int ci = 0;
+            for (int i = 0; i < n; i++)
+            {
+                if (ci < found.Count && arc[i] >= found[ci].a0)
+                {
+                    var f = found[ci];
+                    At(f.a0, out float y0, out float o0);
+                    At(f.a1, out float y1, out float o1);
+                    int m = Mathf.Max(6, Mathf.CeilToInt(f.r * Mathf.Abs(f.sweep) / 1.0f));
+                    int i0 = np.Count;
+                    for (int q = 0; q <= m; q++)
+                    {
+                        float u = q / (float)m, ang = f.ang0 + f.sweep * u;
+                        np.Add(f.c + new Vector2(Mathf.Cos(ang), Mathf.Sin(ang)) * f.r);
+                        ny.Add(Mathf.Lerp(y0, y1, u));
+                        no.Add(Mathf.Lerp(o0, o1, u));
+                    }
+                    cuts.Add(new Cut { i0 = i0, i1 = np.Count - 1, r = f.r, deg = f.deg });
+                    while (i < n && arc[i] <= f.a1 + 1e-4f) i++;
+                    ci++;
+                    i--;
+                    continue;
+                }
+                np.Add(pts[i]); ny.Add(ys[i]); no.Add(orig[i]);
+            }
+            pts.Clear(); pts.AddRange(np);
+            ys.Clear(); ys.AddRange(ny);
+            orig.Clear(); orig.AddRange(no);
+        }
+    }
+}
