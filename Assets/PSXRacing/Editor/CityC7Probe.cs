@@ -202,6 +202,7 @@ namespace PSXRacing.EditorTools
                         bool lit = hd.lightsOn;
                         foreach (var l in Object.FindObjectsByType<CarLights>(FindObjectsInactive.Exclude)) l.PreviewBuild(lit, false);
                         PSXTexDecode.StampAll();
+                        float nearWas = cam.nearClipPlane;
                         cam.ResetProjectionMatrix();
                         cam.orthographic = false;
                         Vector3 eye; Quaternion look; float shift = 0f;
@@ -211,6 +212,7 @@ namespace PSXRacing.EditorTools
                             look = Quaternion.LookRotation(Vector3.down, fwd); eye.y = y + 45f;
                             cam.orthographic = true;
                             cam.orthographicSize = planHalf;
+                            cam.nearClipPlane = 39f;   // nothing more than 6 m over the car (canopies, decks, wires): the ground plan
                         }
                         else
                         {
@@ -237,6 +239,7 @@ namespace PSXRacing.EditorTools
                         PSXScreenshotTool.ShotAs(cam, $"c7/{id}_{view}_{tag}", eye, look);
                         cam.ResetProjectionMatrix(); cam.ResetAspect(); cam.orthographic = false;
                         if (sun != null) sun.shadows = shadowsWas;
+                        cam.nearClipPlane = nearWas;
                     }
                 }
                 log.Append("C7 PROBE OK\n");
