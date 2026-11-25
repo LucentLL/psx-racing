@@ -578,7 +578,7 @@ namespace PSXRacing.City
                 {
                     int v0 = gb.v.Count;
                     foreach (var p in piece) { gb.v.Add(p); gb.uv.Add(GroundUV(paved, p.x + o.x, p.z + o.z)); }
-                    for (int k = 1; k + 1 < piece.Count; k++) { gb.t.Add(v0); gb.t.Add(v0 + k + 1); gb.t.Add(v0 + k); }
+                    { int pt0_ = gb.t.Count; for (int k = 1; k + 1 < piece.Count; k++) { gb.t.Add(v0); gb.t.Add(v0 + k + 1); gb.t.Add(v0 + k); } ProvHook?.Invoke(gb, gb.t, pt0_); }
                     FreePoly(piece);
                 }
                 lotOut.Clear();
@@ -676,7 +676,7 @@ namespace PSXRacing.City
             {
                 int v0 = top.v.Count;
                 foreach (var p in piece) { top.v.Add(p); top.uv.Add(GroundUV(!grass, p.x + o.x, p.z + o.z)); }
-                for (int k = 1; k + 1 < piece.Count; k++) { top.t.Add(v0); top.t.Add(v0 + k + 1); top.t.Add(v0 + k); }
+                { int pt0_ = top.t.Count; for (int k = 1; k + 1 < piece.Count; k++) { top.t.Add(v0); top.t.Add(v0 + k + 1); top.t.Add(v0 + k); } ProvHook?.Invoke(top, top.t, pt0_); }
                 FreePoly(piece);
             }
             islandTops.Clear();
@@ -724,6 +724,7 @@ namespace PSXRacing.City
                     bk.v.Add(new Vector3(q.x - o.x, yq - 0.05f, q.y - o.z)); bk.uv.Add(new Vector2(s1 / 6f, 0f));
                     bk.t.Add(v0); bk.t.Add(v0 + 1); bk.t.Add(v0 + 2);
                     bk.t.Add(v0); bk.t.Add(v0 + 2); bk.t.Add(v0 + 3);
+                    ProvHook?.Invoke(bk, bk.t, bk.t.Count - 6);
                 }
                 sAcc += len;
             }
@@ -855,7 +856,7 @@ namespace PSXRacing.City
                 bk.uv.Add(stall ? new Vector2(0.5f * (stallU0 + stallU1), (p.x + p.z + o.x + o.z) / 12f)
                                 : new Vector2((p.x + o.x) / 12f, (p.z + o.z) / 12f));
             }
-            for (int k = 1; k + 1 < piece.Count; k++) { bk.t.Add(v0); bk.t.Add(v0 + k + 1); bk.t.Add(v0 + k); }
+            { int pt0_ = bk.t.Count; for (int k = 1; k + 1 < piece.Count; k++) { bk.t.Add(v0); bk.t.Add(v0 + k + 1); bk.t.Add(v0 + k); } ProvHook?.Invoke(bk, bk.t, pt0_); }
         }
 
         /// <summary>Every piece of <paramref name="pieces"/> split by the

@@ -885,7 +885,7 @@ namespace PSXRacing.City
                         fanBk.v.Add(p);
                         fanBk.uv.Add(new Vector2((p.x + tm.origin.x) / 12f, (p.z + tm.origin.z) / 12f));
                     }
-                    for (int k = 1; k + 1 < piece.Count; k++) { fanBk.t.Add(v0); fanBk.t.Add(v0 + k + 1); fanBk.t.Add(v0 + k); }
+                    { int pt0_ = fanBk.t.Count; for (int k = 1; k + 1 < piece.Count; k++) { fanBk.t.Add(v0); fanBk.t.Add(v0 + k + 1); fanBk.t.Add(v0 + k); } ProvHook?.Invoke(fanBk, fanBk.t, pt0_); }
                 }
             }
             fanTriCount = (fanBk.t.Count - fanTriStart) / 3;
@@ -913,7 +913,7 @@ namespace PSXRacing.City
                 bk.v.Add(p);
                 bk.uv.Add(new Vector2(Mathf.Lerp(st.uR, st.uL, f), Mathf.Lerp(st.v[qi], st.v[qi + 1], t)));
             }
-            for (int k = 1; k + 1 < piece.Count; k++) { bk.t.Add(v0); bk.t.Add(v0 + k + 1); bk.t.Add(v0 + k); }
+            { int pt0_ = bk.t.Count; for (int k = 1; k + 1 < piece.Count; k++) { bk.t.Add(v0); bk.t.Add(v0 + k + 1); bk.t.Add(v0 + k); } ProvHook?.Invoke(bk, bk.t, pt0_); }
         }
     }
 }

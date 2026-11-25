@@ -101,7 +101,7 @@ namespace PSXRacing.City
         {
             int v0 = bk.v.Count;
             foreach (var p in piece) { bk.v.Add(p); bk.uv.Add(GroundUV(paved, p.x + o.x, p.z + o.z)); }
-            for (int k = 1; k + 1 < piece.Count; k++) { bk.t.Add(v0); bk.t.Add(v0 + k + 1); bk.t.Add(v0 + k); }
+            { int pt0_ = bk.t.Count; for (int k = 1; k + 1 < piece.Count; k++) { bk.t.Add(v0); bk.t.Add(v0 + k + 1); bk.t.Add(v0 + k); } ProvHook?.Invoke(bk, bk.t, pt0_); }
         }
 
         /// <summary>Is a plan point on a driveway or its curb cut (this tile

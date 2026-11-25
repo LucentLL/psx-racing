@@ -1203,6 +1203,7 @@ namespace PSXRacing.City
                 var tl = Tris;
                 tl.Add(i); tl.Add(i + 2); tl.Add(i + 1);
                 tl.Add(i); tl.Add(i + 3); tl.Add(i + 2);
+                ProvHook?.Invoke(this, tl, tl.Count - 6);
             }
 
             public void Tri(Vector3 a, Vector3 b, Vector3 c, Vector2 ua, Vector2 ub, Vector2 uc)
@@ -1214,6 +1215,7 @@ namespace PSXRacing.City
                 if (fac != null) { fac.Add(FacAt(a)); fac.Add(FacAt(b)); fac.Add(FacAt(c)); }
                 var tl = Tris;
                 tl.Add(i); tl.Add(i + 2); tl.Add(i + 1);
+                ProvHook?.Invoke(this, tl, tl.Count - 3);
             }
 
             /// <summary>A horizontal-ish quad that faces UP whatever order
@@ -1296,6 +1298,26 @@ namespace PSXRacing.City
         }
 
         static readonly Bucket[] buckets = NewBuckets();
+        /// <summary>c7roads INVENTORY (editor instrument, null in the game): called after a bucket gains
+        /// triangles, with the bucket, its triangle list and the first new index. Editor/CityC7Probe.cs
+        /// records who emitted each triangle near a spot. One null check per quad when unset.</summary>
+        public static System.Action<object, List<int>, int> ProvHook;
+        /// <summary>The tile being built's origin (bucket vertices are tile-local).</summary>
+        public static Vector3 ProvTileOrigin => tileOrigin;
+        /// <summary>A bucket's name for the inventory: its slot, or the mesh it feeds.</summary>
+        public static string ProvBucketName(object b)
+        {
+            for (int i = 0; i < buckets.Length; i++) if (ReferenceEquals(buckets[i], b)) return ((Slot)i).ToString();
+            if (ReferenceEquals(b, barrierBucket)) return "barriers";
+            if (ReferenceEquals(b, guardBucket)) return "guardrails";
+            if (ReferenceEquals(b, kerbBucket)) return "kerbs";
+            if (ReferenceEquals(b, lampBucket)) return "lamps";
+            if (ReferenceEquals(b, structBucket)) return "structure";
+            if (ReferenceEquals(b, bankBucket)) return "banks";
+            return "other";
+        }
+        /// <summary>A bucket's vertex list (tile-local), for the inventory.</summary>
+        public static List<Vector3> ProvVerts(object b) => (b as Bucket)?.v;
         static readonly Bucket barrierBucket = new Bucket();
         /// <summary>The tile build's union-Jersey metres so far (TileMeshes.unionJerseyM).</summary>
         static float unionJerseyTally;
@@ -9548,8 +9570,10 @@ namespace PSXRacing.City
             float area = (b.x - a.x) * (c.z - a.z) - (c.x - a.x) * (b.z - a.z)
                        + (c.x - a.x) * (d.z - a.z) - (d.x - a.x) * (c.z - a.z);
             if (area < 0f) { int t = ib; ib = id; id = t; b = bk.v[ib]; d = bk.v[id]; }
+            int pt0_ = bk.t.Count;
             if (!noFins || !Fin(a, c, b)) { bk.t.Add(ia); bk.t.Add(ic); bk.t.Add(ib); }
             if (!noFins || !Fin(a, d, c)) { bk.t.Add(ia); bk.t.Add(id); bk.t.Add(ic); }
+            if (ProvHook != null && bk.t.Count > pt0_) ProvHook(bk, bk.t, pt0_);
         }
 
         /// <summary>Does a triangle stand steeper than <see cref="FillSteepNy"/>?</summary>
@@ -10829,10 +10853,14 @@ namespace PSXRacing.City
                     ReleaseStrips();
                 }
                 else
+                {
+                    int pt0_ = bk.t.Count;
                     for (int i = 0; i + 2 < fanTris.Count; i += 3)
                     {
                         bk.t.Add(centerI + fanTris[i]); bk.t.Add(centerI + fanTris[i + 2]); bk.t.Add(centerI + fanTris[i + 1]);
                     }
+                    ProvHook?.Invoke(bk, bk.t, pt0_);
+                }
                 tm.patchCount++;
 
                 bool onStructure = FanOnStructure(map, trims, n);
@@ -11868,6 +11896,12 @@ namespace PSXRacing.City
         /// <summary>Simple ear clipping, faces UP. Fine for the clipped lake
         /// pieces and for building roofs, which are small simple polygons.</summary>
         static void EarcutInto(Bucket bk, List<Vector2> poly, float y, Vector3 origin, float uvMeters)
+        {
+            int pt0_ = bk.t.Count;
+            try { EarcutIntoCore(bk, poly, y, origin, uvMeters); }
+            finally { if (ProvHook != null && bk.t.Count > pt0_) ProvHook(bk, bk.t, pt0_); }
+        }
+        static void EarcutIntoCore(Bucket bk, List<Vector2> poly, float y, Vector3 origin, float uvMeters)
         {
             var idx = new List<int>(poly.Count);
             float area = 0f;
