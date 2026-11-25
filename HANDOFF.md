@@ -1,3 +1,99 @@
+# HANDOFF - NIGHT5: NIGHT 4 keeps the lane paint and the paving joints, no light past medians and corners, the LAB row back from OFF, two tool faults (agent "night5", 11-25; branch `city-night5` from cdf3fc87; NOT pushed, NOT merged)
+
+All frames and timings are EDITOR runs in PSXPerf (hidden batch editor, PSX_PROFILE=PC, PSX_PC_CONTENT=1, StandaloneWindows64, city tiles built live), except the two PC67 exe leak runs (hidden, -batchmode, no other PSXRacing.exe running). No player was built. NIGHT 4 stays OFF by default.
+
+## What was wrong
+1. PSXLit.shader (NIGHT 4 block, ~2865): the cap was per TEXEL, so every texel over 0.12 took the same value: white paint = lit asphalt, joints and grain flat. A first fix that read the texture's last mip did nothing on its own: 1148 of the art's textures carry no mips, so the last mip IS the texel.
+2. The Jersey on the exe (+8.4): the probe held the car 0.45 m up with ResetTo for 6 frames and shot 50 frames later (0.14 s at ~400 fps). The car had not settled, so its fan (0.45 m under the lamps) was cast over the barrier (reach toward the patch 8.6-8.9 m with the barrier at 4.9 m), and round 4's soft edge carried the beam 0.3-1.8 m past the reach. On PC67 (cdf3fc87, NIGHT 4 forced on) the same probe now reads +0.1 twice (async and OccAsync=0). In the editor, a car held up every frame never cut the light (fan over the Jersey); settled, it cut in 2-3 frames.
+3. Real leaks the old table did not show: the POOLS-only light behind the Jersey, +41.3 (editor) / +42.4 (exe), from the 2 m pool texels read bilinearly plus the 1.8 m soft edge; the lamp field round a building corner, +11.6 (the same 2 m texel bleed, not the halo); the beam past a building corner, +11.7 (two reach bins averaged across the corner).
+4. LAB check NOT BACK from OFF (PC67): StreetLights.Night3.cs PushN3 gathers a lamp change at most twice a second. The exe check flips ON and OFF within 12 frames (30 ms at ~400 fps), so the field kept NIGHT 4's lamp views when it was switched off. It caught up within the next row, which is why the farhaze2 row's baseline was off too.
+5. PerfTour: the leak probe waited in frames; a field run on a LOOP stage ended on its first frame (the grid stands at the path's end), so the app quit before `_onroad.txt`.
+
+## What changed (all behind public static fields; =0 gives cdf3fc87)
+- `StreetLights.N4PaintKeep` (PSX_N4_PAINT, default on): the cap limits the surface's MEAN. Each PSXLit material's colour texture, and a road base's base and gutter textures, is averaged once on the GPU: a blit to 128x128, its mips, the 1x1 read back asynchronously. The result goes on the material (`_PSXN4Mean*`, runtime only). The shader scales every texel by the one factor. Facades and the prop atlas use their own column or cell at the last mip, so they keep the per-texel behaviour where there are no mips. Shader: `_PSXNight4.w` = 2.
+- `StreetLights.N4Tight` (PSX_N4_TIGHT, default on): the lamp-field and car-pool splats light a 2 m texel only as much as the least-lit corner of its footprint. The per-pixel beam ends 0.15-0.5 m past the face it hit (it was 0.3-1.8 m). The beam and pool take the shorter of the two reach bins either side of a bearing. A shrinking reach follows in `CarLights.OccShrinkS` (0.01 s) and a growing one still eases (0.1 s). A new or stale fan starts at no reach and eases in. Global `_PSXN4Tight`.
+- `StreetLights.N4FlipAll` (PSX_N4_FLIPALL, default on): when NIGHT 4 is switched on mid-drive, every lamp without a view is found at once, as at a load.
+- Any change to NIGHT 4 or N4Tight re-gathers the field on the next frame (`N4TouchNow`, past the half-second gate). The LAB row's apply uses it. That fixes NOT BACK.
+- Tools: leak probe settles `PerfTour.LeakSettleS` = 1.5 s of game time (frames as a floor); a shrink trace and a fan probe in the csv; leak kind `flip` (the mid-drive switch-on test). PerfTour.Stage: a loop's road end counts only once the car is on the lap, and a field run waits up to 30 s for its on-road file.
+
+## Numbers
+
+### A. Paint : asphalt (Ycode p97 / p30 in a box holding both; editor; scratchpad night5\paint.py)
+| spot | NIGHT 3 | NIGHT 4 cdf3fc87 | night5 |
+|---|---|---|---|
+| Trade St dash (beam + lamp) | 167/39 = 4.31 | 69/37 = 1.87 | 131/25 = 5.18 |
+| crosswalk + ONLY, Trade x Tryon (lamps) | 208/88 = 2.36 | 129/83 = 1.55 | 208/88 = 2.38 |
+| crosswalk + stop bar, Tryon (beam) | 97/27 = 3.59 | 53/26 = 2.00 | 96/27 = 3.58 |
+| I-77 lane line (beam) | 222/171 = 1.29 | 179/170 = 1.05 | 222/171 = 1.29 |
+The first run with the last-mip fetch alone gave night5 = cdf3fc87 (1.87-2.09 / 1.55 / 2.01 / 1.05): proof that the textures have no mips.
+
+### A. Region table (median/p90 Ycode; same poses and boxes as round 4; traffic 0)
+| cell | region | NIGHT 3 | NIGHT 4 cdf3fc87 | night5 |
+|---|---|---|---|---|
+| W Trade | sky | 13/18 | 13/15 | 10/13 (*) |
+| W Trade | road under lamp | 123/213 | 73/161 | 73/159 |
+| W Trade | road between | 48/66 | 46/61 | 42/56 |
+| W Trade | pavement | 44/60 | 27/37 | 22/36 |
+| skybridge | walls by the street | 90/179 | 71/107 | 70/107 |
+| skybridge | pavement | 25/82 | 24/31 | 24/31 |
+| side street | pavement | 193/216 | 113/144 | 113/144 |
+| side street | faces above | 39/154 | 35/103 | 31/95 |
+(*) the sky does not depend on this round's change: the night-sky weight eases over 2 s and the cdf3fc87 cell was shot 30 frames after NIGHT 4 went on. Every surface is within 10 % except W Trade pavement (27 to 22, 19 % DARKER) and side faces (35 to 31). Nothing got lighter.
+
+### B. Leak table (light on minus off, Ycode at the patch; NIGHT 4)
+| spot | exe PC67 ec47d64d (coordinator) | exe PC67 cdf3fc87 + N4 on (mine, x2) | editor cdf3fc87 edges | editor night5 |
+|---|---|---|---|---|
+| lamp behind building corner (bld) | +11.0 | - | +11.6 | 0.0 |
+| Jersey median, car beam (med) | +8.4 | +0.1 / +0.1 | 0.0 | 0.0 |
+| Jersey median, pools only | +43.2 | +42.4 / +42.4 | +41.3 | 0.0 |
+| building corner, car beam (cbld) | - | - | +11.7 (pool +7.8) | 0.0 (pool 0.0) |
+| wall, car beam (cwall) | +0.1 (pool +3.7) | - | 0.0 (pool +2.9) | 0.0 (pool 0.0) |
+| NIGHT 3 for scale (med / cwall / bld) | +96.4 / +77.3 / +190.4 | +96.6 | +109.2 / +83.2 / +214.0 | same |
+
+Timing. Switching on or a car appearing: the light eases in from no reach, so the far side never takes light. The patch was cut from the first frame its rays came back ("cut 1f"). A reach that shrinks (the car turns toward a barrier or meets its start): editor, settled car, 2-3 frames = 0.019-0.045 s at 9.5-15 ms frames; with cdf3fc87's ease it was 14 frames = 0.215 s. Computed, not measured: at 60 fps about 3-4 frames (0.05-0.07 s: a cast every 2nd frame within 80 m, read back the next frame, k 0.81 a read); at 400 fps about 12 frames (0.03 s). The old way took about 0.3 s at both. A car whose fan rides 0.45 m higher (held up, airborne over a crest, lamps 0.45 m higher than this car's) casts over a Jersey: NOT FIXED.
+
+### C. Switching NIGHT 4 on mid-drive (editor, Trade St, fresh process, leak kind flip)
+| | night5 (N4FlipAll) | cdf3fc87 (budget) |
+|---|---|---|
+| first switch-on: lamps found / ms / worst frame | 1492 lamps / 371.8 ms / 421.9 ms | 381.1 ms / 418.1 ms (whole ring: the first look counts as a jump) |
+| after 150 m with NIGHT 4 off: lamps found / worst frame | 72 / 16.8 ms / 44.4 ms | 0 at once, 34 ms |
+| lamps within 400 m that NIGHT 3 lit and NIGHT 4 held dark | 0 (433 lit) | 6 for one frame (f0) |
+| player fan valid | frame 0 | frame 0 |
+LAB play check (editor, city, night, chase, PSX_NIGHT4 unset = starts OFF): pass 6, no change 10, fail 0; "night4 | Now | OLD -> NEW | 0.00/0.00 | 2.56/8.01 | 0.00/0.00 | PASS".
+
+### D. Tools
+- Leak probe: 1.5 s of game time after each switch (frames as a floor).
+- `stage=LittleSwitzerland&field=1&rivals=3&secs=20` (editor): drove 20 s ("ended: time"), wrote `_onroad.txt`: ONROAD OK, 0 of 4 cars off their road.
+
+### E. Cost (editor)
+- Probe (W Trade x Tryon, park, chase, 3832x2054 offscreen, 12 x (6+12), NIGHT 4 on). Second run, with the final shader: paint0 (mean cap off) -0.28 / -0.60 ms frame (gpu wait -0.36 / -0.43); tight0 -0.37 (gpu -0.15); n4off -1.04 (gpu -0.60). Nulls -0.38 / -0.93 (gpu +0.04 / -0.31), sd 1.0-2.1. First run: paint0 -0.95 / -0.35 against nulls +0.19 / +0.22. All inside the noise. The GPU column may hold 0.2-0.4 ms for the mean path; that is not resolved.
+- Drive clocks (uptown + I-77, traffic 2, 8012 frames after the first 300). night5: OccUpdate p50/p99/max 0.233/0.387/0.57 ms, lamp view 0/1.96/23.89 ms, stalls 32 (7 with NIGHT 4 work over 1 ms). cdf3fc87 switches: 0.226/0.364/0.57, 0/1.87/23.64, 30 (6). No measurable change.
+- The mean pass: FindObjectsOfTypeAll once when a city comes up, the dress changes, 10 s later and at switch-on; 8 materials a frame to the GPU (a 128x128 blit and mips each), asynchronous read-back. Its ms were not clocked separately (N4MeanScanMs is exposed).
+
+## Self-tests
+- Night4SelfTest PASS.
+- LifeSimSelfTest: 66 failures. Against round 4b's 65, one new: "row tunnel3b (BuiltIn): a plain upper-case name ... (got TUNNELS: SLOPES BESIDE THE PORTAL)". That is a tunnel LAB row from mountain-nm, not touched here (the only Lab change is the night4 row's apply). It was not run on cdf3fc87 itself.
+- Typecheck OK.
+
+## For the next PC build: code only
+No change under Scripts/City, RoadsideRules or Resources/charlotte_* / CityCrowns, so the bake fingerprint stays ad4609c0d730. No new files. Shared files: StreetLights.Night3.cs (PushN3's gate), Lab/LabSwitches.cs (the night4 row's apply), PSXLit.shader, PSXHeadlights.cginc, Resources/NightSplat/PSXLampSplat.shader.
+Run on the exe:
+- the LAB check, city, from OFF: the night4 row must read back 0 and the next row's baseline must match;
+- the leak probe (HANDOFF NIGHT4 line) with `&ab=StreetLights.Night4:1`: med, its pools, bld, cbld, cwall should all read about 0;
+- the cost probe with `&ab=StreetLights.Night4:1` and pv paint0=set:StreetLights.N4PaintKeep:0, tight0=set:StreetLights.N4Tight:0;
+- Trade St LAB snaps with NIGHT 4 flipped on: white edge line and dashes visible.
+
+## Not verified
+- Any exe frame of the fix (no player built). The editor builds tiles live; the exe uses the bake.
+- The mean pass in the player: async read-back timing, and materials made after the scans.
+- Facades and the prop atlas still use the last-mip fetch. Where their textures have no mips that is per texel, as at cdf3fc87.
+- The shrink timing at 60 and 400 fps is computed, not measured. The editor's own frames were 9.5-15 ms.
+- The switch-on hitch (0.37-0.42 s in the editor, 1492 lamps) in the player.
+- A high-lamp or airborne car's fan over a Jersey (NOT FIXED).
+
+## Would I turn NIGHT 4 on?
+Not on these editor proofs alone. The paint, crosswalks, joints and leaks are right in the editor, but the exe has not shown it, and the first switch-on costs a 0.4 s hitch. After an exe check of the LAB snaps and the leak probe, yes.
+
 # HANDOFF - NIGHT4 round 4b: NIGHT 4's cost off the main thread, the beam cap, the corner and median leaks, a tool hang fixed (agent "night4", 11-24/25; branch `city-night4` on mountain-nm 0c2e3ffd; NOT pushed, NOT merged)
 
 All frames and timings are EDITOR runs: PSXPerf, then PSXRec (Android-target project, PSX_PROFILE=PC, city built live) for the last runs. The PC64 program was running, so no player run was made. The player cost is NOT measured.

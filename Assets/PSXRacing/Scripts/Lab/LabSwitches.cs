@@ -167,7 +167,7 @@ namespace PSXRacing
                 look = "Lamps and headlights blocked by walls, buildings, medians and rock; one smooth night sky; pale pavements no brighter than the road.",
                 env = new[] { "PSX_NIGHT4" }, members = new[] { "StreetLights.Night4" },
                 def = () => false,   // (PC67) OLD until the lane paint keeps its white under NIGHT 4
-                apply = () => StreetLights.N4Touch(),
+                apply = () => StreetLights.N4TouchNow(),
             });
             Register(new LabRow
             {

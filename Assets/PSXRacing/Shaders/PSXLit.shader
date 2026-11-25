@@ -101,6 +101,11 @@ Shader "PSX/Lit"
         // carriageway drawn as the HD base surface along/across its ribbon
         // with the lane paint from a mask over it - set at runtime, never saved.
         [HideInInspector] _RoadBaseOn ("Road base on", Float) = 0
+        // (night5) NIGHT 4's cap reads the surface's MEAN colour: measured once a material on the GPU
+        // (StreetLights.Night4 N4Mean*: the city's textures have no mips), w 1 when known; runtime only
+        [HideInInspector] _PSXN4Mean ("NIGHT 4 mean of _MainTex", Vector) = (0,0,0,0)
+        [HideInInspector] _PSXN4MeanRB ("NIGHT 4 mean of _RoadBaseTex", Vector) = (0,0,0,0)
+        [HideInInspector] _PSXN4MeanG ("NIGHT 4 mean of _GutterTex", Vector) = (0,0,0,0)
         [HideInInspector] _RoadBaseTex ("Road base colour", 2D) = "grey" {}
         [HideInInspector] _RoadPaint ("Road paint mask (R white, G yellow, B rumble/2)", 2D) = "black" {}
         [HideInInspector] _RoadBaseRepeat ("Base tiles per uv (x across, y along), z mask on", Vector) = (1,1,0,0)
@@ -457,9 +462,11 @@ Shader "PSX/Lit"
             Texture2D _HDNormal, _HDRough, _HDAO, _RoadBaseTex, _GutterTex, _GutterNrm, _FacadeParts;
             SamplerState sampler_HDNormal;
             #define PSX_RB_GRAD(t, u, dx, dy) t.SampleGrad(sampler_HDNormal, u, dx, dy)
+            #define PSX_RB_LOD(t, u, l) t.SampleLevel(sampler_HDNormal, u, l)
           #else
             sampler2D _HDNormal, _HDRough, _HDAO, _RoadBaseTex, _GutterTex, _GutterNrm, _FacadeParts;
             #define PSX_RB_GRAD(t, u, dx, dy) tex2Dgrad(t, u, dx, dy)
+            #define PSX_RB_LOD(t, u, l) tex2Dlod(t, float4(u, 0.0, l))
           #endif
             sampler2D _RoadPaint;
             float _RoadBaseOn;
@@ -474,6 +481,8 @@ Shader "PSX/Lit"
           #endif
         #endif
             float4 _MainTex_ST;
+            float4 _MainTex_TexelSize;   // (night5: the surface mean's mip, NIGHT 4's cap)
+            float4 _PSXN4Mean, _PSXN4MeanRB, _PSXN4MeanG;   // (night5: the measured means, w 1 when known)
             fixed4 _Color;
             float _Cutoff;
             float4 _PSXLodFade;
@@ -2868,11 +2877,57 @@ Shader "PSX/Lit"
                 if (_PSXNight4.w > 0.5 && cityNight > 0.5)
                 {
                     float effA = dot(tex.rgb, float3(0.2126, 0.7152, 0.0722)) * lampGain;
-                    lampGain *= min(1.0, _PSXNight4.z / max(effA, 1e-4));
                     // (4b) the HEADLIGHTS too, on the ground: a pale pavement or plaza in a car's beam reads at
                     // most the same cap (about 1.3x the lit asphalt beside it, which the beam floor lifts to
                     // ~0.09), never the whole pale albedo - his side street reads 89-104 where ours read 200+
                     float effB = dot(tex.rgb, float3(0.2126, 0.7152, 0.0722)) * beamGain;
+                    // (night5, PC67: that per-TEXEL cap flattened every texel over it to one value - the white
+                    // lane paint, crosswalks and stop bars to the lit asphalt beside them, the paving joints,
+                    // kerb edges and grain to nothing.) _PSXNight4.w 2 (StreetLights.N4PaintKeep): the cap
+                    // limits the SURFACE's MEAN, not each texel - the material's own colour texture at its last
+                    // mip (the whole tile's mean; a facade's own column; a prop atlas's own cell; the road
+                    // base's asphalt and gutter, never its paint mask) - and the one factor it gives scales
+                    // every texel alike: paint stays paint on the lit asphalt, a joint stays a joint on the
+                    // darkened pale pavement. One fetch; every pixel of a surface reads the same texel.
+                    if (_PSXNight4.w > 1.5)
+                    {
+                    #ifdef PSX_FACADE
+                        float n4Lod = max(log2(max(_MainTex_TexelSize.z, 1.0) / FACADE_COLS), 0.0);
+                        float2 n4UV = float2((floor(frac(uv.x) * FACADE_COLS) + 0.5) / FACADE_COLS, uv.y);
+                        float3 n4M = PSXTexDecode(tex2Dlod(_MainTex, float4(n4UV, 0.0, n4Lod)).rgb, _MainTexRaw) * _Color.rgb * i.facade.rgb;
+                    #else
+                        float n4Lod = 14.0;
+                        float2 n4UV = uv;
+                      #ifdef PSX_ATLAS
+                        n4UV = i.atlas.xy + 0.5 * i.atlas.zw;
+                        n4Lod = max(log2(max(max(_MainTex_TexelSize.z * i.atlas.z, _MainTex_TexelSize.w * i.atlas.w), 1.0)), 0.0);
+                      #endif
+                        // the measured mean when the material has one (most of the city's textures carry no mips,
+                        // so the last mip IS the texel: the PC67 per-texel cap again); else the last mip
+                        float3 n4M = _PSXN4Mean.rgb;
+                        [branch] if (_PSXN4Mean.w < 0.5) n4M = tex2Dlod(_MainTex, float4(n4UV, 0.0, n4Lod)).rgb;   // (no fetch once measured)
+                        n4M = PSXTexDecode(n4M, _MainTexRaw);
+                      #ifdef PSX_HD
+                        [branch] if (_RoadBaseOn > 0.5)
+                        {
+                            n4M = _PSXN4MeanRB.rgb;
+                            if (_PSXN4MeanRB.w < 0.5) n4M = PSX_RB_LOD(_RoadBaseTex, hdUV, 14.0).rgb;
+                            if (rbGutter > 0.0)
+                            {
+                                float3 n4G = _PSXN4MeanG.rgb;
+                                if (_PSXN4MeanG.w < 0.5) n4G = PSX_RB_LOD(_GutterTex, gUV, 14.0).rgb;
+                                n4M = lerp(n4M, n4G, rbGutter);
+                            }
+                        }
+                      #endif
+                        n4M *= _Color.rgb;
+                    #endif
+                        float n4L = dot(n4M, float3(0.2126, 0.7152, 0.0722));
+                        float n4BG = PSXBeamAlbedoGain(n4M, N);
+                        effA = n4L * lerp(1.0, n4BG, cityNight) * roadLift;
+                        effB = n4L * n4BG;
+                    }
+                    lampGain *= min(1.0, _PSXNight4.z / max(effA, 1e-4));
                     beamGain *= lerp(1.0, min(1.0, _PSXNight4.z / max(effB, 1e-4)), saturate(N.y * 3.0 - 1.5));
                 }
                 float3 light = (sunAmb + (headD * beamGain + lampD * lampGain) * roadN) * expo;

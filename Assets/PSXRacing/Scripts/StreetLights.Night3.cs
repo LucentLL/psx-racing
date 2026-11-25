@@ -124,7 +124,11 @@ namespace PSXRacing
             if (Night4) N4Tick();
             // (NIGHT 4) lamps waiting for the tiles round them are looked at again every second
             if (n3MeshVersion == n3Version && Time.unscaledTime - n3MeshAt > (n4Backlog ? 0.5f : 1f) && N4WaitingDue()) n3Version++;
-            bool lampsChanged = n3MeshVersion != n3Version && (Time.unscaledTime - n3MeshAt > 0.5f || n3Mesh == null || !Application.isPlaying);
+            // (night5) a NIGHT 4 switch flipped (N4TouchNow) is gathered at once, not after the half second: the PC67 exe's
+            // LAB check (12 frames at ~400 fps) flipped NIGHT 4 on and off inside 0.5 s and the field kept NIGHT 4's
+            // lamp views - the faces by the lamps were NOT BACK
+            bool lampsChanged = n3MeshVersion != n3Version && (Time.unscaledTime - n3MeshAt > 0.5f || n3Mesh == null || !Application.isPlaying || n3ForceGather);
+            n3ForceGather = false;
             if (lampsChanged || shape != n3BuiltShape || n3BuiltOn != StreetOn || remade || origin != n3Origin)
             {
                 if (lampsChanged || shape != n3BuiltShape || remade || n3BuiltOn != StreetOn) { N3BuildMesh(); n3MeshAt = Time.unscaledTime; }

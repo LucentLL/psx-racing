@@ -112,6 +112,7 @@ namespace PSXRacing
                     Pump(); yield return null;
                 }
                 for (int i = 0; i < 60; i++) { Pump(); yield return null; }
+                if (kind == "flip") { yield return FlipTest(name, c0, map, roadHas); continue; }
                 if (kind.StartsWith("lamp-")) yield return LeakLamp(name, kind.Substring(5), c0, cam, rt, screen, blit, tex, W, H);
                 else if (kind.StartsWith("car-")) yield return LeakCar(name, kind.Substring(4), c0, map, roadHas, null, cam, rt, screen, blit, tex, W, H);
             }
@@ -137,9 +138,15 @@ namespace PSXRacing
             return n > 0 ? (float)(sum / n) : -1f;
         }
 
-        IEnumerator Shoot(string file, Camera cam, Vector3 eye, Vector3 look, RenderTexture rt, RenderTexture screen, Material blit, Texture2D tex, int W, int H, int settle)
+        /// <summary>(night5) The leak probe's wait after each switch, in seconds of GAME time (it was 6 + 50
+        /// frames: 0.14 s in the hidden exe at ~400 fps, several seconds in the editor - the two did not
+        /// measure the same thing). The frame counts stay as a floor.</summary>
+        public static float LeakSettleS = 1.5f;
+
+        IEnumerator Shoot(string file, Camera cam, Vector3 eye, Vector3 look, RenderTexture rt, RenderTexture screen, Material blit, Texture2D tex, int W, int H, int settle, float settleS = 0f)
         {
-            for (int i = 0; i < settle; i++)
+            float t0 = Time.time;
+            for (int i = 0; i < settle || Time.time - t0 < settleS; i++)
             {
                 cam.transform.SetPositionAndRotation(eye, Quaternion.LookRotation((look - eye).normalized, Vector3.up));
                 Pump(); yield return null;
@@ -215,7 +222,7 @@ namespace PSXRacing
                 StreetLights.N4SoloAt = vr.solo ? bestHead : offLamp;
                 StreetLights.N4SoloM = 0.6f;
                 StreetLights.N4Touch();
-                yield return Shoot("leak_" + name + "_" + vr.v + ".jpg", cam, eye, bestP, rt, screen, blit, tex, W, H, 70);
+                yield return Shoot("leak_" + name + "_" + vr.v + ".jpg", cam, eye, bestP, rt, screen, blit, tex, W, H, 70, LeakSettleS);
                 float y = PatchY(cam, tex, W, H, bestP);
                 float light = StreetLights.N3LightAt(bestP);
                 string det = "";
@@ -313,25 +320,126 @@ namespace PSXRacing
                 ("n3_on", false, true, false), ("n3_off", false, false, false), ("n3_pool", false, true, true),
                 ("n4_on", true, true, false), ("n4_off", true, false, false), ("n4_pool", true, true, true),
             };
+            // (night5) the patch's distance from the fan's origin: the patch is lit while the reach toward it is past it
+            float patchD = -1f;
             foreach (var vr in variants)
             {
                 StreetLights.Night4 = vr.n4; StreetLights.N4Touch();
                 CarLights.ToolPoolOnly = vr.pool;
                 if (cl != null) cl.enabled = vr.on;
-                for (int i = 0; i < 6; i++) { car.ResetTo(bPos + Vector3.up * 0.45f, rot, seated: true); Pump(); yield return null; }
-                yield return Shoot("leak_" + name + "_" + vr.v + ".jpg", cam, eye, bP, rt, screen, blit, tex, W, H, 50);
+                // (night5) the frames and seconds from the switch until the reach toward the patch first ends
+                // short of it (n4 variants with the lamps on): how long the patch could take light it should not
+                float tSw = Time.time; int fSw = 0; string trace = "";
+                bool traced = false;
+                float t6 = Time.time;
+                for (int i = 0; i < 6 || Time.time - t6 < 0.1f; i++)
+                {
+                    car.ResetTo(bPos + Vector3.up * 0.45f, rot, seated: true); Pump(); yield return null; fSw++;
+                    if (vr.n4 && vr.on && cl != null && !traced) { if (patchD < 0f) patchD = cl.OccPatchDist(bP); if (cl.OccReachToward(bP) >= 0f && cl.OccReachToward(bP) < patchD) { traced = true; trace = " cut " + fSw + "f " + (Time.time - tSw).ToString("0.000", CultureInfo.InvariantCulture) + "s"; } }
+                }
+                yield return Shoot("leak_" + name + "_" + vr.v + ".jpg", cam, eye, bP, rt, screen, blit, tex, W, H, 50, LeakSettleS);
                 float y = PatchY(cam, tex, W, H, bP);
                 float pool = CarLights.PoolAt(bP);
-                string det = cl != null ? "reach " + cl.OccReachToward(bP).ToString("0.0", CultureInfo.InvariantCulture) : "";
+                string det = cl != null ? "reach " + cl.OccReachToward(bP).ToString("0.0", CultureInfo.InvariantCulture) + " patchD " + patchD.ToString("0.0", CultureInfo.InvariantCulture) + trace + " " + cl.ToolFanProbe(bP) : "";
                 leakCsv.AppendLine(name + ",car-" + want + "," + bB + "," + vr.v + "," + y.ToString("0.0", CultureInfo.InvariantCulture) + "," + pool.ToString("0.0000", CultureInfo.InvariantCulture) + "," + where + " " + det);
             }
             CarLights.ToolPoolOnly = false;
+            // (night5) THE SHRINK: the beam's reaches set clear on every bearing (as if the car had just turned
+            // toward the barrier or met its end from open road), then frame by frame until the reach toward
+            // the patch ends short of it; frames and game seconds, at this run's own frame rate
+            if (cl != null && patchD > 0f)
+            {
+                StreetLights.Night4 = true; StreetLights.N4Touch(); cl.enabled = true;
+                for (int i = 0; i < 6; i++) { car.ResetTo(bPos + Vector3.up * 0.45f, rot, seated: true); Pump(); yield return null; }
+                // settled on its wheels (a car held 0.45 m up by ResetTo casts its fan over a Jersey), then cleared
+                for (float t1 = Time.time; Time.time - t1 < 1.5f;) { Pump(); yield return null; }
+                cl.ToolOccClear();
+                float ts = Time.time; int fs = 0; string res = "never in 2 s";
+                while (Time.time - ts < 2f && fs < 4000)
+                {
+                    Pump(); yield return null; fs++;
+                    float rr = cl.OccReachToward(bP);
+                    if (rr >= 0f && rr < patchD) { res = fs + " frames " + (Time.time - ts).ToString("0.000", CultureInfo.InvariantCulture) + " s (mean frame " + ((Time.time - ts) / fs * 1000f).ToString("0.0", CultureInfo.InvariantCulture) + " ms)"; break; }
+                }
+                Say("LEAK " + name + " shrink: the patch cut after " + res);
+                leakCsv.AppendLine(name + ",car-" + want + "," + bB + ",shrink,-1,-1," + res);
+            }
             StreetLights.Night4 = n4Was; StreetLights.N4Touch();
             if (cl != null) cl.enabled = false;
         }
 
         /// <summary>(PerfTour.Stage.cs) On a stage with &amp;leak=: the rock-face leak and three night
         /// frames of the stage from the game's chase camera, NIGHT 4 off and on.</summary>
+        /// <summary>(night5) NIGHT 4 SWITCHED ON MID-DRIVE (leak SPEC kind "flip": name~lat~lon~flip~RoadNameHas). The
+        /// car on that road, NIGHT 4 off; switched on as the LAB row does (the static, then N4Touch); frame by frame:
+        /// the frame's ms, the lamps found, the field lamps within 400 m NIGHT 3 lights that NIGHT 4 holds back (no
+        /// view yet), the player car's fan known. Then off, 150 m on down the road (2 m a frame), on again; the same.
+        /// Rows "flip" in &lt;tag&gt;_leak.csv.</summary>
+        IEnumerator FlipTest(string name, Vector3 c0, CityMap map, string roadHas)
+        {
+            var ci = CultureInfo.InvariantCulture;
+            // a stretch of the named road near c0, 200 m of it straight enough to drive down
+            Vector3 pos = c0, fwd = Vector3.forward; float best = float.MaxValue;
+            foreach (var e in map.edges)
+            {
+                if (e.link || e.bridge || e.tunnel || e.length < 60f) continue;
+                if (!string.IsNullOrEmpty(roadHas) && (e.name == null || e.name.IndexOf(roadHas, System.StringComparison.OrdinalIgnoreCase) < 0)) continue;
+                var q = e.PointAt(e.length * 0.5f);
+                float d2 = (new Vector2(q.x - c0.x, q.y - c0.z)).sqrMagnitude;
+                if (d2 < best) { best = d2; var tt = e.TangentAt(e.length * 0.5f); fwd = new Vector3(tt.x, 0f, tt.y).normalized; pos = new Vector3(q.x, e.YAt(e.length * 0.5f), q.y) + Vector3.Cross(Vector3.up, fwd) * Mathf.Clamp(e.width * 0.25f, 1.6f, 5.5f); }
+            }
+            pos = Ground(pos) + Vector3.up * 0.45f;
+            var rot = Quaternion.LookRotation(fwd);
+            var cl = car.GetComponentInChildren<CarLights>(true);
+            if (cl != null) cl.enabled = true;
+            var cam = Camera.main;
+            var chase = cam != null ? cam.GetComponent<ChaseCamera>() : null;
+            if (chase != null) chase.enabled = true;
+            bool n4Was = StreetLights.Night4;
+            for (int pass = 0; pass < 2; pass++)
+            {
+                StreetLights.Night4 = false; StreetLights.N4Touch();
+                if (pass == 0)
+                {
+                    for (float t0 = Time.realtimeSinceStartup; Time.realtimeSinceStartup - t0 < 3f;) { car.ResetTo(pos, rot, seated: true); Pump(); yield return null; }
+                }
+                else
+                {
+                    // 150 m on down the road with NIGHT 4 off, 2 m a frame (the ring streams as it would)
+                    for (float m = 0f; m <= 150f; m += 2f) { var p = Ground(pos + fwd * m) + Vector3.up * 0.45f; car.ResetTo(p, rot, seated: true); Pump(); yield return null; }
+                    pos = Ground(pos + fwd * 150f) + Vector3.up * 0.45f;
+                    for (float t0 = Time.realtimeSinceStartup; Time.realtimeSinceStartup - t0 < 1f;) { car.ResetTo(pos, rot, seated: true); Pump(); yield return null; }
+                }
+                int held0 = StreetLights.N4WithheldNear(pos, 400f, out int lit0);
+                // switched on as the LAB row does
+                float tOn = Time.realtimeSinceStartup;
+                StreetLights.Night4 = true; StreetLights.N4Touch();
+                float worst = 0f; int worstF = -1, clearF = -1, fanF = -1, heldMax = 0;
+                var sb = new StringBuilder();
+                for (int f = 0; f < 240; f++)
+                {
+                    float fs = Time.realtimeSinceStartup;
+                    car.ResetTo(pos, rot, seated: true); Pump(); yield return null;
+                    float ms = (Time.realtimeSinceStartup - fs) * 1000f;
+                    if (ms > worst) { worst = ms; worstF = f; }
+                    int held = StreetLights.N4WithheldNear(pos, 400f, out int lit);
+                    heldMax = Mathf.Max(heldMax, held);
+                    if (held == 0 && clearF < 0 && !StreetLights.N4BatchOut) clearF = f;
+                    if (fanF < 0 && cl != null && cl.OccKnownNow) fanF = f;
+                    if (f < 8 || f % 30 == 0) sb.Append(" f" + f + ":" + ms.ToString("0", ci) + "ms/held" + held + "/" + lit);
+                    if (f > 20 && clearF >= 0 && fanF >= 0) break;
+                }
+                string res = "pass " + (pass == 0 ? "first flip" : "after 150 m off") + ": NIGHT 3 lit " + lit0 + " lamps within 400 m (held before the flip " + held0 + "); " +
+                             "lamps found at the flip " + StreetLights.N4FlipLamps + " in " + StreetLights.N4LastMs.ToString("0.0", ci) + " ms (N4LastMs); worst frame " + worst.ToString("0.0", ci) + " ms at f" + worstF +
+                             "; held back max " + heldMax + ", none from f" + clearF + "; player fan known at f" + fanF + " | " + sb;
+                Say("FLIP " + name + " " + res);
+                leakCsv.AppendLine(name + ",flip,-,pass" + pass + ",-1,-1," + res.Replace(',', ';'));
+            }
+            StreetLights.Night4 = n4Was; StreetLights.N4Touch();
+            if (cl != null) cl.enabled = false;
+            if (chase != null) chase.enabled = false;
+        }
+
         IEnumerator StageNight4(string id, TrackPath path)
         {
             var cam = Camera.main;
