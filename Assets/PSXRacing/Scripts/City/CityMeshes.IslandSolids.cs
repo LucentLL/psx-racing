@@ -87,6 +87,7 @@ namespace PSXRacing.City
         static int[] isDist;       // BFS distance (cells) to pavement, land only
         static int[] isDist2;      // the same, a lane's band counted as pavement
         static bool[] isBand;      // inside some road's lanes (its ribbon less its shoulders)
+        static int[] isBandEdge;   // ... whose (the last one drawn)
         static bool[] isNearJ;     // within IslandLaneTipNodeM of a node where three or more roads meet (a split, a junction)
         static float[] isNearY;    // the nearest pavement's height, land only
         static int[] isComp;       // component id of land cells
@@ -101,9 +102,9 @@ namespace PSXRacing.City
             int N = IsN, NN = N * N;
             if (isY == null || isY.Length != NN)
             {
-                isY = new float[NN]; isSlot = new short[NN]; isDist = new int[NN]; isDist2 = new int[NN]; isBand = new bool[NN]; isNearJ = new bool[NN]; isNearY = new float[NN]; isComp = new int[NN]; isFlag = new byte[NN];
+                isY = new float[NN]; isSlot = new short[NN]; isDist = new int[NN]; isDist2 = new int[NN]; isBand = new bool[NN]; isBandEdge = new int[NN]; isNearJ = new bool[NN]; isNearY = new float[NN]; isComp = new int[NN]; isFlag = new byte[NN];
             }
-            for (int k = 0; k < NN; k++) { isY[k] = float.NaN; isSlot[k] = -1; isComp[k] = -1; isFlag[k] = 0; isDist[k] = int.MaxValue; isBand[k] = false; isNearJ[k] = false; }
+            for (int k = 0; k < NN; k++) { isY[k] = float.NaN; isSlot[k] = -1; isComp[k] = -1; isFlag[k] = 0; isDist[k] = int.MaxValue; isBand[k] = false; isBandEdge[k] = -1; isNearJ[k] = false; }
             // ---- the drawn pavement ----------------------------------------------------------------
             bool any = false;
             for (int s = 0; s < buckets.Length; s++)
@@ -205,10 +206,10 @@ namespace PSXRacing.City
                         IslandDebug.Append($"    land at {best:0.0} m: {area:0.0} m2, span {sp:0.0} m, border {border}, wide {wide}, core cells {cn}\n");
                     }
                 }
-                if (border) { if (area < IslandMaxAreaM2 && !wide) IslandSkippedBorder++; IsPaveLaneTips(cells, o); continue; }
-                if (wide || area > IslandMaxAreaM2) { IslandSkippedBig++; IsPaveLaneTips(cells, o); continue; }
+                if (border) { if (area < IslandMaxAreaM2 && !wide) IslandSkippedBorder++; IsPaveLaneTips(map, cells, o, tipCells); continue; }
+                if (wide || area > IslandMaxAreaM2) { IslandSkippedBig++; IsPaveLaneTips(map, cells, o, tipCells); continue; }
                 if (area < 0.5f) continue;
-                if (IsHasBuilding(cells)) { IsPaveLaneTips(cells, o); continue; }
+                if (IsHasBuilding(cells)) { IsPaveLaneTips(map, cells, o, tipCells); continue; }
                 // the core: cells half the minimum width from the pavement; an island is the core grown back
                 int coreN = 0;
                 foreach (int k in cells) if (!isBand[k] && isDist2[k] >= tipCells) coreN++;
@@ -263,20 +264,74 @@ namespace PSXRacing.City
             }
         }
 
-        static void IsPaveLaneTips(List<int> cells, Vector3 o)
+        static void IsPaveLaneTips(CityMap map, List<int> cells, Vector3 o, int tipCells)
         {
             int lim = Mathf.RoundToInt(10f * IslandLaneTipM / IsCell);
             int n = 0;
             foreach (int k in cells)
             {
-                if (!isBand[k] || !isNearJ[k] || isDist[k] > lim) continue;
+                if (!isNearJ[k]) continue;
+                bool lane = isBand[k] && isDist[k] <= lim;
+                // the KNIFE where two roads part (or join): land thinner than a nose with no wider land beside it,
+                // between the lanes of two roads that leave one node within 60 degrees of each other - pavement,
+                // the nose starts where the island is a real one (a narrow median between OPPOSING carriageways stays)
+                bool knife = !lane && isDist[k] < tipCells && IsThin(k, tipCells) && IsBetweenParting(map, k);
+                if (!lane && !knife) continue;
                 isFlag[k] = 3; IsPaveCell(k, o); n++;
+                if (knife) IslandKnifeCells++;
             }
             if (n == 0) return;
             IslandTipCells += n; IslandLaneTips += n;
             isTipsPending = true;   // their sheets go in one pass after the components (IsDropCells)
         }
         static bool isTipsPending;
+        public static int IslandKnifeCells;
+
+        /// <summary>No land a nose's half-width from the pavement within a cell of it: a thin neck, not the edge of a field.</summary>
+        static bool IsThin(int k, int tipCells)
+        {
+            int i = k % IsN, j = k / IsN;
+            for (int dj = -1; dj <= 1; dj++)
+                for (int di = -1; di <= 1; di++)
+                {
+                    int ii = i + di, jj = j + dj;
+                    if (ii < 0 || jj < 0 || ii >= IsN || jj >= IsN) continue;
+                    int kk = IsIdx(ii, jj);
+                    if (float.IsNaN(isY[kk]) && isDist[kk] >= tipCells) return false;
+                }
+            return true;
+        }
+
+        static readonly List<int> isKnifeEdges = new List<int>(8);
+
+        /// <summary>Lanes of two roads within 1.5 m of the cell that leave a common node within 60 degrees.</summary>
+        static bool IsBetweenParting(CityMap map, int k)
+        {
+            int i = k % IsN, j = k / IsN, r = Mathf.CeilToInt(1.5f / IsCell);
+            isKnifeEdges.Clear();
+            for (int dj = -r; dj <= r; dj++)
+                for (int di = -r; di <= r; di++)
+                {
+                    int ii = i + di, jj = j + dj;
+                    if (ii < 0 || jj < 0 || ii >= IsN || jj >= IsN) continue;
+                    int e = isBandEdge[IsIdx(ii, jj)];
+                    if (e >= 0 && !isKnifeEdges.Contains(e)) isKnifeEdges.Add(e);
+                }
+            for (int a = 0; a < isKnifeEdges.Count; a++)
+                for (int b = a + 1; b < isKnifeEdges.Count; b++)
+                {
+                    var A = map.edges[isKnifeEdges[a]]; var B = map.edges[isKnifeEdges[b]];
+                    int n = A.a == B.a || A.a == B.b ? A.a : A.b == B.a || A.b == B.b ? A.b : -1;
+                    if (n < 0) continue;
+                    var dA = A.a == n ? A.TangentAt(0f) : -A.TangentAt(A.length);
+                    var dB = B.a == n ? B.TangentAt(0f) : -B.TangentAt(B.length);
+                    if (Vector2.Angle(dA, dB) > 60f) continue;
+                    // two carriageways of one road running opposite ways are a median, not a knife
+                    if (A.oneway && B.oneway && A.name == B.name && !string.IsNullOrEmpty(A.name) && ((A.a == n) != (B.a == n))) continue;
+                    return true;
+                }
+            return false;
+        }
 
         static void IsRelax2(int k, int from, int w)
         {
@@ -308,7 +363,7 @@ namespace PSXRacing.City
                     for (float l = lo; l <= hi; l += 0.35f)
                     {
                         var q = pt + left * l;
-                        if (IsCellAt(q.x - o.x, q.y - o.z, out int k)) isBand[k] = true;
+                        if (IsCellAt(q.x - o.x, q.y - o.z, out int k)) { isBand[k] = true; isBandEdge[k] = e.index; }
                     }
                 }
             }

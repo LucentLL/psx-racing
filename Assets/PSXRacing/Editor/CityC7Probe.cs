@@ -380,7 +380,7 @@ namespace PSXRacing.EditorTools
                     pieces++;
                 }
             }
-            log.Append($"  islands so far: {CityMeshes.IslandCount} ({CityMeshes.IslandAreaM2:0} m2), tips paved {CityMeshes.IslandTipCells} cells, overlays out {CityMeshes.IslandOverlayTris}, inside out {CityMeshes.IslandInsideTris}, poke verts {CityMeshes.IslandPokeVerts}, skipped border {CityMeshes.IslandSkippedBorder} big {CityMeshes.IslandSkippedBig}\n");
+            log.Append($"  islands so far: {CityMeshes.IslandCount} ({CityMeshes.IslandAreaM2:0} m2), tips paved {CityMeshes.IslandTipCells} cells (knife {CityMeshes.IslandKnifeCells}, lane {CityMeshes.IslandLaneTips}, gores {CityMeshes.IslandGores}), overlays out {CityMeshes.IslandOverlayTris}, inside out {CityMeshes.IslandInsideTris}, poke verts {CityMeshes.IslandPokeVerts}, skipped border {CityMeshes.IslandSkippedBorder} big {CityMeshes.IslandSkippedBig}\n");
             log.Append($"  inventory: {recs.Count} recorded triangles, {groups.Count} slot+emitter groups, {pieces} pieces, {drawn.Count} drawn triangles in the radius\n");
         }
     }
