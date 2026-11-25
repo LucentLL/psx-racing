@@ -179,6 +179,33 @@ namespace PSXRacing.EditorTools
             return $"{id} wp {wp} {(sd > 0 ? "R" : "L")}: the car stops with its centre {touch:0.00} m out from the centreline, on {hitName}; nose to the drawn surface ahead:{gaps} -> {fn}";
         }
 
+        /// <summary>The textures the game samples, as imported (size, filter), read back through the GPU into PNGs
+        /// beside the project (PSXRacing_texdump/): PSX_BF_TEX = asset paths, comma separated. For the tile proofs.</summary>
+        public static void DumpTex()
+        {
+            var sb = new StringBuilder();
+            string outDir = Path.Combine(Path.GetDirectoryName(Application.dataPath), "PSXRacing_texdump");
+            Directory.CreateDirectory(outDir);
+            foreach (var raw in (System.Environment.GetEnvironmentVariable("PSX_BF_TEX") ?? "").Split(','))
+            {
+                string ap = raw.Trim();
+                if (ap.Length == 0) continue;
+                var t = AssetDatabase.LoadAssetAtPath<Texture2D>(ap);
+                if (t == null) { sb.AppendLine("no texture " + ap); continue; }
+                var rt = RenderTexture.GetTemporary(t.width, t.height, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
+                Graphics.Blit(t, rt);
+                RenderTexture.active = rt;
+                var o = new Texture2D(t.width, t.height, TextureFormat.RGB24, false);
+                o.ReadPixels(new Rect(0, 0, t.width, t.height), 0, 0); o.Apply(false);
+                RenderTexture.active = null; RenderTexture.ReleaseTemporary(rt);
+                string fn = Path.GetFileNameWithoutExtension(ap) + "_imported.png";
+                File.WriteAllBytes(Path.Combine(outDir, fn), o.EncodeToPNG());
+                sb.AppendLine($"{ap}: imported {t.width}x{t.height}, {t.format}, filter {t.filterMode}, wrap {t.wrapModeU}/{t.wrapModeV}, mips {t.mipmapCount} -> {fn}");
+            }
+            File.WriteAllText(Path.Combine(Path.GetDirectoryName(Application.dataPath), "PSXRacing_texdump.txt"), sb.ToString());
+            if (Application.isBatchMode) EditorApplication.Exit(0);
+        }
+
         struct Spot { public int wp; public float gap, h; public string coll; public Vector3 at; }
 
         public static string One(string id)
