@@ -101,6 +101,11 @@ Shader "PSX/Lit"
         // carriageway drawn as the HD base surface along/across its ribbon
         // with the lane paint from a mask over it - set at runtime, never saved.
         [HideInInspector] _RoadBaseOn ("Road base on", Float) = 0
+        // (night5) NIGHT 4's cap reads the surface's MEAN colour: measured once a material on the GPU
+        // (StreetLights.Night4 N4Mean*: the city's textures have no mips), w 1 when known; runtime only
+        [HideInInspector] _PSXN4Mean ("NIGHT 4 mean of _MainTex", Vector) = (0,0,0,0)
+        [HideInInspector] _PSXN4MeanRB ("NIGHT 4 mean of _RoadBaseTex", Vector) = (0,0,0,0)
+        [HideInInspector] _PSXN4MeanG ("NIGHT 4 mean of _GutterTex", Vector) = (0,0,0,0)
         [HideInInspector] _RoadBaseTex ("Road base colour", 2D) = "grey" {}
         [HideInInspector] _RoadPaint ("Road paint mask (R white, G yellow, B rumble/2)", 2D) = "black" {}
         [HideInInspector] _RoadBaseRepeat ("Base tiles per uv (x across, y along), z mask on", Vector) = (1,1,0,0)
@@ -477,6 +482,7 @@ Shader "PSX/Lit"
         #endif
             float4 _MainTex_ST;
             float4 _MainTex_TexelSize;   // (night5: the surface mean's mip, NIGHT 4's cap)
+            float4 _PSXN4Mean, _PSXN4MeanRB, _PSXN4MeanG;   // (night5: the measured means, w 1 when known)
             fixed4 _Color;
             float _Cutoff;
             float4 _PSXLodFade;
@@ -2896,12 +2902,14 @@ Shader "PSX/Lit"
                         n4UV = i.atlas.xy + 0.5 * i.atlas.zw;
                         n4Lod = max(log2(max(max(_MainTex_TexelSize.z * i.atlas.z, _MainTex_TexelSize.w * i.atlas.w), 1.0)), 0.0);
                       #endif
-                        float3 n4M = PSXTexDecode(tex2Dlod(_MainTex, float4(n4UV, 0.0, n4Lod)).rgb, _MainTexRaw);
+                        // the measured mean when the material has one (most of the city's textures carry no mips,
+                        // so the last mip IS the texel: the PC67 per-texel cap again); else the last mip
+                        float3 n4M = PSXTexDecode(_PSXN4Mean.w > 0.5 ? _PSXN4Mean.rgb : tex2Dlod(_MainTex, float4(n4UV, 0.0, n4Lod)).rgb, _MainTexRaw);
                       #ifdef PSX_HD
                         [branch] if (_RoadBaseOn > 0.5)
                         {
-                            n4M = PSX_RB_LOD(_RoadBaseTex, hdUV, 14.0).rgb;
-                            if (rbGutter > 0.0) n4M = lerp(n4M, PSX_RB_LOD(_GutterTex, gUV, 14.0).rgb, rbGutter);
+                            n4M = _PSXN4MeanRB.w > 0.5 ? _PSXN4MeanRB.rgb : PSX_RB_LOD(_RoadBaseTex, hdUV, 14.0).rgb;
+                            if (rbGutter > 0.0) n4M = lerp(n4M, _PSXN4MeanG.w > 0.5 ? _PSXN4MeanG.rgb : PSX_RB_LOD(_GutterTex, gUV, 14.0).rgb, rbGutter);
                         }
                       #endif
                         n4M *= _Color.rgb;

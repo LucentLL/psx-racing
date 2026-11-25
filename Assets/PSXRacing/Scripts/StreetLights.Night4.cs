@@ -514,6 +514,71 @@ namespace PSXRacing
         }
 
         static bool n4WasOn, n4SeenOn, n4SeenTight;
+
+        // ---- (night5) THE SURFACE MEANS for NIGHT 4's cap ----
+        // The cap limits a surface's MEAN, so each PSXLit material's colour texture (and a road base's base and
+        // gutter) is averaged ONCE on the GPU - blitted to 128 x 128, its mips made, the 1 x 1 read back
+        // asynchronously - and set on the material (_PSXN4Mean*, w 1). 1148 of the art's textures carry no mips,
+        // so the shader's last-mip fetch alone was the texel itself (the PC67 look). Materials are looked for
+        // when a city comes up, when the dress changes, 10 s later, and when NIGHT 4 is switched on; at most
+        // N4MeanPerFrame textures go to the GPU a frame. Runtime only: no asset, no bake input changes.
+        static readonly HashSet<Material> n4MeanAsked = new HashSet<Material>();
+        static readonly Queue<Material> n4MeanQueue = new Queue<Material>();
+        static Object n4MeanCity; static int n4MeanDress = -99; static float n4MeanAgainAt = -1f; static bool n4MeanForce;
+        public static int N4MeanPerFrame = 8;
+        /// <summary>Tools: materials given a mean, the last scan's ms.</summary>
+        public static int N4MeanDone { get; private set; }
+        public static float N4MeanScanMs { get; private set; }
+        static readonly int MeanId = Shader.PropertyToID("_PSXN4Mean"), MeanRBId = Shader.PropertyToID("_PSXN4MeanRB"), MeanGId = Shader.PropertyToID("_PSXN4MeanG");
+        static readonly int MainTexId = Shader.PropertyToID("_MainTex"), RBTexId = Shader.PropertyToID("_RoadBaseTex"), GTexId = Shader.PropertyToID("_GutterTex"), RBOnId = Shader.PropertyToID("_RoadBaseOn");
+
+        static void N4MeanTick()
+        {
+            if (!Application.isPlaying || !N4PaintKeep) return;
+            var city = City.CityWorld.Active;
+            if (city == null) return;
+            bool scan = n4MeanForce;
+            if (!ReferenceEquals(city, n4MeanCity) || SeasonDress.AppliedDress != n4MeanDress)
+            { scan = true; n4MeanCity = city; n4MeanDress = SeasonDress.AppliedDress; n4MeanAgainAt = Time.unscaledTime + 10f; }
+            else if (n4MeanAgainAt > 0f && Time.unscaledTime > n4MeanAgainAt) { scan = true; n4MeanAgainAt = -1f; }
+            n4MeanForce = false;
+            if (scan)
+            {
+                var clock = System.Diagnostics.Stopwatch.StartNew();
+                foreach (var m in Resources.FindObjectsOfTypeAll<Material>())
+                {
+                    if (m == null || !m.HasProperty(MeanId) || !n4MeanAsked.Add(m)) continue;
+                    n4MeanQueue.Enqueue(m);
+                }
+                N4MeanScanMs = (float)clock.Elapsed.TotalMilliseconds;
+            }
+            for (int k = 0; k < N4MeanPerFrame && n4MeanQueue.Count > 0; k++)
+            {
+                var m = n4MeanQueue.Dequeue();
+                if (m == null) continue;
+                N4MeanOf(m, MainTexId, MeanId);
+                if (m.HasProperty(RBOnId) && m.GetFloat(RBOnId) > 0.5f) { N4MeanOf(m, RBTexId, MeanRBId); N4MeanOf(m, GTexId, MeanGId); }
+            }
+        }
+
+        static void N4MeanOf(Material m, int texId, int meanId)
+        {
+            var t = m.HasProperty(texId) ? m.GetTexture(texId) as Texture2D : null;
+            if (t == null) return;
+            const int S = 128;
+            var rt = RenderTexture.GetTemporary(new RenderTextureDescriptor(S, S, RenderTextureFormat.ARGBHalf, 0) { useMipMap = true, autoGenerateMips = true, sRGB = false });
+            rt.filterMode = FilterMode.Bilinear;
+            Graphics.Blit(t, rt);
+            int mip = rt.mipmapCount - 1;
+            UnityEngine.Rendering.AsyncGPUReadback.Request(rt, mip, TextureFormat.RGBAFloat, req =>
+            {
+                RenderTexture.ReleaseTemporary(rt);
+                if (req.hasError || m == null) return;
+                var c = req.GetData<Color>()[0];
+                m.SetVector(meanId, new Vector4(c.r, c.g, c.b, 1f));
+                N4MeanDone++;
+            });
+        }
         /// <summary>(night5) NIGHT 4 switched on mid-drive finds every lamp's view at once (false: the budget's way,
         /// cdf3fc87). PSX_N4_FLIPALL=0.</summary>
         public static bool N4FlipAll = System.Environment.GetEnvironmentVariable("PSX_N4_FLIPALL") != "0";
@@ -729,7 +794,8 @@ namespace PSXRacing
             Shader.SetGlobalFloat(N4TightId, Night4 && N4Tight ? 1f : 0f);
             // (night5) any of NIGHT 4's switches changed (the LAB row, a tool's variant): the field is gathered and
             // splatted again (a lamp's view, the splat's edges) - a tool setting the static alone left it stale
-            if (Night4 != n4SeenOn || N4Tight != n4SeenTight) { n4SeenOn = Night4; n4SeenTight = N4Tight; N4TouchNow(); }
+            if (Night4 != n4SeenOn || N4Tight != n4SeenTight) { if (Night4 && !n4SeenOn) n4MeanForce = true; n4SeenOn = Night4; n4SeenTight = N4Tight; N4TouchNow(); }
+            N4MeanTick();
             if (!Night4) { Shader.SetGlobalVector(N4Id, Vector4.zero); return; }
             if (Time.frameCount != n4SkyFrame)
             {
