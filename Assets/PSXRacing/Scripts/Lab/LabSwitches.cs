@@ -237,6 +237,19 @@ namespace PSXRacing
                 look = "Built into the stage scenes: gravel strips, shoulders, cut rock and rails with square texels. A scene build.",
                 env = new[] { "PSX_ROADSIDEUV2" }, requires = "TunnelHeadlights.On",
             });
+            // c7roads (11-25): build-time switches of the city tiles, listed so a screenshot's build is known
+            Register(new LabRow
+            {
+                id = "islandsolid", group = LabGroup.World, name = "JUNCTION ISLANDS AS SOLIDS", when = LabWhen.BuiltIn,
+                look = "Built into the city tiles: a junction's islands are closed curbed solids standing in one paved surface; nothing is laid on the road. A city bake.",
+                env = new[] { "PSX_CITY_ISLANDSOLID" }, requires = "CityMeshes.IslandSolidsOn",
+            });
+            Register(new LabRow
+            {
+                id = "medianruns", group = LabGroup.World, name = "MEDIANS IN ONE PIECE", when = LabWhen.BuiltIn,
+                look = "Built into the city tiles: a median is one run (no fragments or concrete slabs), full height to a closed end. A city bake.",
+                env = new[] { "PSX_CITY_MEDIANRUNS" }, requires = "CityMeshes.MedianRunsOn",
+            });
             // tunnel round 2 (merged 11-23): the cars' lights come on by day through a tunnel; read every frame, so live.
             Register(new LabRow
             {
