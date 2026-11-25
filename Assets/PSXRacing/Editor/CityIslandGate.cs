@@ -21,8 +21,8 @@ namespace PSXRacing.EditorTools
     ///              every 6 m) looking down at the ground ahead and to the sides (pitch -2..-35 degrees, yaw
     ///              +-70) meets no front face within 120 m: a hole, a gap between sheets, or a single-sided
     ///              face seen from behind (the renderer culls it as the ray does)
-    ///   OVERLAY    a non-road surface 3 mm - 5 cm over the drawn pavement half a metre inside its edge: a flat
-    ///              layer laid on the asphalt (z-fighting or a slab on the road)
+    ///   OVERLAY    a non-road surface from 3 mm under to 5 cm over the drawn pavement half a metre inside its edge (coplanar or a flat
+    ///              layer laid on the asphalt: the two fight, or a slab lies on the road)
     ///   LINEUNDER  painted line texels (a road triangle whose U lies in a line column of its profile's
     ///              texture) with anything non-road over them
     /// A place is a 4 m cell of the plan within 25 m of the route with one or more hits of the class.
@@ -317,7 +317,7 @@ namespace PSXRacing.EditorTools
                     int k = j * N + i;
                     if (float.IsNaN(pave[k]) || float.IsNegativeInfinity(high[k])) continue;
                     float rise = high[k] - pave[k];
-                    if (rise <= 0.003f) continue;
+                    if (rise <= -0.003f) continue;   // within 3 mm under it: coplanar, the two fight (OVERLAY)
                     bool inside = !float.IsNaN(pave[k - r]) && !float.IsNaN(pave[k + r]) && !float.IsNaN(pave[k - r * N]) && !float.IsNaN(pave[k + r * N])
                                && !float.IsNaN(pave[k - r * N - r]) && !float.IsNaN(pave[k - r * N + r]) && !float.IsNaN(pave[k + r * N - r]) && !float.IsNaN(pave[k + r * N + r]);
                     var w = new Vector3(o.x + m0 + (i + 0.5f) * Cell, pave[k], o.z + m0 + (j + 0.5f) * Cell);
