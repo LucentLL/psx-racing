@@ -174,7 +174,9 @@ namespace PSXRacing.EditorTools
                             var ed = map.edges[tp.edgeAt[i]];
                             float entry = tp.dirAt[i] > 0 ? tp.sAt[i] : ed.length - tp.sAt[i];
                             // (a tight junction corner's lane runs inside the OSM arc: up to 2 pitches of arc a step)
-                            bool bad2 = tp.edgeAt[i] == tp.edgeAt[i - 1] ? Mathf.Abs(tp.sAt[i] - tp.sAt[i - 1]) > tp.spacing * 2f
+                            // (a racing turn's arc is shorter than the corner it replaces, whose lanes' lines step sideways at
+                            // the node: up to 3 pitches of the edge's arc a step inside a junction zone, cityai 11-25)
+                            bool bad2 = tp.edgeAt[i] == tp.edgeAt[i - 1] ? Mathf.Abs(tp.sAt[i] - tp.sAt[i - 1]) > tp.spacing * (tp.junction[i] && RacingTurns.On ? 3f : 2f)
                                                                           : entry > tp.spacing * 2f;
                             if (bad2) { bad++; sbBad.Append($" leg {from}->{k} wp {i} edge {tp.edgeAt[i]} s {tp.sAt[i]:0.0} (was {tp.edgeAt[i - 1]} s {tp.sAt[i - 1]:0.0});"); break; }
                         }
