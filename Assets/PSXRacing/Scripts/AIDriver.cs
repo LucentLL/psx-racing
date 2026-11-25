@@ -618,6 +618,9 @@ namespace PSXRacing
             if (mistakeAt < 0f || rm.RaceFraction(car) < mistakeAt) return false;
             // never into a city junction's 90-degree corner (a routed road's junction zone): that is a wall
             if (InJunctionZone) return false;
+            // ...nor a missed braking point FOR one (cityai 11-25: the 180SX's planned mistake began 200 m short of
+            // CltC7's N Tryon / W T Harris turn and arrived at 158 km/h on full throttle; the race retired it there)
+            if (RacingTurns.On && path.Routed && path.junction[path.Wrap(nearestIdx + Mathf.RoundToInt(cornerAtM / Mathf.Max(path.spacing, 0.1f)))]) return false;
             if (speed - cornerSafeSpeed < MistakeMinShedMps || speed < 15f) return false;
             // Until the car is AT the corner and a little past: from the start of a
             // 200 m braking zone at 140 km/h, 3.5 s ran out before the bend

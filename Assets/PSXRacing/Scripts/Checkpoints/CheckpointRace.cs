@@ -674,7 +674,7 @@ namespace PSXRacing
             {
                 bool was = c.hold.on;
                 r = RulerHold.Step(R, map, ref c.hold, F, pos, car.Body != null ? car.Body.linearVelocity : Vector3.zero, car.transform.forward, c.loc, c.rDir, r);
-                if (c.hold.on && !was) { RulerHolds++; Debug.Log($"[Checkpoints] {car.name}: ruler held on edge {c.hold.loc.edge} ({c.hold.trustR:0} m) against edge {c.loc.edge}"); }
+                if (c.hold.on && !was && RulerHolds++ < 40) { Debug.Log($"[Checkpoints] {car.name}: ruler reads edge {c.hold.loc.edge} under the car ({r:0} m), not the located edge {c.loc.edge}"); }
             }
             c.bestDir = c.rDir == -1 ? -1 : 1;
             return r;

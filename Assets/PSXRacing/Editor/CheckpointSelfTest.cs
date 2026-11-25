@@ -316,8 +316,8 @@ namespace PSXRacing.EditorTools
                         bad++;
                         string key = $"gate {target}, route edge {e} read as edge {loc.edge}";
                         where.TryGetValue(key, out int nk); where[key] = nk + 1;
-                        if (Mathf.Abs(v - want) > worst) { worst = Mathf.Abs(v - want); worstAt = $"{key} at {t:0} m, {lat:0.0} m right of its line: {v:0} m, the route {want:0} m (hold {(hold.on ? "on" : "off")} edge {hold.loc.edge} s {hold.loc.s:0} dir {hold.loc.dir}, trusted edge {hold.trust.edge} at {hold.trustR:0} m; raw {vRaw:0})"; }
-                        if (bad <= 12) sb.AppendLine($"      held misread {bad}: {key} at {t:0} m, lat {lat:0.0}: {v:0} m (raw {vRaw:0}), route {want:0}; hold {(hold.on ? "on" : "off")} edge {hold.loc.edge}, trusted {hold.trust.edge} at {hold.trustR:0}");
+                        if (Mathf.Abs(v - want) > worst) { worst = Mathf.Abs(v - want); worstAt = $"{key} at {t:0} m, {lat:0.0} m right of its line: {v:0} m, the route {want:0} m (hold {(hold.on ? "on" : "off")} edge {hold.loc.edge} s {hold.loc.s:0} dir {hold.loc.dir}; raw {vRaw:0})"; }
+                        if (bad <= 12) sb.AppendLine($"      held misread {bad}: {key} at {t:0} m, lat {lat:0.0}: {v:0} m (raw {vRaw:0}), route {want:0}; hold {(hold.on ? "on" : "off")} edge {hold.loc.edge}");
                     }
                     if (prevV >= 0f && Mathf.Abs((v - prevV) - (want - prevWant)) > 30f) jumps++;
                     prevV = v; prevWant = want;
