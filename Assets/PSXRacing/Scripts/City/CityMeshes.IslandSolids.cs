@@ -60,7 +60,7 @@ namespace PSXRacing.City
         /// <summary>An island is at most this big (m2) ...</summary>
         public const float IslandMaxAreaM2 = 2500f;
         /// <summary>... and no point of it further than this from its pavement (half its width).</summary>
-        public const float IslandMaxHalfM = 9f;
+        public const float IslandMaxHalfM = 14f;
         /// <summary>Narrower than this it is a tip: paved, not island (AASHTO: a raised island's nose is 2-4 ft wide).</summary>
         public const float IslandMinWidthM = 1.2f;
         /// <summary>The asphalt apron round an island's foot: this wide, this far under the road.</summary>
@@ -304,7 +304,26 @@ namespace PSXRacing.City
                     if (IsCellAt(m.x, m.z, out int k) && isFlag[k] == 1 && isComp[k] == isComp[cells[0]]) return true;
                 }
             }
-            return false;
+            // a block with sidewalks round it (an urban street's walk, 2.4 m wide) is not an island; a
+            // median's curb top (0.25 m) is
+            var walk = buckets[(int)Slot.Sidewalk];
+            int comp = isComp[cells[0]];
+            float walkArea = 0f;
+            for (int t = 0; t + 2 < walk.t.Count; t += 3)
+            {
+                Vector3 a = walk.v[walk.t[t]], b = walk.v[walk.t[t + 1]], c = walk.v[walk.t[t + 2]];
+                var m = (a + b + c) / 3f;
+                if (!IsCellAt(m.x, m.z, out int k) || isComp[k] != comp) continue;
+                var cr = Vector3.Cross(b - a, c - a);
+                if (Mathf.Abs(cr.y) < 0.9f * cr.magnitude) continue;
+                walkArea += 0.5f * cr.magnitude;
+            }
+            int edgeCells = 0;
+            foreach (int k in cells)
+            {
+                if (!float.IsNaN(isY[k - 1]) || !float.IsNaN(isY[k + 1]) || !float.IsNaN(isY[k - IsN]) || !float.IsNaN(isY[k + IsN])) edgeCells++;
+            }
+            return walkArea > 1.0f * edgeCells * IsCell;
         }
 
         static void IsGrowCore(List<int> cells, int r)
