@@ -288,11 +288,16 @@ void PSXHeadlightsCore(float3 wpos, float3 N, float3 V, float power, float specO
         float roadDrop = BEAM_DROP_M + BEAM_DROP_GRADE * length(d.xz);
         float deck = 1.0 - smoothstep(roadDrop, roadDrop + BEAM_DROP_FADE_M, drop);
 
-        // NIGHT 4: nothing past the first solid on this bearing (a wall, a barrier, a rock face)
-        if (_PSXHeadOcc[j].y > 0.5)
+        // NIGHT 4: nothing past the first solid on this bearing (a wall, a barrier, a rock face). The bearing
+        // and the distance are taken from the fan's own origin (zw, plan) - where the reaches were measured.
+        // (4b) Only where this beam gives light at all: the atan2 and the fetch are skipped for every pixel
+        // outside the spread, past the range or behind the lens (most of the screen, for most beams).
+        if (_PSXHeadOcc[j].y > 0.5 && (spread * cut * att + spill) * front > 1e-3)
         {
-            float reachM = PSX_FIELD_LOD(_PSXHeadVis, float2(0.5 + atan2(fx, fz) * HEAD_OCC_INV2A, _PSXHeadOcc[j].x)).r;
-            deck *= 1.0 - smoothstep(reachM + 0.3, reachM + 1.8, sqrt(fx * fx + fz * fz));
+            float2 d0 = wpos.xz - _PSXHeadOcc[j].zw;
+            float ox = dot(d0, Rt.xz), oz = dot(d0, F.xz);
+            float reachM = PSX_FIELD_LOD(_PSXHeadVis, float2(0.5 + atan2(ox, oz) * HEAD_OCC_INV2A, _PSXHeadOcc[j].x)).r;
+            deck *= 1.0 - smoothstep(reachM + 0.3, reachM + 1.8, sqrt(ox * ox + oz * oz));
         }
 
         float nl = dot(N, -d) / max(dist, 0.05);

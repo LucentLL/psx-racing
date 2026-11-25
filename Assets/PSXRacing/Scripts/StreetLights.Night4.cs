@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Unity.Collections;
+using Unity.Jobs;
 using UnityEngine;
 
 namespace PSXRacing
@@ -73,6 +74,14 @@ namespace PSXRacing
         public static int N4Mask => ~((1 << 2) | (1 << 10));
 
         /// <summary>Is this collider thin in plan (a post, a trunk, a signal pole): no shadow.</summary>
+        /// <summary>(4b) By the hit's id first: hit.collider is a managed lookup, a thousand of them a lamp.</summary>
+        internal static bool N4IsThinHit(in RaycastHit hit)
+        {
+            var id = hit.colliderEntityId;
+            if (n4Thin.TryGetValue(id, out bool t)) return t;
+            return N4IsThin(hit.collider, id);
+        }
+
         internal static bool N4IsThin(Collider c, EntityId id)
         {
             if (c == null) return true;
@@ -119,7 +128,15 @@ namespace PSXRacing
                 // only once every tile its light reaches is standing (a building on the next tile
                 // over would otherwise be missed for good); until then it is not splatted at all -
                 // which happens only at the ring's edge, past the far plane
-                if (world != null && !N4NeighboursLive(world, e.pos)) { n4Waiting++; continue; }
+                // (4b) a lamp found waiting is asked again only once the ring has changed
+                if (world != null)
+                {
+                    if (n4WaitSeen.Length < entries.Length) System.Array.Resize(ref n4WaitSeen, entries.Length);
+                    int liveNow = world.LiveTiles + 1;
+                    if (n4WaitSeen[i] == liveNow) { n4Waiting++; continue; }
+                    if (!N4NeighboursLive(world, e.pos)) { n4WaitSeen[i] = liveNow; n4Waiting++; continue; }
+                    n4WaitSeen[i] = 0;
+                }
                 n4Todo.Add(i);
             }
             // A BUDGET while driving: a tile row streaming in at the ring's edge (past the far plane) is
@@ -138,6 +155,18 @@ namespace PSXRacing
             }
             if (n4Todo.Count == 0) { N4Upload(); return; }
             var clock = System.Diagnostics.Stopwatch.StartNew();
+            // 4b: WHILE DRIVING the batch goes to the job threads and is read back on later frames, a few
+            // lamps a frame (N4Tick); no SyncTransforms (the tiles' colliders stand from the physics step
+            // after they do). At a load or a jump (inside the loading screen, a replay cut) it waits as before.
+            if (!jumped && N4Async)
+            {
+                if (!n4JobPending) N4ScheduleAsync(n4Todo);
+                N4LastMs = (float)clock.Elapsed.TotalMilliseconds;
+                Night4Clock.View(N4LastMs);
+                return;
+            }
+            // (a batch still out is left to finish: its lamps are found here too, and its read-back
+            // skips any lamp already known - no wait inside a render)
             Physics.SyncTransforms();
             // in chunks (a whole ring at load is thousands of lamps: one batch would hold hundreds of MB)
             int shadowed = 0, total = 0;
@@ -154,6 +183,7 @@ namespace PSXRacing
             foreach (int slot in n4Todo) N4WriteRow(slot);
             N4Upload();
             N4LastMs = (float)clock.Elapsed.TotalMilliseconds;
+            Night4Clock.View(N4LastMs);
             if (n4Todo.Count >= 50) Debug.Log("[StreetLights] NIGHT 4: the view of " + n4Todo.Count + " lamps (" + total + " rays, " + shadowed + " bearings shadowed) in " + N4LastMs.ToString("0") + " ms; " + n4Waiting + " wait for their tiles");
         }
 
@@ -181,6 +211,19 @@ namespace PSXRacing
             var qp = new QueryParameters(N4Mask, false, QueryTriggerInteraction.Ignore, false);
             var heads = new Vector3[todo.Count];
             var grounds = new float[todo.Count];
+            N4Commands(todo, cmds, heads, grounds);
+            var job = RaycastCommand.ScheduleBatch(cmds, hits, 64, 2);
+            job.Complete();
+            for (int t = 0; t < todo.Count; t++) N4ReadLamp(hits, t, todo[t], heads[t], grounds[t], ref shadowed);
+            cmds.Dispose(); hits.Dispose();
+            return total;
+        }
+
+        /// <summary>The rays of a batch of lamps: head to ground on every bearing and radius.</summary>
+        static void N4Commands(List<int> todo, NativeArray<RaycastCommand> cmds, Vector3[] heads, float[] grounds)
+        {
+            int K = N4Radii.Length, per = N4Bearings * K;
+            var qp = new QueryParameters(N4Mask, false, QueryTriggerInteraction.Ignore, false);
             for (int t = 0; t < todo.Count; t++)
             {
                 ref Entry e = ref entries[todo[t]];
@@ -205,72 +248,254 @@ namespace PSXRacing
                     }
                 }
             }
-            var job = RaycastCommand.ScheduleBatch(cmds, hits, 64, 2);
-            job.Complete();
-            for (int t = 0; t < todo.Count; t++)
+        }
+
+        /// <summary>One lamp's view from its rays' hits (lamp t of a batch): each bearing's shadowed stretches.</summary>
+        static void N4ReadLamp(NativeArray<RaycastHit> hits, int t, int slot, Vector3 h, float gy, ref int shadowed)
+        {
+            int K = N4Radii.Length, per = N4Bearings * K;
+            for (int b = 0; b < N4Bearings; b++)
             {
-                int slot = todo[t];
-                var h = heads[t]; float gy = grounds[t];
-                for (int b = 0; b < N4Bearings; b++)
+                float a = (b + 0.5f) / N4Bearings * Mathf.PI * 2f;
+                // per radius: lit, or the plan distance of what cut the line
+                float s1 = N4Clear, e1 = 99f, s2 = N4Clear, e2 = 99f;
+                int runs = 0; bool inShadow = false; float lastBlockedR = 0f;
+                for (int k = 0; k < K; k++)
                 {
-                    float a = (b + 0.5f) / N4Bearings * Mathf.PI * 2f;
-                    // per radius: lit, or the plan distance of what cut the line
-                    float s1 = N4Clear, e1 = 99f, s2 = N4Clear, e2 = 99f;
-                    int runs = 0; bool inShadow = false; float lastBlockedR = 0f;
-                    for (int k = 0; k < K; k++)
+                    int ci = t * per + b * K + k;
+                    var tgt = new Vector3(h.x + Mathf.Cos(a) * N4Radii[k], gy, h.z + Mathf.Sin(a) * N4Radii[k]);
+                    float len = Vector3.Distance(h, tgt);
+                    bool blocked = false; float hitR = 0f;
+                    // the nearest hit that is neither thin nor the ground itself
+                    float best = float.MaxValue; RaycastHit bh = default;
+                    for (int m = 0; m < 2; m++)
                     {
-                        int ci = t * per + b * K + k;
-                        var tgt = new Vector3(h.x + Mathf.Cos(a) * N4Radii[k], gy, h.z + Mathf.Sin(a) * N4Radii[k]);
-                        float len = Vector3.Distance(h, tgt);
-                        bool blocked = false; float hitR = 0f;
-                        // the nearest hit that is neither thin nor the ground itself
-                        float best = float.MaxValue; RaycastHit bh = default;
-                        for (int m = 0; m < 2; m++)
+                        var hit = hits[ci * 2 + m];
+                        if (hit.normal == Vector3.zero) continue;   // (no hit)
+                        if (hit.distance >= best) continue;
+                        if (N4IsThinHit(hit)) continue;
+                        best = hit.distance; bh = hit;
+                    }
+                    if (best < float.MaxValue && best < len - 0.6f)
+                    {
+                        // ground rising toward the target is ground, not a wall
+                        bool groundRise = bh.normal.y > 0.65f && Mathf.Abs(bh.point.y - gy) < 2.5f;
+                        if (!groundRise)
                         {
-                            var hit = hits[ci * 2 + m];
-                            if (hit.normal == Vector3.zero) continue;   // (no hit)
-                            if (hit.distance >= best) continue;
-                            if (N4IsThin(hit.collider, hit.colliderEntityId)) continue;
-                            best = hit.distance; bh = hit;
-                        }
-                        if (best < float.MaxValue && best < len - 0.6f)
-                        {
-                            // ground rising toward the target is ground, not a wall
-                            bool groundRise = bh.normal.y > 0.65f && Mathf.Abs(bh.point.y - gy) < 2.5f;
-                            if (!groundRise)
-                            {
-                                blocked = true;
-                                hitR = new Vector2(bh.point.x - h.x, bh.point.z - h.z).magnitude;
-                            }
-                        }
-                        if (blocked && !inShadow)
-                        {
-                            // the shadow starts just past what cut the line (its face stays lit)
-                            float lo = k > 0 ? N4Radii[k - 1] : 0f;
-                            float st = Mathf.Clamp(hitR + 0.3f, lo, N4Radii[k]);
-                            if (runs == 0) { s1 = st; e1 = 99f; } else if (runs == 1) { s2 = st; e2 = 99f; } else e2 = 99f;
-                            // a third run joins the second (conservative: dark to its end)
-                            inShadow = true;
-                            runs++;
-                        }
-                        if (blocked) lastBlockedR = N4Radii[k];
-                        if (!blocked && inShadow)
-                        {
-                            float back = 0.5f * (lastBlockedR + N4Radii[k]);
-                            if (runs == 1) e1 = back;
-                            else if (runs == 2) e2 = back;
-                            else e2 = back;   // (a third run: the second stretches over it)
-                            inShadow = false;
+                            blocked = true;
+                            hitR = new Vector2(bh.point.x - h.x, bh.point.z - h.z).magnitude;
                         }
                     }
-                    if (runs > 0) shadowed++;
-                    n4Vis[slot * N4Bearings + b] = new Vector4(s1, e1, s2, e2);
+                    if (blocked && !inShadow)
+                    {
+                        // the shadow starts just past what cut the line (its face stays lit)
+                        float lo = k > 0 ? N4Radii[k - 1] : 0f;
+                        float st = Mathf.Clamp(hitR + 0.3f, lo, N4Radii[k]);
+                        if (runs == 0) { s1 = st; e1 = 99f; } else if (runs == 1) { s2 = st; e2 = 99f; } else e2 = 99f;
+                        // a third run joins the second (conservative: dark to its end)
+                        inShadow = true;
+                        runs++;
+                    }
+                    if (blocked) lastBlockedR = N4Radii[k];
+                    if (!blocked && inShadow)
+                    {
+                        float back = 0.5f * (lastBlockedR + N4Radii[k]);
+                        if (runs == 1) e1 = back;
+                        else if (runs == 2) e2 = back;
+                        else e2 = back;   // (a third run: the second stretches over it)
+                        inShadow = false;
+                    }
                 }
-                n4Known[slot] = true;
-                n4At[slot] = entries[slot].pos;
+                if (runs > 0) shadowed++;
+                n4Vis[slot * N4Bearings + b] = new Vector4(s1, e1, s2, e2);
             }
-            cmds.Dispose(); hits.Dispose();
-            return total;
+            n4Known[slot] = true;
+            n4At[slot] = entries[slot].pos;
+        }
+
+
+        // ---- 4b: the street-lamp view while driving, off the main thread ----
+        /// <summary>false = round 4's way (24 lamps found in one frame, waited for: the "before").</summary>
+        public static bool N4Async = System.Environment.GetEnvironmentVariable("PSX_N4_ASYNC") != "0";
+        /// <summary>Main-thread milliseconds a frame may spend reading lamps' rays back.</summary>
+        public static float N4ReadBudgetMs = 0.25f;
+        static bool n4JobPending;
+        static int[] n4WaitSeen = new int[0];
+        static NativeArray<Vector3> n4JH;
+        static NativeArray<float> n4JG, n4RadiiN;
+        static NativeArray<Vector2> n4Dirs;
+        static Unity.Jobs.JobHandle n4Job;
+        static NativeArray<RaycastCommand> n4Cmds;
+        static NativeArray<RaycastHit> n4Hits;
+        static readonly List<int> n4JobSlots = new List<int>();
+        static Vector3[] n4JobHeads = new Vector3[0];
+        static float[] n4JobGrounds = new float[0];
+        static int n4JobRead;
+        static readonly HashSet<int> n4RowsTouched = new HashSet<int>();
+        static Texture2D n4Staging;
+        static bool n4QuitHooked;
+
+        static void N4ScheduleAsync(List<int> todo)
+        {
+            int per = N4Bearings * N4Radii.Length, total = todo.Count * per;
+            if (!n4QuitHooked) { n4QuitHooked = true; Application.quitting += N4DropAsync; }
+            if (!n4Cmds.IsCreated || n4Cmds.Length < total)
+            {
+                if (n4Cmds.IsCreated) n4Cmds.Dispose();
+                if (n4Hits.IsCreated) n4Hits.Dispose();
+                int cap = Mathf.Max(total, per * N4LampsPerLook);
+                n4Cmds = new NativeArray<RaycastCommand>(cap, Allocator.Persistent);
+                n4Hits = new NativeArray<RaycastHit>(cap * 2, Allocator.Persistent);
+            }
+            n4JobSlots.Clear(); n4JobSlots.AddRange(todo);
+            if (n4JobHeads.Length < todo.Count) { n4JobHeads = new Vector3[todo.Count]; n4JobGrounds = new float[todo.Count]; }
+            if (!n4JH.IsCreated || n4JH.Length < todo.Count)
+            {
+                if (n4JH.IsCreated) { n4JH.Dispose(); n4JG.Dispose(); }
+                int capL = Mathf.Max(todo.Count, N4LampsPerLook);
+                n4JH = new NativeArray<Vector3>(capL, Allocator.Persistent);
+                n4JG = new NativeArray<float>(capL, Allocator.Persistent);
+            }
+            if (!n4Dirs.IsCreated)
+            {
+                n4Dirs = new NativeArray<Vector2>(N4Bearings, Allocator.Persistent);
+                for (int b = 0; b < N4Bearings; b++) { float a = (b + 0.5f) / N4Bearings * Mathf.PI * 2f; n4Dirs[b] = new Vector2(Mathf.Cos(a), Mathf.Sin(a)); }
+                n4RadiiN = new NativeArray<float>(N4Radii, Allocator.Persistent);
+            }
+            for (int t = 0; t < todo.Count; t++)
+            {
+                ref Entry e = ref entries[todo[t]];
+                if (!e.groundKnown)
+                {
+                    e.groundKnown = true;
+                    e.ground = Physics.Raycast(e.pos + Vector3.down * 0.3f, Vector3.down, out var gh, 60f, ~(1 << 2), QueryTriggerInteraction.Ignore) ? gh.point.y : e.pos.y - 9f;
+                }
+                var h = e.pos + Vector3.down * 0.15f;
+                n4JobHeads[t] = h; n4JobGrounds[t] = e.ground;
+                n4JH[t] = h; n4JG[t] = e.ground;
+            }
+            // the commands on the job threads as well: the main thread only schedules
+            var fill = new N4FieldFillJob
+            {
+                heads = n4JH, grounds = n4JG, dirs = n4Dirs, radii = n4RadiiN,
+                qp = new QueryParameters(N4Mask, false, QueryTriggerInteraction.Ignore, false), cmds = n4Cmds.GetSubArray(0, total),
+            }.Schedule(total, 128);
+            n4Job = RaycastCommand.ScheduleBatch(n4Cmds.GetSubArray(0, total), n4Hits.GetSubArray(0, total * 2), 64, 2, fill);
+            Night4PhysicsFence.Ensure();
+            Unity.Jobs.JobHandle.ScheduleBatchedJobs();
+            n4JobPending = true;
+            n4JobAt = Time.realtimeSinceStartup;
+            n4JobRead = 0;
+        }
+
+        /// <summary>Before a physics step (Night4PhysicsFence): the lamps' job finished (read back later).</summary>
+        internal static void N4Fence() { if (n4JobPending) n4Job.Complete(); }
+
+        /// <summary>Every frame from Night4PhysicsFence.Update, whether or not anything renders (paused,
+        /// a menu over the city, the photo view, a tool stepping frames by hand): a batch that is back is
+        /// read; one out for more than a second is finished here, OUTSIDE any render. Lamps never stay
+        /// half found because nothing drew.</summary>
+        internal static void N4UpdateTick()
+        {
+            if (!n4JobPending) return;
+            if (!n4Job.IsCompleted && Time.realtimeSinceStartup - n4JobAt > 1f) n4Job.Complete();
+            N4Tick();
+        }
+        static float n4JobAt;
+        /// <summary>Self-test (Editor/Night4SelfTest): one lamp's view found the WHILE-DRIVING way - scheduled on
+        /// the job threads and read back only through the Update path (N4UpdateTick), nothing rendered - within
+        /// <paramref name="maxTicks"/> ticks. Returns the ticks it took (-1: never collected).</summary>
+        public static int N4TestBackgroundBatch(int handle, int maxTicks)
+        {
+            int slot = handle & 0xFFFF;
+            if (n4Known.Length < entries.Length)
+            {
+                System.Array.Resize(ref n4Known, entries.Length);
+                System.Array.Resize(ref n4At, entries.Length);
+                System.Array.Resize(ref n4Vis, entries.Length * N4Bearings);
+            }
+            n4Known[slot] = false;
+            Physics.SyncTransforms();
+            N4ScheduleAsync(new List<int> { slot });
+            for (int k = 0; k < maxTicks; k++)
+            {
+                N4UpdateTick();
+                if (!n4JobPending && n4Known[slot]) return k + 1;
+                System.Threading.Thread.Sleep(5);
+            }
+            return -1;
+        }
+
+        /// <summary>Tests: a batch is out or being read back.</summary>
+        public static bool N4BatchOut => n4JobPending;
+
+        /// <summary>A jump or a load while a batch is out: wait for it (its lamps are found again with the rest).</summary>
+        static void N4DropAsync()
+        {
+            if (n4JobPending) { n4Job.Complete(); n4JobPending = false; n4JobSlots.Clear(); }
+        }
+
+        /// <summary>Every frame (PushN3): once the job threads are done, read a few lamps back within the
+        /// budget; when the batch is all read, its atlas rows go up (a row each, not the atlas) and the
+        /// field is splatted again with them.</summary>
+        static void N4Tick()
+        {
+            if (!n4JobPending || !n4Job.IsCompleted) return;
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            n4Job.Complete();   // (done: costs nothing)
+            int shadowed = 0;
+            N4EnsureAtlasRows();
+            while (n4JobRead < n4JobSlots.Count)
+            {
+                int t = n4JobRead++;
+                int slot = n4JobSlots[t];
+                if (slot < high && entries[slot].used && !(slot < n4Known.Length && n4Known[slot] && (n4At[slot] - entries[slot].pos).sqrMagnitude < 0.01f)) N4ReadLamp(n4Hits, t, slot, n4JobHeads[t], n4JobGrounds[t], ref shadowed);
+                if (clock.Elapsed.TotalMilliseconds > N4ReadBudgetMs) break;
+            }
+            if (n4JobRead >= n4JobSlots.Count)
+            {
+                n4JobPending = false;
+                N4EnsureAtlas();
+                n4RowsTouched.Clear();
+                foreach (int slot in n4JobSlots) { if (slot < high) { N4WriteRowData(slot); n4RowsTouched.Add(slot / N4PerRow); } }
+                N4UploadRows(n4RowsTouched);
+                N4Rays += n4JobSlots.Count * N4Bearings * N4Radii.Length;
+                n4JobSlots.Clear();
+                N4Touch();   // the lamps join the splat at its next gathering
+            }
+            Night4Clock.Tick((float)clock.Elapsed.TotalMilliseconds);
+        }
+
+        static void N4EnsureAtlasRows() { }
+
+        /// <summary>One lamp's row into the CPU copy only (the upload is per row, N4UploadRows).</summary>
+        static void N4WriteRowData(int slot)
+        {
+            bool dirty = n4Dirty;
+            N4WriteRow(slot);
+            n4Dirty = dirty;
+        }
+
+        /// <summary>The touched rows to the GPU, one 4000-texel row each (a whole-atlas Apply was ~4 MB).</summary>
+        static void N4UploadRows(HashSet<int> rows)
+        {
+            if (n4Atlas == null) return;
+            if (n4Dirty) { N4Upload(); return; }   // (a new or grown atlas goes up whole)
+            int W = N4PerRow * N4Block;
+            if (n4Staging == null || n4Staging.width != W)
+            {
+                if (n4Staging != null) Object.Destroy(n4Staging);
+                n4Staging = new Texture2D(W, 1, TextureFormat.RGBAHalf, false, true) { hideFlags = HideFlags.DontSave, filterMode = FilterMode.Point };
+            }
+            var row = new ushort[W * 4];
+            foreach (int r in rows)
+            {
+                if (r >= n4Rows) continue;
+                System.Array.Copy(n4Data, r * W * 4, row, 0, W * 4);
+                n4Staging.SetPixelData(row, 0);
+                n4Staging.Apply(false, false);
+                Graphics.CopyTexture(n4Staging, 0, 0, 0, 0, W, 1, n4Atlas, 0, 0, 0, r);
+            }
         }
 
         static bool N4NeighboursLive(City.CityWorld world, Vector3 p)

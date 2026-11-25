@@ -1,3 +1,70 @@
+# HANDOFF - NIGHT4 round 4b: NIGHT 4's cost off the main thread, the beam cap, the corner and median leaks, a tool hang fixed (agent "night4", 11-24/25; branch `city-night4` on mountain-nm 0c2e3ffd; NOT pushed, NOT merged)
+
+All frames and timings are EDITOR runs: PSXPerf, then PSXRec (Android-target project, PSX_PROFILE=PC, city built live) for the last runs. The PC64 program was running, so no player run was made. The player cost is NOT measured.
+
+## A. Cost
+- Headlight fans (CarLights.Occlusion.cs): the rays are written and cast on the job threads (N4FanFillJob, then RaycastCommand) and read back on a later frame, with no Complete() that waits. Bearings come from a table. A car keeps its row in the reach texture, and the row is written and uploaded only when its reaches change. Cars within 80 m are looked at every 2nd frame, to 250 m every 4th, beyond every 8th; the 0.1 s ease hides it.
+- Street-lamp views while driving (StreetLights.Night4.cs): a batch of 24 lamps is written and cast on the job threads (N4FieldFillJob), with no SyncTransforms. It is read back a few lamps a frame (0.25 ms budget) and uploaded a row at a time, not the whole atlas. Lamps waiting for their tiles are asked again only when the ring changes. At a load or a jump the whole ring is still found at once, inside the load. PSX_N4_ASYNC=0 = round 4's blocking way (the "before").
+- Per-pixel reach (PSXHeadlights.cginc): the atan2 and fetch now run only where the beam gives light at all. Probe: OccTable off = +0.07 ms (sd 5.4), i.e. not measurable.
+- Drive timing (editor perf tour: uptown with traffic 2, then I-77 south; Night4Clock = PSX_N4CLOCK; about 7570 frames each; first 300 frames dropped):
+
+| variant | OccUpdate p50/p99/max ms | lamp view p50/p99/max ms | frames over 2x median / with NIGHT 4 work over 1 ms |
+|---|---|---|---|
+| before (round 4) | 0.817 / 1.353 / 3.23 | 0 / 7.21 / 30.3 | 42 / 14 |
+| after (4b) | 0.271 / 0.527 / 1.04 | 0 / 1.93 / 24.7 (the route jump, inside a load) | 29 / 1 |
+| NIGHT 4 off | 0.001 / 0.002 / 0.09 | 0 / 0 / 0 | 31 / 0 |
+
+  - Targets NOT met in the editor: OccUpdate p99 0.53 ms (target 0.15); lamp-view p99 1.9 ms while driving (target max 0.5).
+  - Stalls are now the same as with NIGHT 4 off (29 vs 31).
+  - The editor's job-safety checks inflate both; a player figure is owed.
+- Probe A/B (editor, park, 3832x2054, nulls): n4off -0.63 / -1.16 ms (sd 9.0 / 2.0) against null -3.12 / -3.07. NIGHT 4's cost is inside the noise.
+
+## THE FIX FIRST (a tool hang that would also have been a game hole)
+- My pop-meter editor sat blocked for about 23 h in PSXPerf (low CPU, nothing logged after free roam came up). The cause was not proven, because I could not debug the stuck process.
+- What 4b changed and the fix removes: 4b left a batch of rays out across frames. It was read back only from inside camera rendering, and the code could wait on it (Complete) inside a render callback: at a jump, and whenever no lit car was in view.
+- Fix (6a8ddcae, 8bea4a42):
+  - nothing waits inside a render;
+  - Night4PhysicsFence finishes the job-thread rays before every physics step (FixedUpdate);
+  - from Update, whether or not anything renders, rays that are back are read, and a batch out for over a second is finished outside any render;
+  - so no lamp stays dark or half found when the game is paused, in a menu over the city, in the photo view, or when a tool steps frames.
+- Proof:
+  - Editor/Night4SelfTest (new, seconds, edit mode): PASS. A background batch is read back through the Update path alone with nothing rendered (2 ticks); a wall 4 m off shadows the ground behind it (from 4.3 m); the open side is clear.
+  - The same pop meter then ran to the end in PSXRec, both ways.
+- Tools: Editor/ToolWatchdog is a hard timeout on its own thread (writes "TIMEOUT <tool>" and exits 3, even with the main thread stuck). It is armed on LightPopCheck (50 min) and PerfTourEditor (60 min); PSX_TOOL_MAXMIN overrides.
+
+## B. Leftovers
+1. Pale pavement in the car's own beam: the beams now take the lamps' cap on upward pale ground (PSXLit; about 1.3x the lit asphalt). Side-street cell pavement (editor): NIGHT 3 193/216, round 4 200, 4b 113/144; his frame 89/104. Sheet: scratchpad night4\sidesky_4b.jpg (his | NIGHT 3 | 4b).
+2. Building corner: the per-pixel beams and the pools now take the bearing from the fan's own origin, where the reaches were measured (round 4 used each lamp's position, so the two lamps fell either side of a corner).
+
+| spot | NIGHT 3 (on-off Ycode) | round 4 | 4b |
+|---|---|---|---|
+| building corner | +2.3 | +22.5 | +11.7 (pool term 0.96, unchanged) |
+| Jersey median | +109.2 | +27.8 | 0.0 (pool term 0, per-pixel 0) |
+| wall | +83.9 | 0.0 | 0.0 |
+| lamp behind building | +214.0 | +11.6 | +11.6 (the lamp's own halo on screen; field term 0) |
+
+   NIGHT 3's +2.3 at the corner is a saturated patch (Ycode 214 on 212), not a lower leak. The corner still leaks: at the corner's edge a bearing bin is 2.3 degrees wide.
+3. LAB check (editor, LabPlayCheck, city, night, clear, snaps): pass 7, no change 9, fail 0. "night4 | Now | NEW -> OLD | flipped 9.59/26.11% | back 0.00/0.00 | PASS": it changes the picture at once and comes back clean. This ran on the code before the fix.
+
+## Pop meter (PSXRec, after the fix, city, 4 routes x 2 views)
+NIGHT 4 off vs on is the same: lamp field 18.9-22.9 per km both ways. These are the editor ring streaming lamps into view, not NIGHT 4.
+
+## Self-test
+LifeSimSelfTest (PSXPerf, 11-25 06:36, 4b code): 65 failures, the same list as round 4 (compared line by line, numbers stripped). No new failure.
+
+## For the next PC build: still code only
+No change under Scripts/City, Scenes or Resources data, so the bake fingerprint (ad4609c0d730) does not move.
+- New files with metas: Scripts/Night4Jobs.cs, Scripts/Night4PhysicsFence.cs, Scripts/Dev/Night4Clock.cs.
+- New files whose metas Unity mints on first import (copy them back): Editor/Night4SelfTest.cs, Editor/ToolWatchdog.cs.
+- Run on the built exe: the cost probe (round 4's line plus `occtab=set:CarLights.OccTable:0`), a drive with PSX_N4CLOCK=<file> (columns frame, dt, occ, view, read-back), the leak probe, and `Unity.exe -batchmode -projectPath <sandbox> -executeMethod PSXRacing.EditorTools.Night4SelfTest.Run -quit`.
+
+## Not verified
+- Any player number (cost, drive timing, stalls).
+- The editor timings after the last fix: the drive timings, LAB check, leak probe, night cells and cost probe ran just before it. Only the self-test, the LifeSimSelfTest and the pop meter ran after it.
+- The exact cause of the hang.
+- The flicker fix in motion.
+- I-77's gap, still 844 m (not in this round).
+
 # HANDOFF - TUNNEL2 ROUND 2B: the last see-through, the slopes beside the portal as leaf litter, the roadside without stretch, lamps that ease (agent "tunnel2", branch parkway-tunnel2, mountain-nm b1bd5967 merged in; NOT pushed, NOT merged)
 
 ## Switches (all public static bool fields)
