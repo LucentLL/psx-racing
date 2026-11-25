@@ -195,6 +195,7 @@ namespace PSXRacing
                                                                Vector3.Cross(Vector3.up, path.GetTangent(nearestIdx)).normalized);
             }
             target += right * (lineOffset + avoidBias + cutBack);
+            DebugAim = target;
 
             Vector3 local = transform.InverseTransformPoint(target);
             float steerCmd;
@@ -369,6 +370,8 @@ namespace PSXRacing
         const float OncomingGuardM = 130f, OwnLaneInnerM = 1.0f;
         /// <summary>For the race harness: the line, the give-way offset and
         /// the limit on it this tick (-infinity when nothing is coming).</summary>
+        /// <summary>For the race harness (cityai 11-25): the point the steering chased this tick.</summary>
+        public Vector3 DebugAim { get; private set; }
         public float DebugLine => lineOffset;
         public float DebugBias => avoidBias;
         public float DebugLeftLimit { get; private set; } = float.NegativeInfinity;
