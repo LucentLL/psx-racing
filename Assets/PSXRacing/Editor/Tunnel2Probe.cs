@@ -634,6 +634,23 @@ namespace PSXRacing.EditorTools
                 for (int i = 0; i < list.Count && i < 20; i++)
                     L(sb, $"    {list[i].Key}: {list[i].Value.bad:0} m2 of {list[i].Value.area:0} m2 ({100.0 * list[i].Value.bad / list[i].Value.area:0.0}%), worst {list[i].Value.worst:0.0}");
             }
+            if (wholeStage)
+            {
+                // (stage3) THE RAIL KITS by material: stretched share and median texels a metre (the steel rail's is
+                // the timber's reference, PSX_TIMBERUV)
+                var rails = new Dictionary<string, MeshStat>();
+                foreach (var s in stats)
+                {
+                    string mm = s.mat;
+                    if (!(mm.EndsWith("Guardrail") || mm.Contains("TimberRail") || mm == "RailPost" || mm.Contains("RusticRail") ||
+                          mm.Contains("GuardrailWeathering") || mm.Contains("BridgeCurb"))) continue;
+                    if (!rails.TryGetValue(mm, out var agg)) rails[mm] = agg = new MeshStat { name = mm, mat = mm };
+                    agg.area += s.area; agg.badArea += s.badArea; agg.worstAniso = Mathf.Max(agg.worstAniso, s.worstAniso); agg.dens.AddRange(s.dens);
+                }
+                L(sb, "  RAIL KITS (whole stage, by material): stretched > 1.5:1, worst, median texels a metre");
+                foreach (var r in rails.Values)
+                    L(sb, $"    {r.mat}: {r.area:0} m2, >1.5 on {100.0 * r.badArea / Mathf.Max(1e-3f, (float)r.area):0.0}%, worst {r.worstAniso:0.0}, density {r.Median():0.0}");
+            }
             L(sb, "stretch check: " + (fails == 0 ? "ok" : fails + " tunnel mesh(es) FAIL"));
             return sb.ToString();
         }

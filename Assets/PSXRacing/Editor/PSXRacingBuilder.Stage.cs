@@ -6079,6 +6079,7 @@ namespace PSXRacing.EditorTools
                 {
                     var into = RunTris(part.mat);
                     float bump = part.boards ? (Mathf.Max(0, rings[k - 1].station >= 0 ? rings[k - 1].station : StationBefore(k - 1)) % 4) * 0.25f : 0f;
+                    if (part.boards && TimberUV) bump += TimberPlankIn;
                     Prism(verts, uvs, into, part, k - 1, k, along, bump, (kk, yb) => PAt(kk, yb, part.fromDeck, Vector3.zero));
                 }
             }
@@ -6125,7 +6126,8 @@ namespace PSXRacing.EditorTools
                                 a[j] = PAt(k, part.prof[j], part.fromDeck, Vector3.zero);
                                 b[j] = a[j] + dir;
                             }
-                            Skin(verts, uvs, into, part, a, b, along[k], along[k] + (endIx == 0 ? -1f : 1f) * WallSolidEndReachM, 0f);
+                            Skin(verts, uvs, into, part, a, b, along[k], along[k] + (endIx == 0 ? -1f : 1f) * WallSolidEndReachM,
+                                 part.boards && TimberUV ? TimberPlankIn : 0f);
                             CapPrism(verts, uvs, into, part, kk => PAt(k, kk, part.fromDeck, dir), dir);
                         }
                         continue;
@@ -6196,8 +6198,25 @@ namespace PSXRacing.EditorTools
                 // is about 40), a metre of grain per sheet height, and each
                 // post from a different strip so no two match.
                 float col = (posts % 6) / 6f;
-                for (int q = v0; q < pu.Count; q++)
-                    pu[q] = new Vector2(col + pu[q].x / 6f, pu[q].y * h);
+                if (TimberUV)
+                {
+                    // (PSX_TIMBERUV) square texels at the steel rail's density: each side a strip of the sheet
+                    // postW across and h up, the top its own square; each post from a different strip
+                    var ptx = pm != null ? pm.mainTexture : AssetDatabase.LoadAssetAtPath<Texture2D>(GuardrailPostTexPath);
+                    float tw = ptx != null ? ptx.width : 256f, th = ptx != null ? ptx.height : 256f;
+                    float su = postW * KitTexelsPerM / tw, sv = KitTexelsPerM / th;
+                    float v0f = ((posts * 7) % 5) / 5f;
+                    for (int q = v0; q < v0 + 16 && q < pu.Count; q++)
+                        pu[q] = new Vector2(col + pu[q].x * su, v0f + pu[q].y * h * sv);
+                    if (pu.Count >= v0 + 20)
+                    {
+                        pu[v0 + 16] = new Vector2(col, v0f); pu[v0 + 17] = new Vector2(col, v0f + su * tw / th);
+                        pu[v0 + 18] = new Vector2(col + su, v0f + su * tw / th); pu[v0 + 19] = new Vector2(col + su, v0f);
+                    }
+                }
+                else
+                    for (int q = v0; q < pu.Count; q++)
+                        pu[q] = new Vector2(col + pu[q].x / 6f, pu[q].y * h);
                 posts++;
             }
             bool Allowed(int k, RailKit kit) => kit == RailKit.BridgeRail
@@ -6248,6 +6267,21 @@ namespace PSXRacing.EditorTools
         /// ghost audit's 0.6 and 0.8 m samples, as the W-beam's does.</summary>
         const float TimberRailTop = -0.03f, TimberRailH = 0.25f, TimberRailDepth = 0.15f,
                     TimberSteelT = 0.012f, TimberPostW = 0.25f;
+        /// <summary>
+        /// (stage3, 2026-11-25) THE TIMBER RAIL WITHOUT STRETCH. Its boards were mapped a plank (a quarter of the
+        /// sheet) round the 0.8 m section and two metres of grain along: 2:1 texels on 99.9 % of their area; the
+        /// posts a sixth of their sheet across and a metre of grain up it (1.5:1 on 30 %). With this on, boards,
+        /// their end pieces and every rail post take SQUARE texels at the steel rail's density (KitTexelsPerM: the
+        /// W-beam and the timber's steel backing both run 256 texels over a 4 m station): a board is one station of
+        /// grain along, its whole section inside one plank of the sheet (a different plank each station: the butt
+        /// joints), a post a strip of its grain sheet. PSX_TIMBERUV=0 = 77f4abf8. Stages only.
+        /// </summary>
+        public static bool TimberUV = System.Environment.GetEnvironmentVariable("PSX_TIMBERUV") != "0";
+        /// <summary>Texels a metre on the stages' rail kits with TimberUV (the steel rail's).</summary>
+        const float KitTexelsPerM = 64f;
+        /// <summary>A board's section starts this far into its plank (the sheet's plank seams stand at about
+        /// 0, 0.26, 0.51 and 0.76 across it; a 0.8 m section at KitTexelsPerM is 0.2 of the sheet).</summary>
+        const float TimberPlankIn = 0.035f;
         /// <summary>Chimney Rock's rustic post-and-rail: two round log rails
         /// (hexagonal, 0.22 m across, a park road's log rail) whose centres
         /// stand 0.15 m over and 0.25 m under the wall line's top - about 0.88
@@ -6403,6 +6437,14 @@ namespace PSXRacing.EditorTools
                                             mat = kitGalv, fromDeck = true, alongScale = 4f, perimScale = 1f });
                     break;
             }
+            // (stage3, PSX_TIMBERUV) the boards square at the steel rail's density, inside one plank
+            if (TimberUV)
+                foreach (var pt in parts)
+                {
+                    if (!pt.boards || pt.mat == null || pt.mat.mainTexture == null) continue;
+                    pt.alongScale = pt.mat.mainTexture.height / KitTexelsPerM;
+                    pt.perimScale = pt.mat.mainTexture.width / KitTexelsPerM;
+                }
             // (tunnel2b, PSX_ROADSIDEUV2) square texels round each part (the boards keep their own plank rows)
             if (RoadsideUV2)
                 foreach (var pt in parts)
@@ -6465,7 +6507,7 @@ namespace PSXRacing.EditorTools
             for (int j = 0; j < m; j++)
             {
                 verts.Add(at(part.prof[j]));
-                uvs.Add(new Vector2(part.prof[j].y / part.perimScale, part.prof[j].x / part.perimScale));
+                uvs.Add(new Vector2(part.prof[j].y / part.perimScale + (part.boards && TimberUV ? TimberPlankIn : 0f), part.prof[j].x / part.perimScale));
             }
             for (int j = 1; j + 1 < m; j++)
             {
