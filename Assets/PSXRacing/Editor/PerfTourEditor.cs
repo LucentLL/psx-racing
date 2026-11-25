@@ -21,6 +21,7 @@ namespace PSXRacing.EditorTools
         public static void Run()
         {
             EditionParking.RecoverIfNeeded();
+            ToolWatchdog.Arm("PerfTourEditor", 60f);
             if (System.Environment.GetEnvironmentVariable("PSX_PERFTOUR") == null)
             {
                 Debug.LogError("[PerfTourEditor] set PSX_PERFTOUR (the tour's query) first");

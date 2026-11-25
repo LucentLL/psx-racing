@@ -26,5 +26,12 @@ namespace PSXRacing
             CarLights.OccFence();
             StreetLights.N4Fence();
         }
+
+        // the read-back, every frame whether or not anything renders
+        void Update()
+        {
+            CarLights.OccUpdateTick();
+            StreetLights.N4UpdateTick();
+        }
     }
 }

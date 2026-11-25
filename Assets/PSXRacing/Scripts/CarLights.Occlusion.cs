@@ -72,6 +72,16 @@ namespace PSXRacing
         /// <summary>Before a physics step (Night4PhysicsFence): the fan's job finished (its hits read later).</summary>
         internal static void OccFence() { if (occPending) occJob.Complete(); }
 
+        /// <summary>Every frame from Night4PhysicsFence.Update: rays that are back are read even when
+        /// nothing renders; ones out for over a second are finished here, outside any render.</summary>
+        internal static void OccUpdateTick()
+        {
+            if (!occPending) return;
+            if (!occJob.IsCompleted && Time.realtimeSinceStartup - occAt0 > 1f) occJob.Complete();
+            OccCollect(false);
+        }
+        static float occAt0;
+
         static void OccDisposeAll()
         {
             if (occPending) { occJob.Complete(); occPending = false; }
@@ -86,7 +96,7 @@ namespace PSXRacing
         {
             for (int c = 0; c < sorted.Count; c++) sorted[c].occRow = -1;
             var clock = System.Diagnostics.Stopwatch.StartNew();
-            if (!OccOn || cam == null || sorted.Count == 0) { OccRays = 0; OccCollect(true); OccMs = (float)clock.Elapsed.TotalMilliseconds; Night4Clock.Occ(OccMs); return; }
+            if (!OccOn || cam == null || sorted.Count == 0) { OccRays = 0; OccCollect(false); OccMs = (float)clock.Elapsed.TotalMilliseconds; Night4Clock.Occ(OccMs); return; }
             if (!occQuitHooked) { occQuitHooked = true; Application.quitting += OccDisposeAll; }
             if (occCos == null)
             {
@@ -187,6 +197,7 @@ namespace PSXRacing
                         .Schedule(total, 64);
                     occJob = RaycastCommand.ScheduleBatch(occCmds.GetSubArray(0, total), occHits.GetSubArray(0, total * 2), 32, 2, fill);
                     occPending = true;
+                    occAt0 = Time.realtimeSinceStartup;
                     Night4PhysicsFence.Ensure();
                     Unity.Jobs.JobHandle.ScheduleBatchedJobs();
                     if (!OccAsync) OccCollect(true);

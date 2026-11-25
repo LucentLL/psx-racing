@@ -38,6 +38,7 @@ namespace PSXRacing.EditorTools
         {
             EditionParking.RecoverIfNeeded();
             TitleScreen.Skip = true;
+            ToolWatchdog.Arm("LightPopCheck", 50f, System.IO.Path.Combine(System.IO.Path.GetDirectoryName(Application.dataPath), "PSXRacing_lightpop.txt"));
             string mode = Env("PSX_LIGHTPOP_MODE", "city");
             string venue = mode == "race" ? Env("PSX_LIGHTPOP_VENUE", "GillespieGap") : "Charlotte";
             if (!TrackCatalog.TryIndexOf(venue, out int v)) { Line("FAIL no venue " + venue); Finish(1); return; }

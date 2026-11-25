@@ -165,7 +165,8 @@ namespace PSXRacing
                 Night4Clock.View(N4LastMs);
                 return;
             }
-            N4DropAsync();
+            // (a batch still out is left to finish: its lamps are found here too, and its read-back
+            // skips any lamp already known - no wait inside a render)
             Physics.SyncTransforms();
             // in chunks (a whole ring at load is thousands of lamps: one batch would hold hundreds of MB)
             int shadowed = 0, total = 0;
@@ -383,11 +384,50 @@ namespace PSXRacing
             Night4PhysicsFence.Ensure();
             Unity.Jobs.JobHandle.ScheduleBatchedJobs();
             n4JobPending = true;
+            n4JobAt = Time.realtimeSinceStartup;
             n4JobRead = 0;
         }
 
         /// <summary>Before a physics step (Night4PhysicsFence): the lamps' job finished (read back later).</summary>
         internal static void N4Fence() { if (n4JobPending) n4Job.Complete(); }
+
+        /// <summary>Every frame from Night4PhysicsFence.Update, whether or not anything renders (paused,
+        /// a menu over the city, the photo view, a tool stepping frames by hand): a batch that is back is
+        /// read; one out for more than a second is finished here, OUTSIDE any render. Lamps never stay
+        /// half found because nothing drew.</summary>
+        internal static void N4UpdateTick()
+        {
+            if (!n4JobPending) return;
+            if (!n4Job.IsCompleted && Time.realtimeSinceStartup - n4JobAt > 1f) n4Job.Complete();
+            N4Tick();
+        }
+        static float n4JobAt;
+        /// <summary>Self-test (Editor/Night4SelfTest): one lamp's view found the WHILE-DRIVING way - scheduled on
+        /// the job threads and read back only through the Update path (N4UpdateTick), nothing rendered - within
+        /// <paramref name="maxTicks"/> ticks. Returns the ticks it took (-1: never collected).</summary>
+        public static int N4TestBackgroundBatch(int handle, int maxTicks)
+        {
+            int slot = handle & 0xFFFF;
+            if (n4Known.Length < entries.Length)
+            {
+                System.Array.Resize(ref n4Known, entries.Length);
+                System.Array.Resize(ref n4At, entries.Length);
+                System.Array.Resize(ref n4Vis, entries.Length * N4Bearings);
+            }
+            n4Known[slot] = false;
+            Physics.SyncTransforms();
+            N4ScheduleAsync(new List<int> { slot });
+            for (int k = 0; k < maxTicks; k++)
+            {
+                N4UpdateTick();
+                if (!n4JobPending && n4Known[slot]) return k + 1;
+                System.Threading.Thread.Sleep(5);
+            }
+            return -1;
+        }
+
+        /// <summary>Tests: a batch is out or being read back.</summary>
+        public static bool N4BatchOut => n4JobPending;
 
         /// <summary>A jump or a load while a batch is out: wait for it (its lamps are found again with the rest).</summary>
         static void N4DropAsync()
@@ -409,7 +449,7 @@ namespace PSXRacing
             {
                 int t = n4JobRead++;
                 int slot = n4JobSlots[t];
-                if (slot < high && entries[slot].used) N4ReadLamp(n4Hits, t, slot, n4JobHeads[t], n4JobGrounds[t], ref shadowed);
+                if (slot < high && entries[slot].used && !(slot < n4Known.Length && n4Known[slot] && (n4At[slot] - entries[slot].pos).sqrMagnitude < 0.01f)) N4ReadLamp(n4Hits, t, slot, n4JobHeads[t], n4JobGrounds[t], ref shadowed);
                 if (clock.Elapsed.TotalMilliseconds > N4ReadBudgetMs) break;
             }
             if (n4JobRead >= n4JobSlots.Count)
