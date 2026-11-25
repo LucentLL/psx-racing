@@ -227,7 +227,7 @@ namespace PSXRacing
             // tunnel round 2b (merged 11-25): build-time switches of the stage scenes, listed so a screenshot's build is known
             Register(new LabRow
             {
-                id = "tunnel3b", group = LabGroup.World, name = "TUNNELS: SLOPES BESIDE THE PORTAL", when = LabWhen.BuiltIn,
+                id = "tunnel3b", group = LabGroup.World, name = "TUNNELS: PORTAL SLOPES", when = LabWhen.BuiltIn,
                 look = "Built into the stage scenes: leaf-litter slopes with trees down to the portal wall, a darker bore. A scene build.",
                 env = new[] { "PSX_TUNNEL3B" }, requires = "TunnelHeadlights.On",
             });
