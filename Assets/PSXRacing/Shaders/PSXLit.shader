@@ -177,6 +177,10 @@ Shader "PSX/Lit"
         // (tunnel2) 1: a THIRD projection on the ground plane for what faces up or down (a bore's crown, a
         // stone's top): the two side planes alone stretch the scan to streaks there. 0 (default): as before.
         [HideInInspector] _RockTop ("Rock top plane", Float) = 0
+        // (tunnel2b, PSX_ROADSIDEUV2) > 0: the main texture (and the second ground layer) sampled on the world plane
+        // the surface faces, at this many repeats a metre; the top plane is exactly a stage ground mesh's own uv, so
+        // flat ground is unchanged and a steep face is no longer the top plane's streak. 0 (default): the mesh uv.
+        [HideInInspector] _GroundTri ("Ground triplanar (1/tile)", Float) = 0
         _Emission ("Emission", Range(0,1)) = 0
         // 1 = full PS1 affine texture warping, 0 = perspective correct.
         //
@@ -559,6 +563,7 @@ Shader "PSX/Lit"
             sampler2D _RockNrm;
             float4 _RockParams;
             float _RockTop;
+            float _GroundTri;
             // the lattice folded into a 512-cell period first (seamless, the
             // fold is on the integer corners): the sine hash loses its digits
             // on a coordinate in the thousands
@@ -1911,6 +1916,8 @@ Shader "PSX/Lit"
             #endif
                 // the repeat the lit-window hash is anchored to: the TILED uv
                 float2 winUV = uv;
+                float gtSide = 0.0;   // (tunnel2b) _GroundTri: the side planes' share, their weights
+                float3 gtW = 0.0;
             #ifdef PSX_FACADE
                 float2 fdx = ddx(uv) * float2(1.0 / FACADE_COLS, 1.0);
                 float2 fdy = ddy(uv) * float2(1.0 / FACADE_COLS, 1.0);
@@ -2187,6 +2194,23 @@ Shader "PSX/Lit"
                 #define PSX_NIGHT_MASK(u) tex2Dgrad(_NightMask, u, fdx, fdy)
             #else
                 fixed4 tex = PSXMainTex(_MainTex, uv) * _Color;
+                // (tunnel2b) THE GROUND ON A STEEP FACE: the side planes where the surface faces sideways (weights
+                // |n|^8, so a facet under ~23 deg is the top plane alone - the uv it always had)
+                if (_GroundTri > 0.0)
+                {
+                    float3 gtN = abs(normalize(i.wnrm));
+                    gtW = pow(gtN + 1e-3, 8.0); gtW /= (gtW.x + gtW.y + gtW.z);
+                    gtSide = 1.0 - gtW.y;
+                    if (gtSide > 0.002)
+                    {
+                        float s = _GroundTri;
+                        float4 tX = tex2Dgrad(_MainTex, i.wpos.zy * s, dWx.zy * s, dWy.zy * s);
+                        float4 tZ = tex2Dgrad(_MainTex, i.wpos.xy * s, dWx.xy * s, dWy.xy * s);
+                        float4 tS = (tX * gtW.x + tZ * gtW.z) / max(gtW.x + gtW.z, 1e-4);
+                        tS.rgb = PSXTexDecode(tS.rgb, _MainTexRaw);
+                        tex = lerp(tex, tS * _Color, gtSide);
+                    }
+                }
                 #define PSX_NIGHT_MASK(u) tex2Dlod(_NightMask, float4(u, 0.0, 0.0))
               #ifdef PSX_HD
                 // THE ROAD BASE: the carriageway is the HD base surface, the lane
@@ -2298,6 +2322,16 @@ Shader "PSX/Lit"
                     [branch] if (bm > 0.0)
                     {
                         float4 bt = PSXMainTex(_BlendTex, i.wpos.xz * _BlendParams.x);
+                    // (tunnel2b) on a steep face the layer on the side planes too (as the main texture above)
+                    if (gtSide > 0.002)
+                    {
+                        float bs = _BlendParams.x;
+                        float4 bX = tex2Dgrad(_BlendTex, i.wpos.zy * bs, dWx.zy * bs, dWy.zy * bs);
+                        float4 bZ = tex2Dgrad(_BlendTex, i.wpos.xy * bs, dWx.xy * bs, dWy.xy * bs);
+                        float4 bS = (bX * gtW.x + bZ * gtW.z) / max(gtW.x + gtW.z, 1e-4);
+                        bS.rgb = PSXTexDecode(bS.rgb, _MainTexRaw);
+                        bt = lerp(bt, bS, gtSide);
+                    }
                         tex.rgb = lerp(tex.rgb, bt.rgb * _Color.rgb * _BlendTint.rgb, bm);
                     }
                 }

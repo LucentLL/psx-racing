@@ -6403,6 +6403,15 @@ namespace PSXRacing.EditorTools
                                             mat = kitGalv, fromDeck = true, alongScale = 4f, perimScale = 1f });
                     break;
             }
+            // (tunnel2b, PSX_ROADSIDEUV2) square texels round each part (the boards keep their own plank rows)
+            if (RoadsideUV2)
+                foreach (var pt in parts)
+                {
+                    if (pt.boards || pt.mat == null || pt.mat.mainTexture == null) continue;
+                    var tx = pt.mat.mainTexture;
+                    float alongPx = pt.alongIsV ? tx.height : tx.width, acrossPx = pt.alongIsV ? tx.width : tx.height;
+                    pt.perimScale = pt.alongScale * acrossPx / Mathf.Max(1f, alongPx);
+                }
             return parts;
         }
 
@@ -7562,6 +7571,7 @@ namespace PSXRacing.EditorTools
         {
             portalSpots.Clear();
             T3Reset();   // (tunnel2) the last venue's hill keep-outs
+            RoadsideMaterials();   // (tunnel2b) every stage, tunnel or not
             if (!hasTunnels) return;
             var runs = StationRuns(tunnelIn, 3);
             if (runs.Count == 0) return;
@@ -7576,7 +7586,7 @@ namespace PSXRacing.EditorTools
             // (tunnel2) the bore's rock at the cut's own scale (the stretch check: within 30 % of it), and a top-down
             // plane for the crown (the side planes alone streaked it)
             if (mat.HasProperty("_RockTop")) mat.SetFloat("_RockTop", Tunnel2 && Tunnel3 ? 1f : 0f);
-            if (Tunnel2 && Tunnel3 && MountainStage && mat.IsKeywordEnabled("PSX_ROCKFACE")) { mat.SetVector("_RockParams", new Vector4(1f / 6.8f, 1f / 20f, 1.2f, 0.25f)); mat.color = new Color(0.78f, 0.79f, 0.80f); }
+            if (Tunnel2 && Tunnel3 && MountainStage && mat.IsKeywordEnabled("PSX_ROCKFACE")) { mat.SetVector("_RockParams", new Vector4(1f / 6.8f, 1f / 20f, Tunnel3B ? 1.5f : 1.2f, 0.25f)); mat.color = Tunnel3B ? new Color(0.60f, 0.61f, 0.63f) : new Color(0.78f, 0.79f, 0.80f); }   // (2b) darker, deeper relief: reads wet
             EditorUtility.SetDirty(mat);
             t2Tris = 0; t2Stones = 0;
             portalStoneTris = 0;

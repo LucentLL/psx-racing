@@ -620,7 +620,12 @@ namespace PSXRacing.EditorTools
                 int rec0 = CamcorderPass.RecordedForTools, skip0 = CamcorderPass.SkippedForTools;
                 var request = new UnityEngine.Rendering.RenderPipeline.StandardRequest { destination = rt };
                 if (UnityEngine.Rendering.RenderPipeline.SupportsRenderRequest(cam, request))
-                    for (int i = 0; i < 3; i++) UnityEngine.Rendering.RenderPipeline.SubmitRenderRequest(cam, request);
+                    for (int i = 0; i < 3; i++)
+                    {
+                        // (tunnel2b) the mesh forest's draws are used up by one render: queued again for each
+                        if (LightLookShots.ShotForest) LightLookShots.QueueForest(cam);
+                        UnityEngine.Rendering.RenderPipeline.SubmitRenderRequest(cam, request);
+                    }
                 RenderTexture.active = rt;
                 tex.ReadPixels(new Rect(0, 0, fb.width, fb.height), 0, 0);
                 RenderTexture.active = prev == rt ? null : prev;

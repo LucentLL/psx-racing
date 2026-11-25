@@ -73,6 +73,21 @@ namespace PSXRacing
         static bool lightsDecided;
         /// <summary>(tunnel2) Are the cars' lights switched on (by the hour, the weather, or a tunnel)?</summary>
         public static bool AllOn => lightsOn;
+        /// <summary>(tunnel2b) The running lamps' and head lamps' share, 0..1, for every car (lamp maps, the tail
+        /// lamp's light): 1 always, but for the moment a tunnel switches the field's lights on or off (TunnelHeadlights
+        /// eases it with the beam, so no lens pops). Play time.</summary>
+        public static float LampEase = 1f;
+
+        /// <summary>(tunnel2b) Set <see cref="LampEase"/> and fade the running lenses (the head and tail lens sprites,
+        /// PSX/Glow _Strength) and the beam in the air (PSX/Beam) with it, for every car: the switch eases, no lens pops.</summary>
+        public static void SetLampEase(float k)
+        {
+            k = Mathf.Clamp01(k);
+            LampEase = k;
+            void S(Material m, float baseS) { if (m != null && m.HasProperty("_Strength")) m.SetFloat("_Strength", baseS * k); }
+            S(HeadMat, 1.6f); S(HeadFarMat, 1.6f); S(TailDimMat, TailLensDim); S(TailDimFarMat, TailLensDim);
+            S(BeamMat, ConeStrengthNow);
+        }
 
         /// <summary>Turn every car's running lights on or off. Called by
         /// <see cref="TimeOfDay.Apply"/>; the hour owns this, not the car.
@@ -473,6 +488,7 @@ namespace PSXRacing
         /// <summary>The lamp inputs onto the body and, on B, both covers.</summary>
         void PushLamps(float run, float brake)
         {
+            run *= LampEase;
             float head = lampHead ? run : 0f;
             float layer = lensCovers[0] != null ? 1f : 0f;
             WriteLampBlock(lampRenderer, lampMap, run, brake, head, layer);
@@ -496,7 +512,7 @@ namespace PSXRacing
                 if (Mathf.Abs(target - brakeLit) < 0.003f) brakeLit = target;
             }
             float run = LitNow ? 1f : 0f;
-            if (run == pushedRun && Mathf.Abs(brakeLit - pushedBrake) < 0.002f) return;
+            if (run * LampEase == pushedRun && Mathf.Abs(brakeLit - pushedBrake) < 0.002f) return;
             PushLamps(run, brakeLit);
         }
 
@@ -676,7 +692,7 @@ namespace PSXRacing
             // The lenses face out of the back of the car, so their forward IS
             // "behind", with the body's dive and roll in it.
             tailLampPos = (a.position + b.position) * 0.5f + a.forward * TailLampBack;
-            float intensity = braking ? TailLampBrake : TailLampDim;
+            float intensity = braking ? TailLampBrake : TailLampDim * LampEase;
             bool lit = LitNow && enabled && gameObject.activeInHierarchy;
             if (tailLamp < 0)
                 tailLamp = StreetLights.Add(this, tailLampPos, TailLampRadius, TailLampColour,

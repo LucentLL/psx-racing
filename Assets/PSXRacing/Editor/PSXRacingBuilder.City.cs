@@ -879,7 +879,11 @@ namespace PSXRacing.EditorTools
             float n = Noise(x, y) - 0.5f;
             float amp = IsConcrete(surf) ? 20f : 14f;
             // (PSX_ROADUV2) a texture of more rows keeps its joints 21 of 64 rows apart (4 m along)
-            float joint = IsConcrete(surf) && ((y * 64) / grainRows) % 21 == 0 && (y * 64) % grainRows < 64 ? -26f : 0f;
+            // (tunnel2b, PSX_ROADUV2) three joints a tile, evenly (4.06 m on a track's 12.192 m): the old 21-of-64 rows
+            // put two joints 19 cm apart at every wrap
+            bool jointRow = RoadUV2 && grainRows != 64 ? (y == 0 || (y * 3) / grainRows != ((y - 1) * 3) / grainRows)
+                                                       : ((y * 64) / grainRows) % 21 == 0 && (y * 64) % grainRows < 64;
+            float joint = IsConcrete(surf) && jointRow ? -26f : 0f;
             return new Color32(
                 Chan(b.r, n * amp + joint),
                 Chan(b.g, n * amp + joint),
@@ -1009,7 +1013,20 @@ namespace PSXRacing.EditorTools
         /// the paint and its dash cycle unchanged. PSX_ROADUV2=0: 256 x 64 as before. A build-time switch (the
         /// texture is written by the scene build).
         /// </summary>
-        internal static bool RoadUV2 => System.Environment.GetEnvironmentVariable("PSX_ROADUV2") != "0";
+        public static bool RoadUV2 = System.Environment.GetEnvironmentVariable("PSX_ROADUV2") != "0";
+
+        /// <summary>
+        /// (tunnel2b, BUILD TIME) THE ROADSIDE WITHOUT STRETCH (owner 11-23: "textures should never be noticeably
+        /// stretched"; the stretch check: kerbs 100 % over 1.5 : 1, shoulders 7-17 % up to 61 : 1, banks 36-40 %,
+        /// guard rails 40-65 %). On a STAGE: the gravel verge strip mapped with square texels (it was 2 m along x the
+        /// strip's 0.9 m across); the ground material of the shoulders, the rock tops and the lattice sampled on the
+        /// world plane the surface faces (PSX/Lit _GroundTri: the top plane is the uv it always had, so flat ground is
+        /// unchanged; a steep face takes the side planes instead of a streak); the cuts' rock with its top plane
+        /// (_RockTop); the rail kits' logs, rails and steel with square texels. Circuits and the city are untouched
+        /// (their kerbs keep the 2 m dashing; no material of theirs takes the new parameters).
+        /// PSX_ROADSIDEUV2=0 = b1bd5967.
+        /// </summary>
+        public static bool RoadsideUV2 = System.Environment.GetEnvironmentVariable("PSX_ROADSIDEUV2") != "0";
 
         internal static int TrackRoadTexH(int width, float totalM)
         {

@@ -94,6 +94,62 @@ namespace PSXRacing.EditorTools
             if (Application.isBatchMode) EditorApplication.Exit(0);
         }
 
+        /// <summary>Diagnosis: the colliders and drawn meshes near each tunnel mouth (PSX_T2_NEAR = names, comma
+        /// separated prefixes): for each, its vertices within 14 m of a mouth as path metre / offset / height ranges.</summary>
+        public static void Near()
+        {
+            var sb = new StringBuilder();
+            try
+            {
+                string venue = Env("PSX_T2_VENUE", "LittleSwitzerland");
+                TrackCatalog.TryIndexOf(venue, out int v);
+                var def = TrackCatalog.At(v);
+                EditorSceneManager.OpenScene(EditorBuildSettings.scenes[TrackCatalog.SceneIndex(v)].path, OpenSceneMode.Single);
+                TrackCatalog.EnsureStage(def);
+                var pts = def.stagePts; float sp = TrackCatalog.Spacing;
+                var names = Env("PSX_T2_NEAR", "Wall,CollGuard,Bank,BankColl,CollBank,WallColl,Kerb,RoadEdge").Split(',');
+                foreach (var span in def.tunnels)
+                    foreach (float mouthM in new[] { span.x, span.y })
+                    {
+                        sb.AppendLine($"=== mouth at {mouthM:0} m");
+                        int i0 = Mathf.Clamp(Mathf.RoundToInt(mouthM / sp), 1, pts.Length - 2);
+                        void Take(string nm, Mesh m, Matrix4x4 xf, string what)
+                        {
+                            float mMin = 1e9f, mMax = -1e9f, lMin = 1e9f, lMax = -1e9f, yMin = 1e9f, yMax = -1e9f; int cnt = 0;
+                            foreach (var lv in m.vertices)
+                            {
+                                Vector3 w = xf.MultiplyPoint3x4(lv);
+                                if ((new Vector2(w.x - pts[i0].x, w.z - pts[i0].z)).magnitude > 16f) continue;
+                                int bi = i0; float bd = float.MaxValue;
+                                for (int q = Mathf.Max(1, i0 - 8); q < Mathf.Min(pts.Length - 1, i0 + 8); q++) { float dd = (new Vector2(pts[q].x - w.x, pts[q].z - w.z)).sqrMagnitude; if (dd < bd) { bd = dd; bi = q; } }
+                                Vector3 f = pts[bi + 1] - pts[bi - 1]; f.y = 0f; f.Normalize();
+                                Vector3 r = Vector3.Cross(Vector3.up, f).normalized;
+                                float along = bi * sp + Vector3.Dot(w - pts[bi], f), lat = Vector3.Dot(w - pts[bi], r), hy = w.y - pts[bi].y;
+                                mMin = Mathf.Min(mMin, along); mMax = Mathf.Max(mMax, along); lMin = Mathf.Min(lMin, lat); lMax = Mathf.Max(lMax, lat); yMin = Mathf.Min(yMin, hy); yMax = Mathf.Max(yMax, hy); cnt++;
+                            }
+                            if (cnt > 0) sb.AppendLine($"  {what} {nm}: {cnt} verts, m {mMin:0.0}..{mMax:0.0}, lat {lMin:+0.0;-0.0}..{lMax:+0.0;-0.0}, y {yMin:+0.0;-0.0}..{yMax:+0.0;-0.0}");
+                        }
+                        foreach (var mf in Object.FindObjectsByType<MeshFilter>(FindObjectsSortMode.None))
+                        {
+                            if (mf.sharedMesh == null || !mf.sharedMesh.isReadable) continue;
+                            bool want = false; foreach (var n in names) if (mf.name.StartsWith(n)) want = true;
+                            var mr = mf.GetComponent<MeshRenderer>();
+                            if (want && mr != null && mr.enabled) Take(mf.name, mf.sharedMesh, mf.transform.localToWorldMatrix, "DRAWN");
+                        }
+                        foreach (var mc in Object.FindObjectsByType<MeshCollider>(FindObjectsSortMode.None))
+                        {
+                            if (mc.sharedMesh == null || !mc.sharedMesh.isReadable) continue;
+                            string nm = mc.name + "/" + mc.sharedMesh.name;
+                            bool want = false; foreach (var n in names) if (mc.name.StartsWith(n) || mc.sharedMesh.name.Contains(n)) want = true;
+                            if (want) Take(nm, mc.sharedMesh, mc.transform.localToWorldMatrix, "COLLIDER");
+                        }
+                    }
+            }
+            catch (System.Exception e) { sb.AppendLine("THREW " + e); }
+            File.WriteAllText(Path.Combine(ProjectDir, "PSXRacing_tunnel2_probe.txt"), sb.ToString());
+            if (Application.isBatchMode) EditorApplication.Exit(0);
+        }
+
         /// <summary>Diagnosis: every drawn triangle over a patch beside the road (PSX_T2_DUMP = "fromM,toM,latMin,latMax",
         /// lat + right of the forward path): who it is, its height over the road there, how steep.</summary>
         public static void Dump()
@@ -456,6 +512,7 @@ namespace PSXRacing.EditorTools
                 if (!rock && (uv == null || uv.Length == 0)) continue;
                 var rp = rock ? mat.GetVector("_RockParams") : Vector4.zero;
                 float rockTop = rock && mat.HasProperty("_RockTop") ? mat.GetFloat("_RockTop") : 0f;
+                float groundTri = !rock && mat.HasProperty("_GroundTri") ? mat.GetFloat("_GroundTri") : 0f;
                 Vector2 tile = rock ? Vector2.one : mat.mainTextureScale;
                 Vector2 texel = new Vector2(tx.width, tx.height);
                 if (w == null)
@@ -504,6 +561,14 @@ namespace PSXRacing.EditorTools
                         float tr = aa + bb, det = Mathf.Sqrt(Mathf.Max(0f, (aa - bb) * (aa - bb) + 4f * ab * ab));
                         float s1 = Mathf.Sqrt(Mathf.Max(0f, (tr + det) * 0.5f)), s2 = Mathf.Sqrt(Mathf.Max(0f, (tr - det) * 0.5f));
                         float aniso = s2 > 1e-6f ? s1 / s2 : 99f;
+                        if (groundTri > 0f)
+                        {
+                            // (PSX_ROADSIDEUV2) PSX/Lit _GroundTri: the uv (the top plane) blended toward the side planes
+                            // by |n|^8 - the blend's stretch, each plane 1 / |n . axis|
+                            float nx = Mathf.Abs(nrm.x) + 1e-3f, ny = Mathf.Abs(nrm.y) + 1e-3f, nz = Mathf.Abs(nrm.z) + 1e-3f;
+                            float wx = Mathf.Pow(nx, 8f), wy = Mathf.Pow(ny, 8f), wz = Mathf.Pow(nz, 8f), ws = wx + wy + wz;
+                            if (1f - wy / ws > 0.002f) aniso = (wx / nx + wy / ny + wz / nz) / ws;
+                        }
                         if (rock)
                         {
                             // what the shader draws is the BLEND of its planes, each stretched 1 / |n . axis| on this

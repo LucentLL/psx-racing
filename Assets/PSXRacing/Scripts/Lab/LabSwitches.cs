@@ -223,6 +223,19 @@ namespace PSXRacing
                 look = "Built into the stage scenes: the road texture's joints at their real spacing. A scene build.",
                 env = new[] { "PSX_ROADUV2" }, requires = "TunnelHeadlights.On",
             });
+            // tunnel round 2b (merged 11-25): build-time switches of the stage scenes, listed so a screenshot's build is known
+            Register(new LabRow
+            {
+                id = "tunnel3b", group = LabGroup.World, name = "TUNNELS: SLOPES BESIDE THE PORTAL", when = LabWhen.BuiltIn,
+                look = "Built into the stage scenes: leaf-litter slopes with trees down to the portal wall, a darker bore. A scene build.",
+                env = new[] { "PSX_TUNNEL3B" }, requires = "TunnelHeadlights.On",
+            });
+            Register(new LabRow
+            {
+                id = "roadsideuv2", group = LabGroup.World, name = "ROADSIDE WITHOUT STRETCH", when = LabWhen.BuiltIn,
+                look = "Built into the stage scenes: gravel strips, shoulders, cut rock and rails with square texels. A scene build.",
+                env = new[] { "PSX_ROADSIDEUV2" }, requires = "TunnelHeadlights.On",
+            });
             // tunnel round 2 (merged 11-23): the cars' lights come on by day through a tunnel; read every frame, so live.
             Register(new LabRow
             {
