@@ -173,8 +173,7 @@ namespace PSXRacing.EditorTools
                     }
                 }
                 Physics.queriesHitBackfaces = oldQ;
-                log.Append($"rays: {raysCast} cast, {raysEscaped} met nothing, {raysUnder} of them went under the land (SEETHRU hits)
-");
+                log.Append($"rays: {raysCast} cast, {raysEscaped} met nothing, {raysUnder} of them went under the land (SEETHRU hits)\n");
                 log.Append(string.Format(inv, "TOTAL | RAISED {0} SEETHRU {1} OVERLAY {2} LINEUNDER {3}\n", totals[0], totals[1], totals[2], totals[3]));
                 log.Append(string.Format(inv, "tiles built {0}, {1:0} ms a tile; islands {2} ({3:0} m2), tips paved {4} cells, overlays out {5}, inside out {6}, poke verts {7}, skipped at a border {8}, too big {9}; median runs filled {10} sections, dropped {11} runs; {12:0} s\n",
                     built, built > 0 ? buildMs / built : 0, CityMeshes.IslandCount, CityMeshes.IslandAreaM2, CityMeshes.IslandTipCells, CityMeshes.IslandOverlayTris, CityMeshes.IslandInsideTris, CityMeshes.IslandPokeVerts,
