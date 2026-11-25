@@ -54,7 +54,7 @@ namespace PSXRacing.EditorTools
             Directory.CreateDirectory(outDir);
             try
             {
-                foreach (var spec in (System.Environment.GetEnvironmentVariable("PSX_BF_SHOTS") ?? "").Split(';'))
+                foreach (var spec in (System.Environment.GetEnvironmentVariable("PSX_BF_SHOTS") ?? "").Split(new[] { ';', '|' }))
                 {
                     var f = spec.Trim().Split(':');
                     if (f.Length < 3 || !int.TryParse(f[1], out int wp)) continue;
