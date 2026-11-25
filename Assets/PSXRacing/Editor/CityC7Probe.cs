@@ -121,7 +121,7 @@ namespace PSXRacing.EditorTools
             string dir = Path.Combine(root, "Screenshots", "c7");
             Directory.CreateDirectory(dir);
             var log = new StringBuilder($"C7 PROBE {System.DateTime.Now:yyyy-MM-dd HH:mm} tag {tag}\n");
-            var tsv = new StringBuilder("spot\tslot\temitter\ttris\tdrawn\tcx\tcz\tsizeX\tsizeZ\tyMinRel\tyMaxRel\tvertArea\tupArea\tdownArea\n");
+            var tsv = new StringBuilder("spot\tslot\temitter\ttris\tdrawn\tcx\tcz\tsizeX\tsizeZ\tyMinRel\tyMaxRel\tvertArea\tupArea\tdownArea\toverPave\triseOverPave\n");
             var rtsv = new StringBuilder("spot\tpath\tmesh\tsubmesh\tmaterial\ttrisNear\tbounds\n");
             int code = 0;
             try
@@ -228,11 +228,15 @@ namespace PSXRacing.EditorTools
                         }
                         CarLights.PushGlobals();
                         StreetLights.Push(eye, look * Vector3.forward);
+                        // the plan: no sun shadows (a pole's or a tree card's shadow from straight above reads as a black slab)
+                        var shadowsWas = sun != null ? sun.shadows : LightShadows.None;
+                        if (view == "plan" && sun != null) sun.shadows = LightShadows.None;
                         SunShadows.RenderFor(cam);
                         cam.aspect = 16f / 9f;
                         if (Mathf.Abs(shift) > 1e-5f) cam.projectionMatrix = ChaseCamera.ShiftedProjection(cam.fieldOfView, cam.aspect, cam.nearClipPlane, cam.farClipPlane, shift);
                         PSXScreenshotTool.ShotAs(cam, $"c7/{id}_{view}_{tag}", eye, look);
                         cam.ResetProjectionMatrix(); cam.ResetAspect(); cam.orthographic = false;
+                        if (sun != null) sun.shadows = shadowsWas;
                     }
                 }
                 log.Append("C7 PROBE OK\n");
@@ -287,6 +291,29 @@ namespace PSXRacing.EditorTools
                     rtsv.Append(string.Format(inv, "{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\n", id, pth, m.name, sm, sm < mats.Length && mats[sm] != null ? mats[sm].name : "-", nearN, bnd.ToString()));
                 }
             }
+            // the drawn pavement under the spot (recorded road triangles, 0.25 m cells, lowest)
+            var pave = new Dictionary<long, float>();
+            foreach (var r in recs)
+            {
+                if (!r.slot.StartsWith("Road")) continue;
+                float minx = Mathf.Min(r.a.x, Mathf.Min(r.b.x, r.c.x)), maxx = Mathf.Max(r.a.x, Mathf.Max(r.b.x, r.c.x));
+                float minz = Mathf.Min(r.a.z, Mathf.Min(r.b.z, r.c.z)), maxz = Mathf.Max(r.a.z, Mathf.Max(r.b.z, r.c.z));
+                float den = (r.b.z - r.c.z) * (r.a.x - r.c.x) + (r.c.x - r.b.x) * (r.a.z - r.c.z);
+                if (Mathf.Abs(den) < 1e-9f) continue;
+                for (int j = Mathf.FloorToInt(minz * 4f); j <= Mathf.FloorToInt(maxz * 4f); j++)
+                    for (int i = Mathf.FloorToInt(minx * 4f); i <= Mathf.FloorToInt(maxx * 4f); i++)
+                    {
+                        float x = (i + 0.5f) / 4f, z = (j + 0.5f) / 4f;
+                        float l1 = ((r.b.z - r.c.z) * (x - r.c.x) + (r.c.x - r.b.x) * (z - r.c.z)) / den;
+                        float l2 = ((r.c.z - r.a.z) * (x - r.c.x) + (r.a.x - r.c.x) * (z - r.c.z)) / den;
+                        float l3 = 1f - l1 - l2;
+                        if (l1 < 0f || l2 < 0f || l3 < 0f) continue;
+                        float y = l1 * r.a.y + l2 * r.b.y + l3 * r.c.y;
+                        long key = ((long)i << 32) ^ (uint)j;
+                        if (!pave.TryGetValue(key, out float py) || y < py) pave[key] = y;
+                    }
+            }
+            bool PaveY(Vector3 p, out float py) => pave.TryGetValue(((long)Mathf.FloorToInt(p.x * 4f) << 32) ^ (uint)Mathf.FloorToInt(p.z * 4f), out py);
             // group the recorded triangles: slot + emitter
             var groups = new Dictionary<string, List<Rec>>();
             foreach (var r in recs)
@@ -319,6 +346,7 @@ namespace PSXRacing.EditorTools
                 {
                     Vector3 mn = Vector3.one * 1e9f, mx = -Vector3.one * 1e9f;
                     float vert = 0f, up = 0f, down = 0f; int dn = 0;
+                    int overN = 0, vN = 0; float rise = -99f;
                     foreach (int i in piece)
                     {
                         var r = l[i];
@@ -328,18 +356,25 @@ namespace PSXRacing.EditorTools
                         float area = cr.magnitude * 0.5f;
                         if (area < 1e-8f) continue;
                         float ny = cr.y / (2f * area);
-                        if (Mathf.Abs(ny) < 0.5f) vert += area; else if (ny > 0f) down += area; else up += area;   // Quad(a,c,b) winding: the drawn face is -cross
+                        if (Mathf.Abs(ny) < 0.5f) vert += area; else if (ny > 0f) up += area; else down += area;   // the stored order's cross is the drawn face's normal
                         if (drawn.Contains(TriKey(r.a, r.b, r.c))) dn++;
+                        if (!r.slot.StartsWith("Road"))
+                            foreach (var p in new[] { r.a, r.b, r.c })
+                            {
+                                vN++;
+                                if (PaveY(p, out float py)) { overN++; rise = Mathf.Max(rise, p.y - py); }
+                            }
                     }
                     var ctr = (mn + mx) * 0.5f;
                     float ry = 0f;
                     if (map.NearestRoadPoint(new Vector2(ctr.x, ctr.z), 30f, false, out int ei, out float s, out float d)) ry = map.edges[ei].YAt(s);
-                    tsv.Append(string.Format(inv, "{0}\t{1}\t{2}\t{3}\t{4:0.00}\t{5:0.0}\t{6:0.0}\t{7:0.0}\t{8:0.0}\t{9:0.000}\t{10:0.000}\t{11:0.00}\t{12:0.0}\t{13:0.0}\n",
+                    tsv.Append(string.Format(inv, "{0}\t{1}\t{2}\t{3}\t{4:0.00}\t{5:0.0}\t{6:0.0}\t{7:0.0}\t{8:0.0}\t{9:0.000}\t{10:0.000}\t{11:0.00}\t{12:0.0}\t{13:0.0}\t{14:0.00}\t{15:0.000}\n",
                         id, kv.Key.Split('\t')[0], kv.Key.Split('\t')[1], piece.Count, piece.Count > 0 ? dn / (float)piece.Count : 0f, ctr.x, ctr.z, mx.x - mn.x, mx.z - mn.z,
-                        mn.y - ry, mx.y - ry, vert, up, down));
+                        mn.y - ry, mx.y - ry, vert, up, down, vN > 0 ? overN / (float)vN : 0f, overN > 0 ? rise : 0f));
                     pieces++;
                 }
             }
+            log.Append($"  islands so far: {CityMeshes.IslandCount} ({CityMeshes.IslandAreaM2:0} m2), tips paved {CityMeshes.IslandTipCells} cells, overlays out {CityMeshes.IslandOverlayTris}, inside out {CityMeshes.IslandInsideTris}, poke verts {CityMeshes.IslandPokeVerts}, skipped border {CityMeshes.IslandSkippedBorder} big {CityMeshes.IslandSkippedBig}\n");
             log.Append($"  inventory: {recs.Count} recorded triangles, {groups.Count} slot+emitter groups, {pieces} pieces, {drawn.Count} drawn triangles in the radius\n");
         }
     }

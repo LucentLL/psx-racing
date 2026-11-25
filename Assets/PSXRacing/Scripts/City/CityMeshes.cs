@@ -2412,6 +2412,7 @@ namespace PSXRacing.City
             Cs2EmitCornerPans();   // (cityinteg 11-11) the curbs' corner pans, seated on the drawn junction (CityMeshes.Curbs2.cs)
             stepItem = 5;
             yield return 0;
+            if (IslandSolidsOn) { IslandSolids(map, trims, tm); yield return 0; }   // (c7roads) junction islands as closed solids in one paved surface (CityMeshes.IslandSolids.cs)
             FlushLotIslands(map, tm, min);   // leftover item 4: the lots' islands, tops and curbs
             EmitLotCurbs(map, tm, min);      // streets pass 4: the lots' own curbs
             stepItem = 6;
