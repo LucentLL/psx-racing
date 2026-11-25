@@ -105,7 +105,14 @@ Shader "Hidden/PSX/LampSplat"
             {
                 float2 d0 = w - o;
                 float ox = dot(d0, Rt), oz = dot(d0, F);
-                float r = tex2Dlod(_PSXHeadVis, float4(0.5 + atan2(ox, oz) * 0.38197186, v, 0.0, 0.0)).r;
+                float u = 0.5 + atan2(ox, oz) * 0.38197186;
+                float r = tex2Dlod(_PSXHeadVis, float4(u, v, 0.0, 0.0)).r;
+                if (tight > 0.5)
+                {
+                    // (night5) the shorter of the two bins either side (a corner's clear bin no longer averages in)
+                    float t0 = clamp(floor(u * 64.0 - 0.5), 0.0, 62.0);
+                    r = min(tex2Dlod(_PSXHeadVis, float4((t0 + 0.5) / 64.0, v, 0.0, 0.0)).r, tex2Dlod(_PSXHeadVis, float4((t0 + 1.5) / 64.0, v, 0.0, 0.0)).r);
+                }
                 float dd = sqrt(ox * ox + oz * oz);
                 return tight > 0.5 ? 1.0 - smoothstep(r + 0.15, r + 0.5, dd) : 1.0 - smoothstep(r + 0.3, r + 1.8, dd);
             }

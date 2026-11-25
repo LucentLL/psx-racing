@@ -297,7 +297,17 @@ void PSXHeadlightsCore(float3 wpos, float3 N, float3 V, float power, float specO
         {
             float2 d0 = wpos.xz - _PSXHeadOcc[j].zw;
             float ox = dot(d0, Rt.xz), oz = dot(d0, F.xz);
-            float reachM = PSX_FIELD_LOD(_PSXHeadVis, float2(0.5 + atan2(ox, oz) * HEAD_OCC_INV2A, _PSXHeadOcc[j].x)).r;
+            float occU = 0.5 + atan2(ox, oz) * HEAD_OCC_INV2A;
+            float reachM = PSX_FIELD_LOD(_PSXHeadVis, float2(occU, _PSXHeadOcc[j].x)).r;
+            // (night5, N4Tight) the two bins either side, the SHORTER: read bilinearly, a bin that hits a building
+            // corner and the clear bin beside it averaged to a reach far past the corner - a wedge of beam on the
+            // ground behind it (the W Trade corner, +12 Ycode). The shadow's edge is now at most one bin (2.3 deg) wide.
+            [branch] if (_PSXN4Tight > 0.5)
+            {
+                float occT = clamp(floor(occU * 64.0 - 0.5), 0.0, 62.0);
+                reachM = min(PSX_FIELD_LOD(_PSXHeadVis, float2((occT + 0.5) / 64.0, _PSXHeadOcc[j].x)).r,
+                             PSX_FIELD_LOD(_PSXHeadVis, float2((occT + 1.5) / 64.0, _PSXHeadOcc[j].x)).r);
+            }
             // (night5) a Jersey's base is ~0.6 m deep: with N4Tight the light is gone 0.5 m past the face
             // the fan hit (its face stays lit), where round 4 faded it out only 1.8 m past - a strip of the
             // ground behind the barrier took the beam
