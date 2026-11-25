@@ -64,7 +64,9 @@ namespace PSXRacing.City
         /// <summary>Narrower than this it is a tip: paved, not island (AASHTO: a raised island's nose is 2-4 ft wide).</summary>
         public const float IslandMinWidthM = 1.2f;
         /// <summary>The asphalt apron round an island's foot: this wide, this far under the road.</summary>
-        const float IslandApronM = 0.7f, IslandApronDownM = 0.02f;
+        const float IslandApronM = 0.9f, IslandApronDownM = 0.02f;
+        /// <summary>The curb this far inside the traced outline.</summary>
+        const float IslandInsetM = 0.35f;
         /// <summary>The curb face starts this far under the pavement.</summary>
         const float IslandFootM = 0.06f;
         /// <summary>Never within this of the tile's border (the next tile has the rest of it).</summary>
@@ -533,7 +535,7 @@ namespace PSXRacing.City
                 tl.Clear(); tl.AddRange(isKeep);
             }
         }
-        public static int IslandOrphanTris;
+        public static int IslandOrphanTris, IslandTopFails;
 
         static void IsDropOverlays(Bucket bk)
         {
@@ -763,6 +765,16 @@ namespace PSXRacing.City
             var top = buckets[(int)(concrete ? Slot.Pavement : Slot.Ground)];
             // ---- inside: every sheet that lay there goes -------------------------------------------------
             foreach (var bk in IslandSheetBuckets()) IsDropInside(bk, poly, yP);
+            // the curb stands IslandInsetM inside the traced edge (the 0.5 m cells and the simplification put the
+            // traced edge up to half a metre over the road's edge line); the apron covers the band between
+            var inset = IsInset(poly, IslandInsetM);
+            if (inset != null)
+            {
+                poly = inset;
+                n = poly.Count;
+                yP = new float[n];
+                for (int q = 0; q < n; q++) yP[q] = IsPaveYNear(poly[q]);
+            }
             // ---- the solid ----------------------------------------------------------------------------
             var walk = buckets[(int)Slot.Sidewalk];
             int k0 = part[0];
@@ -889,8 +901,53 @@ namespace PSXRacing.City
                 if (!clipped) break;
             }
             if (idx.Count == 3) { bk.t.Add(baseI + idx[0]); bk.t.Add(baseI + idx[2]); bk.t.Add(baseI + idx[1]); }
+            else if (idx.Count > 3)
+            {
+                // the clipper found no ear (a pinched outline): the rest as a fan, so the top has no hole
+                IslandTopFails++;
+                for (int q = 1; q + 1 < idx.Count; q++) { bk.t.Add(baseI + idx[0]); bk.t.Add(baseI + idx[q + 1]); bk.t.Add(baseI + idx[q]); }
+            }
             ProvHook?.Invoke(bk, bk.t, t0);
         }
+
+        /// <summary>The outline moved d inward along each corner's bisector (mitre capped at 2 d); null where that
+        /// turns it inside out or loses more than half its area (a narrow island keeps its traced outline).</summary>
+        static List<Vector2> IsInset(List<Vector2> p, float d)
+        {
+            int n = p.Count;
+            var r = new List<Vector2>(n);
+            for (int i = 0; i < n; i++)
+            {
+                Vector2 a = p[(i + n - 1) % n], b = p[i], c = p[(i + 1) % n];
+                var d1 = (b - a); var d2 = (c - b);
+                if (d1.sqrMagnitude < 1e-8f || d2.sqrMagnitude < 1e-8f) { r.Add(b); continue; }
+                d1.Normalize(); d2.Normalize();
+                var n1 = new Vector2(-d1.y, d1.x); var n2 = new Vector2(-d2.y, d2.x);   // inside is on the left
+                var m = n1 + n2;
+                float len = m.magnitude;
+                if (len < 1e-4f) { r.Add(b + n1 * d); continue; }
+                m /= len;
+                float k = d / Mathf.Max(0.5f, Vector2.Dot(m, n1));
+                r.Add(b + m * Mathf.Min(k, 2f * d));
+            }
+            float a0 = SignedArea(p), a1 = SignedArea(r);
+            if (a1 < 0.5f * a0) return null;
+            // a corner pushed past its neighbours: any two edges crossing
+            for (int i = 0; i < n; i++)
+                for (int j = i + 2; j < n; j++)
+                {
+                    if (i == 0 && j == n - 1) continue;
+                    if (SegCross(r[i], r[(i + 1) % n], r[j], r[(j + 1) % n])) return null;
+                }
+            return r;
+        }
+
+        static bool SegCross(Vector2 a, Vector2 b, Vector2 c, Vector2 d)
+        {
+            float d1 = IsCross2(b - a, c - a), d2 = IsCross2(b - a, d - a), d3 = IsCross2(d - c, a - c), d4 = IsCross2(d - c, b - c);
+            return ((d1 > 0f) != (d2 > 0f)) && ((d3 > 0f) != (d4 > 0f));
+        }
+        static float IsCross2(Vector2 u, Vector2 v) => u.x * v.y - u.y * v.x;
 
         static float SignedArea(List<Vector2> p)
         {
