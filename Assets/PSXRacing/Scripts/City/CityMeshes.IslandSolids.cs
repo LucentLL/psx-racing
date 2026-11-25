@@ -104,6 +104,7 @@ namespace PSXRacing.City
             {
                 isY = new float[NN]; isSlot = new short[NN]; isDist = new int[NN]; isDist2 = new int[NN]; isBand = new bool[NN]; isBandEdge = new int[NN]; isNearJ = new bool[NN]; isNearY = new float[NN]; isComp = new int[NN]; isFlag = new byte[NN];
             }
+            isGone.Clear();
             for (int k = 0; k < NN; k++) { isY[k] = float.NaN; isSlot[k] = -1; isComp[k] = -1; isFlag[k] = 0; isDist[k] = int.MaxValue; isBand[k] = false; isBandEdge[k] = -1; isNearJ[k] = false; }
             // ---- the drawn pavement ----------------------------------------------------------------
             bool any = false;
@@ -233,6 +234,7 @@ namespace PSXRacing.City
                 yield return 0;
             }
             if (isTipsPending) { isTipsPending = false; foreach (var bk in IslandSheetBuckets()) IsDropCells(bk); }
+            IsDropOrphans();
         }
 
         /// <summary>Beside a junction or split node, a lane's band on land this near the drawn pavement is
@@ -339,6 +341,24 @@ namespace PSXRacing.City
             if (d < isDist2[k]) isDist2[k] = d;
         }
 
+        /// <summary>Does another arm leave this node within 60 degrees of the edge (the roads part here:
+        /// a split, a branch) - its lanes then run on into the junction as drawn.</summary>
+        static bool IsParting(CityMap map, CityMap.Edge e, int node)
+        {
+            var ne = map.nodeEdges[node];
+            if (ne == null || ne.Count < 3) return false;
+            var dE = e.a == node ? e.TangentAt(0f) : -e.TangentAt(e.length);
+            foreach (int oi in ne)
+            {
+                if (oi == e.index) continue;
+                var O = map.edges[oi];
+                if (O.a == O.b) continue;
+                var dO = O.a == node ? O.TangentAt(0f) : -O.TangentAt(O.length);
+                if (Vector2.Angle(dE, dO) < 60f) return true;
+            }
+            return false;
+        }
+
         static void IsRasterBands(CityMap map, Trims trims, Vector3 o)
         {
             float x0 = o.x - IsMargin, z0 = o.z - IsMargin, x1 = o.x + TileSize + IsMargin, z1 = o.z + TileSize + IsMargin;
@@ -350,8 +370,8 @@ namespace PSXRacing.City
                 float pad = e.HalfMax + 2f;
                 if (bx1 + pad < x0 || bx0 - pad > x1 || bz1 + pad < z0 || bz0 - pad > z1) continue;
                 // the ribbon's own run, not inside a fan (a junction's corners are the fan's)
-                float sA = trims != null && trims.atA != null && trims.patch != null && trims.patch[e.a] ? trims.atA[e.index] : 0f;
-                float sB = trims != null && trims.atB != null && trims.patch != null && trims.patch[e.b] ? e.length - trims.atB[e.index] : e.length;
+                float sA = trims != null && trims.atA != null && trims.patch != null && trims.patch[e.a] && !IsParting(map, e, e.a) ? trims.atA[e.index] : 0f;
+                float sB = trims != null && trims.atB != null && trims.patch != null && trims.patch[e.b] && !IsParting(map, e, e.b) ? e.length - trims.atB[e.index] : e.length;
                 for (float sv = sA; sv <= sB; sv += 0.4f)
                 {
                     var pt = e.PointAt(sv);
@@ -396,7 +416,7 @@ namespace PSXRacing.City
                     Vector3 a = bk.v[tl[t]], b = bk.v[tl[t + 1]], c = bk.v[tl[t + 2]];
                     bool all = IsTipOrPave(a) && IsTipOrPave(b) && IsTipOrPave(c);
                     var m = (a + b + c) / 3f;
-                    if (all && IsCellAt(m.x, m.z, out int km) && isFlag[km] == 3 && (m.y > isNearY[km] - 1.5f)) { dropped++; continue; }
+                    if (all && IsCellAt(m.x, m.z, out int km) && isFlag[km] == 3 && (m.y > isNearY[km] - 1.5f)) { dropped++; if (!ReferenceEquals(bk, kerbBucket)) IsNoteGone(a, b, c); continue; }
                     isKeep.Add(tl[t]); isKeep.Add(tl[t + 1]); isKeep.Add(tl[t + 2]);
                 }
                 if (dropped == 0) continue;
@@ -485,6 +505,35 @@ namespace PSXRacing.City
         }
 
         static readonly List<int> isKeep = new List<int>(1 << 16);
+        /// <summary>The corners (2 cm) of every sheet triangle the pass took out: a face hung from one goes too.</summary>
+        static readonly HashSet<long> isGone = new HashSet<long>();
+        static long IsQ(Vector3 p) => ((long)Mathf.RoundToInt(p.x * 50f) * 73856093L) ^ ((long)Mathf.RoundToInt(p.y * 50f) * 19349663L) ^ ((long)Mathf.RoundToInt(p.z * 50f) * 83492791L);
+        static void IsNoteGone(Vector3 a, Vector3 b, Vector3 c) { isGone.Add(IsQ(a)); isGone.Add(IsQ(b)); isGone.Add(IsQ(c)); }
+
+        /// <summary>Faces (kerbs mesh, walk curb faces) standing on a corner of a sheet taken out: single-sided
+        /// skirts turned away from a sheet that is no longer there show their back to the road.</summary>
+        static void IsDropOrphans()
+        {
+            if (isGone.Count == 0) return;
+            foreach (var bk in new[] { kerbBucket, buckets[(int)Slot.Sidewalk], buckets[(int)Slot.Ground], buckets[(int)Slot.Pavement] })
+            {
+                var tl = bk.t;
+                isKeep.Clear();
+                int dropped = 0;
+                for (int t = 0; t + 2 < tl.Count; t += 3)
+                {
+                    Vector3 a = bk.v[tl[t]], b = bk.v[tl[t + 1]], c = bk.v[tl[t + 2]];
+                    var cr = Vector3.Cross(b - a, c - a);
+                    bool vertical = cr.sqrMagnitude > 1e-10f && Mathf.Abs(cr.y) < 0.5f * cr.magnitude;
+                    if (vertical && (isGone.Contains(IsQ(a)) || isGone.Contains(IsQ(b)) || isGone.Contains(IsQ(c)))) { dropped++; continue; }
+                    isKeep.Add(tl[t]); isKeep.Add(tl[t + 1]); isKeep.Add(tl[t + 2]);
+                }
+                if (dropped == 0) continue;
+                IslandOrphanTris += dropped;
+                tl.Clear(); tl.AddRange(isKeep);
+            }
+        }
+        public static int IslandOrphanTris;
 
         static void IsDropOverlays(Bucket bk)
         {
@@ -510,7 +559,7 @@ namespace PSXRacing.City
                             if (rise > 0.003f && low > -1.5f && rise < 1.0f) drop = true;
                         }
                     }
-                    if (drop) { dropped++; continue; }
+                    if (drop) { dropped++; if (!ReferenceEquals(bk, kerbBucket)) IsNoteGone(a, b, c); continue; }
                     isKeep.Add(tl[t]); isKeep.Add(tl[t + 1]); isKeep.Add(tl[t + 2]);
                 }
                 if (dropped == 0) continue;
@@ -789,7 +838,7 @@ namespace PSXRacing.City
                 {
                     Vector3 a = bk.v[tl[t]], b = bk.v[tl[t + 1]], c = bk.v[tl[t + 2]];
                     bool ia = InPoly(poly, new Vector2(a.x, a.z)), ib = InPoly(poly, new Vector2(b.x, b.z)), ic = InPoly(poly, new Vector2(c.x, c.z));
-                    if (ia && ib && ic) { dropped++; continue; }
+                    if (ia && ib && ic) { dropped++; if (!ReferenceEquals(bk, kerbBucket)) IsNoteGone(a, b, c); continue; }
                     // a sheet reaching in from outside stays; one standing up through the top is counted
                     if ((ia && a.y > topMin + CurbH) || (ib && b.y > topMin + CurbH) || (ic && c.y > topMin + CurbH)) IslandPokeVerts++;
                     isKeep.Add(tl[t]); isKeep.Add(tl[t + 1]); isKeep.Add(tl[t + 2]);
