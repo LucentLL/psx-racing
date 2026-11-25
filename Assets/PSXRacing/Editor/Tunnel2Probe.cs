@@ -238,6 +238,7 @@ namespace PSXRacing.EditorTools
             float R = def.roadWidth * 0.5f + 1.1f;   // the bore's half-width (PSXRacingBuilder TunnelWallOut)
             var results = new List<(string name, int gaps, Vector2 at, Texture2D shot)>();
             int cams = 0, totalGap = 0, xCams = 0, xFail = 0;
+            var keepList = new HashSet<string>((System.Environment.GetEnvironmentVariable("PSX_T2_KEEP") ?? "").Split('|'));
             int no = 0;
             foreach (var span in def.tunnels)
             {
@@ -355,6 +356,13 @@ namespace PSXRacing.EditorTools
                                     }
                                 cams++;
                                 if (p.v[0] == 'x') xCams++;
+                                // (stage3) PSX_T2_KEEP: these cameras' frames kept whether or not they see through (the proof sheet)
+                                string keepName = $"t{no}_{(dir > 0 ? "fwd" : "rev")}_{tagM}{d:+0.0;-0.0}_{p.v}";
+                                if (keepList.Contains(keepName))
+                                {
+                                    var kt = new Texture2D(W, H, TextureFormat.RGBA32, false); kt.SetPixels32(px); kt.Apply(false);
+                                    File.WriteAllBytes(Path.Combine(outDir, "keep_" + keepName + ".png"), kt.EncodeToPNG());
+                                }
                                 if (gaps == 0) continue;
                                 totalGap += gaps;
                                 failCams++;
