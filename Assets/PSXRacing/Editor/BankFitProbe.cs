@@ -269,6 +269,77 @@ namespace PSXRacing.EditorTools
             if (Application.isBatchMode) EditorApplication.Exit(0);
         }
 
+        /// <summary>The timber rail from the road (proof sheet): PSX_BF_RAIL = "Venue:wp:L|R" - an eye 1.0 m up in the
+        /// lane beside the rail, one frame 2 m from the rail looking along it, one 20 m back. PNGs in
+        /// PSXRacing_bfshots/ (PSX_BF_TAG in the name).</summary>
+        public static void RailShots()
+        {
+            var sb = new StringBuilder();
+            string tag = System.Environment.GetEnvironmentVariable("PSX_BF_TAG") ?? "x";
+            string outDir = Path.Combine(Path.GetDirectoryName(Application.dataPath), "PSXRacing_bfshots");
+            Directory.CreateDirectory(outDir);
+            try
+            {
+                foreach (var spec in (System.Environment.GetEnvironmentVariable("PSX_BF_RAIL") ?? "").Split('|'))
+                {
+                    var f = spec.Trim().Split(':');
+                    if (f.Length < 3 || !int.TryParse(f[1], out int wp)) continue;
+                    string scenePath = "Assets/PSXRacing/Scenes/" + f[0] + ".unity";
+                    if (UnityEngine.SceneManagement.SceneManager.GetActiveScene().path != scenePath)
+                        EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Single);
+                    var path = Object.FindFirstObjectByType<TrackPath>();
+                    float sd = f[2].Trim().ToUpperInvariant() == "L" ? -1f : 1f;
+                    if (wp < 0)
+                    {
+                        // the first timber rail drawn: its middle vertex, the waypoint nearest it and its side
+                        foreach (var mr in Object.FindObjectsByType<MeshRenderer>(FindObjectsSortMode.None))
+                        {
+                            int si = System.Array.FindIndex(mr.sharedMaterials, m => m != null && m.name.Contains("TimberRail"));
+                            var mf = mr.GetComponent<MeshFilter>();
+                            if (si < 0 || mf == null || mf.sharedMesh == null) continue;
+                            var tri = mf.sharedMesh.GetTriangles(si);
+                            if (tri.Length == 0) continue;
+                            Vector3 v = mr.transform.TransformPoint(mf.sharedMesh.vertices[tri[tri.Length / 2]]);
+                            wp = path.NearestIndex(v);
+                            Vector3 tt = path.GetTangent(wp);
+                            sd = Vector3.Dot(v - path.GetPoint(wp), Vector3.Cross(Vector3.up, tt)) >= 0f ? 1f : -1f;
+                            f[2] = sd > 0f ? "R" : "L";
+                            break;
+                        }
+                        if (wp < 0) { sb.AppendLine("no timber rail in " + f[0]); continue; }
+                    }
+                    float half = path.roadWidth * 0.5f;
+                    foreach (float dist in new[] { 2f, 20f })
+                    {
+                        Vector3 p = path.GetPoint(wp), t = path.GetTangent(wp); t.y = 0f; t.Normalize();
+                        Vector3 r = Vector3.Cross(Vector3.up, t).normalized * sd;
+                        Vector3 rail = p + r * (half + 0.6f) + Vector3.up * 0.6f;
+                        Vector3 eye = dist < 5f ? p + r * (half - 1.4f) - t * 1.4f + Vector3.up * 1.0f
+                                                : p + r * (half - 1.4f) - t * dist + Vector3.up * 1.0f;
+                        Vector3 look = dist < 5f ? rail + t * 2.5f : rail + t * 2f;
+                        const int W = 960, H = 540;
+                        var rt = new RenderTexture(W, H, 24, RenderTextureFormat.ARGB32) { antiAliasing = 1 };
+                        var camGo = new GameObject("BFRailCam") { hideFlags = HideFlags.HideAndDontSave };
+                        var cam = camGo.AddComponent<Camera>();
+                        cam.enabled = false; cam.targetTexture = rt; cam.fieldOfView = 50f; cam.nearClipPlane = 0.05f; cam.farClipPlane = 3000f;
+                        cam.transform.position = eye; cam.transform.rotation = Quaternion.LookRotation(look - eye, Vector3.up);
+                        cam.Render();
+                        RenderTexture.active = rt;
+                        var tex = new Texture2D(W, H, TextureFormat.RGB24, false);
+                        tex.ReadPixels(new Rect(0, 0, W, H), 0, 0); tex.Apply(false);
+                        RenderTexture.active = null;
+                        string fn = $"rail_{f[0]}_{wp}{f[2].Trim()}_{dist:0}m_{tag}.png";
+                        File.WriteAllBytes(Path.Combine(outDir, fn), tex.EncodeToPNG());
+                        Object.DestroyImmediate(camGo); rt.Release();
+                        sb.AppendLine("rail " + fn);
+                    }
+                }
+            }
+            catch (System.Exception e) { sb.AppendLine("THREW " + e); }
+            File.WriteAllText(Path.Combine(Path.GetDirectoryName(Application.dataPath), "PSXRacing_bfshots.txt"), sb.ToString());
+            if (Application.isBatchMode) EditorApplication.Exit(0);
+        }
+
         struct Spot { public int wp; public float gap, h; public string coll; public Vector3 at; }
 
         public static string One(string id)
