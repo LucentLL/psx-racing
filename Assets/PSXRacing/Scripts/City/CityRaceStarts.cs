@@ -28,8 +28,10 @@ namespace PSXRacing.City
     /// nothing may switch on as you drive, lights only by a fade). A gate's
     /// light rises from nothing at <see cref="FadeFarM"/> to full at
     /// <see cref="FadeNearM"/> of the eye, every frame: PSX/Glow is additive,
-    /// so its _Color scaled through a property block on each of the gate's
-    /// renderers (the materials are shared) scales the light it adds. The
+    /// so its _Strength scaled through a property block on each of the gate's
+    /// renderers (the materials are shared) scales the light it adds - and the
+    /// emitter mask it writes to alpha, which the halation reads (scaling
+    /// _Color alone would leave a dark gate's mask at full). The
     /// root is switched off only while that light is 0, where the switch
     /// draws nothing. PSX_GATEFADE=0 / the LAB row RACE GATES FADE IN OLD:
     /// the old switch at 450 m, polled five times a second.
@@ -407,29 +409,29 @@ namespace PSXRacing.City
         // ------------------------------------------------------------------
         //  showing: the fade (or the old switch)
         // ------------------------------------------------------------------
-        /// <summary>A gate's renderers, their materials' own colours and the
+        /// <summary>A gate's renderers, their materials' own strengths and the
         /// light it shows now (0..1; -1 not yet written).</summary>
         public sealed class Look
         {
             public Renderer[] rends;
-            public Color[] baseCol;
+            public float[] baseStr;
             public float k = -1f;
         }
 
         /// <summary>One per gate, beside <see cref="Gates"/>.</summary>
         public static readonly List<Look> Looks = new List<Look>();
         static MaterialPropertyBlock block;
-        static readonly int ColorId = Shader.PropertyToID("_Color");
+        static readonly int StrengthId = Shader.PropertyToID("_Strength");
         bool wasFade;
 
         static Look LookOf(Transform root)
         {
             var l = new Look { rends = root != null ? root.GetComponentsInChildren<Renderer>(true) : new Renderer[0] };
-            l.baseCol = new Color[l.rends.Length];
+            l.baseStr = new float[l.rends.Length];
             for (int i = 0; i < l.rends.Length; i++)
             {
                 var m = l.rends[i].sharedMaterial;
-                l.baseCol[i] = m != null && m.HasProperty(ColorId) ? m.GetColor(ColorId) : Color.white;
+                l.baseStr[i] = m != null && m.HasProperty(StrengthId) ? m.GetFloat(StrengthId) : 1f;
             }
             return l;
         }
@@ -442,8 +444,8 @@ namespace PSXRacing.City
             return t * t * (3f - 2f * t);
         }
 
-        /// <summary>Write a gate's light: each renderer's colour scaled
-        /// through its property block (1 = no block: the materials as they
+        /// <summary>Write a gate's light: each renderer's strength (its light
+        /// and its emitter mask) scaled through its property block (1 = no block: the materials as they
         /// are, exactly the old picture).</summary>
         static void SetLight(Look l, float k)
         {
@@ -455,9 +457,8 @@ namespace PSXRacing.City
                 var r = l.rends[i];
                 if (r == null) continue;
                 if (k >= 1f) { r.SetPropertyBlock(null); continue; }
-                var c = l.baseCol[i];
                 block.Clear();
-                block.SetColor(ColorId, new Color(c.r * k, c.g * k, c.b * k, c.a));
+                block.SetFloat(StrengthId, l.baseStr[i] * k);
                 r.SetPropertyBlock(block);
             }
         }

@@ -49,7 +49,7 @@ namespace PSXRacing
         /// <summary>(roadevents) A race start gate's own change, put back alone: a pop at this many pixels (at 512x288).</summary>
         public const int MinGatePx = 4;
         bool gateNoted;
-        int segGateMaxPx; float segGateMaxD = -1f;
+        int segGateMaxPx; float segGateMaxD = -1f; double segGateShare;
 
         float GateStepDistance(Vector3 eye) => CulpritDistance(Cause.Gate, eye, out _);
         public const float CutJumpM = 20f, CutTurnDeg = 45f;
@@ -151,7 +151,7 @@ namespace PSXRacing
         {
             seg = name; carT = car; measuring = true;
             segDistM = 0f; segSeconds = 0f; segFrames = 0; segPopFrames = 0; segCuts = 0;
-            segGateMaxPx = 0; segGateMaxD = -1f;
+            segGateMaxPx = 0; segGateMaxD = -1f; segGateShare = 0;
             haveEye = false; havePrev = false; framesSinceCut = 9999;
             for (int i = 0; i < evCount.Length; i++) { evCount[i] = 0; evAfterCut[i] = 0; evLight[i] = 0; lastPopFrame[i] = -100; pairs[i].Clear(); }
             stripEvery = stripEveryFrames; stripN = 0; afterCutSave = 0; cutIndex = 0;
@@ -183,8 +183,8 @@ namespace PSXRacing
                       .Append(", light ").Append(evLight[i].ToString("0", CultureInfo.InvariantCulture));
             if (City.CityRaceStarts.Gates.Count > 0)
                 sb.Append("\n    race start gates' own change (put back alone): largest ").Append(segGateMaxPx).Append(" px")
-                  .Append(segGateMaxD >= 0f ? " at " + segGateMaxD.ToString("0", CultureInfo.InvariantCulture) + " m" : "")
-                  .Append(" (a pop at ").Append(Mathf.Max(1, MinGatePx * (W * H) / (512 * 288))).Append(" px, frame ").Append(W).Append("x").Append(H).Append(")");
+                  .Append(segGateMaxD >= 0f ? " at " + segGateMaxD.ToString("0", CultureInfo.InvariantCulture) + " m, " + (100.0 * segGateShare).ToString("0.0", CultureInfo.InvariantCulture) + "% of the gates' light" : "")
+                  .Append(" (a pop at ").Append(Mathf.Max(1, MinGatePx * (W * H) / (512 * 288))).Append(" px and ").Append((100f * MinRel).ToString("0", CultureInfo.InvariantCulture)).Append("% of the gates' light, frame ").Append(W).Append("x").Append(H).Append(")");
             string line = sb.ToString();
             summary.AppendLine(line);
             Write("pops.csv", csv.ToString());
@@ -289,7 +289,10 @@ namespace PSXRacing
             // (roadevents) A GATE IS SMALL: at 450 m a race start gate is a few dozen pixels of the 512x288 frame,
             // under MinPx, so the whole-frame test never sees one switch on. Whenever a gate's switch or light moved,
             // the gates alone are put back and their own change is held to MinGatePx (scaled as MinPx is), with the
-            // same MinDelta and MinRel: a fade's step of a frame (well under 10%) is never one, a switch is.
+            // same MinDelta and MinRel per pixel. AND, because the frame is 8-bit and the night's exposure lifts
+            // near-black several times, a fade's one-level step in a gate's dark glow tail can read as a few dozen
+            // pixels moved by 6+ levels: the change must also be at least MinRel of ALL the light the gates add to
+            // this frame (the frame drawn with every gate off) - a switch is all of it, a fade's frame step ~0.5%.
             if (diffable && !gateNoted && GatesMoved())
             {
                 ApplyPrev(false, false, false, false, false, true);
@@ -297,8 +300,27 @@ namespace PSXRacing
                 RestoreAll();
                 Diff(pixA, pixB, out int gpx, out double glight, out float gcx, out float gcy);
                 int gateMin = Mathf.Max(1, MinGatePx * (W * H) / (512 * 288));
-                if (gpx > segGateMaxPx) { segGateMaxPx = gpx; segGateMaxD = GateStepDistance(eye); }
+                double share = 0;
                 if (gpx >= gateMin)
+                {
+                    // every gate off: all the light the gates add now
+                    saveGate.Clear();
+                    for (int i = 0; i < City.CityRaceStarts.Gates.Count; i++)
+                    {
+                        City.CityRaceStarts.MeterRead(i, out bool on, out float k);
+                        saveGate.Add((on, k));
+                        City.CityRaceStarts.MeterWrite(i, false, k);
+                    }
+                    if (pixB0 == null || pixB0.Length != pixB.Length) pixB0 = new byte[pixB.Length];
+                    System.Buffer.BlockCopy(pixB, 0, pixB0, 0, pixB.Length);
+                    Render(cam, readB, ref pixB);
+                    for (int i = 0; i < saveGate.Count; i++) City.CityRaceStarts.MeterWrite(i, saveGate[i].on, saveGate[i].k);
+                    Diff(pixA, pixB, out _, out double allLight, out _, out _);
+                    share = allLight > 0 ? glight / allLight : 1;
+                    System.Buffer.BlockCopy(pixB0, 0, pixB, 0, pixB.Length);
+                }
+                if (gpx > segGateMaxPx) { segGateMaxPx = gpx; segGateMaxD = GateStepDistance(eye); segGateShare = share; }
+                if (gpx >= gateMin && share >= MinRel)
                 {
                     if (pixB0 == null || pixB0.Length != pixB.Length) pixB0 = new byte[pixB.Length];
                     System.Buffer.BlockCopy(pixB, 0, pixB0, 0, pixB.Length);
