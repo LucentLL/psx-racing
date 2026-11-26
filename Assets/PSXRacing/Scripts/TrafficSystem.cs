@@ -198,6 +198,11 @@ namespace PSXRacing
         public static bool LaneCornersOn = System.Environment.GetEnvironmentVariable("PSX_TRAFFIC_LANE_CORNERS") != "0";
         /// <summary>The traffic's own update, ms a physics step (the harness: mean, p99 over the run).</summary>
         public static readonly List<float> StepMs = new List<float>(65536);
+        // (cityai round 5) the lane fit's own share of each step (ms), and how many cars looked a step at most
+        public static readonly List<float> FitMs = new List<float>(65536);
+        public static int FitLooksMax;
+        static readonly System.Diagnostics.Stopwatch fitSw = new System.Diagnostics.Stopwatch();
+        static int fitLooksStep;
         /// <summary>Gap between the collision box and the road, driving.</summary>
         const float RideClear = 0.22f;
         /// <summary>...and once it is a wreck.</summary>
@@ -810,6 +815,7 @@ namespace PSXRacing
             }
 
             var swStep = System.Diagnostics.Stopwatch.StartNew();
+            fitSw.Reset(); fitLooksStep = 0;
             float ps = PlayerS();
             MeasureField();
             Recycle(ps);
@@ -821,7 +827,8 @@ namespace PSXRacing
             ObstacleDir.Clear();
             ObstacleS.Clear();
             foreach (var c in live) { Obstacles.Add(c.rb); ObstacleHalfW.Add(c.halfW); ObstacleDir.Add(c.dir); ObstacleS.Add(c.s); }
-            if (StepMs.Count < 200000) StepMs.Add((float)swStep.Elapsed.TotalMilliseconds);
+            if (StepMs.Count < 200000) { StepMs.Add((float)swStep.Elapsed.TotalMilliseconds); if (paveR != null) FitMs.Add((float)fitSw.Elapsed.TotalMilliseconds); }
+            if (fitLooksStep > FitLooksMax) FitLooksMax = fitLooksStep;
         }
 
         void MeasureField()
@@ -1109,8 +1116,11 @@ namespace PSXRacing
             // (round 4) its lane on the pavement ahead: another lane of its direction, or a crawl where none fits
             if (paveR != null)
             {
+                fitSw.Start();
                 // looked at twice a second (the look is ~20 lane tests); a lane change only into a clear gap
-                if (Time.time >= c.fitNext) { c.fitNext = Time.time + 0.5f; c.fitLane = FittingLane(c); }
+                // each car's look on its own phase of the half second (not every car in one step)
+                if (c.fitNext <= 0f) c.fitNext = Time.time + ((c.GetHashCode() & 31) / 64f);
+                if (Time.time >= c.fitNext) { c.fitNext = Time.time + 0.5f; c.fitLane = FittingLane(c); fitLooksStep++; }
                 float fit = c.fitLane;
                 if (float.IsNaN(fit)) v = Mathf.Min(v, 4f);
                 else if (Mathf.Abs(fit - c.lat) > 0.05f)
@@ -1125,6 +1135,7 @@ namespace PSXRacing
                     if (clear) { c.lat = fit; c.edgeLat = float.NaN; }
                     else v = Mathf.Min(v, Mathf.Max(4f, c.speed - 3f));   // ease off and merge behind it
                 }
+                fitSw.Stop();
             }
             // A RACER COMING, and what this driver does about it (Temper).
             float latTarget = c.lat;
