@@ -1,3 +1,119 @@
+# STAGE 1: START HERE (c7roads hand-over, 11-26 evening, branch charlotte-c7roads)
+
+Stage 1 = the junction outline as MESH at 79 / 80 / 81 behind a LAB row (default OLD), refusal = today's fan. Nothing of
+it is built yet. Read the round-5 sections further down for the history; this section is what you need to start.
+
+**Rulings still open from the photo proof (photo_table_r5.csv, aerB pages in the c7roads scratch):** 80's north nose is
+~7 m short and a raised concrete channel strip runs inside the opening (not in the map); 81's U nose is ~8 m short of a
+raised tip where the photo has a PAINTED median, and its west edge is 3-5 m outside the kerb (line-model width);
+kerb-return radii by class (6 / 9 / 12 m) sit 2-5 m inside the photo's 12-20 m arterial corners; plain median crossovers
+(g32-g35) are not joined. Get the coordinator's ruling on these before meshing 80 / 81.
+
+## 1. Solver inputs (Editor/CityOutlineProto.cs)
+- Clusters: `CityMeshes.FanKey(trims, n)` over `trims.patch[n]` nodes (the generator's own fan clusters,
+  CityMeshes.Junctions.cs BuildJunctionClusters), plus every non-patch node with 3+ edges as its own key (RunCity), then
+  three join rules in this order: `JoinOpenings` (median U-turn crossover pairs: paved gaps overlap along the road within a
+  lane, no through arm between, both nodes within 2 x carriageway spacing, max 60 m), `JoinPaintedSplits` (one-in two-out
+  split whose branches overlap at 5 m out joins the junction a branch reaches within 40 m), `JoinSlips` (a one-way link of
+  at most 150 m whose two ends reach one cluster along at most two road edges / 120 m, between two named roads, joins it).
+- `BuildCluster(map, cluster, out arms, out links, out origin)`: ARM = an edge with one end in the cluster, sampled every
+  `JunctionOutline.Step` (0.5 m) out to 80 m AWAY from the junction: `C` = `e.PointAt(s)` (OSM plan polyline, metres),
+  `L` / `R` = C +/- left normal x `LineModel.Extents(e, s, out eMinus, out ePlus)` (eMinus = right of the edge's own
+  direction, ePlus = left; swapped for an arm leaving from e.b), `Y` = `e.YAt(s)` (the presented road profile height),
+  `radius` = 15 link / 12 cls>=3 / 9 cls>=1 / 6 (the class table the photos say is too small), `oneway`, `name`, `id` =
+  edge index. LINK = an edge with both ends in the cluster: its L / R borders the same way. HOLES = `IslandHoles(map,
+  cluster, origin)` (0.25 m raster of every ribbon at the cluster, uncovered land opened by 0.6 m, traced, smoothed, every
+  0.5 m; under 3 m2 = paint, left out; only islands wholly inside the outline are kept by Solve).
+- FRAME: everything is in the cluster's own frame = map plan metres (x east, y = map z north) MINUS `origin` =
+  `map.nodes[cluster.First()]`. Back to world: add origin to x / y; world Vector3 = (x, height, y). Heights are absolute
+  metres (no origin). Absolute coordinates lose ~0.5 mm in float and made 81 cross itself: always solve local.
+- Then `JunctionOutline.MergeBays(arms, links)` (a narrower arm alongside another from within 45 m for 30 m, or drawn over
+  it, is a lane of it; its crossing becomes a link), then `JunctionOutline.Solve(arms, holes, links)`.
+
+## 2. Solver output (Scripts/City/JunctionOutline.cs, pure: no CityMap)
+`Result`: `arms` (sorted anticlockwise), `corners` (per adjacent pair a..b: shape through / through-taper / nose /
+abreast / arc / connector [via link n] / refusal kinds, `r` radius m, `sA` / `sB` stations m on A.L / B.R, `pts` the
+corner's polyline, `lineP` / `lineD` a nose's or abreast cut line), END ROWS per sorted arm `rowR[i]` / `rowL[i]` (points
+on its R / L borders) at stations `sR[i]` / `sL[i]` (metres out, = sample index x 0.5) with heights `yR` / `yL` and
+`grade` (rise per metre out), `outline` (CCW ring, deduped) + `outlineSrc` (per vertex: which piece made it - use it for
+diagnoses), `holes`, the FILL `fillVerts` (first `ringCount` = the densified ring incl. bridged holes, then interior
+points) + `tris` (CCW) + `fillY` (height per fill vertex), `HeightAt(p)` (quadratic + per-arm remainder planes, C1 at the
+rows), `refused` (null = solved; else the reason, with pieces named), `planeDev`, `steinerM`, `rise`, `warp`, `plane`,
+`solveMs`, `fillMs`. The ribbon of arm i must END on the segment rowR[i]-rowL[i] and share those two points (and any
+cross-section points you add on that segment) exactly; the fill's ring vertices on that row are the densified row
+(EdgeM 1.25 m) - add the ribbon's lane points there instead. Thin straight border stretches before meshing (border points
+are 0.5 m apart on straights; keep the 1 cm / 6 degree sag rule on arcs).
+Cost: tsv shows 40-70 ms a cluster including BuildCluster; the fill dominates on big clusters. Not load-safe: bake it.
+
+## 3. What draws a junction today (switch each off for one cluster)
+- Tile build: `CityMeshes.TileSteps` (CityMeshes.cs ~2344); the junction step is phase 3 (~10795): for each node of the
+  tile, `if (!trims.patch[n])` -> `EmitDeadEnd` (Minor.cs) / `NoseSheetsAt` (Junctions.cs 1358); else only the cluster's
+  lowest member (`FanKey(trims, n) != n` continue) draws: `FanCorners` (11151) -> `FanTriangles` (11558) -> `FanSteiner` /
+  `RefineFan` (Junctions.cs 833) -> `EmitCutFan` (Minor.cs 817), plate lifted `FanProudM` (12 mm; goes to 0 inside an
+  outline), then per ring corner `EmitCornerWalk` (Walks.cs 1670, the corner sidewalk), rails / barriers, `EmitVergeLine`
+  (CityMeshes.cs 10025). Skip point for one cluster: right after the FanKey test (`continue` when the outline is used).
+- Trims (where ribbons stop): `ComputeTrims` / `ComputeTrimsCore` (CityMeshes.cs 1601 / 1667), arrays `atA` / `atB`
+  (per edge, metres from each end), `hwA` / `hwB`, `taperA` / `taperB`, `patch`, `mitre`, `bulb`. The outline's rows must
+  become those trims for the cluster's arms (set atA / atB from sR / sL) or the ribbons overlap the new surface.
+- Kerbs: curb returns (`Cs2EmitCornerPans`, Curbs2.cs; curb trims ~CityMeshes.cs 1951; `CurbArc`, SMOOTHCURB opt-in), per
+  edge `Cs3EnsurePlan` / `Cs3SplitSpan` (Curbs3.cs); islands `IslandSolids` (IslandSolids.cs 108, opt-in
+  PSX_CITY_ISLANDSOLID) and `EmitIslandCurb` (Lots.cs 701); medians `MedianDress` / `PrepareMedianDress` (MedianDress.cs),
+  `EmitUnionMedian` (Unions.cs 1486), bay noses (CurbMedian, `BayNose`).
+- Lane paint: `EnsureMarks` (Marks.cs 91) -> `ZoneMarks`, `MouthMarks`, `TurnMarks`, `NoseMarks`, `CrosswalkMarks`,
+  `YieldMarks`; `PocketMarks` (TurnPockets.cs 319); `BayStopLine` (Bays.cs 119); paint clipped at the drawn lane by
+  `LaneClip` (LaneClip.cs 43, PSX_CITY_LANECLIP). Paint crossing the new edge has to be cut against the outline.
+- LAB rows: Scripts/Lab/LabSwitches.cs (c7roads block near line 240: ISLANDSOLID, SMOOTHCURB rows show the format; row name
+  at most 26 characters; "A city bake" in the look line).
+
+## 4. The bake
+`Editor/CityTileBake.cs`: tiles live in the project's /CityTiles/ (git-ignored). `Fingerprint()` = SHA-256 of the format
+(`CityTileCache.Format`), every .cs under `Assets/PSXRacing/Scripts/City` (so JunctionOutline.cs is in it: any edit there
+re-bakes), `Scripts/RoadsideRules.cs`, the data `Resources/charlotte_*.bytes` and `Resources/CityCrowns/*.bytes`, the kit's
+tree low-reach table, and `CityTileCache.Settings()` (the generator's env switches). Baked tile meshes are written by
+CityTileCache (Scripts/City/CityTileCache*.cs); junction outlines would ride in the same tile record (bake them, or prove
+under 1 ms a junction at load). Re-bake ~57 min.
+
+## 5. Traps hit (one line each)
+- Clustering: the generator's FanKey clusters do not join a median opening's two far nodes, a split drawn without a fan
+  (81's n4449 is not a patch node), or a slip's ends; the spot's own node is not always in the cluster you think (77 = slip
+  e13224 n5555 -> n2343 cutting the corner of 2342, 81 = n4449, not the 4-node UC Blvd cluster).
+- Bays over hosts: OSM draws U-turn bays partly ON their host (80); MergeBays must accept a negative gap; only the narrower
+  arm merges; carry the widened border back PARALLEL to the host, square rows.
+- Link noses: try a link's border before an arc straight across a median; a crossover ends AT its nodes, so test "ahead"
+  strict first, loose second; relax the walked link border (its map corners break rule 4).
+- Map corners: arm / link borders carry OSM vertex corners (5-24 deg); relax only border-sourced vertices, never arcs /
+  tapers / noses (moving those makes new kinks); a fillet whose tangent point sits on a map corner keeps a joint (g44).
+- Fillets: feet on curved borders sit off the circle (blend the radius foot to foot); borders must be carried BEHIND their
+  start (skew crossings); reject sweeps over 180 deg; try them at any angle (crossovers leave at 30 deg).
+- Sort: arms that start together sort by heading, apart by position round the centroid; "together" is capped at 6 m or a
+  merged bay border fools it; ties at equal headings break the order.
+- Abreast arms (two carriageways drawn touching) need one cut line across both; a neighbour's long fillet can push it past
+  the next node (77 refused there).
+- Fill: no ring vertex may lie on a new diagonal (T-junctions on straight kerbs = height gaps); points on an ear's edge are
+  not inside (relative 10 micron tolerance); holes must lie wholly inside the outline.
+- Height: the absolute rise is not the test (a steady slope may rise any height): warp <= 1.25 m off the rows' plane and
+  plane slope <= 15 %; interior spacing is refined until no interior point is 9 mm off its neighbours' plane.
+- Harness: a .NET stub harness (scratch jh\, Unity's own SDK at Editor\Data\DotNetSdk\dotnet.exe) runs the suite in 5 s;
+  it writes Screenshots\c7 into the worktree (git-ignored).
+
+## 6. Commands (all edit-mode batch, silent; sandbox PSXRoadA under the c7roads lock; job.ps1 / gate.ps1 are in the c7roads
+scratch and mirror a commit's Scripts / Editor / Shaders + city data into the sandbox, typecheck, run, copy out\<tag>_*)
+- Test suite: `job.ps1 -Commit <h> -Method PSXRacing.EditorTools.JunctionOutlineTests.RunAll -Tag jtN -CopyDir c7 -Outputs
+  "Screenshots\c7\junction_outline_tests.txt"` (25 tests; last: 24 pass, RealJunctions 2 of 11 real fixtures fail: s77
+  refused, g44 one 6 deg joint). Harness: `jh\run.sh`.
+- Whole city: `job.ps1 -Commit <h> -Method PSXRacing.EditorTools.CityOutlineProto.RunCity -Tag cityN -CopyDir c7 -EnvList
+  "PSX_C7_TAG=cityN[;PSX_C7_FIXTURES=name:node,...;PSX_C7_FIXDIR=dir]"` -> c7_city_<tag>.txt / .tsv (+ fixtures under
+  Screenshots\c7\<dir>\ in the sandbox; copy the ones you want into Editor/JunctionFixtures). Last full: city3 (before the
+  slip rule) 7,268 clusters, 6,331 clean / 19 kink / 917 refused / 1 fill; city5 (slip rule) 7,068 clusters, 121 slips
+  joined, 6,057 clean / 18 / 881 / 112 fill (the 112 were islands reaching past the outline: now dropped, not rerun).
+- Spot table: `powershell -ExecutionPolicy Bypass -File tools\city-spots.ps1 -Project C:\Users\mcgee\PSXRoadA [-Ids
+  77,80]` (CityIslandGate.Run with PSX_ISL_SPOTS=tools/city/spots/junction_spots.csv; RAISED / SEETHRU / OVERLAY /
+  LINEUNDER / HOLES / LAYERS / STEP / KINK per spot).
+- Kinds scorecard: `job.ps1 -Method PSXRacing.EditorTools.CityKinkProbe.Run -Tag kN -CopyDir c7` -> c7_kinds_<tag>.tsv.
+- Real clusters at the spots: `CityOutlineProto.RunClusters` (PSX_ISL_SPOTS) -> c7_outline2_<tag>.json.
+- Photo overlays: harness `jh.dll overlay <fixture dir> <json>` then `py draw_aerial.py <json> <outdir>` (scratch; NC OneMap
+  crops in aerials\, never in the repo).
+
 # HANDOFF - c7roads: the University City loop's junction islands as solids in one paved surface (owner 11-25, CltC7, shots 77-81)
 
 Branch `charlotte-c7roads` from mountain-nm e472b9da (+ 8a5737c0 cherry-picked). Editor frames only (PSXRoadA, WebGL target, tiles built live,
