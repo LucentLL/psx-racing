@@ -353,6 +353,29 @@ namespace PSXRacing
                     legs++;
                     if (frame2.Elapsed.TotalMilliseconds > 40.0) { yield return null; frame2.Restart(); }
                 }
+                // a sprint's run-out past the flag (the planner's smallest-turn road on, AIRoutePlanner.ExtendStraight):
+                // round 2's one search mid-race on X1 was there
+                if (!Loop && GateCount > 0)
+                {
+                    pcs.Clear();
+                    int x = gates[GateCount - 1].anchorSt; float t0 = gates[GateCount - 1].anchorT, got = 0f;
+                    pcs.Add(new RoutedPath.Piece { st = x, t0 = t0, t1 = R.len[x] }); got += R.len[x] - t0;
+                    for (int guard = 0; guard < 200 && got < 900f; guard++)
+                    {
+                        int by = -1; float bt = float.PositiveInfinity;
+                        for (int q = R.succStart[x]; q < R.succStart[x + 1]; q++)
+                        {
+                            int y = R.succ[q];
+                            if (R.succStart[y + 1] - R.succStart[y] == 0) continue;
+                            if (R.succTurn[q] < bt) { bt = R.succTurn[q]; by = y; }
+                        }
+                        if (by < 0) break;
+                        pcs.Add(new RoutedPath.Piece { st = by, t0 = 0f, t1 = R.len[by] }); got += R.len[by];
+                        x = by;
+                    }
+                    RoutedPath.Build(map, pcs, tmp, 12f);
+                    legs++;
+                }
                 Destroy(holder);
                 Debug.Log($"[Checkpoints] racing turns laid at load: {legs} legs, {RacingTurns.Laid} turns ({RacingTurns.NoFit} no fit) in {wsw.Elapsed.TotalMilliseconds:0} ms");
             }

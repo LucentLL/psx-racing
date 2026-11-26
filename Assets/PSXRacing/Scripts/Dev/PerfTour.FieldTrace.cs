@@ -39,7 +39,57 @@ namespace PSXRacing
             TurnMapDump.Map(ftTurns, out string edges, out string kerbs);
             Post(id + "_edges.csv", edges);
             Post(id + "_kerbs.csv", kerbs);
+            IslandCheck(id, path);
             Say("FIELD TRACE " + id + ": " + ftTurns.Count + " junction turns of 30 deg or more on the course line");
+        }
+
+        /// <summary>
+        /// THE ISLANDS CHECK (cityai round 3, &amp;islands=1 on a field run): every racing-turn arc laid so far (the route's,
+        /// at race load) sampled every metre; at each sample and at 8 points 0.3 m round it, a ray down onto what is drawn
+        /// there. A sample is BAD when any of the nine rays lands on something that is not the road layer (an island's
+        /// kerb or top, a median, grass), or on nothing. Cars are skipped. Writes &lt;tag&gt;_&lt;stage&gt;_islands.txt.
+        /// </summary>
+        void IslandCheck(string id, TrackPath path)
+        {
+            if (ShotLink.Query(Request() ?? "", "islands") != "1" || path == null) return;
+            var pts = new List<Vector2>(); var keys = new List<long>();
+            RacingTurns.CachedArcPoints(pts, keys, 1f);
+            var sb = new StringBuilder();
+            int bad = 0, checkedN = 0; var badArcs = new HashSet<long>(); var arcs = new HashSet<long>(keys);
+            const int roadLayer = 8;
+            var hits = new RaycastHit[8];
+            int hint = -1;
+            for (int i = 0; i < pts.Count; i++)
+            {
+                var q = pts[i];
+                hint = path.NearestIndex(new Vector3(q.x, 0f, q.y), hint);
+                float yRef = path.GetPoint(hint).y;
+                string why = null;
+                for (int k = 0; k < 9 && why == null; k++)
+                {
+                    Vector2 o = k == 0 ? Vector2.zero : new Vector2(Mathf.Cos(k * Mathf.PI / 4f), Mathf.Sin(k * Mathf.PI / 4f)) * 0.3f;
+                    var from = new Vector3(q.x + o.x, yRef + 4f, q.y + o.y);
+                    int n = Physics.RaycastNonAlloc(from, Vector3.down, hits, 10f, ~0, QueryTriggerInteraction.Ignore);
+                    RaycastHit best = default; float bd = float.MaxValue;
+                    for (int h = 0; h < n; h++)
+                    {
+                        if (hits[h].collider == null || hits[h].collider.attachedRigidbody != null) continue;   // cars
+                        if (hits[h].distance < bd) { bd = hits[h].distance; best = hits[h]; }
+                    }
+                    if (bd == float.MaxValue) why = (k == 0 ? "centre" : "0.3 m out") + ": nothing under it";
+                    else if (best.collider.gameObject.layer != roadLayer)
+                        why = (k == 0 ? "centre" : "0.3 m out") + $": {best.collider.name} (layer {best.collider.gameObject.layer}) {best.point.y - yRef:+0.00;-0.00} m";
+                }
+                checkedN++;
+                if (why != null)
+                {
+                    bad++; badArcs.Add(keys[i]);
+                    if (bad <= 200) sb.AppendLine($"  BAD ({q.x:0.0},{q.y:0.0}) arc {keys[i]}: {why}");
+                }
+            }
+            string head = $"islands check {id}: {arcs.Count} racing-turn arcs, {checkedN} samples (1 m, +8 at 0.3 m), {bad} over or within 0.3 m of a non-road surface on {badArcs.Count} arcs";
+            Post(id + "_islands.txt", head + "\n" + sb);
+            Say(head);
         }
 
         void FieldSample()
@@ -91,7 +141,7 @@ namespace PSXRacing
             if (ftb == null) return;
             Post(id + "_field.csv", ftb.ToString());
             var tsw = TrafficSystem.Instance;
-            if (tsw != null) Post(id + "_wrecks.txt", ftWreckNotes.ToString());
+            if (tsw != null) Post(id + "_wrecks.txt", ftWreckNotes.ToString() + "soft knocks (round 3: stopped, then drove on): " + tsw.SoftKnockLog.Count + (tsw.SoftKnockLog.Count > 0 ? "\n  " + string.Join("\n  ", tsw.SoftKnockLog) : ""));
             Say("FIELD TRACE " + id + ": " + (ftb.Length / 1024) + " KB");
             ftb = null;
         }

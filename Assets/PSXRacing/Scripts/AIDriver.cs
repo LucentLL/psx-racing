@@ -55,6 +55,54 @@ namespace PSXRacing
         /// (PSX_AI_JUNCTION_WAIT=0: as before). LAB row RIVALS WAIT IN JUNCTIONS.</summary>
         float junctionStand;
         public static bool JunctionWaitOn = System.Environment.GetEnvironmentVariable("PSX_AI_JUNCTION_WAIT") != "0";
+        /// <summary>
+        /// (cityai round 3) A FINISHER CLEARS THE LANE: past the flag it drives on at <see cref="FinishCruiseMps"/> in its
+        /// own lane, behind whatever is ahead of it (traffic, another finisher), and only where its run-out ends does it
+        /// pull onto the verge and stop. Parked in the lane a few hundred metres past the line, a finisher was hit by the
+        /// next one at 16 m/s (Tryon) and by three at 12-14 m/s (CltC7, round 1).
+        /// PSX_AI_FINISH_DRIVEON=0: as before. LAB row FINISHERS CLEAR THE LANE.
+        /// </summary>
+        public static bool FinishDriveOnOn = System.Environment.GetEnvironmentVariable("PSX_AI_FINISH_DRIVEON") != "0";
+        const float FinishCruiseMps = 12f, FinishEndM = 70f;
+
+        void FinisherDriveOn(float rolling, float dt)
+        {
+            float dEnd = path.HasEnds ? (path.Count - 1 - nearestIdx) * path.spacing : 1e6f;
+            bool endNear = dEnd < FinishEndM;
+            float want = endNear ? 0f : FinishCruiseMps;
+            float plan = PlanSpeed(Mathf.Max(rolling, 1f), out _, out float dec, out _, out _);
+            want = Mathf.Min(want, plan);
+            if (path.HasEnds) want = Mathf.Min(want, Mathf.Sqrt(2f * Mathf.Max(3f, dec * 0.8f) * Mathf.Max(0f, dEnd - 15f)));
+            want = Mathf.Min(want, TrafficCap());
+            // anything in its own swept lane ahead (a slower finisher, a rival, traffic): no closer than 8 m
+            Vector3 fwd = transform.forward; fwd.y = 0f; fwd.Normalize();
+            Vector3 right = new Vector3(fwd.z, 0f, -fwd.x);
+            var rmF = RaceManager.Instance;
+            if (rmF != null && rmF.allCars != null)
+                foreach (var o in rmF.allCars)
+                {
+                    if (o == null || o == car || !o.gameObject.activeInHierarchy) continue;
+                    Vector3 d = o.transform.position - transform.position; d.y = 0f;
+                    float f = Vector3.Dot(d, fwd);
+                    if (f < 1f || f > 40f || Mathf.Abs(Vector3.Dot(d, right)) > 2.6f) continue;
+                    float theirs = o.Body != null ? Mathf.Max(0f, Vector3.Dot(o.Body.linearVelocity, fwd)) : 0f;
+                    want = Mathf.Min(want, theirs + Mathf.Sqrt(2f * 4f * Mathf.Max(0f, f - 8f)));
+                }
+            // its own lane while it drives on; onto the verge where the run-out ends
+            float biasTo = endNear ? RoadHalfHere(1) + RetiredVergeM - lineOffset : 0f;
+            avoidBias = Mathf.MoveTowards(avoidBias, biasTo, 2.5f * dt);
+            car.steerInput = rolling > 0.5f || want > 0.5f ? SteerToLine(Mathf.Max(rolling, 3f)) : 0f;
+            car.allowReverse = false;
+            backPhase = BackPhase.Off;
+            float thr = 0f, brk = 0f;
+            if (want < 0.5f && rolling < ShutdownRestMps) brk = 0.4f;
+            else if (rolling < want - 0.8f) thr = Mathf.Clamp01(0.25f + (want - rolling) * 0.1f);
+            else if (rolling > want + 0.5f) brk = Mathf.Clamp01((rolling - want) / 6f + 0.2f);
+            else thr = 0.12f;
+            car.throttleInput = thr;
+            car.brakeInput = brk;
+        }
+
         public static bool FinishRunOutOn = System.Environment.GetEnvironmentVariable("PSX_AI_FINISH_RUNOUT") != "0";
         /// <summary>A retired car's brake: out of the race, it stops.</summary>
         const float RetiredBrake = 0.6f;
@@ -1262,6 +1310,11 @@ namespace PSXRacing
             if (!driving)
             {
                 float rolling = Mathf.Abs(car.forwardSpeed);
+                if (ShuttingDown && !Retired && FinishDriveOnOn && path != null && path.Count > 2)
+                {
+                    FinisherDriveOn(rolling, dt);
+                    return;
+                }
                 bool coasting = ShuttingDown && rolling > ShutdownRestMps;
                 // A WRECK PULLS OVER: onto the verge past the right-hand edge,
                 // not stopped in its lane - on a 6 m mountain road a car

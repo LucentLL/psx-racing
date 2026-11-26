@@ -61,6 +61,24 @@ namespace PSXRacing
         static readonly Dictionary<long, (float T, Vector2 c, float r, float ang0, float sweep)> arcCache = new Dictionary<long, (float, Vector2, float, float, float)>(1024);
         /// <summary>Plans' turns read from <see cref="arcCache"/> and searched (the harness; cleared with the stats).</summary>
         public static int ArcReads, ArcSearches;
+        /// <summary>(round 3, the islands check) Every cached arc's points, every <paramref name="step"/> metres, with its
+        /// turn's key (node, road in, road out).</summary>
+        public static void CachedArcPoints(List<Vector2> pts, List<long> keys, float step = 1f)
+        {
+            pts.Clear(); keys.Clear();
+            foreach (var kv in arcCache)
+            {
+                var a = kv.Value;
+                if (a.r <= 0f) continue;
+                int m = Mathf.Max(2, Mathf.CeilToInt(a.r * Mathf.Abs(a.sweep) / Mathf.Max(step, 0.1f)));
+                for (int q = 0; q <= m; q++)
+                {
+                    float ang = a.ang0 + a.sweep * q / m;
+                    pts.Add(a.c + new Vector2(Mathf.Cos(ang), Mathf.Sin(ang)) * a.r);
+                    keys.Add(kv.Key);
+                }
+            }
+        }
         /// <summary>The fan kerbs of the join's node AND of every node within <see cref="NearNodeM"/> of it, two hops
         /// along the graph: an arc may reach a neighbouring junction's island (a split's nose, a channelised turn's
         /// island at the next node).</summary>

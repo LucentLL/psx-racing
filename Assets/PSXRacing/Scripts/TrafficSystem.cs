@@ -169,6 +169,35 @@ namespace PSXRacing
         /// <summary>A hit that changes the car's speed by this much (m/s) ends
         /// the drive.</summary>
         const float WreckSpeed = 1.5f;
+
+        // ---- cityai round 3 (11-26): the traffic side of the city races' junction block and head-ons ----------
+        /// <summary>A KNOCK IS NOT A WRECK (PSX_TRAFFIC_SOFTKNOCK, LAB row TRAFFIC SHRUGS OFF KNOCKS). A hit that changes
+        /// the car's speed by less than <see cref="SoftKnockMps"/> stops it for <see cref="SoftKnockHoldS"/> and it
+        /// drives on. The wreck logs of the editor tours (CltC7, C1, H6, I-485 West): every touch in a junction box, by a
+        /// rival or by another traffic car, was 1.5-5.0 m/s; every real crash was 7.8 m/s or more (barriers, rails,
+        /// a 18.9 m/s nose-in). 6 m/s splits the two.</summary>
+        public static bool SoftKnockOn = System.Environment.GetEnvironmentVariable("PSX_TRAFFIC_SOFTKNOCK") != "0";
+        const float SoftKnockMps = 6f, SoftKnockHoldS = 1.5f;
+        /// <summary>Soft knocks this race, for the harness (time, what, speed).</summary>
+        public readonly List<string> SoftKnockLog = new List<string>();
+        /// <summary>A WRECK IS PASSED, NOT QUEUED BEHIND (PSX_TRAFFIC_ROUND_WRECK, LAB row TRAFFIC GOES ROUND WRECKS): a
+        /// wreck ahead in the lane is met like a racer standing there: the car eases out to the outside at a crawl and
+        /// goes by where the lane and the verge have the room; else it waits behind it.</summary>
+        public static bool RoundWreckOn = System.Environment.GetEnvironmentVariable("PSX_TRAFFIC_ROUND_WRECK") != "0";
+        /// <summary>A CAR STANDING IN THE LANE IS SEEN BY ITS FOOTPRINT (PSX_TRAFFIC_SEE_STANDING, LAB row TRAFFIC STOPS FOR
+        /// STANDING CARS). The lane test was centre to centre within 1.9 m: a racer standing slewed in the oncoming lane,
+        /// its centre 2.2 m off the traffic car's line, was not "in the lane" and the car drove into it at 30 km/h (the
+        /// Tryon head-ons, three of three). Now: its half width across the lane at its heading, this car's, and 0.3 m;
+        /// and one coming the other way closes the gap by its own speed.</summary>
+        public static bool SeeStandingOn = System.Environment.GetEnvironmentVariable("PSX_TRAFFIC_SEE_STANDING") != "0";
+        /// <summary>LANES ROUND A SHARP CORNER (PSX_TRAFFIC_LANE_CORNERS, LAB row TRAFFIC LANES ON CORNERS). The race
+        /// path turns a junction's corner within two 4 m waypoints, and a lane 5.5 m off the line turned faster than the
+        /// line could carry it: at CltC7's 118 deg University City -> N Tryon corner the outer lane's car swept back
+        /// across the inner one (traffic into traffic, 2-4 a race). The lane's heading is now the line's averaged over a
+        /// window wide enough for the widest lane, so every lane turns on a radius larger than its offset.</summary>
+        public static bool LaneCornersOn = System.Environment.GetEnvironmentVariable("PSX_TRAFFIC_LANE_CORNERS") != "0";
+        /// <summary>The traffic's own update, ms a physics step (the harness: mean, p99 over the run).</summary>
+        public static readonly List<float> StepMs = new List<float>(65536);
         /// <summary>Gap between the collision box and the road, driving.</summary>
         const float RideClear = 0.22f;
         /// <summary>...and once it is a wreck.</summary>
@@ -230,6 +259,8 @@ namespace PSXRacing
         /// this step, measured ONCE per step - NearestIndex without a hint scans
         /// the whole path.</summary>
         readonly List<(Vector3 pos, float s, Vector3 vel)> field = new List<(Vector3, float, Vector3)>();
+        /// <summary>(round 3) Each field car's heading (flat), parallel to <see cref="field"/>.</summary>
+        readonly List<Vector3> fieldFwd = new List<Vector3>();
         int[] fieldHints = new int[0];
 
         /// <summary>The traffic bodies now on the road, for the racers'
@@ -342,6 +373,8 @@ namespace PSXRacing
             /// bake measured it (down to the ground).</summary>
             public BoxCollider box;
             public Vector3 rideCenter, rideSize, fullCenter, fullSize;
+            /// <summary>(round 3) Held still after a soft knock until this time.</summary>
+            public float knockHoldUntil;
         }
 
         /// <summary>Called by RaceManager.Start once the path is final (a
@@ -688,6 +721,7 @@ namespace PSXRacing
                 Populate();
             }
 
+            var swStep = System.Diagnostics.Stopwatch.StartNew();
             float ps = PlayerS();
             MeasureField();
             Recycle(ps);
@@ -699,11 +733,12 @@ namespace PSXRacing
             ObstacleDir.Clear();
             ObstacleS.Clear();
             foreach (var c in live) { Obstacles.Add(c.rb); ObstacleHalfW.Add(c.halfW); ObstacleDir.Add(c.dir); ObstacleS.Add(c.s); }
+            if (StepMs.Count < 200000) StepMs.Add((float)swStep.Elapsed.TotalMilliseconds);
         }
 
         void MeasureField()
         {
-            field.Clear();
+            field.Clear(); fieldFwd.Clear();
             var cars = rm.allCars;
             if (fieldHints.Length != cars.Count)
             {
@@ -718,6 +753,7 @@ namespace PSXRacing
                 Vector3 pos = car.transform.position;
                 float so = SOf(pos, ref fieldHints[i]);
                 field.Add((pos, so, body != null ? body.linearVelocity : Vector3.zero));
+                var ff = car.transform.forward; ff.y = 0f; fieldFwd.Add(ff.sqrMagnitude > 1e-4f ? ff.normalized : Vector3.forward);
             }
         }
 
@@ -932,9 +968,19 @@ namespace PSXRacing
             // a 12 m/s rear-end as nothing.
             if (c.hasCommand && (c.rb.linearVelocity - c.commanded).magnitude > WreckSpeed)
             {
-                Wreck(c.go, (c.lastContact ?? "?") + ", knocked " +
-                            (c.rb.linearVelocity - c.commanded).magnitude.ToString("0.0") + " m/s");
-                return;
+                float knock = (c.rb.linearVelocity - c.commanded).magnitude;
+                if (SoftKnockOn && knock < SoftKnockMps)
+                {
+                    // a touch: it stops where it is and, after a moment, drives on along its lane
+                    c.speed = 0f;
+                    c.knockHoldUntil = Time.time + SoftKnockHoldS;
+                    if (SoftKnockLog.Count < 2000) SoftKnockLog.Add(Time.time.ToString("0.0") + " s: " + (c.lastContact ?? "?") + ", " + knock.ToString("0.0") + " m/s");
+                }
+                else
+                {
+                    Wreck(c.go, (c.lastContact ?? "?") + ", knocked " + knock.ToString("0.0") + " m/s");
+                    return;
+                }
             }
 
             // Target speed: cruise, slowed for the bend, then for whatever is
@@ -951,6 +997,7 @@ namespace PSXRacing
             float k = Curvature(c.s, c.dir);
             if (k > 1e-4f) v = Mathf.Min(v, Mathf.Sqrt(CornerAccel * Mathf.Lerp(1f, WetCornerAccel, wet) / k));
             float gap = LeaderGap(c, out float leaderV, out float leaderRacerLat);
+            if (Time.time < c.knockHoldUntil) v = 0f;
             float timeGap = TimeGap * Mathf.Lerp(1f, WetTimeGap, wet);
             if (gap < 120f)
                 v = Mathf.Min(v, Mathf.Max(0f, leaderV + (gap - StopGap - leaderV * timeGap) * 0.5f));
@@ -1074,9 +1121,30 @@ namespace PSXRacing
         /// this step (so the solver sees a real moving body), facing where it
         /// is going - along the lane, turned by any move across it - sitting
         /// on the road surface.</summary>
+        /// <summary>(round 3, <see cref="LaneCornersOn"/>) The line's heading at s averaged over a window wide enough that
+        /// the widest lane turns on a radius larger than its offset (no lane sweeps back across another at a corner).</summary>
+        Vector3 LaneTangent(float s, Vector3 tan)
+        {
+            Vector3 ta = path.GetTangent(Mathf.FloorToInt((s - 12f) / path.spacing)), tb = path.GetTangent(Mathf.FloorToInt((s + 12f) / path.spacing));
+            ta.y = 0f; tb.y = 0f;
+            float th = Vector3.Angle(ta, tb) * Mathf.Deg2Rad;
+            if (th < 0.25f) return tan;
+            float w = Mathf.Clamp(th * (path.roadWidth * 0.5f + 3f) * 0.5f, path.spacing, 24f);
+            Vector3 sum = Vector3.zero;
+            for (float o = -w; o <= w + 1e-3f; o += 2f)
+            {
+                Sample(s + o, out _, out Vector3 t);
+                // a window's end inside the junction weighs as much as its middle: the heading eases evenly
+                sum += t;
+            }
+            sum.y = tan.y;
+            return sum.sqrMagnitude > 1e-6f ? sum.normalized : tan;
+        }
+
         void Place(Car c, bool teleport)
         {
             Sample(c.s, out Vector3 p, out Vector3 tan);
+            if (LaneCornersOn && Mathf.Abs(c.latNow) > 0.5f) tan = LaneTangent(c.s, tan);
             Vector3 fwd = tan * c.dir;
             Vector3 right = Vector3.Cross(Vector3.up, tan).normalized;
             Vector3 target = p + right * c.latNow;
@@ -1135,26 +1203,49 @@ namespace PSXRacing
                 {
                     float sw = SOf(o.go.transform.position, ref o.hint);
                     float dw = Delta(c.s, sw) * c.dir;
-                    if (dw > 0f && dw < best && LateralNear(o.go.transform.position, sw, c.latNow)) { best = dw; leaderV = 0f; }
+                    if (dw > 0f && dw < best && LateralNear(o.go.transform.position, sw, c.latNow))
+                    {
+                        best = dw; leaderV = 0f;
+                        // (round 3) met like a racer standing there: the edge-round below may take the car past it
+                        if (RoundWreckOn)
+                        {
+                            Sample(sw, out Vector3 wp, out Vector3 wt);
+                            racerLat = Vector3.Dot(o.go.transform.position - wp, Vector3.Cross(Vector3.up, wt).normalized);
+                        }
+                        else racerLat = float.NaN;
+                    }
                     continue;
                 }
                 if (o.dir != c.dir || Mathf.Abs(o.lat - c.lat) > 1.5f) continue;
                 float d = Delta(c.s, o.s) * c.dir;
                 if (d > 0f && d < best) { best = d; leaderV = o.speed; }
             }
-            foreach (var f in field)
+            for (int fi = 0; fi < field.Count; fi++)
             {
+                var f = field[fi];
                 float d = Delta(c.s, f.s) * c.dir;
                 if (d <= 0f || d >= best || d > 120f) continue;
                 // Where this car IS across the road: pulled onto the verge, a
                 // rival parked there is ahead of it and one going by in the lane
                 // is not.
-                if (!LateralNear(f.pos, f.s, c.latNow)) continue;
-                best = d;
                 Sample(f.s, out Vector3 fp, out Vector3 ft);
-                racerLat = Vector3.Dot(f.pos - fp, Vector3.Cross(Vector3.up, ft).normalized);
-                Sample(f.s, out _, out Vector3 tan);
-                leaderV = Mathf.Max(0f, Vector3.Dot(f.vel, tan * c.dir));
+                Vector3 fr = Vector3.Cross(Vector3.up, ft).normalized;
+                float along = Vector3.Dot(f.vel, ft * c.dir);
+                if (SeeStandingOn && fi < fieldFwd.Count)
+                {
+                    // (round 3) its footprint across the lane at its heading (2.3 m half length, 0.95 m half width)
+                    float l = Vector3.Dot(f.pos - fp, fr);
+                    float sinA = Mathf.Abs(Vector3.Dot(fieldFwd[fi], fr));
+                    float half = 0.95f * Mathf.Sqrt(Mathf.Max(0f, 1f - sinA * sinA)) + 2.3f * sinA;
+                    if (Mathf.Abs(l - c.latNow) > half + c.halfW + 0.3f) continue;
+                    // coming this way: the gap closes at its speed too (a second of it)
+                    if (along < -0.5f) d = Mathf.Max(0.5f, d + along * 1f);
+                }
+                else if (!LateralNear(f.pos, f.s, c.latNow)) continue;
+                if (d >= best) continue;
+                best = d;
+                racerLat = Vector3.Dot(f.pos - fp, fr);
+                leaderV = Mathf.Max(0f, along);
             }
             // Bumper to bumper, roughly.
             return best - 4.5f;

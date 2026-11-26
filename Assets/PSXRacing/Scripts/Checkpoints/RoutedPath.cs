@@ -205,7 +205,14 @@ namespace PSXRacing
                     int i1 = Mathf.Min(count - 1, Mathf.CeilToInt((at + JunctionZoneM) / spacing));
                     for (int i = i0; i <= i1; i++) junction[i] = true;
                 }
-                else for (int i = 0; i < count; i++) if (Mathf.Abs(oAt[i] - at) <= JunctionZoneM) junction[i] = true;
+                else
+                {
+                    // oAt rises along the path: from the first waypoint inside the zone to the last (round 3: was every
+                    // waypoint for every join)
+                    int lo = 0, hi = count - 1;
+                    while (lo < hi) { int mid = (lo + hi) >> 1; if (oAt[mid] < at - JunctionZoneM) lo = mid + 1; else hi = mid; }
+                    for (int i = lo; i < count && oAt[i] <= at + JunctionZoneM; i++) junction[i] = true;
+                }
             }
             // curvature, flattened and lightly smoothed (BuildPath's recipe)
             int Idx(int i) => Mathf.Clamp(i, 0, count - 1);

@@ -335,6 +335,37 @@ namespace PSXRacing
                 look = "City races: in a junction a rival keeps behind turning traffic and waits, not knocking it or reversing.",
                 env = new[] { "PSX_AI_JUNCTION_WAIT", "PSX_AI_JUNCTION_TRAFFIC" }, members = new[] { "AIDriver.JunctionWaitOn", "AIDriver.JunctionTrafficOn" },
             });
+            // cityai round 3: the traffic side and the finishers
+            Register(new LabRow
+            {
+                id = "finishdriveon", group = LabGroup.Traffic, name = "FINISHERS CLEAR THE LANE", when = LabWhen.Now,
+                look = "After the flag a rival drives on at traffic speed and stops on the verge, never parked in the lane.",
+                env = new[] { "PSX_AI_FINISH_DRIVEON" }, members = new[] { "AIDriver.FinishDriveOnOn" },
+            });
+            Register(new LabRow
+            {
+                id = "trafficsoftknock", group = LabGroup.Traffic, name = "TRAFFIC SHRUGS OFF KNOCKS", when = LabWhen.Now,
+                look = "A traffic car touched under 6 m/s stops a moment and drives on, instead of standing wrecked all race.",
+                env = new[] { "PSX_TRAFFIC_SOFTKNOCK" }, members = new[] { "TrafficSystem.SoftKnockOn" },
+            });
+            Register(new LabRow
+            {
+                id = "trafficroundwreck", group = LabGroup.Traffic, name = "TRAFFIC GOES ROUND WRECKS", when = LabWhen.Now,
+                look = "Traffic eases out round a wrecked car in its lane where there is room, instead of queueing behind it.",
+                env = new[] { "PSX_TRAFFIC_ROUND_WRECK" }, members = new[] { "TrafficSystem.RoundWreckOn" },
+            });
+            Register(new LabRow
+            {
+                id = "trafficseestanding", group = LabGroup.Traffic, name = "TRAFFIC STOPS FOR CARS", when = LabWhen.Now,
+                look = "Traffic brakes for a car standing or crawling in its lane, slewed or coming its way, not into it.",
+                env = new[] { "PSX_TRAFFIC_SEE_STANDING" }, members = new[] { "TrafficSystem.SeeStandingOn" },
+            });
+            Register(new LabRow
+            {
+                id = "trafficlanecorners", group = LabGroup.Traffic, name = "TRAFFIC LANES ON CORNERS", when = LabWhen.Now,
+                look = "Traffic in the outer lane turns a sharp junction corner on its own curve, not sweeping across.",
+                env = new[] { "PSX_TRAFFIC_LANE_CORNERS" }, members = new[] { "TrafficSystem.LaneCornersOn" },
+            });
             // stage round 3 (merged 11-25): the planner reads it every tick, so live; every car, the autopilot too
             Register(new LabRow
             {
