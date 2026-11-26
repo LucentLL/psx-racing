@@ -373,6 +373,199 @@ namespace PSXRacing.EditorTools
         }
         static float PD(Vector2 p, Vector2 x, Vector2 y) { var xy = y - x; float l2 = xy.sqrMagnitude; float tt = l2 > 1e-9f ? Mathf.Clamp01(Vector2.Dot(p - x, xy) / l2) : 0f; return (x + xy * tt - p).magnitude; }
 
+        /// <summary>A cluster's plain solver inputs: its arms (edges with one end in it, 80 m of the line model's borders,
+        /// centre and profile heights) and its links (edges with both ends in it).</summary>
+        public static void BuildCluster(CityMap map, HashSet<int> cluster, out List<JunctionOutline.Arm> arms, out List<JunctionOutline.Link> links)
+        {
+            arms = new List<JunctionOutline.Arm>(); links = new List<JunctionOutline.Link>();
+            var seenE = new HashSet<int>();
+            foreach (int n in cluster)
+                foreach (int ei in map.nodeEdges[n])
+                {
+                    var e = map.edges[ei];
+                    if (e.a == e.b) continue;
+                    bool inA = cluster.Contains(e.a), inB = cluster.Contains(e.b);
+                    if (inA && inB)
+                    {
+                        if (!seenE.Add(ei)) continue;
+                        var lk = new JunctionOutline.Link { id = ei };
+                        for (float d = 0f; d <= e.length + 1e-3f; d += JunctionOutline.Step)
+                        {
+                            var t = e.TangentAt(d); var left = new Vector2(-t.y, t.x);
+                            LineModel.Extents(e, d, out float eM, out float eP);
+                            var p = e.PointAt(d);
+                            lk.L.Add(p + left * eP); lk.R.Add(p - left * eM);
+                        }
+                        if (lk.L.Count >= 2) links.Add(lk);
+                        continue;
+                    }
+                    var arm = new JunctionOutline.Arm { id = ei, oneway = e.oneway, name = e.name ?? "", radius = e.link ? 15f : e.cls >= 3 ? 12f : e.cls >= 1 ? 9f : 6f, Y = new List<float>() };
+                    bool fwd = e.a == n;
+                    for (float d = 0f; d <= Mathf.Min(e.length, 80f) + 1e-3f; d += JunctionOutline.Step)
+                    {
+                        float s = fwd ? d : e.length - d;
+                        var t = e.TangentAt(s); if (!fwd) t = -t;
+                        var left = new Vector2(-t.y, t.x);
+                        LineModel.Extents(e, s, out float eM, out float eP);
+                        var p = e.PointAt(s);
+                        arm.C.Add(p); arm.L.Add(p + left * (fwd ? eP : eM)); arm.R.Add(p - left * (fwd ? eM : eP)); arm.Y.Add(e.YAt(s));
+                    }
+                    if (arm.C.Count >= 4) arms.Add(arm);
+                }
+        }
+
+        /// <summary>A cluster's plain inputs as a fixture (JunctionOutlineTests reads them), coordinates about the cluster's
+        /// first node, centimetres.</summary>
+        public static string FixtureText(string name, string kind, Vector2 origin, List<JunctionOutline.Arm> arms, List<JunctionOutline.Link> links)
+        {
+            var inv = CultureInfo.InvariantCulture;
+            var sb = new StringBuilder();
+            sb.Append($"fixture {name}\nkind {kind}\norigin {origin.x.ToString("0.00", inv)} {origin.y.ToString("0.00", inv)}\n");
+            string P(List<Vector2> l) => string.Join(" ", l.Select(q => (q.x - origin.x).ToString("0.00", inv) + "," + (q.y - origin.y).ToString("0.00", inv)));
+            foreach (var a in arms)
+            {
+                sb.Append($"arm {a.id} {(a.oneway ? 1 : 0)} {a.radius.ToString("0.0", inv)} {a.name}\n");
+                sb.Append("L " + P(a.L) + "\nR " + P(a.R) + "\nC " + P(a.C) + "\n");
+                sb.Append("Y " + string.Join(" ", a.Y.Select(y => y.ToString("0.000", inv))) + "\n");
+            }
+            foreach (var l in links) sb.Append($"link {l.id}\nL " + P(l.L) + "\nR " + P(l.R) + "\n");
+            return sb.ToString();
+        }
+
+        /// <summary>(round 5) THE WHOLE CITY, edit mode, no mesh: every junction cluster (FanKey, then the median-opening
+        /// rule) through MergeBays and the solver. Per cluster: clean / kink (which pieces meet) / refused (why) / fill
+        /// mismatch, by the scorecard's kind; the time for the whole city. PSX_C7_FIXTURES ("name:node,name:node"): the
+        /// clusters holding those nodes are written as fixtures. Output: c7_city_{tag}.txt / .tsv and fixtures/*.txt.</summary>
+        public static void RunCity()
+        {
+            var inv = CultureInfo.InvariantCulture;
+            string tag = System.Environment.GetEnvironmentVariable("PSX_C7_TAG") ?? "run";
+            string dir = Path.Combine(Directory.GetParent(Application.dataPath).FullName, "Screenshots", "c7");
+            Directory.CreateDirectory(dir);
+            Directory.CreateDirectory(Path.Combine(dir, "fixtures"));
+            var log = new StringBuilder($"C7 CITY OUTLINES {System.DateTime.Now:yyyy-MM-dd HH:mm} tag {tag}\n");
+            var tsv = new StringBuilder("key\tnodes\tkind\tresult\tdetail\tarms\tlinks\tms\n");
+            int code = 0;
+            try
+            {
+                var map = CityMap.Get();
+                var trims = CityMeshes.ComputeTrims(map);
+                var crossFar = new HashSet<int>(CityMeshes.CrossoverFanNodes);
+                var splitNodes = new HashSet<int>();
+                if (map.splt != null) foreach (var sp in map.splt) splitNodes.Add(sp.node);
+                var want = new Dictionary<int, string>();
+                foreach (var kv in (System.Environment.GetEnvironmentVariable("PSX_C7_FIXTURES") ?? "").Split(','))
+                { var t = kv.Split(':'); if (t.Length == 2 && int.TryParse(t[1], out int nd)) want[nd] = t[0]; }
+                var keys = new Dictionary<int, List<int>>();
+                for (int n = 0; n < map.nodes.Length; n++)
+                {
+                    if (!trims.patch[n]) continue;
+                    int k = CityMeshes.FanKey(trims, n);
+                    if (!keys.TryGetValue(k, out var l)) keys[k] = l = new List<int>();
+                    l.Add(n);
+                }
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                var joins = JoinOpenings(map, keys);
+                double joinMs = sw.Elapsed.TotalMilliseconds;
+                int joined = joins.Count(x => x.Contains("JOINED"));
+                string[] order = { "median opening", "split of one road", "skew crossing", "ramp / link fork", "slip lane", "crossing corner", "T corner", "bend" };
+                var tally = new SortedDictionary<string, int[]>();   // kind -> clean, kink, refused, fill
+                var why = new SortedDictionary<string, int>();
+                var kinkWhy = new SortedDictionary<string, int>();
+                double solveAll = 0;
+                foreach (var kv in keys)
+                {
+                    var cluster = new HashSet<int>(kv.Value);
+                    string kind = "bend / dead end (2 arms or fewer)"; int best = 99;
+                    foreach (int n in cluster)
+                    {
+                        string kn = CityKinkProbe.KindOf(map, n, crossFar, splitNodes);
+                        for (int o = 0; o < order.Length; o++) if (kn.StartsWith(order[o]) && o < best) { best = o; kind = kn; }
+                    }
+                    if (cluster.Count > 1) kind += " [" + cluster.Count + " nodes]";
+                    var t0 = sw.Elapsed.TotalMilliseconds;
+                    BuildCluster(map, cluster, out var arms, out var links);
+                    if (arms.Count < 3 && links.Count == 0) continue;   // a bend or dead end: no junction outline
+                    var rawArms = arms.ConvertAll(x => new JunctionOutline.Arm { id = x.id, oneway = x.oneway, radius = x.radius, name = x.name, L = new List<Vector2>(x.L), R = new List<Vector2>(x.R), C = new List<Vector2>(x.C), Y = new List<float>(x.Y) });
+                    var rawLinks = links.ConvertAll(x => new JunctionOutline.Link { id = x.id, L = new List<Vector2>(x.L), R = new List<Vector2>(x.R) });
+                    JunctionOutline.MergeBays(arms, links);
+                    var r = JunctionOutline.Solve(arms, null, links);
+                    string res, detail;
+                    if (r.refused != null) { res = "refused"; detail = r.refused; }
+                    else
+                    {
+                        detail = OutlineKink(r);
+                        if (detail != null) res = "kink";
+                        else { detail = FillArea(r); res = detail == null ? "clean" : "fill"; }
+                    }
+                    double ms = sw.Elapsed.TotalMilliseconds - t0; solveAll += ms;
+                    string kindKey = kind.Split('(')[0].Trim();
+                    if (cluster.Count > 1) kindKey += " (cluster)";
+                    if (!tally.TryGetValue(kindKey, out var c4)) tally[kindKey] = c4 = new int[4];
+                    c4[res == "clean" ? 0 : res == "kink" ? 1 : res == "refused" ? 2 : 3]++;
+                    if (res == "refused") { string w = Category(r.refused); why[w] = (why.TryGetValue(w, out int q) ? q : 0) + 1; }
+                    if (res == "kink") { string w = KinkCategory(detail); kinkWhy[w] = (kinkWhy.TryGetValue(w, out int q) ? q : 0) + 1; }
+                    tsv.Append($"{kv.Key}\t{string.Join(" ", cluster)}\t{kind}\t{res}\t{(detail ?? "").Replace('\t', ' ')}\t{arms.Count}\t{links.Count}\t{ms.ToString("0.0", inv)}\n");
+                    foreach (int n in cluster)
+                        if (want.TryGetValue(n, out string fname))
+                            File.WriteAllText(Path.Combine(dir, "fixtures", fname + ".txt"), FixtureText(fname, kind + " | " + res + ": " + (detail ?? ""), map.nodes[n], rawArms, rawLinks));
+                }
+                int[] tot = new int[4]; foreach (var c4 in tally.Values) for (int i = 0; i < 4; i++) tot[i] += c4[i];
+                log.Append($"{tot.Sum()} junction clusters (3+ arms or a link) solved in {sw.Elapsed.TotalSeconds:0.0} s ({joinMs / 1000.0:0.0} s the opening rule, {joined} openings joined): " +
+                           $"{tot[0]} clean, {tot[1]} with a kink, {tot[2]} refused, {tot[3]} fill mismatch\n\nBY KIND (clean / kink / refused / fill):\n");
+                foreach (var kv in tally) log.Append($"  {kv.Key}: {kv.Value[0]} / {kv.Value[1]} / {kv.Value[2]} / {kv.Value[3]}\n");
+                log.Append("\nREFUSED, WHY:\n"); foreach (var kv in why.OrderByDescending(x => x.Value)) log.Append($"  {kv.Value}  {kv.Key}\n");
+                log.Append("\nKINKS, WHICH PIECES MEET:\n"); foreach (var kv in kinkWhy.OrderByDescending(x => x.Value)) log.Append($"  {kv.Value}  {kv.Key}\n");
+                log.Append("\nOPENING RULE:\n"); foreach (var l in joins) log.Append("  " + l + "\n");
+            }
+            catch (System.Exception ex) { log.Append("FAILED: " + ex + "\n"); code = 1; }
+            File.WriteAllText(Path.Combine(dir, $"c7_city_{tag}.txt"), log.ToString());
+            File.WriteAllText(Path.Combine(dir, $"c7_city_{tag}.tsv"), tsv.ToString());
+            Debug.Log(log.ToString());
+            if (Application.isBatchMode) UnityEditor.EditorApplication.Exit(code);
+        }
+
+        /// <summary>The first rule-4 kink of an outline away from its end rows: which pieces meet, at what angle.</summary>
+        public static string OutlineKink(JunctionOutline.Result r)
+        {
+            var o = r.outline; int m = o.Count;
+            var rows = new List<Vector2>(); for (int i = 0; i < r.rowR.Length; i++) { rows.Add(r.rowR[i]); rows.Add(r.rowL[i]); }
+            for (int i = 0; i < m; i++)
+            {
+                var b = o[i]; bool atRow = false; foreach (var q in rows) if ((q - b).sqrMagnitude < 1e-4f) { atRow = true; break; }
+                if (atRow) continue;
+                var a = o[(i - 1 + m) % m]; var c = o[(i + 1) % m];
+                if (JunctionOutline.Kink(a, b, c))
+                    return $"[{JunctionOutline.Piece(r.outlineSrc, (i - 1 + m) % m)}] meets [{JunctionOutline.Piece(r.outlineSrc, i)}] at {Vector2.Angle(b - a, c - b):0.0} deg";
+            }
+            return null;
+        }
+        /// <summary>The fill against the outline: triangle area equal to the ring's (0.1 %), none face down.</summary>
+        public static string FillArea(JunctionOutline.Result r)
+        {
+            double ring = 0; var o = r.outline;
+            for (int i = 0; i < o.Count; i++) { var a = o[i]; var b = o[(i + 1) % o.Count]; ring += a.x * b.y - b.x * a.y; }
+            ring = System.Math.Abs(ring) * 0.5;
+            double tri = 0; int down = 0;
+            for (int t = 0; t + 2 < r.tris.Count; t += 3)
+            {
+                Vector2 a = r.fillVerts[r.tris[t]], b = r.fillVerts[r.tris[t + 1]], c = r.fillVerts[r.tris[t + 2]];
+                double ar = 0.5 * ((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x));
+                if (ar < -1e-6) down++;
+                tri += ar;
+            }
+            if (down > 0 || System.Math.Abs(tri - ring) > 0.001 * ring + 0.01) return $"fill {tri:0.0} m2 against the outline's {ring:0.0} m2, {down} face down";
+            return null;
+        }
+        static string Category(string refused)
+        {
+            if (refused.StartsWith("the outline crosses itself")) { var m = System.Text.RegularExpressions.Regex.Matches(refused, @"\[([^\]]*)\]"); return "crosses itself: " + (m.Count >= 2 ? Kinds(m[0].Groups[1].Value) + " x " + Kinds(m[1].Groups[1].Value) : refused); }
+            if (refused.StartsWith("corner")) return "corner: " + System.Text.RegularExpressions.Regex.Replace(refused, @"corner \d+/\d+: ", "");
+            return System.Text.RegularExpressions.Regex.Replace(refused, @"(arm |e)\d+", "$1#").Replace("  ", " ");
+        }
+        static string KinkCategory(string d) { var m = System.Text.RegularExpressions.Regex.Matches(d, @"\[([^\]]*)\]"); return m.Count >= 2 ? Kinds(m[0].Groups[1].Value) + " | " + Kinds(m[1].Groups[1].Value) : d; }
+        static string Kinds(string piece) => System.Text.RegularExpressions.Regex.Replace(System.Text.RegularExpressions.Regex.Replace(piece, @"e\d+", "e"), @" \(via link \d+\)", " (via link)");
+
         /// <summary>(round 5 item 4) THE REAL CLUSTERS: for each spot of the table, every junction fan cluster within its
         /// radius (the generator's own clustering: the nodes that share a FanKey), its arms (edges with one end in the
         /// cluster) sampled from the line model's borders out to 80 m, solved by the pure JunctionOutline. Writes
@@ -413,45 +606,7 @@ namespace PSXRacing.EditorTools
                     foreach (var kv in keys)
                     {
                         var cluster = new HashSet<int>(kv.Value);
-                        var arms = new List<JunctionOutline.Arm>();
-                        var links = new List<JunctionOutline.Link>();
-                        // the cluster's internal edges (both ends in it): links, their borders from the line model
-                        var seenE = new HashSet<int>();
-                        foreach (int n in cluster)
-                            foreach (int ei in map.nodeEdges[n])
-                            {
-                                var e = map.edges[ei];
-                                if (e.a == e.b || !cluster.Contains(e.a) || !cluster.Contains(e.b) || !seenE.Add(ei)) continue;
-                                var lk = new JunctionOutline.Link { id = ei };
-                                for (float d = 0f; d <= e.length + 1e-3f; d += JunctionOutline.Step)
-                                {
-                                    var t = e.TangentAt(d); var left = new Vector2(-t.y, t.x);
-                                    LineModel.Extents(e, d, out float eM, out float eP);
-                                    var p = e.PointAt(d);
-                                    lk.L.Add(p + left * eP); lk.R.Add(p - left * eM);
-                                }
-                                if (lk.L.Count >= 2) links.Add(lk);
-                            }
-                        foreach (int n in cluster)
-                            foreach (int ei in map.nodeEdges[n])
-                            {
-                                var e = map.edges[ei];
-                                if (e.a == e.b) continue;
-                                int other = e.a == n ? e.b : e.a;
-                                if (cluster.Contains(other)) continue;
-                                var arm = new JunctionOutline.Arm { id = ei, oneway = e.oneway, name = e.name ?? "", radius = e.link ? 15f : e.cls >= 3 ? 12f : e.cls >= 1 ? 9f : 6f, Y = new List<float>() };
-                                bool fwd = e.a == n;
-                                for (float d = 0f; d <= Mathf.Min(e.length, 80f) + 1e-3f; d += JunctionOutline.Step)
-                                {
-                                    float s = fwd ? d : e.length - d;
-                                    var t = e.TangentAt(s); if (!fwd) t = -t;
-                                    var left = new Vector2(-t.y, t.x);
-                                    LineModel.Extents(e, s, out float eM, out float eP);
-                                    var p = e.PointAt(s);
-                                    arm.C.Add(p); arm.L.Add(p + left * (fwd ? eP : eM)); arm.R.Add(p - left * (fwd ? eM : eP)); arm.Y.Add(e.YAt(s));
-                                }
-                                if (arm.C.Count >= 4) arms.Add(arm);
-                            }
+                        BuildCluster(map, cluster, out var arms, out var links);
                         var rawArms = arms.ConvertAll(x => new JunctionOutline.Arm { id = x.id, L = new List<Vector2>(x.L), R = new List<Vector2>(x.R), C = x.C });
                         foreach (var line in JunctionOutline.MergeBays(arms, links)) log.Append($"spot {sp.id} cluster {kv.Key}: {line}\n");
                         var r = JunctionOutline.Solve(arms, null, links);

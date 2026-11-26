@@ -47,7 +47,7 @@ namespace PSXRacing.EditorTools
         }
 
         /// <summary>The scorecard's kind of a junction fan (its node's arms).</summary>
-        static string KindOf(CityMap map, int n, HashSet<int> crossFar, HashSet<int> splitNodes)
+        public static string KindOf(CityMap map, int n, HashSet<int> crossFar, HashSet<int> splitNodes)
         {
             var ne = map.nodeEdges[n];
             int links = 0, deg = 0;

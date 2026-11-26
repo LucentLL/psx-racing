@@ -41,7 +41,10 @@ namespace PSXRacing.EditorTools
                 var b = o[i];
                 bool atRow = false; foreach (var cc in rowPts) if ((cc - b).sqrMagnitude < 1e-4f) { atRow = true; break; }
                 if (atRow) continue;
-                if (JunctionOutline.Kink(o[(i - 1 + o.Count) % o.Count], b, o[(i + 1) % o.Count])) return $"kink at {b}";
+                if (JunctionOutline.Kink(o[(i - 1 + o.Count) % o.Count], b, o[(i + 1) % o.Count]))
+                    return r.outlineSrc.Count == o.Count
+                        ? $"kink at {b}: [{JunctionOutline.Piece(r.outlineSrc, (i - 1 + o.Count) % o.Count)}] meets [{JunctionOutline.Piece(r.outlineSrc, i)}] at {Vector2.Angle(b - o[(i - 1 + o.Count) % o.Count], o[(i + 1) % o.Count] - b):0.0} deg"
+                        : $"kink at {b}";
             }
             string cov = Coverage(r, sample);
             if (cov != null) return cov;

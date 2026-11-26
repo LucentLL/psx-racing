@@ -68,6 +68,7 @@ namespace PSXRacing.City
             public float[] yR, yL, grade;                // the row's heights, the arm's grade there (rise per metre out)
             public float[] cut;                          // per sorted arm, the row's nearer station (metres out)
             public List<Vector2> outline = new List<Vector2>();
+            public List<string> outlineSrc = new List<string>();   // per outline vertex: which piece made it (a diagnosis)
             public List<List<Vector2>> holes = new List<List<Vector2>>();
             public List<int> tris = new List<int>();     // into fillVerts, anticlockwise
             public List<Vector2> fillVerts = new List<Vector2>();
@@ -243,18 +244,18 @@ namespace PSXRacing.City
             if (yhi - ylo > MaxRiseM) res.refused ??= $"the junction rises {yhi - ylo:0.00} m over its end rows (over {MaxRiseM} m)";
             // THE OUTLINE: arm by arm, its row right -> left, in along its left border to the corner, the corner, out along
             // the next arm's right border to that arm's row (a shared point is one value)
-            var o = res.outline;
+            var o = res.outline; var src = res.outlineSrc;
             for (int i = 0; i < n; i++)
             {
                 var a = A[i]; var c = res.corners[i]; int j = (i + 1) % n; var b = A[j];
-                o.Add(res.rowR[i]); o.Add(res.rowL[i]);
-                for (int k = Mathf.CeilToInt(res.sL[i] / Step - 1e-4f) - 1; k * Step > c.sA + 1e-3f; k--) if (k >= 0 && k < a.L.Count) o.Add(a.L[k]);
-                o.AddRange(c.pts);
-                for (int k = Mathf.FloorToInt(c.sB / Step + 1e-4f) + 1; k * Step < res.sR[j] - 1e-3f; k++) if (k >= 0 && k < b.R.Count) o.Add(b.R[k]);
+                o.Add(res.rowR[i]); src.Add($"e{a.id} end row"); o.Add(res.rowL[i]); src.Add($"e{a.id} end row");
+                for (int k = Mathf.CeilToInt(res.sL[i] / Step - 1e-4f) - 1; k * Step > c.sA + 1e-3f; k--) if (k >= 0 && k < a.L.Count) { o.Add(a.L[k]); src.Add($"e{a.id} left border"); }
+                foreach (var q in c.pts) { o.Add(q); src.Add($"e{c.a}/e{c.b} {c.shape}{(c.note.Length > 0 ? " (" + c.note + ")" : "")}"); }
+                for (int k = Mathf.FloorToInt(c.sB / Step + 1e-4f) + 1; k * Step < res.sR[j] - 1e-3f; k++) if (k >= 0 && k < b.R.Count) { o.Add(b.R[k]); src.Add($"e{b.id} right border"); }
             }
-            Dedupe(o);
-            string cross = SelfCross(o);
-            if (cross != null) res.refused ??= "the outline crosses itself " + cross;
+            Dedupe(o, src);
+            string cross = SelfCross(o, src);
+            if (cross != null) res.refused ??= "the outline crosses itself: " + cross;
             if (holes != null) foreach (var h in holes) { var hh = new List<Vector2>(h); Dedupe(hh); if (hh.Count >= 3) res.holes.Add(hh); }
             res.solveMs = sw.Elapsed.TotalMilliseconds;
             sw.Restart();
@@ -263,6 +264,11 @@ namespace PSXRacing.City
             return res;
         }
 
+        static void Dedupe(List<Vector2> o, List<string> src)
+        {
+            for (int i = o.Count - 1; i > 0; i--) if ((o[i] - o[i - 1]).sqrMagnitude < 1e-6f) { o.RemoveAt(i); src.RemoveAt(i); }
+            if (o.Count > 1 && (o[0] - o[o.Count - 1]).sqrMagnitude < 1e-6f) { o.RemoveAt(o.Count - 1); src.RemoveAt(src.Count - 1); }
+        }
         static void Dedupe(List<Vector2> o)
         {
             for (int i = o.Count - 1; i > 0; i--) if ((o[i] - o[i - 1]).sqrMagnitude < 1e-6f) o.RemoveAt(i);
@@ -270,16 +276,23 @@ namespace PSXRacing.City
         }
 
         /// <summary>Null if the ring is simple, else where it crosses.</summary>
-        public static string SelfCross(List<Vector2> o)
+        public static string SelfCross(List<Vector2> o, List<string> src = null)
         {
             int n = o.Count;
             for (int i = 0; i < n; i++)
                 for (int j = i + 2; j < n; j++)
                 {
                     if (i == 0 && j == n - 1) continue;
-                    if (SegXStrict(o[i], o[(i + 1) % n], o[j], o[(j + 1) % n])) return $"at {o[i]} / {o[j]}";
+                    if (SegXStrict(o[i], o[(i + 1) % n], o[j], o[(j + 1) % n]))
+                        return src == null ? $"at {o[i]} / {o[j]}" : $"[{Piece(src, i)}] at {o[i]} crosses [{Piece(src, j)}] at {o[j]}";
                 }
             return null;
+        }
+        /// <summary>What an outline segment (i -> i+1) is made of: its two vertices' sources (one if the same).</summary>
+        public static string Piece(List<string> src, int i)
+        {
+            string a = src[i], b = src[(i + 1) % src.Count];
+            return a == b ? a : a + " -> " + b;
         }
         static bool SegXStrict(Vector2 a, Vector2 b, Vector2 c, Vector2 d)
         {
