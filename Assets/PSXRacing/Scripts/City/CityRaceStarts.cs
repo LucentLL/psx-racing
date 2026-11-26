@@ -462,7 +462,20 @@ namespace PSXRacing.City
             }
         }
 
+        /// <summary>Tools: time <see cref="ShowGates"/> into <see cref="ClockTicks"/>
+        /// (Stopwatch ticks; the gate check's cost A/B).</summary>
+        public static bool Clocked;
+        public static long ClockTicks;
+
         void ShowGates(Vector3 eye)
+        {
+            if (!Clocked) { ShowGatesNow(eye); return; }
+            long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+            ShowGatesNow(eye);
+            ClockTicks += System.Diagnostics.Stopwatch.GetTimestamp() - t0;
+        }
+
+        void ShowGatesNow(Vector3 eye)
         {
             var e2 = new Vector2(eye.x, eye.z);
             if (FadeIn)

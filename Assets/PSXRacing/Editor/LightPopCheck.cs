@@ -29,7 +29,12 @@ namespace PSXRacing.EditorTools
     ///           first) look frames (LightLookShots) at 500/450/400/350/300 m
     ///           and every 0.1 s from 470 to 430 m. PSX_GATEFADE=0: the old
     ///           switch at 450 m. Writes gate_trace.csv (eye metres, root on,
-    ///           light) beside the summary;
+    ///           light) beside the summary. PSX_GATE_AB=1: then the cost A/B,
+    ///           stood PSX_GATE_ABM (380) metres short of gate PSX_GATE_ABGATE
+    ///           (the shot gate): the main view drawn at 3832x2054 each frame
+    ///           and waited for, in rotating blocks of the fade NEW, OLD and NEW
+    ///           again (the null A/A column), PSX_GATE_ABREPS (8) blocks of 60
+    ///           frames each; PSX_GATE_ABONLY=1 skips the approaches;
     ///   race  - a race at night at PSX_LIGHTPOP_VENUE with three rivals, the
     ///           player on autopilot: PSX_LIGHTPOP_SECS in the chase view, the same
     ///           in the cockpit; then SAVE TO TAPE and the replay (the tape's fixed
@@ -299,6 +304,8 @@ namespace PSXRacing.EditorTools
             var trace = new StringBuilder("gate,frame,t,eye_m,root_on,light\n");
             string shotDir = Path.Combine(LightPopMeter.OutDir, "shots");
             int measured = 0;
+            bool abOnly = LightPopCheck.Env("PSX_GATE_ABONLY", "0") == "1";
+            if (abOnly) list.Clear();
             foreach (int gi in list)
             {
                 var g = gates[gi];
@@ -386,9 +393,100 @@ namespace PSXRacing.EditorTools
                                    ", full light at " + (fullAt < 0f ? "-" : fullAt.ToString("0.0") + " m") + "; " + meter.GateRenderers + " gate renderers metered");
                 Time.captureFramerate = 0;
             }
-            if (chase != null) chase.enabled = true;
             try { File.WriteAllText(Path.Combine(LightPopMeter.OutDir, "gate_trace.csv"), trace.ToString()); } catch (System.Exception) { }
             LightPopCheck.Line("gates approached " + measured + " of " + list.Count);
+            if (LightPopCheck.Env("PSX_GATE_AB", "0") == "1")
+            {
+                int abGate = Mathf.RoundToInt(EnvF("PSX_GATE_ABGATE", shotGate < 0 ? 0 : shotGate));
+                yield return GateAB(cam, car, world, map, Mathf.Clamp(abGate, 0, gates.Count - 1), EnvF("PSX_GATE_ABM", 380f));
+            }
+            if (chase != null) chase.enabled = true;
+        }
+
+        /// <summary>The fade's cost, in one process: NEW / OLD / NEW again (the noise) in rotating blocks.</summary>
+        IEnumerator GateAB(Camera cam, CarController car, CityWorld world, CityMap map, int gi, float standM)
+        {
+            stage = "cost A/B";
+            var g = CityRaceStarts.Gates[gi];
+            var pts = CityRaceStarts.ApproachLine(map, gi, standM + 80f);
+            int bi = -1; float bd = float.MaxValue;
+            for (int i = 0; i + 4 < pts.Count; i++)
+            {
+                // the eye stands 6.5 m behind the car
+                float d = Mathf.Abs(Vector2.Distance(new Vector2(pts[i].x, pts[i].z), g.plan) + 6.5f - standM);
+                if (d < bd) { bd = d; bi = i; }
+            }
+            if (bi < 0) { LightPopCheck.Line("A/B: no road into gate " + gi); yield break; }
+            var f = pts[bi + 4] - pts[bi]; f.y = 0f;
+            var rot = Quaternion.LookRotation(f.normalized, Vector3.up);
+            Time.captureFramerate = 0;
+            world.EnsureRing(pts[bi], 1);
+            float s0 = Time.realtimeSinceStartup;
+            while (Time.realtimeSinceStartup - s0 < 90f)
+            {
+                car.ResetTo(pts[bi], rot, seated: true);
+                PlaceEye(cam, car.transform.position, rot);
+                if (world.TreesPending == 0 && !world.TreeJobOpen && Time.realtimeSinceStartup - s0 > 8f) break;
+                yield return null;
+            }
+            var hold = car.transform.position;
+            float eyeD = Vector2.Distance(new Vector2(cam.transform.position.x, cam.transform.position.z), g.plan);
+            const int W = 3832, H = 2054, Settle = 20, Frames = 60;
+            int reps = Mathf.Max(2, Mathf.RoundToInt(EnvF("PSX_GATE_ABREPS", 8f)));
+            var rt = new RenderTexture(W, H, 32, RenderTextureFormat.Default) { antiAliasing = 1, name = "GateAB" };
+            rt.Create();
+            var one = new Texture2D(1, 1, TextureFormat.RGBA32, false);
+            string[] names = { "new", "old", "new2" };
+            bool[] vals = { true, false, true };
+            var ms = new System.Collections.Generic.List<float>[3];
+            var dc = new System.Collections.Generic.List<float>[3];
+            var sp = new System.Collections.Generic.List<float>[3];
+            var us = new System.Collections.Generic.List<float>[3];
+            for (int i = 0; i < 3; i++) { ms[i] = new System.Collections.Generic.List<float>(); dc[i] = new System.Collections.Generic.List<float>(); sp[i] = new System.Collections.Generic.List<float>(); us[i] = new System.Collections.Generic.List<float>(); }
+            bool was = CityRaceStarts.FadeIn;
+            CityRaceStarts.Clocked = true;
+            var sw = new System.Diagnostics.Stopwatch();
+            for (int r = 0; r < reps; r++)
+                for (int j = 0; j < 3; j++)
+                {
+                    int v = (j + r) % 3;   // the order rotates: a drift lands on every variant alike
+                    CityRaceStarts.FadeIn = vals[v];
+                    for (int k = 0; k < Settle; k++) { car.TeleportTo(hold, rot); PlaceEye(cam, hold, rot); yield return null; }
+                    for (int k = 0; k < Frames; k++)
+                    {
+                        car.TeleportTo(hold, rot); PlaceEye(cam, hold, rot);
+                        long c0 = CityRaceStarts.ClockTicks;
+                        yield return null;   // this frame's Update has run the gates
+                        long gt = CityRaceStarts.ClockTicks - c0;
+                        sw.Restart();
+                        var request = new UnityEngine.Rendering.RenderPipeline.StandardRequest { destination = rt };
+                        if (UnityEngine.Rendering.RenderPipeline.SupportsRenderRequest(cam, request)) UnityEngine.Rendering.RenderPipeline.SubmitRenderRequest(cam, request);
+                        else { var t = cam.targetTexture; cam.targetTexture = rt; cam.Render(); cam.targetTexture = t; }
+                        var prev = RenderTexture.active; RenderTexture.active = rt;
+                        one.ReadPixels(new Rect(0, 0, 1, 1), 0, 0, false);   // waits for the GPU
+                        RenderTexture.active = prev;
+                        sw.Stop();
+                        ms[v].Add((float)sw.Elapsed.TotalMilliseconds);
+                        dc[v].Add(UnityStats.drawCalls); sp[v].Add(UnityStats.setPassCalls);
+                        us[v].Add((float)(gt * 1e6 / System.Diagnostics.Stopwatch.Frequency));
+                    }
+                }
+            CityRaceStarts.Clocked = false;
+            CityRaceStarts.FadeIn = was;
+            rt.Release(); Object.Destroy(rt); Object.Destroy(one);
+            float Med(System.Collections.Generic.List<float> l) { var a = l.ToArray(); System.Array.Sort(a); return a.Length == 0 ? 0f : a[a.Length / 2]; }
+            float Mean(System.Collections.Generic.List<float> l) { float t = 0f; foreach (var x in l) t += x; return l.Count == 0 ? 0f : t / l.Count; }
+            var ci = System.Globalization.CultureInfo.InvariantCulture;
+            LightPopCheck.Line("COST A/B (EDITOR, profile " + (PlatformProfile.PC ? "PC" : "non-PC (relative)") + "): stood " + eyeD.ToString("0") + " m short of gate " + g.name +
+                               " (fade light there " + CityRaceStarts.FadeAt(eyeD).ToString("0.00", ci) + "), main view " + W + "x" + H + " waited for, " + reps + " blocks x " + Frames + " frames per variant");
+            LightPopCheck.Line("  variant | render ms median | mean | draw calls | set pass | gate code us/frame (mean)");
+            for (int i = 0; i < 3; i++)
+                LightPopCheck.Line("  " + names[i].PadRight(7) + " | " + Med(ms[i]).ToString("0.000", ci) + " | " + Mean(ms[i]).ToString("0.000", ci) + " | " +
+                                   Mean(dc[i]).ToString("0.0", ci) + " | " + Mean(sp[i]).ToString("0.0", ci) + " | " + Mean(us[i]).ToString("0.00", ci));
+            LightPopCheck.Line("  A/B new-old median ms " + (Med(ms[0]) - Med(ms[1])).ToString("+0.000;-0.000", ci) +
+                               " | null A/A new-new2 " + (Med(ms[0]) - Med(ms[2])).ToString("+0.000;-0.000", ci) +
+                               " | draw calls new-old " + (Mean(dc[0]) - Mean(dc[1])).ToString("+0.0;-0.0", ci) + " (A/A " + (Mean(dc[0]) - Mean(dc[2])).ToString("+0.0;-0.0", ci) + ")" +
+                               " | gate code us new-old " + (Mean(us[0]) - Mean(us[1])).ToString("+0.00;-0.00", ci));
         }
 
         /// <summary>The scripted approach's eye: behind and over the car, as the chase view sits.</summary>
