@@ -210,6 +210,53 @@ namespace PSXRacing.EditorTools
             return $"{id} wp {wp} {(sd > 0 ? "R" : "L")}: the car stops with its centre {touch:0.00} m out from the centreline, on {hitName}; nose to the drawn surface ahead:{gaps} -> {fn}";
         }
 
+        /// <summary>(stage4) THE DRAWN ROCK, AS NUMBERS: per PSX_BF_VENUES scene, a hash of every drawn mesh directly
+        /// under Track/Banks (the relief, the rock tops, the crest lips: vertices to 1 mm, triangles, uvs) and of each
+        /// MeshForest's instance table (every plant, stone and outcrop: place, turn, scale, model). Two builds whose drawn
+        /// rock is the same give the same "banks" hash. PSXRacing_drawnhash.txt.</summary>
+        public static void DrawnHash()
+        {
+            var sb = new StringBuilder();
+            string ids = System.Environment.GetEnvironmentVariable("PSX_BF_VENUES") ?? "LittleSwitzerland";
+            foreach (var raw in ids.Split(','))
+            {
+                string id = raw.Trim(); if (id.Length == 0) continue;
+                string scenePath = "Assets/PSXRacing/Scenes/" + id + ".unity";
+                if (!File.Exists(scenePath)) { sb.AppendLine(id + ": no scene"); continue; }
+                EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Single);
+                ulong H(ulong h, long v) { unchecked { h ^= (ulong)v; h *= 1099511628211UL; } return h; }
+                ulong banks = 14695981039346656037UL; int meshes = 0, verts = 0, tris = 0;
+                var list = new List<MeshFilter>(Object.FindObjectsByType<MeshFilter>(FindObjectsSortMode.None));
+                list.RemoveAll(mf => mf == null || mf.sharedMesh == null || mf.GetComponent<MeshRenderer>() == null || mf.transform.parent == null || mf.transform.parent.name != "Banks");
+                list.Sort((a, b) => string.CompareOrdinal(a.name + a.sharedMesh.name, b.name + b.sharedMesh.name));
+                foreach (var mf in list)
+                {
+                    var m = mf.sharedMesh;
+                    var v = m.vertices; var t = m.triangles; var uv = m.uv;
+                    foreach (var p in v) { banks = H(banks, Mathf.RoundToInt(p.x * 1000f)); banks = H(banks, Mathf.RoundToInt(p.y * 1000f)); banks = H(banks, Mathf.RoundToInt(p.z * 1000f)); }
+                    foreach (int i in t) banks = H(banks, i);
+                    foreach (var u in uv) { banks = H(banks, Mathf.RoundToInt(u.x * 10000f)); banks = H(banks, Mathf.RoundToInt(u.y * 10000f)); }
+                    meshes++; verts += v.Length; tris += t.Length / 3;
+                }
+                ulong forest = 14695981039346656037UL; int inst = 0;
+                foreach (var mfo in Object.FindObjectsByType<MeshForest>(FindObjectsSortMode.None))
+                {
+                    if (mfo.inst == null) continue;
+                    for (int i = 0; i < mfo.inst.Length; i++)
+                    {
+                        var q = mfo.inst[i];
+                        forest = H(forest, Mathf.RoundToInt(q.x * 1000f)); forest = H(forest, Mathf.RoundToInt(q.y * 1000f));
+                        forest = H(forest, Mathf.RoundToInt(q.z * 1000f)); forest = H(forest, Mathf.RoundToInt(q.w * 100f));
+                        if (mfo.instScaleVar != null && i < mfo.instScaleVar.Length) { forest = H(forest, Mathf.RoundToInt(mfo.instScaleVar[i].x * 1000f)); forest = H(forest, (long)mfo.instScaleVar[i].y); }
+                        inst++;
+                    }
+                }
+                sb.AppendLine($"{id}: banks (drawn relief, rock tops, crest lips) {meshes} meshes {verts} verts {tris} tris hash {banks:x16}; MeshForest {inst} instances hash {forest:x16}");
+            }
+            File.WriteAllText(Path.Combine(Path.GetDirectoryName(Application.dataPath), "PSXRacing_drawnhash.txt"), sb.ToString());
+            if (Application.isBatchMode) EditorApplication.Exit(0);
+        }
+
         /// <summary>(stage4) The obstacle audit (GHOST BARRIERS and the rest) on each PSX_BF_VENUES scene as it stands,
         /// without a build: PSXRacing_obstacles.txt.</summary>
         public static void Obstacles()

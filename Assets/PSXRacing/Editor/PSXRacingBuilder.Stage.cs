@@ -7304,7 +7304,10 @@ namespace PSXRacing.EditorTools
             // (stage4, PSX_BANKSOLID) the solid of the relief's band is built from the drawn rock (BuildBandSolids);
             // the old slab and the rock top's face collider stand only where no relief is drawn
             bool bandSolid = BankSolid && !BankFit && PCContent && RockReliefOn && !grassy;
-            bool bandAB = bandSolid && BankSolidAB;
+            // (PSX_BANKSOLID) Lake Lure's grass banks draw no relief: their solid is the drawn face itself (the rock
+            // top's face collider, every chord), not a vertical slab standing in front of the battered face
+            bool grassFace = BankSolid && !BankFit && PCContent && grassy;
+            bool bandAB = (bandSolid || grassFace) && BankSolidAB;
             GameObject oldSolids = null;
             if (bandAB)
             {
@@ -7507,7 +7510,7 @@ namespace PSXRacing.EditorTools
             }
             // (PSX_BANKSOLID) no slab where the band solid stands (none at all with the relief drawn); with
             // PSX_BANKSOLID_AB=1 the old slabs are built as well, into the cut's inactive BankSolidOld
-            Transform slabParent = bandSolid ? (oldSolids != null ? oldSolids.transform : null) : parent;
+            Transform slabParent = bandSolid || grassFace ? (oldSolids != null ? oldSolids.transform : null) : parent;
             for (int k = 1; slabParent != null && k < R; )
             {
                 if (!BankChord(k)) { k++; continue; }
