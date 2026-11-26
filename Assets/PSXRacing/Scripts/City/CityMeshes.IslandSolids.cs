@@ -450,10 +450,8 @@ namespace PSXRacing.City
                         var dA = A.a == n ? A.TangentAt(0f) : -A.TangentAt(A.length);
                         var dB = B.a == n ? B.TangentAt(0f) : -B.TangentAt(B.length);
                         if (Vector2.Angle(dA, dB) > 60f) continue;
-                        // two carriageways of one road running opposite ways part at a split node: their median's nose
-                        // is the median's (CurbMedian); this is for roads that part the same way
-                        bool aOut = !A.oneway || A.a == n, bOut = !B.oneway || B.a == n;
-                        if (aOut != bOut && A.oneway && B.oneway) continue;
+                        // every split: roads that part the same way AND a divided road's two carriageways at its split
+                        // node (the median's nose starts where the median is nose-wide)
                         IsKnife(A, B, n, dA, dB, o);
                     }
             }
