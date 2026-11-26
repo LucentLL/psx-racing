@@ -982,7 +982,9 @@ namespace PSXRacing.City
         }
 
         static bool AuxActive(CityMap.Edge e, float s) =>
-            LineModel.AuxWidth(e, s, 1) > 1e-3f || LineModel.AuxWidth(e, s, -1) > 1e-3f;
+            (LineModel.AuxWidth(e, s, 1) > 1e-3f && !(BayMarksOn && BayAuxAt(e, s))) || LineModel.AuxWidth(e, s, -1) > 1e-3f;
+        // (c7roads round 4) a bay's aux lane widens the median side outside the lanes a turn-only group is placed in
+        // (PlusOf is the edge's own extent): the group stands beside it (80 lost its right-turn ONLY to the U-turn bay)
         /// <summary>An aux lane other than the left-turn pocket's.</summary>
         static bool AuxActiveBesidePocket(CityMap.Edge e, float s, float pocketW) =>
             LineModel.AuxWidth(e, s, 1) > pocketW + 1e-3f || LineModel.AuxWidth(e, s, -1) > 1e-3f;
