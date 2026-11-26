@@ -49,6 +49,13 @@ namespace PSXRacing
         /// stop, and a car that hauls up in its own length is a car the player
         /// — who still has their own throttle past the flag — drives into.</summary>
         const float ShutdownBrake = 0.22f;
+        /// <summary>(cityai round 2) A finisher brakes for its run-out's bends and end (PSX_AI_FINISH_RUNOUT=0: the
+        /// 0.22 coast alone). LAB row FINISHERS BRAKE FOR ROAD.</summary>
+        /// <summary>(cityai round 2) Standing behind a car in a city junction's zone, wait: no back-up unless pinned
+        /// (PSX_AI_JUNCTION_WAIT=0: as before). LAB row RIVALS WAIT IN JUNCTIONS.</summary>
+        float junctionStand;
+        public static bool JunctionWaitOn = System.Environment.GetEnvironmentVariable("PSX_AI_JUNCTION_WAIT") != "0";
+        public static bool FinishRunOutOn = System.Environment.GetEnvironmentVariable("PSX_AI_FINISH_RUNOUT") != "0";
         /// <summary>A retired car's brake: out of the race, it stops.</summary>
         const float RetiredBrake = 0.6f;
         /// <summary>How far past the tarmac edge a retired car parks its
@@ -926,6 +933,54 @@ namespace PSXRacing
             return cap;
         }
         const float TrafficCapLookM = 150f, TrafficCapMarginMps = 20f, TrafficCapWideMps = 32f;
+        /// <summary>
+        /// TRAFFIC IN A JUNCTION, SEEN WHERE IT IS (cityai round 2). On a racing turn's arc the rival is off the corner
+        /// line the race traffic turns on, so a car turning ahead of it is not "on its road" (AheadOnRoad's lateral gate
+        /// on the arc) until they touch: in the editor's tours of CltC7 the Supra and the Skyline knocked turning
+        /// traffic at 2-3 m/s in the University City / N Tryon box, and each wreck stood there for the rest of the race,
+        /// with every car after it squeezing past (the PC71 tour's junction block). Inside a junction zone every traffic
+        /// car in the car's own swept corridor (its heading, 2.4 m either side, out to a stopping distance) caps the
+        /// speed to what stops 5 m short of it, plus its own speed along this car's heading.
+        /// PSX_AI_JUNCTION_TRAFFIC=0: as before. (LAB row RIVALS WAIT IN JUNCTIONS, with the back-up rule.)
+        /// </summary>
+        public static bool JunctionTrafficOn = System.Environment.GetEnvironmentVariable("PSX_AI_JUNCTION_TRAFFIC") != "0";
+        float JunctionTrafficCap(float speed)
+        {
+            var ts = TrafficSystem.Instance;
+            if (ts == null || ts.Obstacles.Count == 0) return float.PositiveInfinity;
+            Vector3 fwd = transform.forward; fwd.y = 0f;
+            if (fwd.sqrMagnitude < 1e-4f) return float.PositiveInfinity;
+            fwd.Normalize();
+            Vector3 right = new Vector3(fwd.z, 0f, -fwd.x);
+            // the arc ahead turns: look along the heading the car will have (half the turn over the look)
+            float look = Mathf.Max(12f, speed * 1.4f + 8f);
+            float cap = float.PositiveInfinity;
+            float dec = Mathf.Max(4f, BrakeDecelNow * 0.7f);
+            var me = car.Body;
+            for (int i = 0; i < ts.Obstacles.Count; i++)
+            {
+                var rb = ts.Obstacles[i];
+                if (rb == null || rb == me) continue;
+                Vector3 d = rb.position - transform.position; d.y = 0f;
+                float f = Vector3.Dot(d, fwd);
+                if (f < 1f || f > look) continue;
+                // the corridor widens with the turn the car is making (yaw x time to reach it)
+                float yaw = me != null ? me.angularVelocity.y : 0f;
+                float tReach = f / Mathf.Max(speed, 3f);
+                float bend = 0.5f * yaw * tReach * f;
+                float l = Vector3.Dot(d, right) - bend;
+                float half = i < ts.ObstacleHalfW.Count ? ts.ObstacleHalfW[i] : 1f;
+                if (Mathf.Abs(l) > half + MyHalfW + 0.6f) continue;
+                Vector3 v = rb.linearVelocity; v.y = 0f;
+                float along = Mathf.Max(0f, Vector3.Dot(v, fwd));
+                // a car standing (a wreck, a queue) is the pass logic's: held behind it, the field queued 20 s at C1's
+                // 44 deg turn behind a knocked taxi (round 2, first try)
+                if (v.magnitude < 1.5f) continue;
+                float room = Mathf.Max(0f, f - 5f);
+                cap = Mathf.Min(cap, along + Mathf.Sqrt(2f * dec * room));
+            }
+            return cap;
+        }
         /// <summary>For the harness: the traffic cap held this car under the
         /// speed it would otherwise have driven this tick.</summary>
         public bool DebugCapBinds { get; private set; }
@@ -1228,6 +1283,19 @@ namespace PSXRacing
                 backPhase = BackPhase.Off;
                 // A wreck pulls up; a finisher rolls down (ShutdownBrake).
                 car.brakeInput = coasting ? (Retired ? RetiredBrake : ShutdownBrake) : 0.4f;
+                // THE RUN-OUT BRAKES FOR THE ROAD (cityai round 2; X1's finishers coasted into a building at up to 43 m/s
+                // on the 0.22 brake): a finisher still brakes for the bends of its run-out and to a stop before its end
+                if (coasting && !Retired && FinishRunOutOn && path != null && path.Count > 2)
+                {
+                    float want = PlanSpeed(rolling, out _, out float dec, out _, out _);
+                    if (path.HasEnds)
+                    {
+                        float dEnd = (path.Count - 1 - nearestIdx) * path.spacing - 15f;
+                        want = Mathf.Min(want, Mathf.Sqrt(2f * Mathf.Max(3f, dec * 0.8f) * Mathf.Max(0f, dEnd)));
+                    }
+                    if (rolling > want + 0.5f)
+                        car.brakeInput = Mathf.Max(car.brakeInput, Mathf.Clamp01((rolling - want) / 6f + 0.3f));
+                }
                 return;
             }
 
@@ -1282,6 +1350,7 @@ namespace PSXRacing
             DebugBendSpeed = bendSpeed; DebugBendAt = bendAtM;
             float freeSpeed = Mathf.Min(Mathf.Min(planned, TargetSpeedCap(skill, playerVmax)), speedCapMps);
             float targetSpeed = Mathf.Min(freeSpeed, TrafficCap());
+            if (JunctionTrafficOn && InJunctionZone) targetSpeed = Mathf.Min(targetSpeed, JunctionTrafficCap(speed));
             lastFreeSpeed = freeSpeed;
             DebugCapBinds = targetSpeed < freeSpeed - 0.5f && speed > targetSpeed - 1f;
             DebugTarget = targetSpeed;
@@ -2708,6 +2777,12 @@ namespace PSXRacing
             bool standing = speed < 0.8f;
             bool near = !float.IsPositiveInfinity(standBlockZ);
             backStand = standing && near && standBlockZ < BackUpRoomNeed() ? backStand + dt : 0f;
+            // IN A JUNCTION, WAIT (cityai round 2; CltC7 University City -> N Tryon, editor tour seed 0: the Civic stood
+            // behind traffic turning across the box and reversed 10 m, three times in 15 s, to and fro across the
+            // junction): the car in the way is crossing and will clear, so only a car pinned against something backs up
+            // ...for a while: a car stood 4 s behind something that is not clearing backs up as before
+            junctionStand = JunctionWaitOn && InJunctionZone && standing ? junctionStand + dt : 0f;
+            if (JunctionWaitOn && InJunctionZone && junctionStand < 4f) backStand = 0f;
             backPinned = standing && responder != null && responder.InSolidContact && ObstacleAhead() ? backPinned + dt : 0f;
             if ((backStand > BackUpAfterS || backPinned > BackUpPinnedS) && backTries < BackUpTries && BehindClear(BackUpBehindM))
             {

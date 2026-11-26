@@ -319,7 +319,19 @@ namespace PSXRacing.EditorTools
                         string key = $"gate {target}, route edge {e} read as edge {loc.edge}";
                         where.TryGetValue(key, out int nk); where[key] = nk + 1;
                         if (Mathf.Abs(v - want) > worst) { worst = Mathf.Abs(v - want); worstAt = $"{key} at {t:0} m, {lat:0.0} m right of its line: {v:0} m, the route {want:0} m (hold {(hold.on ? "on" : "off")} edge {hold.loc.edge} s {hold.loc.s:0} dir {hold.loc.dir}; raw {vRaw:0})"; }
-                        if (bad <= 12) sb.AppendLine($"      held misread {bad}: {key} at {t:0} m, lat {lat:0.0}: {v:0} m (raw {vRaw:0}), route {want:0}; hold {(hold.on ? "on" : "off")} edge {hold.loc.edge}");
+                        if (bad <= 12)
+                        {
+                            // the route's own edge as the hold would read it
+                            string own = "-";
+                            if (R.Project(e, pos, 0f, 0f, out float s2, out float d2))
+                            {
+                                var l2 = loc; l2.edge = e; l2.s = s2; l2.dist = d2; l2.valid = true; l2.offGraph = false; l2.dir = R.DirOf(e, s2, fwd * 20f, fwd);
+                                int dd2 = l2.dir;
+                                float v2 = R.Remaining(F[target], pos, ref l2, ref dd2);
+                                own = $"d {d2:0.0} half {ed.HalfMax:0.0} dy {pos.y - ed.YAt(s2):0.0} dir {l2.dir} reads {v2:0}";
+                            }
+                            sb.AppendLine($"      held misread {bad}: {key} at {t:0} m, lat {lat:0.0}: {v:0} m (raw {vRaw:0}), route {want:0}; hold {(hold.on ? "on" : "off")} edge {hold.loc.edge}; route edge: {own}");
+                        }
                     }
                     if (prevV >= 0f && Mathf.Abs((v - prevV) - (want - prevWant)) > 30f) jumps++;
                     prevV = v; prevWant = want;

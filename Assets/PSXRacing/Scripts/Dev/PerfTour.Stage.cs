@@ -392,11 +392,13 @@ namespace PSXRacing
                 SceneGate.Load(scene);
                 car = null;
                 TrackPath path = null;
+                bool seeded = false;
                 while (Time.realtimeSinceStartup - l0 < 180f)
                 {
                     yield return null;
                     if (SceneManager.GetActiveScene().buildIndex != scene) continue;
                     var rm = RaceManager.Instance;
+                    if (rm != null && !seeded) { seeded = true; FieldSeed(); }   // (cityai) &seed=N
                     var pin = FindFirstObjectByType<PlayerCarInput>();
                     path = FindFirstObjectByType<TrackPath>();
                     // (P0) every car on its road from the spawn through the countdown: the lowest seen
@@ -517,6 +519,9 @@ namespace PSXRacing
                 recT0 = Time.realtimeSinceStartup;
                 PerfClock.FrameDone = OnFrame;
                 recording = true;
+                FieldBegin(id, path);   // (cityai) &trace=1: every car, 10 Hz
+                // (cityai round 2) the plan cost counted from the green: the plans laid while the countdown is held are load
+                AIRoutePlanner.BuildMsLog.Clear(); RacingTurns.ResetStats();
                 Say("STAGE " + id + " from " + (i0 * path.spacing).ToString("0") + " m, up in " + loadS.ToString("0.0") + " s");
 
                 float dist = 0f; var last = car.transform.position;
@@ -544,6 +549,7 @@ namespace PSXRacing
                         evNow = "SNAP";
                     }
                     yield return null;
+                    FieldSample();
                     long b = batches.LastValue, tr = tris.LastValue;
                     bSum += b; sSum += setPass.LastValue; tSum += tr; rn++;
                     if (b > bMax) bMax = b;
@@ -624,7 +630,7 @@ namespace PSXRacing
                     float BQ(float q) => bl.Count > 0 ? bl[Mathf.Clamp(Mathf.RoundToInt(q * (bl.Count - 1)), 0, bl.Count - 1)] : 0f;
                     if (bl.Count > 0)
                         sum1.AppendLine($"rival plans {bl.Count}: build ms p50 {BQ(0.5f):0.00} p99 {BQ(0.99f):0.00} worst {BQ(1f):0.00}; racing turns {(RacingTurns.On ? "on" : "off")}: laid {RacingTurns.Laid} of {RacingTurns.Tried} tried, no fit {RacingTurns.NoFit}" +
-                                        (RacingTurns.Laid > 0 ? $", tightest {RacingTurns.MinLaidR:0.0} m" : ""));
+                                        (RacingTurns.Laid > 0 ? $", tightest {RacingTurns.MinLaidR:0.0} m" : "") + $"; arcs read {RacingTurns.ArcReads}, searched {RacingTurns.ArcSearches}");
                     // how far the rivals got in this run: the same seed with AI RACING TURNS off and on is the exe's own A/B
                     var rvRace = CheckpointRace.Active;
                     if (rvRace != null)
@@ -663,6 +669,7 @@ namespace PSXRacing
                     float OP(float q) => n > 0 ? oG[Mathf.Clamp(Mathf.RoundToInt(q * (n - 1)), 0, n - 1)] : 0f;
                     sum1.AppendLine($"offscreen view {offscreenArg}: mean ms render call {oCpu / dn:0.00} + GPU wait {oGpu / dn:0.00}; together p50 {OP(0.5f):0.00} p95 {OP(0.95f):0.00} p99 {OP(0.99f):0.00}");
                 }
+                FieldEnd(id);
                 Post(id + "_frames.csv", csv.ToString());
                 Post(id + "_spikes.txt", spikes.ToString());
                 Post(id + "_summary.txt", sum1.ToString());

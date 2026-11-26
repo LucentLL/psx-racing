@@ -318,6 +318,44 @@ namespace PSXRacing
             LapM = lap;
             TotalM = Loop ? lap * Mathf.Max(1, rm.totalLaps) : lap;
             FieldBuildMs = (float)sw.Elapsed.TotalMilliseconds;
+            // RACING TURNS LAID AT LOAD (cityai round 2): every leg's optimum road built once while the countdown is
+            // held, so each junction turn on it is searched now and a re-plan mid-race only reads it (RacingTurns'
+            // per-turn memo); spread over frames inside the same 40 ms budget as the fields
+            if (RacingTurns.On && RacingTurns.WarmOn)
+            {
+                var wsw = System.Diagnostics.Stopwatch.StartNew();
+                var frame2 = System.Diagnostics.Stopwatch.StartNew();
+                var holder = new GameObject("CheckpointRace_warm");
+                holder.SetActive(false);
+                var tmp = holder.AddComponent<TrackPath>();
+                var states = new List<int>(512);
+                var states2 = new List<int>(512);
+                var pcs = new List<RoutedPath.Piece>(512);
+                int legs = 0;
+                for (int k = 0; k < GateCount; k++)
+                {
+                    int from = k == 0 ? GateCount - 1 : k - 1;
+                    if (!Loop && k == 0) continue;
+                    if (!R.Descend(fields[k], gates[from].anchorSt, gates[from].anchorT, states, out float lastT)) continue;
+                    pcs.Clear();
+                    for (int i = 0; i < states.Count; i++)
+                        pcs.Add(new RoutedPath.Piece { st = states[i], t0 = i == 0 ? gates[from].anchorT : 0f, t1 = i == states.Count - 1 ? lastT : R.len[states[i]] });
+                    // on into the next leg, so a turn AT a gate (C7's gate 3 sits in the N Tryon junction) is laid whole
+                    int nk = NextAfter(k);
+                    if (nk >= 0 && states.Count > 0 && R.Descend(fields[nk], states[states.Count - 1], lastT, states2, out float lastT2))
+                        for (int i = 0; i < states2.Count; i++)
+                        {
+                            float a0 = i == 0 ? lastT : 0f, a1 = i == states2.Count - 1 ? lastT2 : R.len[states2[i]];
+                            if (i == 0 && pcs.Count > 0 && pcs[pcs.Count - 1].st == states2[0]) { var q = pcs[pcs.Count - 1]; q.t1 = a1; pcs[pcs.Count - 1] = q; }
+                            else if (a1 - a0 > 0.05f) pcs.Add(new RoutedPath.Piece { st = states2[i], t0 = a0, t1 = a1 });
+                        }
+                    RoutedPath.Build(map, pcs, tmp, 12f);
+                    legs++;
+                    if (frame2.Elapsed.TotalMilliseconds > 40.0) { yield return null; frame2.Restart(); }
+                }
+                Destroy(holder);
+                Debug.Log($"[Checkpoints] racing turns laid at load: {legs} legs, {RacingTurns.Laid} turns ({RacingTurns.NoFit} no fit) in {wsw.Elapsed.TotalMilliseconds:0} ms");
+            }
             // every AI on its own road
             if (CheckpointFile.On("PSX_CP_AI_ROUTE"))
                 foreach (var c in rm.allCars)

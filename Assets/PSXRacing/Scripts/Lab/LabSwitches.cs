@@ -336,6 +336,18 @@ namespace PSXRacing
                 look = "City races: your distance to the gate and your place do not jump in a slip lane or turn bay.",
                 env = new[] { "PSX_CP_RULER_HOLD" }, members = new[] { "CheckpointRace.RulerHoldOn" },
             });
+            Register(new LabRow
+            {
+                id = "finishrunout", group = LabGroup.Traffic, name = "FINISHERS BRAKE FOR ROAD", when = LabWhen.Now,
+                look = "After the flag, rivals brake for the bends and the end of their run-out instead of coasting on.",
+                env = new[] { "PSX_AI_FINISH_RUNOUT" }, members = new[] { "AIDriver.FinishRunOutOn" },
+            });
+            Register(new LabRow
+            {
+                id = "junctionwait", group = LabGroup.Traffic, name = "RIVALS WAIT IN JUNCTIONS", when = LabWhen.Now,
+                look = "City races: in a junction a rival keeps behind turning traffic and waits, not knocking it or reversing.",
+                env = new[] { "PSX_AI_JUNCTION_WAIT", "PSX_AI_JUNCTION_TRAFFIC" }, members = new[] { "AIDriver.JunctionWaitOn", "AIDriver.JunctionTrafficOn" },
+            });
             // stage round 3 (merged 11-25): the planner reads it every tick, so live; every car, the autopilot too
             Register(new LabRow
             {

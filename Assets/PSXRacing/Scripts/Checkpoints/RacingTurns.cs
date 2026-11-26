@@ -27,6 +27,9 @@ namespace PSXRacing
     public static class RacingTurns
     {
         public static bool On = System.Environment.GetEnvironmentVariable("PSX_CP_TURNS") != "0";
+        /// <summary>(round 2) Lay the route's turns at race load and keep each turn's whole arc, so a re-plan mid-race
+        /// only reads (PSX_CP_TURNS_WARM=0: the round-1 search on every plan).</summary>
+        public static bool WarmOn = System.Environment.GetEnvironmentVariable("PSX_CP_TURNS_WARM") != "0";
         public const float MinDeg = 30f, MaxDeg = 170f;
         public static float KerbMinM = 1.15f, NearNodeM = 60f, CoarseStepM = 2f;
         public static float KerbClearM = 1.4f, PaveKeepM = 1.0f, TanMaxM = 30f, PastTrimM = 6f, MinR = 4f, StepM = 0.5f;
@@ -38,7 +41,7 @@ namespace PSXRacing
         public static int Tried, Laid, NoFit;
         public static float MinLaidR = float.PositiveInfinity;
         public static readonly List<float> LaidR = new List<float>(256);
-        public static void ResetStats() { Tried = Laid = NoFit = 0; MinLaidR = float.PositiveInfinity; LaidR.Clear(); }
+        public static void ResetStats() { Tried = Laid = NoFit = 0; ArcReads = ArcSearches = 0; MinLaidR = float.PositiveInfinity; LaidR.Clear(); }
 
         static readonly List<Vector2> np = new List<Vector2>(8192), lp = new List<Vector2>(256);
         static readonly List<float> ny = new List<float>(8192), no = new List<float>(8192);
@@ -54,6 +57,10 @@ namespace PSXRacing
         static CityMap kerbCacheMap;
         /// <summary>Each turn's tangent (node, road in, road out), once per map (-1: no arc fits).</summary>
         static readonly Dictionary<long, float> tCache = new Dictionary<long, float>(1024), clrCache = new Dictionary<long, float>(1024);
+        /// <summary>(round 2) Each turn's whole arc once laid (r 0: no arc fits), once per map.</summary>
+        static readonly Dictionary<long, (float T, Vector2 c, float r, float ang0, float sweep)> arcCache = new Dictionary<long, (float, Vector2, float, float, float)>(1024);
+        /// <summary>Plans' turns read from <see cref="arcCache"/> and searched (the harness; cleared with the stats).</summary>
+        public static int ArcReads, ArcSearches;
         /// <summary>The fan kerbs of the join's node AND of every node within <see cref="NearNodeM"/> of it, two hops
         /// along the graph: an arc may reach a neighbouring junction's island (a split's nose, a channelised turn's
         /// island at the next node).</summary>
@@ -78,7 +85,7 @@ namespace PSXRacing
                 }
                 from = to;
             }
-            if (kerbCacheMap != map) { kerbCache.Clear(); tCache.Clear(); clrCache.Clear(); kerbCacheMap = map; }
+            if (kerbCacheMap != map) { kerbCache.Clear(); tCache.Clear(); clrCache.Clear(); arcCache.Clear(); kerbCacheMap = map; }
             foreach (int nd in nearNodes)
             {
                 if (!kerbCache.TryGetValue(nd, out var arr))
@@ -220,6 +227,23 @@ namespace PSXRacing
                 var P = pts[j] + tIn * uP;
                 float vP = Vector2.Dot(P - pts[j1], tOut);
                 if (Mathf.Abs(uP) > 20f || Mathf.Abs(vP) > 20f) { NoFit++; continue; }
+                // (round 2) READ, DO NOT SEARCH: a turn laid before (at race load, or by any car's plan) is the same arc;
+                // only the path's own ends can refuse it here (no pavement or kerb test: 2-20 ms a plan in the exe)
+                long fkey = ((long)J.node * 1000003L + J.ein) * 1000003L + J.eout;
+                if (WarmOn && kerbCacheMap == map && arcCache.TryGetValue(fkey, out var ac))
+                {
+                    if (ac.r <= 0f) { NoFit++; continue; }
+                    float a0c = aJ + uP - ac.T, a1c = aO + vP + ac.T;
+                    Vector2 oc = ownInOut != null && k < ownInOut.Count ? ownInOut[k] : Vector2.zero;
+                    if (a0c <= aJ + 1e-3f && a1c >= aO - 1e-3f && a0c >= prev + 0.5f && a1c <= next - 0.5f && (left || ac.r - oc.x >= MinR))
+                    {
+                        found.Add((a0c, a1c, ac.c, ac.r, ac.ang0, ac.sweep, defl));
+                        lastA1 = a1c;
+                        Laid++; LaidR.Add(ac.r); MinLaidR = Mathf.Min(MinLaidR, ac.r);
+                        ArcReads++;
+                        continue;
+                    }
+                }
                 if (tr == null) tr = CityWorld.TrimsFor(map);
                 var ein = map.edges[J.ein]; var eout = map.edges[J.eout];
                 kerbSegs.Clear();
@@ -300,11 +324,19 @@ namespace PSXRacing
                 {
                     Arc(bestT, out float fa0, out float fa1, out var fc, out float fr, out float fang0, out float fsweep);
                     found.Add((fa0, fa1, fc, fr, fang0, fsweep, defl));
+                    // kept only when the path's own ends did not limit the search (a shorter arc forced by them is not the turn's)
+                    if (prev <= aJ + uP - Tcap - 0.5f && next >= aO + vP + Tcap + 0.5f) arcCache[fkey] = (bestT, fc, fr, fang0, fsweep);
+                    ArcSearches++;
                     lastA1 = fa1;
                     fit = true;
                     Laid++; LaidR.Add(fr); MinLaidR = Mathf.Min(MinLaidR, fr);
                 }
-                if (!fit) NoFit++;
+                if (!fit)
+                {
+                    NoFit++;
+                    // a no-fit is kept only for a whole corner (not one cut short by the path's own ends)
+                    if (prev <= 0.01f && next >= total - 0.01f) arcCache[fkey] = (0f, Vector2.zero, 0f, 0f, 0f);
+                }
             }
             if (found.Count == 0) return;
             // rebuild the polyline with the arcs laid in
