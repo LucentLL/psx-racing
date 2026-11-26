@@ -24,7 +24,7 @@ param(
     [switch]$NoWatch
 )
 $ErrorActionPreference = "Stop"
-$Agent = "checkpoints"
+$Agent = "cpcheck1"
 $wt = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..")).Path
 $Sandbox = $Sandbox.TrimEnd('\')
 if (-not $Out) { $Out = Join-Path $Sandbox "CpJob" }
@@ -145,6 +145,8 @@ try {
     }
 }
 finally {
+    # cpcheck1: the check-only probe never stays in the sandbox
+    foreach ($pf in @("$Sandbox\Assets\PSXRacing\Editor\CpCheck1Probe.cs", "$Sandbox\Assets\PSXRacing\Editor\CpCheck1Probe.cs.meta")) { if (Test-Path $pf) { Remove-Item $pf -Force; Write-Host "probe removed: $pf" } }
     $now = ((Get-Content $lock -Raw -ErrorAction SilentlyContinue) + "").Trim()
     if ($now -eq $mine) { Remove-Item $lock -Force -ErrorAction SilentlyContinue }
     elseif ($now) { Write-Host "the lock is no longer ours at the end: '$now' (left in place)" }
