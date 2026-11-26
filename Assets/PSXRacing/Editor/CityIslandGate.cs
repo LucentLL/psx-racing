@@ -66,6 +66,7 @@ namespace PSXRacing.EditorTools
                 var cache = new Dictionary<long, TileHits>();
                 bool oldQ = Physics.queriesHitBackfaces;
                 Physics.queriesHitBackfaces = false;
+                CityMeshes.IslandRecord = true; lock (CityMeshes.IslandOutlines) CityMeshes.IslandOutlines.Clear();
                 CityMeshes.IslandCount = 0; CityMeshes.IslandAreaM2 = 0f; CityMeshes.IslandTipCells = 0; CityMeshes.IslandOverlayTris = 0; CityMeshes.IslandInsideTris = 0; CityMeshes.IslandSkippedBorder = 0; CityMeshes.IslandSkippedBig = 0; CityMeshes.IslandPokeVerts = 0;
                 double buildMs = 0; int built = 0;
                 foreach (string rid in routeIds)
@@ -146,6 +147,8 @@ namespace PSXRacing.EditorTools
                         si++;
                     }
                     foreach (var th in live.Values) if (th.go != null) { Object.DestroyImmediate(th.go); th.go = null; }
+                    // F: the rivals' racing line (RoutedPath with RacingTurns' arcs) against the islands this pass stood
+                    arcLine.Append(ArcCheck(map, route, rid));
                     // gather the places near the route
                     foreach (long k in order)
                     {
@@ -177,6 +180,7 @@ namespace PSXRacing.EditorTools
                 log.Append(string.Format(inv, "cost: {0} tiles, {1:0} triangles, {2:0} vertices, {3:0.0} submeshes (draws) a tile; build {4:0} ms a tile\n",
                     cache.Count, cache.Count > 0 ? sumT / (double)cache.Count : 0, cache.Count > 0 ? sumV / (double)cache.Count : 0, cache.Count > 0 ? sumD / (double)cache.Count : 0, built > 0 ? buildMs / built : 0));
                 log.Append($"rays: {raysCast} cast, {raysEscaped} met nothing, {raysUnder} of them went under the land, {raysBack} met a face from behind first (SEETHRU hits)\n");
+                log.Append(arcLine.ToString()); arcLine.Clear();
                 log.Append(string.Format(inv, "TOTAL | RAISED {0} SEETHRU {1} OVERLAY {2} LINEUNDER {3}\n", totals[0], totals[1], totals[2], totals[3]));
                 log.Append(string.Format(inv, "tiles built {0}, {1:0} ms a tile; islands {2} ({3:0} m2), tips paved {4} cells, overlays out {5}, inside out {6}, poke verts {7}, skipped at a border {8}, too big {9}; median runs filled {10} sections, dropped {11} runs; {12:0} s\n",
                     built, built > 0 ? buildMs / built : 0, CityMeshes.IslandCount, CityMeshes.IslandAreaM2, CityMeshes.IslandTipCells, CityMeshes.IslandOverlayTris, CityMeshes.IslandInsideTris, CityMeshes.IslandPokeVerts,
@@ -204,6 +208,80 @@ namespace PSXRacing.EditorTools
                 Debug.Log("[IslandGate]\n" + log);
             }
             if (Application.isBatchMode) EditorApplication.Exit(code);
+        }
+
+        static readonly StringBuilder arcLine = new StringBuilder();
+
+        /// <summary>The route as the rivals drive it (RoutedPath.Build, RacingTurns' arcs at its joins): its points
+        /// every 0.5 m tested against every island outline the tiles stood (CityMeshes.IslandOutlines): on an island,
+        /// or within 0.5 m of its curb.</summary>
+        static string ArcCheck(CityMap map, CityMap.Route route, string rid)
+        {
+            var go = new GameObject("~arccheck");
+            try
+            {
+                var tp = go.AddComponent<TrackPath>();
+                var pieces = new List<RoutedPath.Piece>();
+                for (int q = 0; q < route.edges.Length; q++)
+                {
+                    var e = map.edges[route.edges[q]];
+                    pieces.Add(new RoutedPath.Piece { st = e.index * 2 + (route.dirs[q] > 0 ? 0 : 1), t0 = 0f, t1 = e.length });
+                }
+                if (!RoutedPath.Build(map, pieces, tp, route.roadWidth)) return $"route {rid}: arcs: path not built\n";
+                List<Vector2[]> outl;
+                lock (CityMeshes.IslandOutlines) outl = new List<Vector2[]>(CityMeshes.IslandOutlines);
+                var boxes = new List<Rect>(outl.Count);
+                foreach (var o in outl)
+                {
+                    float x0 = float.MaxValue, z0 = float.MaxValue, x1 = float.MinValue, z1 = float.MinValue;
+                    foreach (var v in o) { x0 = Mathf.Min(x0, v.x); z0 = Mathf.Min(z0, v.y); x1 = Mathf.Max(x1, v.x); z1 = Mathf.Max(z1, v.y); }
+                    boxes.Add(Rect.MinMaxRect(x0 - 1f, z0 - 1f, x1 + 1f, z1 + 1f));
+                }
+                int on = 0, near = 0; var where = new StringBuilder();
+                var w = tp.waypoints;
+                for (int i = 0; w != null && i + 1 < w.Length; i++)
+                {
+                    var a = new Vector2(w[i].x, w[i].z); var b = new Vector2(w[i + 1].x, w[i + 1].z);
+                    int steps = Mathf.Max(1, Mathf.CeilToInt((b - a).magnitude / 0.5f));
+                    for (int k = 0; k < steps; k++)
+                    {
+                        var p = Vector2.Lerp(a, b, k / (float)steps);
+                        for (int j = 0; j < outl.Count; j++)
+                        {
+                            if (!boxes[j].Contains(p)) continue;
+                            bool inside = InPoly(outl[j], p);
+                            float d = inside ? 0f : DistPoly(outl[j], p);
+                            if (inside) { on++; if (where.Length < 300) where.Append($" ({p.x:0},{p.y:0})"); }
+                            else if (d < 0.5f) near++;
+                        }
+                    }
+                }
+                return $"route {rid}: rivals' line (RoutedPath + RacingTurns, {RoutedPath.LastTurns} arcs laid): {on} points on an island, {near} within 0.5 m of a curb{(on > 0 ? ":" + where : "")}\n";
+            }
+            finally { Object.DestroyImmediate(go); }
+        }
+
+        static bool InPoly(Vector2[] poly, Vector2 p)
+        {
+            bool inside = false;
+            for (int i = 0, j = poly.Length - 1; i < poly.Length; j = i++)
+            {
+                var a = poly[i]; var b = poly[j];
+                if ((a.y > p.y) != (b.y > p.y) && p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x) inside = !inside;
+            }
+            return inside;
+        }
+
+        static float DistPoly(Vector2[] poly, Vector2 p)
+        {
+            float best = float.MaxValue;
+            for (int i = 0, j = poly.Length - 1; i < poly.Length; j = i++)
+            {
+                var a = poly[j]; var ab = poly[i] - a; float l2 = ab.sqrMagnitude;
+                float t = l2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(p - a, ab) / l2) : 0f;
+                best = Mathf.Min(best, (a + ab * t - p).magnitude);
+            }
+            return best;
         }
 
         static long Key(int x, int z) => ((long)x << 32) ^ (uint)z;
