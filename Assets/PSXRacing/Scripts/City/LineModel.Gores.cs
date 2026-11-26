@@ -82,7 +82,7 @@ namespace PSXRacing.City
         /// <summary>The overlap of X's travelled way (grown by margin) into Y's at each X station, with X shifted
         /// outward by shX(d) and Y by shY(d) (both away from each other). Returns the worst; gapOut (optional) gets
         /// the gap at each station (negative = overlap).</summary>
-        static float GoreOverlap(List<GoreSt> X, List<GoreSt> Y, int sideX, int sideY, float sX0, float sY0, float len, float ds, float margin, float[] gapOut)
+        static float GoreOverlap(List<GoreSt> X, List<GoreSt> Y, int sideX, int sideY, float sX0, float sY0, float len, float ds, float margin, float[] gapOut, float fromX = 0f, float fromY = 0f)
         {
             // sideX: the side of X (in X's away frame, +1 left) that faces Y; sideY likewise for Y
             float worst = -1e9f; int j = 0;
@@ -105,6 +105,8 @@ namespace PSXRacing.City
                 float gap = sideY * (lat - edgeY);                         // + : q lies outside Y on X's side
                 // q past Y's far edge entirely: still inside (the bands cross); count it as overlap
                 if (gapOut != null) gapOut[i] = gap;
+                // inside either arm's junction fan (its trim) the fan is the one surface: not an overlap of ribbons
+                if (d < fromX || dy < fromY) continue;
                 if (-gap > worst) worst = -gap;
             }
             return worst;
@@ -250,9 +252,8 @@ namespace PSXRacing.City
                         // the side of each that faces the other (away frames)
                         int sideX = Vector2.Dot(WX[0].left, dY) >= 0f ? 1 : -1;
                         int sideY = Vector2.Dot(WY[0].left, dX) >= 0f ? 1 : -1;
-                        float ov0 = GoreOverlap(WX, WY, sideX, sideY, 0f, 0f, 1f, ds, GoreLaneMarginM, null);
-                        if (ov0 <= 0.02f) continue;
-                        GoreOverlapBefore++;
+                        float trX = SplitTrimHook != null ? SplitTrimHook(X, n) : 0f, trY = SplitTrimHook != null ? SplitTrimHook(Y, n) : 0f;
+                        float ov0 = GoreOverlap(WX, WY, sideX, sideY, 0f, 0f, 1f, ds, GoreLaneMarginM, null, trX, trY);
                         // who moves: the third arm's through partner stays
                         bool moveX = true, moveY = true;
                         for (int u = 0; u < ne.Count; u++)
@@ -274,13 +275,15 @@ namespace PSXRacing.City
                                 continue;
                             }
                         }
+                        if (ov0 <= 0.02f) continue;
+                        GoreOverlapBefore++;
                         if (moved.Contains(X.index) && moveY) moveX = false;      // an arm already moved at this node keeps its shift
                         if (moved.Contains(Y.index) && moveX) moveY = false;
                         if (!moveX && !moveY) { GoreOverlapAfter++; continue; }
                         // the overlap at the node, laterally (the shift that makes the two share one boundary there)
                         var gaps = new float[WX.Count];
                         GoreOverlap(WX, WY, sideX, sideY, 0f, 0f, 1f, ds, 0f, gaps);
-                        float need0 = Mathf.Max(0f, -gaps[0]) / Mathf.Max(0.5f, Mathf.Cos(ang * Mathf.Deg2Rad)) + 0.05f;
+                        float need0 = Mathf.Max(0f, ov0) / Mathf.Max(0.5f, Mathf.Cos(ang * Mathf.Deg2Rad)) + 0.05f;   // the worst past the trims
                         float fx = moveX && moveY ? 0.5f : moveX ? 1f : 0f;
                         float sX0 = fx * need0, sY0 = (1f - fx) * need0;
                         // the shortest length that clears it: the drawn lanes run on along the shared boundary
@@ -289,7 +292,7 @@ namespace PSXRacing.City
                         float len = -1f, after = 0f;
                         foreach (var L in GoreLenSteps)
                         {
-                            after = GoreOverlap(WX, WY, sideX, sideY, sX0, sY0, L, ds, 0f, null);
+                            after = GoreOverlap(WX, WY, sideX, sideY, sX0, sY0, L, ds, 0f, null, trX, trY);
                             if (after <= 0.03f) { len = L; break; }
                         }
                         var g = new GoreSplit { node = n, x = X.index, y = Y.index, angle = ang, overlap0 = need0, overlapMax = ov0, both = moveX && moveY };
