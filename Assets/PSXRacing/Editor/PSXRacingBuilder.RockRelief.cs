@@ -135,7 +135,8 @@ namespace PSXRacing.EditorTools
         /// with the relief grid (PC scene pass only).</summary>
         static void ReliefFace(List<Vector3> verts, List<Vector2> uvs, List<int> tris,
                                Vector3[] toe, Vector3[] plinthTop, Vector3[] crest, bool[] faced,
-                               float[] distAt, int[] chordT0, int[] chordT1, Vector3[] outw, int R, int seed)
+                               float[] distAt, int[] chordT0, int[] chordT1, Vector3[] outw, int R, int seed,
+                               float[] colD = null)
         {
             var kill = new bool[tris.Count];
             int chords = 0;
@@ -204,8 +205,20 @@ namespace PSXRacing.EditorTools
                         // seam - recessed at most ReliefBandIn behind the
                         // smooth face and proud of it at most ReliefContactM.
                         float bandH = 0.4f + RNoise(a / 4.5f, 0.71f, seed + 9) * 2.1f;
-                        float band = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(bandH, bandH + 0.4f + RNoise(a / 3f, 0.3f, seed + 13) * 0.8f, hy));
                         float inBand = Mathf.Clamp(dpt * 0.32f, -ReliefContactM, ReliefBandIn);
+                        if (colD != null)
+                        {
+                            // (stage3, BankFit) THE BAND IS WHERE THE SOLID IS: up to BankFitBandH the
+                            // rock stands on the cut's solid - its bays (the solid steps back with
+                            // them, BankFitDepth) and at most BankFitRelief of block relief behind
+                            // that, never in front; the full relief starts over it.
+                            bandH = BankFitBandH + RNoise(a / 4.5f, 0.71f, seed + 9) * 0.9f;
+                            float raw = ReliefDepth(a, p.y, seed);
+                            float bay = RNoise(a / 15f, 0.37f, seed + 5) * 0.9f;
+                            float small = Mathf.Clamp((raw - bay) * 0.25f, 0f, BankFitRelief) * endW;
+                            inBand = (Mathf.Lerp(colD[k - 1], colD[k], t) + small) * taper;
+                        }
+                        float band = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(bandH, bandH + 0.4f + RNoise(a / 3f, 0.3f, seed + 13) * 0.8f, hy));
                         dpt = Mathf.Lerp(inBand, dpt, band);
                         p += inward * dpt;
                         col[iu] = p;

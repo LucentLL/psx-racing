@@ -1913,8 +1913,31 @@ namespace PSXRacing.EditorTools
         /// as their range needs (18 on a tiled ground chunk, 10 on a
         /// billboard: a pixel of the atlas), normals to 8. Roads, kerbs,
         /// decks and aprons stay exact because a wheel reads them.</summary>
+        /// <summary>(stage3, 2026-11-25) A STAGE's tunnel meshes saved exact (BUILD TIME, PSX_TUNNELEXACT=0 =
+        /// 77f4abf8). Quantised to 16 bits of each mesh's own range, the bore, its lining, the portal masonry and the
+        /// hill no longer met edge to edge once the scene was saved and loaded again: hairline cracks along every
+        /// seam (the gap probe on the LOADED scene: 128 of 444 cameras, 3523 px; run inside the build session, on the
+        /// meshes still in memory, it saw 4). The city and the circuits are unchanged (not a stage).</summary>
+        public static bool TunnelMeshExact = System.Environment.GetEnvironmentVariable("PSX_TUNNELEXACT") != "0";
+
+        const float NearTunnelExactM = 360f;
+        static bool NearTunnelChunk(string name)
+        {
+            var mm = System.Text.RegularExpressions.Regex.Match(name, @"StageGroundN_(-?\d+)_(-?\d+)$");
+            if (!mm.Success || !hasTunnels || tunnelIn == null || stageWp == null) return false;
+            float cx = (int.Parse(mm.Groups[1].Value) + 0.5f) * NearChunk, cz = (int.Parse(mm.Groups[2].Value) + 0.5f) * NearChunk;
+            for (int i = 0; i < tunnelIn.Length && i < stageWp.Count; i++)
+                if (tunnelIn[i] && (new Vector2(stageWp[i].x - cx, stageWp[i].z - cz)).magnitude < NearTunnelExactM) return true;
+            return false;
+        }
+
         static bool CompressibleMesh(string name)
         {
+            if (TunnelMeshExact && track != null && track.stage && name.Contains("Tunnel")) return false;
+            // ...and the near ground chunks within NearTunnelExactM of a tunnel: each chunk quantised on its own
+            // height range put the two sides of a chunk seam (and the hill's rim on them) millimetres apart -
+            // a row of single-pixel holes along x or z = 240 m multiples (the probe's dots beside the approaches)
+            if (TunnelMeshExact && track != null && track.stage && NearTunnelChunk(name)) return false;
             foreach (var key in new[] { "StageGround", "StageForest", "StageSea", "GroundMesh", "TreeMesh",
                                         "Posts", "PostMesh", "StageWall", "StageBank", "WallMesh", "Tunnel" })
                 if (name.Contains(key)) return true;

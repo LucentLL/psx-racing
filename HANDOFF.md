@@ -1,3 +1,10 @@
+# TEST RUNS ARE SILENT (coordinator, 11-25; mountain-nm 8a5737c0)
+
+Owner 2026-11-25: "please mute all testing. I constantly hear the game without ever seeing it". Measured at 18:02: two hidden batch editors (RacePlayCheck in PSXPerf and PSXCity) were at full-scale peak on his speakers. Batch mode hides the window, not the sound.
+
+- `MasterOut` (Scripts/AudioFader.cs) is the only writer of `AudioListener.volume`. Game code and checks set and read `MasterOut.Level`. In a test run (batch mode, or `-psx-mute` on a windowed run) the level stays what the game set and the listener is held at zero. The mix still runs, so frame times stay comparable. `-psx-sound` is for a run the owner asked to hear.
+- A muted run logs `[MasterOut] test run: the sound is muted`. `tools/lab-check.ps1` fails a run without that line (NOT SILENT). The coordinator's smoke also measures each tour's audio session peak; it must be 0.0000.
+- Never run an exe built before 8a5737c0 as a test. Never mute a game exe in the Windows volume mixer: Windows keeps that setting per exe path, so it would silence the owner's own game.
 # HANDOFF - CITYAI ROUND 2: runtime field trace, the junction block (wrecked traffic), plan cost read not searched, finishers brake, lane hold everywhere (agent "cityai", 11-25 night; branch `city-ai-turns` on mountain-nm 07d467b3; NOT pushed, NOT merged)
 
 All runs: EDITOR in PSXCity, hidden, muted (every log has `[MasterOut] test run: the sound is muted`).
@@ -18,13 +25,37 @@ All runs: EDITOR in PSXCity, hidden, muted (every log has `[MasterOut] test run:
   finishers brake for run-out bends and its end; (4) Tryon MEDIUM s0 head-on: a racer standing/crawling in the oncoming lane in the
   start crawl, and oncoming race traffic does not stop for it (TrafficSystem) - not fixed.
 
-# TEST RUNS ARE SILENT (coordinator, 11-25; mountain-nm 8a5737c0)
+# HANDOFF - STAGE3: the tunnel's see-through, cut solids on the drawn rock, the timber rail unstretched, Little Switzerland's crash spots, the lens meter (agent "stage3", 11-25; branch `stage3` from mountain-nm 77f4abf8 + 8a5737c0 picked; NOT pushed, NOT merged)
 
-Owner 2026-11-25: "please mute all testing. I constantly hear the game without ever seeing it". Measured at 18:02: two hidden batch editors (RacePlayCheck in PSXPerf and PSXCity) were at full-scale peak on his speakers. Batch mode hides the window, not the sound.
+## Switches (public static bool fields; =0 is 77f4abf8)
+BUILD TIME (list as BUILT IN on the LAB page):
+- PSX_BANKFIT (PSXRacingBuilder.BankFit, Stage.cs): below 2.1 m over the edge the cut's drawn rock keeps to its solid (bays shared by both, at most 9 cm of block relief behind the solid, never in front); the solid steps into the bays and leans with the face over the 1.4 m plinth (a second slab, CollBankU*); the rock top's face collider on the same surface. Every stage with cuts. The full relief starts at 2.1-3.0 m (was 0.4-2.5 m): the lowest 2 m of every cut is flatter.
+- PSX_TIMBERUV (PSXRacingBuilder.TimberUV, Stage.cs): timber boards, their end pieces and every rail post with square texels at the steel rail's 64 texels/m; a board = one 4 m station of grain inside one plank of the sheet (a new plank each station = the butt joints).
+- PSX_PORTALEND (Tunnel3.cs PortalEndBoth): the portal wall's end slab drawn both ways (the 85 px seam).
+- PSX_PORTALARRIS (Tunnel3.cs PortalArris): a strip from the arch soffit and the quoin returns out to the stones' faces, both sides.
+- PSX_TUNNELEXACT (PSXRacingBuilder.TunnelMeshExact, PSXRacingBuilder.cs CompressibleMesh): a stage's tunnel meshes, and the near ground chunks within 360 m of a tunnel, saved unquantised. THE MAIN CAUSE of the see-through: 16-bit mesh compression is applied at save, so the bore, lining, masonry, hill and ground no longer met once the scene was LOADED; the lab's in-session probe never saw it.
+PLAY TIME:
+- PSX_AI_PLANCAP (AIDriver.PlanAeroCap, one field): the speed planner counts downforce only to 27 m/s (AIGrip's calibration range) and bank credit to 4 %.
+- PSX_BRAKELAMPHOLD (CarLights.BrakeLampHold): brake lamps with hysteresis (on > 0.15, off < 0.05) and 0.3 s least on-time.
+- PSX_EASEHANDBACK (TunnelHeadlights.EaseHandBack): the bore hands the lights back to the hour before restoring the lens strength (next frame).
+TOOLS: PSX_GHOST_HIDDENDRAWN (TrackObstacleAudit: a height hidden from the road by drawn masonry counts as drawn); Tunnel2Probe PSX_T2_EXACTMOUTHS, PSX_T2_EXTRA (+116 off-grid cameras), PSX_T2_KEEP; new Editor/BankFitProbe.cs (Run = solid-vs-drawn gap, Shots = nose against the cut, RailShots, DumpTex, Curv); race trail prints the planner's target and bend.
 
-- `MasterOut` (Scripts/AudioFader.cs) is the only writer of `AudioListener.volume`. Game code and checks set and read `MasterOut.Level`. In a test run (batch mode, or `-psx-mute` on a windowed run) the level stays what the game set and the listener is held at zero. The mix still runs, so frame times stay comparable. `-psx-sound` is for a run the owner asked to hear.
-- A muted run logs `[MasterOut] test run: the sound is muted`. `tools/lab-check.ps1` fails a run without that line (NOT SILENT). The coordinator's smoke also measures each tour's audio session peak; it must be 0.0000.
-- Never run an exe built before 8a5737c0 as a test. Never mute a game exe in the Windows volume mixer: Windows keeps that setting per exe path, so it would silence the owner's own game.
+## Results (PSXPerf, editor, hidden; scenes built from this code; numbers are EDITOR)
+- Gap probe on the LOADED LittleSwitzerland scene, 560 cameras (444 grid + 116 off it): switches off 156 cams / 4153 px -> 3 cams / 7 px (grid: 1 cam, 5 px of sky at the far mouth's crown from the cockpit at the entry; off-grid: 2 cams, 1 px each). The 85 px wall-end seam: gone. The two reverse crown slivers: gone.
+- Ghost barriers (self-test): LS 12 -> 0, ChimneyRock 8 -> 1 (Boulder collider at wp 704, not a cut), LakeLure 15 -> 1 (CollGuard19 at the stage end, wp 2964). The 3 "tall over nothing" at the portal planes were the audit: every height there is hidden behind drawn masonry.
+- Solid in front of the drawn rock by > 0.15 m, 0.2-1.6 m over the edge (BankFitProbe, spots every 0.5 m a side): LS 94.5 % -> 12.4 %, CR 84.0 % -> 7.2 %, LL 69.0 % -> 13.5 %; what is left is 0.15-0.25 m in the 1.2-1.6 m band (LS 1832 of 57667 samples there; 0.2-1.1 m: 20 of 121680) and, on Lake Lure, its grass banks low down; nothing drawn within 3 m: 13 / 7 / 108 samples. Nose shots: the car stops 16-43 cm short of the rock (base) -> 5-14 cm.
+- Collider cost: BankColl LS 27 -> 50 meshes, 12.5k -> 22.5k tris (with the rock tops 89/56.5k -> 112/68.8k), cook 17 -> 25 ms per stage in the editor; CR 23 -> 39 (4.7k -> 6.4k), LL 42 -> 89 (11.3k -> 19.7k). Load time not measured in an exe.
+- Timber rail (LS): boards 99.9 % > 1.5:1 (worst 2.1) -> 0 % (worst 1.2); posts 30.4 % (1.5) -> 0 % (1.0); density 181 / 209 -> 64 texels/m = the steel rail's 64. Textures unchanged (mapping only): tile proofs from the imported 256 px sheets in scratchpad\stage3\tiles: boards repeat along V (the rail's grain), U is never wrapped on a board (one plank a station); posts repeat both ways.
+- Races (4 cars, hidden, after the final scenes, 5 seeds a direction): LS fwd 0 retirements at wp 366 (base: 1 in every seed-0 run; switch off on the same scenes: back at 366); LS rev 0 at wp 1685. Every other retirement but three follows the race's PLANNED incident (RaceManager.PlanIncident, a "MISTAKE" line: LS fwd wp 347-349 x4, rev wp 130 x4, CR 8, LL 8). Unplanned: LS fwd seed 0 wp 1055 (just out of the tunnel), LL fwd seed 0 wp 937, LL rev seed 0 wp 1026 - cars drifting wide on near-straights at 140-160 km/h with little steer; with PLANCAP=0 the same scenes give unplanned ones elsewhere (LS 1135, LL 1653). Not fixed. AI a little slower: rivals' LS mean ~289 -> 291-304 s.
+- City start check (editor race-play-check, TryonSprintRev, 8 cars, rain, day 20): every grid car on its road through the countdown; "the race goes live" FAILS in this sandbox with the switch ON and OFF alike (the city course never reaches 20 % in 60 s).
+- Pop meter, Noon, AI driving through the bore: fwd chase 40 pops (39 car lenses: the autopilot's brake lamps flickering at the 0.15 pedal point, every 1-3 frames) -> 1 (the eased headlight's first frame, 90 px); rev chase 2 -> 3 car lenses (real brake applications); cockpit 0 / 0 both ways. The forward run reports every time now (per-venue log, pops.csv kept); why round 2b's forward runs wrote nothing I could not reproduce.
+- LifeSimSelfTest on the same final scenes, 77f4abf8 code (+ the mute pick) vs this branch: 91 FAIL lines each, the same set. Stage lab LS FAIL lines 11 / 11; tunnel stretch FAIL (5 rock meshes at the triplanar ceiling) unchanged.
+
+## The next PC build
+1. Merge `stage3`. Shared edits: PSXRacingBuilder.cs (CompressibleMesh, NearTunnelChunk), Stage.cs (BankFit in BuildOneStageBank, kit UVs, posts), RockRelief.cs (ReliefFace colD), Tunnel3.cs (end slab, arris), AIDriver.cs (PlanAeroCap, debug props), CarLights.cs (BrakeLampHold), TunnelHeadlights.cs, TrackObstacleAudit.cs, Tunnel2Probe.cs, RacePlayCheck.cs (trail), new BankFitProbe.cs(+meta).
+2. A FULL stage scene pass (every stage: cuts and rail posts change; tunnel stages also their mesh compression). Circuits and the city: no output change (stage-only paths); no city re-bake.
+3. Re-measure frame cost and scene load in the exe (not done: no player built).
+
 # HANDOFF - CITYAI: rivals take junction turns on an arc, not a 90 degree pivot; the race distance holds in a slip lane (agent "cityai", 11-25; branch `city-ai-turns` from mountain-nm e472b9da + 8a5737c0 (mute); NOT pushed, NOT merged)
 
 Owner, CltC7, PC68: "AI can't even turn on this track, they make 90 deg turns. Very unnatural to see." All runs are EDITOR runs in
