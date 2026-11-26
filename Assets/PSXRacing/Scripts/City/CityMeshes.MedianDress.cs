@@ -301,6 +301,12 @@ namespace PSXRacing.City
             bool concWay = MedianConcreteWays.Contains(e.wayId), concRoad = MedianDressOn && MedianConcreteRoad(e);
             float s0 = sections[0].s, s1 = sections[n - 1].s;
             float beyA = MedianDressOn ? MedianBeyond(map, e, e.a) : 0f, beyB = MedianDressOn ? MedianBeyond(map, e, e.b) : 0f;
+            // (c7roads round 4, A2) a run any section of which lies beside a bay's aux lane, on this carriageway or its twin
+            bool bayRun = false; cmBayRun = false;
+            if (BayMedianOn && BayLanesOn)
+                for (int k = 0; k < n && !bayRun; k++)
+                    bayRun = cmW[k] > 0f && (BayAuxAt(e, sections[k].s) || (cmTw[k] >= 0 && BayAuxAt(map.edges[cmTw[k]], cmTwS[k])));
+            cmBayRun = bayRun;
             for (int k = 0; k < n; k++)
             {
                 cmTop[k] = (byte)(concWay ? MedianTopConcrete : MedianTopGrass);
@@ -325,6 +331,8 @@ namespace PSXRacing.City
                 cmDb[k] = db; cmDf[k] = df;
                 if (concWay) continue;
                 if (cmK[k] < 0.5f) continue;                                    // grass at grade: no curb, no bed
+                // (c7roads round 4, A2) beside a turn bay on either carriageway: concrete, the whole run
+                if (bayRun) { cmTop[k] = MedianTopConcrete; continue; }
                 if (concRoad) { cmTop[k] = MedianTopConcrete; continue; }
                 float w = cmG[k];
                 if (w < MedianConcreteMaxW) { cmTop[k] = MedianTopConcrete; continue; }

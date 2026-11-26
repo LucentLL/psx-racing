@@ -59,6 +59,8 @@ namespace PSXRacing.City
             public int k, side, sideOther;
             public float theta, D, wN, target, lReq, lt, ltRule, xf, need, avail, ls, vHost, vRamp, dataAux, seatDy;
             public bool sideMismatch, backToBack, loop;
+            /// <summary>R0: a turn bay carried as the host's lane (its nose moved to where it leaves the corridor).</summary>
+            public bool bay;
             public string clamp;
             /// <summary>The ramp's last section, on the host's cross-line at N
             /// (world plan), and the host edge and arc whose height it takes.</summary>
@@ -95,6 +97,9 @@ namespace PSXRacing.City
         public struct ZoneCut { public int edge; public float s0, s1; public bool end; public float sEnd; public int nodeDir, innerSide; public MergeZone z; }
 
         public static bool MergeZonesOn = System.Environment.GetEnvironmentVariable("PSX_CITY_MERGEZONES") != "0";
+        /// <summary>c7roads round 3, R0: turn bays carried as their host's lane (=0: today's zones exactly).</summary>
+        public static bool BayLanesOn = System.Environment.GetEnvironmentVariable("PSX_CITY_BAYLANES") != "0";
+
         /// <summary>PSX_CITY_ZONELANES=0: the drawing as L5, the lane paths as L4 (A9 off).</summary>
         public static bool ZoneLanesOn = System.Environment.GetEnvironmentVariable("PSX_CITY_ZONELANES") != "0";
         public static readonly List<MergeZone> Zones = new List<MergeZone>();
@@ -108,8 +113,12 @@ namespace PSXRacing.City
         /// <summary>The first few branch ends each reason turned away (e/node).</summary>
         public static readonly Dictionary<string, string> ZoneRejectAt = new Dictionary<string, string>();
         static int rejectEdge, rejectNode;
+        /// <summary>Editor trace (c7roads): branch edges whose zone decisions are written to ZoneTrace.</summary>
+        public static HashSet<int> ZoneTraceEdges;
+        public static readonly System.Text.StringBuilder ZoneTrace = new System.Text.StringBuilder();
         static void ZoneReject(string why)
         {
+            if (ZoneTraceEdges != null && ZoneTraceEdges.Contains(rejectEdge)) ZoneTrace.Append($"zone e{rejectEdge}/n{rejectNode}: {why}\n");
             if (!countRejects) return;
             ZoneRejects.TryGetValue(why, out int n); ZoneRejects[why] = n + 1;
             if (n < 3) { ZoneRejectAt.TryGetValue(why, out var at); ZoneRejectAt[why] = (at == null ? "" : at + " ") + $"e{rejectEdge}/n{rejectNode}"; }
@@ -338,6 +347,7 @@ namespace PSXRacing.City
                 for (int end = 0; end < 2; end++)
                 {
                     int hostIdx = end == 0 ? t.branchA[ei] : t.branchB[ei];
+                    if (ZoneTraceEdges != null && ZoneTraceEdges.Contains(ei)) ZoneTrace.Append($"zone e{ei} end {end}: host e{hostIdx}{(hostIdx >= 0 ? $" tier {CityTier.Of(map.edges[hostIdx])} mitre {t.mitre[end == 0 ? map.edges[ei].a : map.edges[ei].b]}" : " (not a branch)")}\n");
                     if (hostIdx < 0) continue;
                     var L = map.edges[ei];
                     if (L.a == L.b) continue;
@@ -534,6 +544,11 @@ namespace PSXRacing.City
             ZoneSample(host, br, tN, ref sd, out var at);
             float theta = Mathf.Acos(Mathf.Clamp(Vector2.Dot(at.dirL, at.dirM), -1f, 1f)) * Mathf.Rad2Deg;
             if (theta > ZoneMaxDeg) { ZoneReject("over 35 deg (a junction mouth)"); return null; }
+            // c7roads round 3, R0 (PSX_CITY_BAYLANES): A TURN BAY IS A LANE OF ITS HOST. The line model lays a bay's
+            // lanes against its host's through lanes up to its turn point (LineModel.BayShift), so this zone finds
+            // its nose there: the host's aux lane carries the bay from the node, the link's own ribbon is only the
+            // turn across, and traffic, the AI and the race line drive the aux lane (ZoneLanePoint).
+            bool isBay = BayLanesOn && !merge && LineModel.IsBayEdge(L.index);
             float xN = at.arcIn;
             // the step at N must lie inside one host piece, off its polyline
             // vertices (a section there is square to the chain), and the
@@ -574,7 +589,7 @@ namespace PSXRacing.City
             for (int i = 0; i < br.edges.Count; i++)
                 if (br.PieceRange(br.edges[i], out float b0u, out _) && b0u < tO + 40f && InUnion(map, br.edges[i]))
                 { ZoneReject("the ramp is a twin deck"); return null; }
-            var z = new MergeZone { node = n, branch = L.index, host = M.index, other = O.index, merge = merge, side = side, theta = theta, D = xN, hostChain = host };
+            var z = new MergeZone { node = n, branch = L.index, host = M.index, other = O.index, merge = merge, side = side, theta = theta, D = xN, hostChain = host, bay = isBay };
             float outerLat = Vector2.Dot(endOuter - qN, rMN) * side;
             z.wN = outerLat - hExtN;
             z.endInner = qN + rMN * (side * hExtN);
@@ -620,6 +635,9 @@ namespace PSXRacing.City
             z.ltRule = merge ? (fw ? 90f : Mathf.Max(30f, z.k * RoadProfiles.LaneM * (z.vHost <= 40f ? z.vHost * z.vHost / 60f : z.vHost)))
                              : (fw ? 75f : 30f);
             z.lt = z.ltRule;
+            // R0: a bay's entry taper, AASHTO Green Book (2011) 9.7.2: 8:1 at 30 mph to 15:1 at 50 mph (interpolated,
+            // held outside) times the bay's width
+            if (z.bay) z.lt = z.ltRule = Mathf.Lerp(8f, 15f, Mathf.InverseLerp(30f, 50f, z.vHost)) * z.k * RoadProfiles.LaneM;
             LineModel.Extents(EO, sO, out float bM, out float bP);
             z.brLaneW = Mathf.Max(0.5f * brLanes * RoadProfiles.LaneM, bM + bP - EO.shl - EO.shr);
             // the ramp's own height against the host's at N (report)

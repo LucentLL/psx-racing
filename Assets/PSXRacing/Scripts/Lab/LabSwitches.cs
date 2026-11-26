@@ -250,6 +250,42 @@ namespace PSXRacing
                 look = "Built into the city tiles: a median is one run (no fragments or concrete slabs). A city bake.",
                 env = new[] { "PSX_CITY_MEDIANRUNS" }, requires = "CityMeshes.MedianRunsOn",
             });
+            Register(new LabRow
+            {
+                id = "baylanes", group = LabGroup.World, name = "TURN BAYS AS LANES", when = LabWhen.BuiltIn,
+                look = "Built into the city tiles: a turn bay the map draws as its own road is a lane of its host (the host widens, the bay's own road starts where it turns across). A city bake.",
+                env = new[] { "PSX_CITY_BAYLANES" }, requires = "CityMeshes.BayLanesOn",
+            });
+            Register(new LabRow
+            {
+                id = "baymedian", group = LabGroup.World, name = "CONCRETE MEDIAN AT BAYS", when = LabWhen.BuiltIn,
+                look = "Built into the city tiles: the raised median beside a turn bay is concrete over its whole run (no grass and concrete patches). A city bake.",
+                env = new[] { "PSX_CITY_BAYMEDIAN" }, requires = "CityMeshes.BayMedianOn",
+            });
+            Register(new LabRow
+            {
+                id = "baymarks", group = LabGroup.World, name = "TURN BAY MARKINGS", when = LabWhen.BuiltIn,
+                look = "Built into the city tiles: a turn bay has a solid white line beside the through lanes, a left arrow every 40 m and a stop line at its nose. A city bake.",
+                env = new[] { "PSX_CITY_BAYMARKS" }, requires = "CityMeshes.BayMarksOn",
+            });
+            Register(new LabRow
+            {
+                id = "smoothcurb", group = LabGroup.World, name = "SMOOTH CURB RETURNS", when = LabWhen.BuiltIn,
+                look = "Opt-in (PSX_CITY_SMOOTHCURB=1), built into the city tiles: curb returns within 1 cm of their arc. Off by default: +69 % tile build time. A city bake.",
+                env = new[] { "PSX_CITY_SMOOTHCURB" }, requires = "CityMeshes.SmoothCurbOn",
+            });
+            Register(new LabRow
+            {
+                id = "goresplit", group = LabGroup.World, name = "SPLITS SHARE ONE EDGE", when = LabWhen.BuiltIn,
+                look = "Opt-in (PSX_CITY_GORESPLIT=1), built into the city tiles: two roads leaving a node on the same side no longer overlap. Off by default: worse than the base on the line gate. A city bake.",
+                env = new[] { "PSX_CITY_GORESPLIT" }, requires = "LineModel.GoreSplitOn",
+            });
+            Register(new LabRow
+            {
+                id = "laneclip", group = LabGroup.World, name = "NOTHING IN A LANE", when = LabWhen.BuiltIn,
+                look = "Built into the city tiles: no verge, curb, face, slab or ground piece stands inside a lane; each is cut back at the lane's edge. A city bake.",
+                env = new[] { "PSX_CITY_LANECLIP" }, requires = "CityMeshes.LaneClipOn",
+            });
             // stage round 3 (merged 11-25): build-time switches of the stage scenes; they show once its play-time code is in
             Register(new LabRow
             {

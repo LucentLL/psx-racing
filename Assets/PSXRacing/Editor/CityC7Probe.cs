@@ -114,6 +114,8 @@ namespace PSXRacing.EditorTools
         {
             var inv = CultureInfo.InvariantCulture;
             string tag = System.Environment.GetEnvironmentVariable("PSX_C7_TAG") ?? "run";
+            int.TryParse(System.Environment.GetEnvironmentVariable("PSX_C7_H") ?? "1080", out PSXScreenshotTool.HeightOverride);
+            CityMeshes.ZoneTraceEdges = new HashSet<int>((System.Environment.GetEnvironmentVariable("PSX_ZONETRACE") ?? "").Split(',').Where(x => x.Trim().Length > 0).Select(x => int.Parse(x.Trim())));
             float planHalf = 40f;
             float.TryParse(System.Environment.GetEnvironmentVariable("PSX_C7_PLAN") ?? "40", NumberStyles.Float, inv, out planHalf);
             float.TryParse(System.Environment.GetEnvironmentVariable("PSX_C7_R") ?? "40", NumberStyles.Float, inv, out spotR);
@@ -139,11 +141,29 @@ namespace PSXRacing.EditorTools
                 var globals = Object.FindAnyObjectByType<PSXGlobals>();
                 var path = Object.FindAnyObjectByType<TrackPath>();
                 log.Append($"tile cache {(CityTileCache.Enabled ? "ON" : "off")}\n");
+                log.Append(CityMeshes.ZoneTrace.ToString());
+                // (round 4, D) every bay laid along its host: the list for the contact sheet and the count by host road
+                {
+                    var bt = new StringBuilder("branch\tnode\thost\thostName\tx\tz\thdg\twayLen\tturnAt\tmedian\tturnOnly\tzone\n");
+                    var zb = new HashSet<int>(CityMeshes.Zones.Where(zz => zz.bay).Select(zz => zz.branch));
+                    foreach (var bb in LineModel.Bays)
+                    {
+                        var H = map.edges[bb.host]; var B = map.edges[bb.branch];
+                        var hp = map.nodes[bb.node];
+                        var ht = H.a == bb.node ? H.TangentAt(0f) : -H.TangentAt(H.length);
+                        if (H.a != bb.node) ht = H.TangentAt(H.length);
+                        var mid = B.PointAt(Mathf.Min(B.length, 0.5f * bb.turnAt));
+                        bt.Append(string.Format(inv, "{0}\t{1}\t{2}\t{3}\t{4:0.0}\t{5:0.0}\t{6:0.0}\t{7:0}\t{8:0}\t{9}\t0x{10:X}\t{11}\n", bb.branch, bb.node, bb.host, H.name, mid.x, mid.y,
+                            Mathf.Repeat(Mathf.Atan2(ht.x, ht.y) * Mathf.Rad2Deg, 360f), bb.wayLen, bb.turnAt, bb.median ? 1 : 0, B.lsTurnOnly, zb.Contains(bb.branch) ? 1 : 0));
+                    }
+                    File.WriteAllText(Path.Combine(dir, $"c7_bays_{tag}.tsv"), bt.ToString());
+                }
+                log.Append($"GORESPLIT {(LineModel.GoreSplitOn ? 1 : 0)}: arm pairs within {LineModel.GoreMaxDeg:0} deg {LineModel.GorePairs}, overlapping before {LineModel.GoreOverlapBefore}, still overlapping {LineModel.GoreOverlapAfter}, decks skipped {LineModel.GoreSkippedDeck}, bays laid along their host {LineModel.Bays.Count} (stood down, no zone: {LineModel.BaysDropped}), left to the merge zones {LineModel.GoreZoneLeft}, {LineModel.GoreBuildMs:0} ms; BAYLANES {(CityMeshes.BayLanesOn ? 1 : 0)}: crossover far nodes made fans {CityMeshes.CrossoverFans} ({string.Join(",", CityMeshes.CrossoverFanNodes.Take(40))}), zones {CityMeshes.Zones.Count}, of them bays {CityMeshes.Zones.Count(zz => zz.bay)}\n");
                 foreach (var c in rows)
                 {
                     string id = c[0];
                     float x = float.Parse(c[1], inv), z = float.Parse(c[2], inv), hdg = float.Parse(c[3], inv);
-                    string[] views = c.Length > 4 && c[4].Trim().Length > 0 ? c[4].Trim().Split(',') : new[] { "chase_night", "chase_noon", "plan" };
+                    string[] views = c.Length > 4 && c[4].Trim().Length > 0 ? c[4].Trim().Split(',') : new[] { "chase_night", "chase_noon", "plan", "plan40" };
                     var p2 = new Vector2(x, z);
                     float y = 0f;
                     if (map.NearestRoadPoint(p2, 40f, false, out int ei0, out float s0, out float d0)) y = map.edges[ei0].YAt(s0);
@@ -177,6 +197,17 @@ namespace PSXRacing.EditorTools
                         log.Append(string.Format(inv, "  n{0} ({1:0.0},{2:0.0}) d {3:0.0} edges {4}\n", n, map.nodes[n].x, map.nodes[n].y, dn, string.Join(",", map.nodeEdges[n])));
                     }
 
+                    foreach (var g in LineModel.GoreSplits)
+                        if ((map.nodes[g.node] - p2).magnitude < 70f)
+                            log.Append(string.Format(inv, "  GORE n{0} e{1} / e{2}: {3:0} deg, overlap at node {4:0.00} m (worst {5:0.00}), shift e{1} {6:0.00} e{2} {7:0.00} over {8:0} m, shared to {9:0.0} m, nose at {10:0.0} m, left {11:0.00} {12}{13}\n",
+                                g.node, g.x, g.y, g.angle, g.overlap0, g.overlapMax, g.shiftX, g.shiftY, g.len, g.dShared, g.dNose, g.after, g.ok ? "ok" : "NOT CLEARED ", g.note));
+                    foreach (var zz in CityMeshes.Zones)
+                        if ((map.nodes[zz.node] - p2).magnitude < 150f)
+                            log.Append(string.Format(inv, "  ZONE e{0} n{1} host e{2} style {3} k {4} D {5:0.0} wN {6:0.00} theta {7:0.0} {8}{9}\n", zz.branch, zz.node, zz.host, zz.style, zz.k, zz.D, zz.wN, zz.theta, zz.merge ? "merge" : "diverge", zz.bay ? " BAY" : ""));
+                    log.Append($"  LANECLIP {(CityMeshes.LaneClipOn ? 1 : 0)} so far: tested {CityMeshes.LaneClipTested}, dropped {CityMeshes.LaneClipDropped}, cut {CityMeshes.LaneClipCut}, {CityMeshes.LaneClipMs:0} ms; " + string.Join(", ", CityMeshes.LaneClipBySlot.Select(kv => kv.Key + " " + kv.Value)) + "\n");
+                    foreach (var bb in LineModel.Bays)
+                        if ((map.nodes[bb.node] - p2).magnitude < 200f)
+                            log.Append(string.Format(inv, "  BAY e{0} n{1} host e{2}: way {3:0.0} m, turn at {4:0.0} m, gap at end {5:0.0} m, inside {6:0.00}\n", bb.branch, bb.node, bb.host, bb.wayLen, bb.turnAt, bb.gapEnd, bb.inside));
                     bool doInv = views.Contains("inv");
                     if (doInv) { recs.Clear(); spotsXZ = new[] { p2 }; CityMeshes.ProvHook = Hook; }
                     CityMeshes.IslandDebugAt = p2; CityMeshes.IslandDebug.Clear();
@@ -209,12 +240,12 @@ namespace PSXRacing.EditorTools
                         cam.ResetProjectionMatrix();
                         cam.orthographic = false;
                         Vector3 eye; Quaternion look; float shift = 0f;
-                        if (view == "plan")
+                        if (view.StartsWith("plan"))
                         {
                             eye = new Vector3(x, y + 45f, z);
                             look = Quaternion.LookRotation(Vector3.down, fwd); eye.y = y + 45f;
                             cam.orthographic = true;
-                            cam.orthographicSize = planHalf;
+                            cam.orthographicSize = view == "plan40" ? 20f : planHalf;
                             cam.nearClipPlane = 39f;   // nothing more than 6 m over the car (canopies, decks, wires): the ground plan
                         }
                         else
@@ -225,7 +256,7 @@ namespace PSXRacing.EditorTools
                             cam.fieldOfView = fov;
                         }
                         cam.transform.SetPositionAndRotation(eye, look);
-                        if (globals != null && view != "plan")
+                        if (globals != null && !view.StartsWith("plan"))
                         {
                             globals.adapt = ExposureAdapt.SteadyFor(eye, player.transform, sun != null ? -sun.transform.forward : Vector3.up,
                                                                     globals.night, path, def, globals.dayFill);
@@ -235,7 +266,7 @@ namespace PSXRacing.EditorTools
                         StreetLights.Push(eye, look * Vector3.forward);
                         // the plan: no sun shadows (a pole's or a tree card's shadow from straight above reads as a black slab)
                         var shadowsWas = sun != null ? sun.shadows : LightShadows.None;
-                        if (view == "plan" && sun != null) sun.shadows = LightShadows.None;
+                        if (view.StartsWith("plan") && sun != null) sun.shadows = LightShadows.None;
                         SunShadows.RenderFor(cam);
                         cam.aspect = 16f / 9f;
                         if (Mathf.Abs(shift) > 1e-5f) cam.projectionMatrix = ChaseCamera.ShiftedProjection(cam.fieldOfView, cam.aspect, cam.nearClipPlane, cam.farClipPlane, shift);

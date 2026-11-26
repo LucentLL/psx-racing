@@ -1,0 +1,172 @@
+using System.Collections.Generic;
+using UnityEngine;
+
+namespace PSXRacing.City
+{
+    // ======================================================================
+    //  c7roads round 4 (owner 11-26 on spot 80, "What are these roads?"): the median crossovers the map draws
+    //  as their own one-way links between the two carriageways of a divided road (a U-turn / left-turn bay and
+    //  its turn across the median). R0 (LineModel.BayShift + the merge zones) carries the bay as its host's
+    //  lane; this file makes the turn across end in ONE paved surface with the far carriageway.
+    //
+    //  A1, THE CROSSING: the far node (where the link meets the other carriageway) was a mitred node - the
+    //  link's ribbon lay over the far carriageway's lanes (spot 80: the island gate's OVERLAY 0 -> 79). It is
+    //  forced to a junction fan (ComputeTrims' forceFan, the same path the mitre-fan rule uses), so every arm
+    //  is trimmed back and the fan's one plate covers the meeting.
+    //
+    //  A CROSSOVER: a one-way link way (not a motorway link) of at most CrossoverMaxM, whose start and end
+    //  nodes each lie on a non-link road of one name, the two flowing in opposite directions there (the two
+    //  carriageways of one divided road). Its far node is forced to a fan when it is mitred, has three or more
+    //  arms and is on no deck, tunnel or refuge.
+    // ======================================================================
+    public static partial class CityMeshes
+    {
+        public const float CrossoverMaxM = 250f, CrossoverOppCos = -0.5f;
+        public static int CrossoverFans;
+        public static readonly List<int> CrossoverFanNodes = new List<int>();
+
+        static List<int> CrossoverFarNodes(CityMap map, Trims t)
+        {
+            CrossoverFanNodes.Clear();
+            var ways = new Dictionary<uint, List<int>>();
+            foreach (var e in map.edges)
+                if (e.link && e.oneway && e.cls < 5 && e.a != e.b)
+                {
+                    if (!ways.TryGetValue(e.wayId, out var l)) ways[e.wayId] = l = new List<int>(2);
+                    l.Add(e.index);
+                }
+            var deg = new Dictionary<int, int>();
+            foreach (var kv in ways)
+            {
+                var es = kv.Value;
+                float len = 0f; foreach (int i in es) len += map.edges[i].length;
+                if (len > CrossoverMaxM) continue;
+                deg.Clear();
+                foreach (int i in es) { var e = map.edges[i]; deg[e.a] = deg.TryGetValue(e.a, out int c1) ? c1 + 1 : 1; deg[e.b] = deg.TryGetValue(e.b, out int c2) ? c2 + 1 : 1; }
+                // a one-way way's pts run with the traffic: its start is an a end, its far end a b end
+                int start = -1, far = -1;
+                foreach (int i in es)
+                {
+                    var e = map.edges[i];
+                    if (deg[e.a] == 1) start = e.a;
+                    if (deg[e.b] == 1) far = e.b;
+                }
+                if (start < 0 || far < 0 || start == far) continue;
+                if (!CarriagewayAt(map, start, es, null, out var hS, out var dS)) continue;
+                if (!CarriagewayAt(map, far, es, hS.name, out var hF, out var dF)) continue;
+                if (Vector2.Dot(dS, dF) > CrossoverOppCos) continue;           // not the opposite carriageway
+                if (!t.mitre[far] || map.nodeEdges[far].Count < 3 || LineModel.IsRefugeNode(far)) continue;
+                bool deck = false;
+                foreach (int fi in map.nodeEdges[far]) deck |= map.edges[fi].bridge || map.edges[fi].tunnel;
+                if (deck) continue;
+                if (!CrossoverFanNodes.Contains(far)) CrossoverFanNodes.Add(far);
+            }
+            return CrossoverFanNodes;
+        }
+
+        /// <summary>A non-link named road at the node (of the given name when one is given) and its flow direction
+        /// there (its pts run with the traffic when one-way).</summary>
+        static bool CarriagewayAt(CityMap map, int node, List<int> skip, string name, out CityMap.Edge h, out Vector2 dir)
+        {
+            h = null; dir = default;
+            foreach (int i in map.nodeEdges[node])
+            {
+                if (skip.Contains(i)) continue;
+                var e = map.edges[i];
+                if (e.link || string.IsNullOrEmpty(e.name) || !e.oneway) continue;
+                if (name != null && e.name != name) continue;
+                h = e;
+                dir = e.a == node ? e.TangentAt(0f) : e.TangentAt(e.length);
+                return true;
+            }
+            return false;
+        }
+
+        // ------------------------------------------------------------------
+        //  A2 (the median along a bay): where a carriageway carries a bay's aux lane (or its twin does, across the
+        //  median), the curbed median's top is CONCRETE over the whole run (CityMeshes.MedianDress: a turn bay is
+        //  cut into a raised concrete median), so the two halves of the island agree and its outline does not
+        //  step between concrete and grass span by span (the round-3 frames' staircase at 80 / 79).
+        //  PSX_CITY_BAYMEDIAN=0: the median dress as before.
+        // ------------------------------------------------------------------
+        public static bool BayMedianOn = System.Environment.GetEnvironmentVariable("PSX_CITY_BAYMEDIAN") != "0";
+        static readonly HashSet<int> bayZoneIds = new HashSet<int>();
+        static int bayZoneIdsFor = -1;
+        /// <summary>Does a bay zone's aux lane (over 0.5 m wide) run on this edge at s?</summary>
+        static bool BayAuxAt(CityMap.Edge e, float s)
+        {
+            if (!BayMedianOn || !BayLanesOn || e == null) return false;
+            var ez = e.lmEase;
+            if (ez == null) return false;
+            if (bayZoneIdsFor != Zones.Count) { bayZoneIds.Clear(); foreach (var z in Zones) if (z.bay) bayZoneIds.Add(z.id); bayZoneIdsFor = Zones.Count; }
+            if (bayZoneIds.Count == 0) return false;
+            for (int i = 0; i < ez.Length; i++)
+                if (ez[i].aux && bayZoneIds.Contains(ez[i].auxZone) && LineModel.AuxAt(e, ez[i], s) > 0.5f) return true;
+            return false;
+        }
+
+        // ------------------------------------------------------------------
+        //  A3 (the bay's marks, MUTCD 2009): the line between the bay and the through lanes SOLID WHITE over the
+        //  bay's full width (3B.04: a lane-use control line), a left-turn arrow every BayArrowEveryM back from its
+        //  end (at least one; 3B.20), a STOP LINE across the bay at its nose (3B.16: 12-24 in wide, here 0.6 m),
+        //  no exit gore chevrons; the median-side edge line stays yellow (it rides the aux lane).
+        //  PSX_CITY_BAYMARKS=0: the zone's marks as before.
+        // ------------------------------------------------------------------
+        public static bool BayMarksOn = System.Environment.GetEnvironmentVariable("PSX_CITY_BAYMARKS") != "0";
+        public const float BayArrowEveryM = 40f, BayStopBarM = 0.6f;
+        public static int BayStopLines;
+
+        static void BayStopLine(CityMap map, MergeZone z)
+        {
+            // the host piece just before the nose
+            if (!z.HostAt(map, z.D - 1f, out var H, out float sH, out int sideH) || H == null) return;
+            float w = LineModel.AuxWidth(H, sH, sideH);
+            if (w < 2f) return;
+            float la = AuxThroughLat(H, sH, sideH);
+            if (float.IsNaN(la)) return;
+            // the bar's far side toward the nose: along the host's own s, the side the zone runs to
+            var tH = H.TangentAt(sH);
+            z.HostAt(map, z.D - 0.2f, out var H2, out float sH2, out _);
+            float dir = H2 == H ? Mathf.Sign(sH2 - sH) : 1f;
+            if (dir == 0f) dir = 1f;
+            float s0 = sH + dir * (0.8f - BayStopBarM), s1 = sH + dir * 0.8f;
+            if (s0 > s1) { float tmp = s0; s0 = s1; s1 = tmp; }
+            s0 = Mathf.Clamp(s0, 0f, H.length); s1 = Mathf.Clamp(s1, 0f, H.length);
+            if (s1 - s0 < 0.2f) return;
+            float l0 = la, l1 = la + sideH * w;
+            var piece = new[] { new Vector2(l0, s0), new Vector2(l1, s0), new Vector2(l1, s1), new Vector2(l0, s1) };
+            AddMark(new PaintMark { style = MkGlyph, edge = H.index, s0 = s0, s1 = s1, pieces = new List<Vector2[]> { piece }, bps = new[] { s0, s1 }, side = -1, what = "bay stop line",
+                                    hdg = Mathf.Repeat(Mathf.Atan2(tH.x, tH.y) * Mathf.Rad2Deg, 360f) });
+            BayStopLines++;
+        }
+
+        // ---- (round 4, rule 6) the kink probe's read of a junction's drawn outline ----
+        /// <summary>The plan ring of the fan (cluster) node n draws, with each corner's flags: the perimeter to the next
+        /// corner is a mouth (no free edge), the corner is a curb return's point. Editor probe only. Returns the
+        /// cluster key (-1: no fan).</summary>
+        public static int FanRingCorners(CityMap map, Trims trims, int n, List<(Vector2 p, bool mouthNext, bool arc, int edge)> into)
+        {
+            into.Clear();
+            if (trims == null || !trims.patch[n]) return -1;
+            int k = FanKey(trims, n);
+            var list = new List<FanCorner>(32);
+            var log = CurbLog; CurbLog = null; furnRingBuild = true;
+            try { FanCorners(map, trims, k, Vector3.zero, list); }
+            catch (System.Exception) { list.Clear(); }
+            finally { CurbLog = log; furnRingBuild = false; }
+            foreach (var c in list) into.Add((new Vector2(c.pos.x, c.pos.z), c.mouthNext, c.arc, c.edge));
+            ClearSectionCaches(); fanPolys.Clear();
+            return k;
+        }
+        /// <summary>A ribbon's drawn outline in plan (left and right sides; false: none). Editor probe only.</summary>
+        public static bool RibbonOutline(CityMap map, Trims trims, int ei, out Vector2[] left, out Vector2[] right)
+        {
+            left = right = null;
+            var ol = OutlineOf(map, trims, ei);
+            if (ol == null || ol.L == null || ol.L.Length < 2) return false;
+            left = new Vector2[ol.L.Length]; right = new Vector2[ol.R.Length];
+            for (int i = 0; i < ol.L.Length; i++) { left[i] = new Vector2(ol.L[i].x, ol.L[i].z); right[i] = new Vector2(ol.R[i].x, ol.R[i].z); }
+            return true;
+        }
+    }
+}

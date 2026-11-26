@@ -1601,10 +1601,17 @@ namespace PSXRacing.City
         public static Trims ComputeTrims(CityMap map)
         {
             mitreFanEdge = null;
-            MitreFanCount = 0; MitreFanAt.Clear(); MitreFanUnclipped = 0;
+            MitreFanCount = 0; MitreFanAt.Clear(); MitreFanUnclipped = 0; CrossoverFans = 0;
             var t = ComputeTrimsCore(map, null);
-            if (!MitreFanOn || !ClustersOn) return t;
+            // c7roads round 4, A1 (PSX_CITY_BAYLANES): a median crossover's far node is a junction fan, so the turn
+            // across lies in one paved surface with the far carriageway (it was mitred: the link's ribbon lay over
+            // the carriageway's lanes, spot 80's OVERLAY)
+            var bayFar = BayLanesOn ? CrossoverFarNodes(map, t) : null;
+            if ((!MitreFanOn || !ClustersOn) && (bayFar == null || bayFar.Count == 0)) return t;
             var force = new bool[map.nodes.Length];
+            if (bayFar != null) foreach (int f in bayFar) force[f] = true;
+            CrossoverFans = bayFar != null ? bayFar.Count : 0;
+            if (!MitreFanOn || !ClustersOn) return ComputeTrimsCore(map, force);
             var pairEdge = new bool[map.edges.Length];
             var buried = new HashSet<int>();
             var ringScratch = new List<FanCorner>(32);
@@ -1652,7 +1659,7 @@ namespace PSXRacing.City
                     break;
                 }
             }
-            if (MitreFanCount == 0) return t;
+            if (MitreFanCount == 0 && CrossoverFans == 0) return t;
             mitreFanEdge = pairEdge;
             return ComputeTrimsCore(map, force);
         }
@@ -1976,6 +1983,8 @@ namespace PSXRacing.City
             Debug.Log($"[city] line model eases built in {LineModel.BuildEasesMs:0.0} ms (PSX_CITY_SPLITAXIS {LineModel.SplitAxis}, LINEFIX {(LineModel.LineFixOn ? 1 : 0)}): joins {LineModel.PartJoinsMs:0}, refuges {LineModel.PartRefugesMs:0}, twins {LineModel.PartTwinsMs:0} ({LineModel.TightTwinPairs} pairs, {LineModel.TwinPruned} + {LineModel.TwinCoarsePruned} coarse pruned), splits {LineModel.PartSplitsMs:0}, meetings {LineModel.PartMeetingsMs:0} ms");
             // roads pass L5: the merge zones (aux lanes on the hosts, the ramps cut at N)
             BuildMergeZones(map, t);
+            // c7roads round 4: a laid bay that is not a zone is drawn as before
+            if (BayLanesOn && LineModel.Bays.Count > 0) { var zoned = new HashSet<int>(); foreach (var z in Zones) if (z.bay) zoned.Add(z.branch); LineModel.DropBaysWithoutZone(map, zoned); }
             // Five Points round 2: a branch whose drawn end stands past its host's edge gets a paved apron
             BuildBranchAprons(map, t);
             // Five Points round 6: a slip lane widened on the inside of its curve
@@ -2415,6 +2424,7 @@ namespace PSXRacing.City
             if (IslandSolidsOn) foreach (var _ in IslandSolids(map, trims, tm)) yield return 0;   // (c7roads) junction islands as closed solids in one paved surface (CityMeshes.IslandSolids.cs)
             FlushLotIslands(map, tm, min);   // leftover item 4: the lots' islands, tops and curbs
             EmitLotCurbs(map, tm, min);      // streets pass 4: the lots' own curbs
+            LaneClip(map, trims, min, max);   // (c7roads r3, R2) nothing raised or laid inside a lane (CityMeshes.LaneClip.cs)
             stepItem = 6;
             yield return 0;
             stepItem = 0;
@@ -11280,8 +11290,11 @@ namespace PSXRacing.City
                 float yA = BackArc(A, dA - L), yB = BackArc(B, dB - L);
                 float a0 = Mathf.Atan2(TA.y - C.y, TA.x - C.x), a1 = Mathf.Atan2(TB.y - C.y, TB.x - C.x);
                 float sweep = Mathf.DeltaAngle(a0 * Mathf.Rad2Deg, a1 * Mathf.Rad2Deg) * Mathf.Deg2Rad;
-                float step = 2f * Mathf.Acos(Mathf.Clamp01(1f - CurbSagM / rEff));
-                int pieces = Mathf.Clamp(Mathf.CeilToInt(Mathf.Abs(sweep) / Mathf.Max(step, 1e-3f)), 1, CurbMaxPieces);
+                float step = 2f * Mathf.Acos(Mathf.Clamp01(1f - (SmoothCurbOn ? SmoothCurbSagM : CurbSagM) / rEff));
+                // (c7roads round 4, owner 11-26 "everything angular"): at most 1 cm off the true arc, and from a 6 m radius
+                // up at most 6 degrees of turn at any joint
+                if (SmoothCurbOn && rEff >= 6f) step = Mathf.Min(step, SmoothCurbMaxTurnDeg * Mathf.Deg2Rad);
+                int pieces = Mathf.Clamp(Mathf.CeilToInt(Mathf.Abs(sweep) / Mathf.Max(step, 1e-3f)), 1, SmoothCurbOn ? SmoothCurbMaxPieces : CurbMaxPieces);
                 Add(TA, yA, A.edge, A.lateSide, false, true, true);
                 for (int k = 1; k < pieces; k++)
                 {
