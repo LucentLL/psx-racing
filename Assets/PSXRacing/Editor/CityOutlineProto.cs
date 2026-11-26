@@ -355,7 +355,186 @@ namespace PSXRacing.EditorTools
                 }
             return log;
         }
-        public const float LaneM = 3.66f, PaintedReachM = 40f;
+        public const float LaneM = 3.66f, PaintedReachM = 40f, SlipMaxM = 150f, SlipChainM = 120f, IslandRoundM = 0.6f, IslandMinM2 = 3f;
+        /// <summary>(round 5, 77) THE SLIP-ISLAND RULE: a one-way link (a slip) whose two ends each reach one junction
+        /// cluster along the roads (at most two edges, SlipChainM) cuts that junction's corner: its two end nodes and the
+        /// nodes on the way join the cluster, the slip becomes a link, and the land it cuts off becomes the cluster's
+        /// corner ISLAND (IslandHoles). Bounded by the slip's own length (SlipMaxM).</summary>
+        public static List<string> JoinSlips(CityMap map, Dictionary<int, List<int>> keys)
+        {
+            var log = new List<string>();
+            var keyOf = new Dictionary<int, int>();
+            foreach (var kv in keys) foreach (int n in kv.Value) keyOf[n] = kv.Key;
+            // nodes reachable from n along non-link edges, at most two edges and SlipChainM: node -> (distance, path nodes)
+            Dictionary<int, (float d, List<int> path)> Reach(int n)
+            {
+                var o = new Dictionary<int, (float, List<int>)> { [n] = (0f, new List<int> { n }) };
+                var frontier = new List<int> { n };
+                for (int depth = 0; depth < 2; depth++)
+                {
+                    var next = new List<int>();
+                    foreach (int u in frontier)
+                        foreach (int ei in map.nodeEdges[u])
+                        {
+                            var e = map.edges[ei]; if (e.link || e.a == e.b) continue;
+                            int v = e.a == u ? e.b : e.a; float d = o[u].Item1 + e.length;
+                            if (d > SlipChainM || o.ContainsKey(v)) continue;
+                            o[v] = (d, new List<int>(o[u].Item2) { v }); next.Add(v);
+                        }
+                    frontier = next;
+                }
+                return o;
+            }
+            for (int si = 0; si < map.edges.Length; si++)
+            {
+                var sl = map.edges[si];
+                if (!sl.link || !sl.oneway || sl.a == sl.b || sl.length > SlipMaxM) continue;
+                if (keyOf.TryGetValue(sl.a, out int ka0) && keyOf.TryGetValue(sl.b, out int kb0) && ka0 == kb0) continue;
+                var ra = Reach(sl.a); var rb = Reach(sl.b);
+                int best = -1; float bestD = float.MaxValue; List<int> pa = null, pb = null;
+                foreach (var kv in ra)
+                {
+                    if (!keyOf.TryGetValue(kv.Key, out int k) || keys[k].Count == 0) continue;
+                    if (!keys.ContainsKey(k)) continue;
+                    foreach (int m in keys[k])
+                        if (rb.TryGetValue(m, out var vb))
+                        {
+                            float d = kv.Value.d + vb.d;
+                            if (d < bestD) { bestD = d; best = k; pa = kv.Value.path; pb = vb.path; }
+                        }
+                }
+                if (best < 0) continue;
+                // the corner must be a real one: the slip leaves one road and joins another (not a bay along one road)
+                string roadA = null, roadB = null;
+                foreach (int ei in map.nodeEdges[sl.a]) { var e = map.edges[ei]; if (!e.link) roadA = e.name; }
+                foreach (int ei in map.nodeEdges[sl.b]) { var e = map.edges[ei]; if (!e.link) roadB = e.name; }
+                if (roadA == null || roadB == null || roadA == roadB) continue;
+                var add = new HashSet<int>(pa); add.UnionWith(pb);
+                foreach (int n in add)
+                {
+                    if (keyOf.TryGetValue(n, out int kn) && kn != best && keys.ContainsKey(kn))
+                    { foreach (int x in keys[kn]) { if (!keys[best].Contains(x)) keys[best].Add(x); keyOf[x] = best; } keys.Remove(kn); }
+                    else if (!keyOf.ContainsKey(n)) { keys[best].Add(n); keyOf[n] = best; }
+                }
+                log.Add($"slip e{si} (n{sl.a} -> n{sl.b}, {sl.length:0} m, {roadA} -> {roadB}): JOINED its corner's junction (roads {bestD:0} m to its ends)");
+            }
+            return log;
+        }
+
+        /// <summary>The corner ISLANDS of a cluster: every face of the cluster's own edges (links) that no road covers -
+        /// sampled every 0.25 m, the uncovered cells opened by IslandRoundM (rounded corners), traced - in the cluster's
+        /// frame. Under IslandMinM2 an island is paint, not kerb, and is left out.</summary>
+        public static List<List<Vector2>> IslandHoles(CityMap map, HashSet<int> cluster, Vector2 origin, List<string> log = null)
+        {
+            var holes = new List<List<Vector2>>();
+            var inner = new List<CityMap.Edge>();
+            foreach (int n in cluster) foreach (int ei in map.nodeEdges[n]) { var e = map.edges[ei]; if (e.a != e.b && cluster.Contains(e.a) && cluster.Contains(e.b) && !inner.Contains(e)) inner.Add(e); }
+            if (inner.Count < 3) return holes;
+            // the edges' ribbons, every 0.5 m: centre, left / right extents
+            var near = new List<CityMap.Edge>(inner);
+            foreach (int n in cluster) foreach (int ei in map.nodeEdges[n]) if (!near.Contains(map.edges[ei])) near.Add(map.edges[ei]);
+            var min = new Vector2(float.MaxValue, float.MaxValue); var max = -min;
+            foreach (var e in inner) foreach (var q in e.pts) { min = Vector2.Min(min, q); max = Vector2.Max(max, q); }
+            const float cell = 0.25f;
+            int nx = Mathf.CeilToInt((max.x - min.x) / cell) + 1, ny = Mathf.CeilToInt((max.y - min.y) / cell) + 1;
+            if (nx * ny > 4000000) return holes;
+            var road = new bool[nx, ny];
+            foreach (var e in near)
+                for (float d = 0f; d <= e.length; d += 0.25f)
+                {
+                    var t = e.TangentAt(d); var left = new Vector2(-t.y, t.x);
+                    LineModel.Extents(e, d, out float eM, out float eP);
+                    var c = e.PointAt(d);
+                    for (float w = -eM; w <= eP; w += 0.2f)
+                    {
+                        var q = c + left * w; int ix = Mathf.RoundToInt((q.x - min.x) / cell), iy = Mathf.RoundToInt((q.y - min.y) / cell);
+                        for (int dx = -1; dx <= 1; dx++) for (int dy = -1; dy <= 1; dy++) { int x = ix + dx, y = iy + dy; if (x >= 0 && y >= 0 && x < nx && y < ny) road[x, y] = true; }
+                    }
+                }
+            // land cells: inside the bounding area of the inner edges and not road; components not touching the border
+            var land = new bool[nx, ny];
+            for (int x = 0; x < nx; x++) for (int y = 0; y < ny; y++) land[x, y] = !road[x, y];
+            // open by IslandRoundM: erode then dilate (rounded corners, slivers gone)
+            int rc = Mathf.RoundToInt(IslandRoundM / cell);
+            land = Morph(land, nx, ny, rc, false); land = Morph(land, nx, ny, rc, true);
+            var seen = new bool[nx, ny];
+            for (int x0 = 0; x0 < nx; x0++)
+                for (int y0 = 0; y0 < ny; y0++)
+                {
+                    if (!land[x0, y0] || seen[x0, y0]) continue;
+                    var comp = new List<(int, int)>(); var st = new Stack<(int, int)>(); st.Push((x0, y0)); seen[x0, y0] = true; bool edge = false;
+                    while (st.Count > 0)
+                    {
+                        var (x, y) = st.Pop(); comp.Add((x, y));
+                        if (x == 0 || y == 0 || x == nx - 1 || y == ny - 1) edge = true;
+                        foreach (var (ddx, ddy) in new[] { (1, 0), (-1, 0), (0, 1), (0, -1) })
+                        { int u = x + ddx, v = y + ddy; if (u >= 0 && v >= 0 && u < nx && v < ny && land[u, v] && !seen[u, v]) { seen[u, v] = true; st.Push((u, v)); } }
+                    }
+                    if (edge) continue;   // land reaching the box's edge is the outside, not an island
+                    float area = comp.Count * cell * cell;
+                    if (area < IslandMinM2) { log?.Add($"island of {area:0.0} m2 at {min + new Vector2(x0, y0) * cell}: under {IslandMinM2} m2, paint"); continue; }
+                    var ring = Trace(land, nx, ny, comp, min, cell);
+                    if (ring.Count < 4) continue;
+                    for (int i = 0; i < ring.Count; i++) ring[i] -= origin;
+                    holes.Add(ring);
+                    log?.Add($"island of {area:0.0} m2, {ring.Count} points");
+                }
+            return holes;
+        }
+        static bool[,] Morph(bool[,] g, int nx, int ny, int r, bool dilate)
+        {
+            var o = new bool[nx, ny];
+            for (int x = 0; x < nx; x++)
+                for (int y = 0; y < ny; y++)
+                {
+                    bool any = false, all = true;
+                    for (int dx = -r; dx <= r && (dilate ? !any : all); dx++)
+                        for (int dy = -r; dy <= r; dy++)
+                        {
+                            if (dx * dx + dy * dy > r * r) continue;
+                            int u = x + dx, v = y + dy; bool val = u >= 0 && v >= 0 && u < nx && v < ny && g[u, v];
+                            if (val) any = true; else all = false;
+                        }
+                    o[x, y] = dilate ? any : all;
+                }
+            return o;
+        }
+        /// <summary>The outer boundary of a cell component (a square tracer on cell corners), smoothed and every 0.5 m.</summary>
+        static List<Vector2> Trace(bool[,] g, int nx, int ny, List<(int, int)> comp, Vector2 min, float cell)
+        {
+            var set = new HashSet<(int, int)>(comp);
+            bool In(int x, int y) => set.Contains((x, y));
+            // boundary edges between a component cell and a non-component cell, oriented with the cell on the left
+            var next = new Dictionary<(int, int), (int, int)>();
+            foreach (var (x, y) in comp)
+            {
+                if (!In(x, y - 1)) next[(x, y)] = (x + 1, y);
+                if (!In(x + 1, y)) next[(x + 1, y)] = (x + 1, y + 1);
+                if (!In(x, y + 1)) next[(x + 1, y + 1)] = (x, y + 1);
+                if (!In(x - 1, y)) next[(x, y + 1)] = (x, y);
+            }
+            // the longest loop
+            var used = new HashSet<(int, int)>(); List<(int, int)> bestLoop = null;
+            foreach (var st in next.Keys)
+            {
+                if (used.Contains(st)) continue;
+                var loop = new List<(int, int)>(); var cur = st;
+                while (!used.Contains(cur) && next.ContainsKey(cur)) { used.Add(cur); loop.Add(cur); cur = next[cur]; }
+                if (bestLoop == null || loop.Count > bestLoop.Count) bestLoop = loop;
+            }
+            var pts = new List<Vector2>();
+            foreach (var (x, y) in bestLoop) pts.Add(min + new Vector2(x - 0.5f, y - 0.5f) * cell);
+            // smooth the staircase (Laplacian, 6 rounds), then every 0.5 m
+            for (int it = 0; it < 6; it++)
+            {
+                var cp = new List<Vector2>(pts);
+                for (int i = 0; i < pts.Count; i++) pts[i] = 0.5f * cp[i] + 0.25f * (cp[(i - 1 + cp.Count) % cp.Count] + cp[(i + 1) % cp.Count]);
+            }
+            var closed = new List<Vector2>(pts) { pts[0] };
+            var o = JunctionOutline.Resample(closed, 0.5f);
+            if (o.Count > 1 && (o[0] - o[o.Count - 1]).sqrMagnitude < 0.04f) o.RemoveAt(o.Count - 1);
+            return o;
+        }
         /// <summary>(round 5, 81) THE PAINTED-GORE RULE: a split (one way in, two out) whose two branches are drawn
         /// OVERLAPPING at the split (5 m out their centres are closer than their half widths less 0.5 m: one paved
         /// approach, the gore painted) joins the junction one branch reaches within PaintedReachM: the gore is paint to
@@ -488,7 +667,7 @@ namespace PSXRacing.EditorTools
 
         /// <summary>A cluster's plain inputs as a fixture (JunctionOutlineTests reads them), coordinates about the cluster's
         /// first node, centimetres.</summary>
-        public static string FixtureText(string name, string kind, Vector2 origin, List<JunctionOutline.Arm> arms, List<JunctionOutline.Link> links)
+        public static string FixtureText(string name, string kind, Vector2 origin, List<JunctionOutline.Arm> arms, List<JunctionOutline.Link> links, List<List<Vector2>> holes = null)
         {
             var inv = CultureInfo.InvariantCulture;
             var sb = new StringBuilder();
@@ -501,6 +680,7 @@ namespace PSXRacing.EditorTools
                 sb.Append("Y " + string.Join(" ", a.Y.Select(y => y.ToString("0.000", inv))) + "\n");
             }
             foreach (var l in links) sb.Append($"link {l.id}\nL " + P(l.L) + "\nR " + P(l.R) + "\n");
+            if (holes != null) foreach (var h in holes) sb.Append("hole " + P(h) + "\n");
             return sb.ToString();
         }
 
@@ -548,6 +728,7 @@ namespace PSXRacing.EditorTools
                 var sw = System.Diagnostics.Stopwatch.StartNew();
                 var joins = JoinOpenings(map, keys);
                 joins.AddRange(JoinPaintedSplits(map, keys));
+                joins.AddRange(JoinSlips(map, keys));
                 double joinMs = sw.Elapsed.TotalMilliseconds;
                 int joined = joins.Count(x => x.Contains("JOINED"));
                 string[] order = { "median opening", "split of one road", "skew crossing", "ramp / link fork", "slip lane", "crossing corner", "T corner", "bend" };
@@ -570,8 +751,9 @@ namespace PSXRacing.EditorTools
                     if (arms.Count < 3 && links.Count == 0) continue;   // a bend or dead end: no junction outline
                     var rawArms = arms.ConvertAll(x => new JunctionOutline.Arm { id = x.id, oneway = x.oneway, radius = x.radius, name = x.name, L = new List<Vector2>(x.L), R = new List<Vector2>(x.R), C = new List<Vector2>(x.C), Y = new List<float>(x.Y) });
                     var rawLinks = links.ConvertAll(x => new JunctionOutline.Link { id = x.id, L = new List<Vector2>(x.L), R = new List<Vector2>(x.R) });
+                    var holes = cluster.Count >= 3 ? IslandHoles(map, cluster, origin) : new List<List<Vector2>>();
                     JunctionOutline.MergeBays(arms, links);
-                    var r = JunctionOutline.Solve(arms, null, links);
+                    var r = JunctionOutline.Solve(arms, holes, links);
                     string res, detail;
                     if (r.refused != null) { res = "refused"; detail = r.refused; }
                     else
@@ -591,7 +773,7 @@ namespace PSXRacing.EditorTools
                     foreach (int n in cluster)
                         if (want.TryGetValue(n, out var fnames))
                             foreach (var fname in fnames)
-                            File.WriteAllText(Path.Combine(fixDir, fname + ".txt"), FixtureText(fname, kind + " | " + res + ": " + (detail ?? ""), Vector2.zero, rawArms, rawLinks).Replace("origin 0.00 0.00", "origin " + origin.x.ToString("0.00", inv) + " " + origin.y.ToString("0.00", inv)));
+                            File.WriteAllText(Path.Combine(fixDir, fname + ".txt"), FixtureText(fname, kind + " | " + res + ": " + (detail ?? ""), Vector2.zero, rawArms, rawLinks, holes).Replace("origin 0.00 0.00", "origin " + origin.x.ToString("0.00", inv) + " " + origin.y.ToString("0.00", inv)));
                 }
                 int[] tot = new int[4]; foreach (var c4 in tally.Values) for (int i = 0; i < 4; i++) tot[i] += c4[i];
                 log.Append($"{tot.Sum()} junction clusters (3+ arms or a link) solved in {sw.Elapsed.TotalSeconds:0.0} s ({joinMs / 1000.0:0.0} s the opening rule, {joined} openings joined): " +

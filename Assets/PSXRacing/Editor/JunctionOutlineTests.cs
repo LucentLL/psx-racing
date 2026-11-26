@@ -319,9 +319,10 @@ namespace PSXRacing.EditorTools
 
         // ---------------- REAL junctions (fixtures written by CityOutlineProto.RunCity) ----------------
         /// <summary>A fixture: the plain solver inputs of one real cluster (arms, links), about its first node.</summary>
-        public static bool LoadFixture(string path, out string kind, out List<JunctionOutline.Arm> arms, out List<JunctionOutline.Link> links)
+        public static bool LoadFixture(string path, out string kind, out List<JunctionOutline.Arm> arms, out List<JunctionOutline.Link> links) => LoadFixture(path, out kind, out arms, out links, out _);
+        public static bool LoadFixture(string path, out string kind, out List<JunctionOutline.Arm> arms, out List<JunctionOutline.Link> links, out List<List<Vector2>> holes)
         {
-            kind = ""; arms = new List<JunctionOutline.Arm>(); links = new List<JunctionOutline.Link>();
+            kind = ""; arms = new List<JunctionOutline.Arm>(); links = new List<JunctionOutline.Link>(); holes = new List<List<Vector2>>();
             var inv = System.Globalization.CultureInfo.InvariantCulture;
             JunctionOutline.Arm arm = null; JunctionOutline.Link link = null;
             List<Vector2> Pts(string l)
@@ -339,6 +340,7 @@ namespace PSXRacing.EditorTools
                     arm = new JunctionOutline.Arm { id = int.Parse(t[1]), oneway = t[2] == "1", radius = float.Parse(t[3], inv), name = t.Length > 4 ? t[4] : "", Y = new List<float>() };
                     arms.Add(arm); link = null;
                 }
+                else if (line.StartsWith("hole ")) holes.Add(Pts("x " + line.Substring(5)));
                 else if (line.StartsWith("link ")) { link = new JunctionOutline.Link { id = int.Parse(line.Substring(5)) }; links.Add(link); arm = null; }
                 else if (line.StartsWith("L ")) { if (arm != null) arm.L = Pts(line); else if (link != null) link.L = Pts(line); }
                 else if (line.StartsWith("R ")) { if (arm != null) arm.R = Pts(line); else if (link != null) link.R = Pts(line); }
@@ -357,12 +359,12 @@ namespace PSXRacing.EditorTools
             foreach (var f in System.IO.Directory.GetFiles(FixtureDir, "*.txt"))
             {
                 n++;
-                if (!LoadFixture(f, out string kind, out var arms, out var links)) { fail++; continue; }
+                if (!LoadFixture(f, out string kind, out var arms, out var links, out var holes)) { fail++; continue; }
                 var merges = JunctionOutline.MergeBays(arms, links);
-                var r = JunctionOutline.Solve(arms, null, links);
+                var r = JunctionOutline.Solve(arms, holes, links);
                 string why = Check(r, 0.5f);
                 string name = System.IO.Path.GetFileNameWithoutExtension(f);
-                Note(r, $"real {name} ({kind.Split('|')[0].Trim()}; {arms.Count} arms, {links.Count} links{(merges.Count > 0 ? ", " + merges.Count + " bays merged" : "")})", why);
+                Note(r, $"real {name} ({kind.Split('|')[0].Trim()}; {arms.Count} arms, {links.Count} links{(holes.Count > 0 ? ", " + holes.Count + " islands" : "")}{(merges.Count > 0 ? ", " + merges.Count + " bays merged" : "")})", why);
                 if (why != null) { fail++; if (first.Length == 0) first = name + ": " + why; }
             }
             Assert.AreEqual(0, fail, $"{fail} of {n} real junctions fail; first {first}");
