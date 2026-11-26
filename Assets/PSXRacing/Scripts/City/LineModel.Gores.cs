@@ -135,10 +135,10 @@ namespace PSXRacing.City
         //  (a sampled shift toward the host: the gap less BayInsetM, so the merge zone reads it as inside the host
         //  and carries it as the host's aux lane) from where it leaves the through lanes to the TURN POINT, then
         //  ease back onto its own line over the crossing run (BayCrossK x the lateral move, at least
-        //  BayCrossFloorM) to its end node. The merge zone (CityMeshes.Merge) then cuts the link's ribbon to the
+        //  BayCrossFloorM; round 4: 0.8, a compact opening, was 1.6) to its end node. The merge zone (CityMeshes.Merge) then cuts the link's ribbon to the
         //  nose at the turn point and widens the host there: no ribbon, verge or land of the link along the bay.
         // ------------------------------------------------------------------
-        public const float BayMedianSeekM = 40f, BayLenMaxM = 250f, BayCorridorM = 20f, BayShareMin = 0.6f, BayInsetM = 0.3f, BayCrossK = 1.6f, BayCrossFloorM = 15f;
+        public const float BayMedianSeekM = 40f, BayLenMaxM = 250f, BayCorridorM = 20f, BayShareMin = 0.6f, BayInsetM = 0.3f, BayCrossK = 0.8f, BayCrossFloorM = 15f;
         public sealed class Bay { public int node, branch, host; public float wayLen, turnAt, gapEnd, inside; public bool median; }
         public static readonly List<Bay> Bays = new List<Bay>();
         static readonly HashSet<int> bayEdges = new HashSet<int>();

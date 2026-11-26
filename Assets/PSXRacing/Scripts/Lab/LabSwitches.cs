@@ -258,6 +258,12 @@ namespace PSXRacing
             });
             Register(new LabRow
             {
+                id = "baymedian", group = LabGroup.World, name = "CONCRETE MEDIAN AT BAYS", when = LabWhen.BuiltIn,
+                look = "Built into the city tiles: the raised median beside a turn bay is concrete over its whole run (no grass and concrete patches). A city bake.",
+                env = new[] { "PSX_CITY_BAYMEDIAN" }, requires = "CityMeshes.BayMedianOn",
+            });
+            Register(new LabRow
+            {
                 id = "goresplit", group = LabGroup.World, name = "SPLITS SHARE ONE EDGE", when = LabWhen.BuiltIn,
                 look = "Opt-in (PSX_CITY_GORESPLIT=1), built into the city tiles: two roads leaving a node on the same side no longer overlap. Off by default: worse than the base on the line gate. A city bake.",
                 env = new[] { "PSX_CITY_GORESPLIT" }, requires = "LineModel.GoreSplitOn",

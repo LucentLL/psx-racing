@@ -81,5 +81,28 @@ namespace PSXRacing.City
             }
             return false;
         }
+
+        // ------------------------------------------------------------------
+        //  A2 (the median along a bay): where a carriageway carries a bay's aux lane (or its twin does, across the
+        //  median), the curbed median's top is CONCRETE over the whole run (CityMeshes.MedianDress: a turn bay is
+        //  cut into a raised concrete median), so the two halves of the island agree and its outline does not
+        //  step between concrete and grass span by span (the round-3 frames' staircase at 80 / 79).
+        //  PSX_CITY_BAYMEDIAN=0: the median dress as before.
+        // ------------------------------------------------------------------
+        public static bool BayMedianOn = System.Environment.GetEnvironmentVariable("PSX_CITY_BAYMEDIAN") != "0";
+        static readonly HashSet<int> bayZoneIds = new HashSet<int>();
+        static int bayZoneIdsFor = -1;
+        /// <summary>Does a bay zone's aux lane (over 0.5 m wide) run on this edge at s?</summary>
+        static bool BayAuxAt(CityMap.Edge e, float s)
+        {
+            if (!BayMedianOn || !BayLanesOn || e == null) return false;
+            var ez = e.lmEase;
+            if (ez == null) return false;
+            if (bayZoneIdsFor != Zones.Count) { bayZoneIds.Clear(); foreach (var z in Zones) if (z.bay) bayZoneIds.Add(z.id); bayZoneIdsFor = Zones.Count; }
+            if (bayZoneIds.Count == 0) return false;
+            for (int i = 0; i < ez.Length; i++)
+                if (ez[i].aux && bayZoneIds.Contains(ez[i].auxZone) && LineModel.AuxAt(e, ez[i], s) > 0.5f) return true;
+            return false;
+        }
     }
 }
