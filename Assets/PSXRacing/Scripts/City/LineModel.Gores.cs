@@ -25,13 +25,14 @@ namespace PSXRacing.City
     /// the nose the land between is PAVEMENT (CityMeshes.GoreFill: a gore at road height in the arm's own road
     /// slot and texture frame); past it the land is what it was.
     ///
-    /// PSX_CITY_GORESPLIT=0: no pair is touched (the tiles exactly as before).
+    /// PSX_CITY_GORESPLIT=1 turns R1 on; it is OFF by default (it failed the line gate). R0 (the bays) runs either way.
     /// Not touched: the SPLT carriageway splits and refuge nodes (their own profiles), two two-way arms (a Y
     /// junction: a fan), decks and tunnels, an arm pair that are each other's mitre partners (a bend).
     /// </summary>
     public static partial class LineModel
     {
-        public static bool GoreSplitOn = System.Environment.GetEnvironmentVariable("PSX_CITY_GORESPLIT") != "0";
+        /// <summary>Opt-in (=1): measured city-wide it moves too many lanes (line gate SHIFT +619, SJOG +156, STEP +48, MEDIAN +4 at 8265a347).</summary>
+        public static bool GoreSplitOn = System.Environment.GetEnvironmentVariable("PSX_CITY_GORESPLIT") == "1";
         public const float GoreMaxDeg = 60f, GoreNoseM = SplitIslandGapM, GoreLaneMarginM = 0.15f, GoreChordM = 10f, GoreReachM = 70f;
         static readonly float[] GoreLenSteps = { 6f, 8f, 10f, 12f, 15f, 18f, 22f, 26f, 30f, 36f, 42f, 50f, 60f, 70f, 85f, 100f };
 
