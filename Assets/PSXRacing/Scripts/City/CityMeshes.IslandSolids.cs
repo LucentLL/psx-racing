@@ -48,13 +48,13 @@ namespace PSXRacing.City
     //       the island is a real one.
     //  An island that crosses a tile's border keeps the old look (counted:
     //  IslandSkippedBorder), as does land too big or too wide to be one.
-    //  OPT-IN: PSX_CITY_ISLANDSOLID=1 (the gates rose with it on; see HANDOFF.md c7roads); unset or =0: the tile as before.
+    //  PSX_CITY_ISLANDSOLID=0: the tile as before (round 1 had it opt-in; round 2 traces from the travelled way).
     // ======================================================================
     public static partial class CityMeshes
     {
-        /// <summary>OPT-IN (=1) after the c7roads gates: the line gate's MEDIAN class rose 76 -> 624 places and the island
-        /// gate's SEETHRU / LINEUNDER rose with it on (HANDOFF.md, c7roads). Not proven: off by default.</summary>
-        public static bool IslandSolidsOn = System.Environment.GetEnvironmentVariable("PSX_CITY_ISLANDSOLID") == "1";
+        /// <summary>Round 2: default ON again (=0: the tiles as before); the islands are traced from the line
+        /// model's travelled way (IsRasterBands), not the drawn pavement.</summary>
+        public static bool IslandSolidsOn = System.Environment.GetEnvironmentVariable("PSX_CITY_ISLANDSOLID") != "0";
 
         const float IsCell = 0.5f;
         const float IsMargin = 8f;
@@ -93,6 +93,7 @@ namespace PSXRacing.City
         static bool[] isBand;      // inside some road's lanes (its ribbon less its shoulders)
         static int[] isBandEdge;   // ... whose (the last one drawn)
         static bool[] isBandUp;    // under a deck's or a tunnel's lanes, or an elevated section's: never island, never paved
+        static bool[] isKnife;     // the knife where two roads part (paved gore)
         static bool[] isNearJ;     // within IslandLaneTipNodeM of a node where three or more roads meet (a split, a junction)
         static float[] isNearY;    // the nearest pavement's height, land only
         static int[] isComp;       // component id of land cells
@@ -105,12 +106,13 @@ namespace PSXRacing.City
         static IEnumerable<int> IslandSolids(CityMap map, Trims trims, TileMeshes tm)
         {
             int N = IsN, NN = N * N;
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             if (isY == null || isY.Length != NN)
             {
-                isY = new float[NN]; isSlot = new short[NN]; isDist = new int[NN]; isDist2 = new int[NN]; isBand = new bool[NN]; isBandEdge = new int[NN]; isBandUp = new bool[NN]; isNearJ = new bool[NN]; isNearY = new float[NN]; isComp = new int[NN]; isFlag = new byte[NN];
+                isY = new float[NN]; isSlot = new short[NN]; isDist = new int[NN]; isDist2 = new int[NN]; isBand = new bool[NN]; isBandEdge = new int[NN]; isBandUp = new bool[NN]; isKnife = new bool[NN]; isNearJ = new bool[NN]; isNearY = new float[NN]; isComp = new int[NN]; isFlag = new byte[NN];
             }
             isGone.Clear();
-            for (int k = 0; k < NN; k++) { isY[k] = float.NaN; isSlot[k] = -1; isComp[k] = -1; isFlag[k] = 0; isDist[k] = int.MaxValue; isBand[k] = false; isBandEdge[k] = -1; isBandUp[k] = false; isNearJ[k] = false; }
+            for (int k = 0; k < NN; k++) { isY[k] = float.NaN; isSlot[k] = -1; isComp[k] = -1; isFlag[k] = 0; isDist[k] = int.MaxValue; isBand[k] = false; isBandEdge[k] = -1; isBandUp[k] = false; isKnife[k] = false; isNearJ[k] = false; }
             // ---- the drawn pavement ----------------------------------------------------------------
             bool any = false;
             for (int s = 0; s < buckets.Length; s++)
@@ -122,17 +124,24 @@ namespace PSXRacing.City
                 IsRasterPave(bk, bk.t, s);
                 if (bk.tn != null) IsRasterPave(bk, bk.tn, s);
             }
+            IslandMs[0] += sw.Elapsed.TotalMilliseconds; sw.Restart();
             if (!any) yield break;
             yield return 0;
+            sw.Restart();
             // ---- 1. overlays: nothing is laid on the pavement ---------------------------------------
             foreach (var bk in IslandSheetBuckets()) IsDropOverlays(bk);
+            IslandMs[1] += sw.Elapsed.TotalMilliseconds;
             yield return 0;
+            sw.Restart();
             // ---- the lanes: every grounded road's ribbon less its shoulders, as designed -----------------
             // (a branch clipped against its host, a sliver at a split node: where the drawn pavement stops short
             // of a lane, the lane still runs there - no island may stand in it)
             IsRasterBands(map, trims, tm.origin);
             IsMarkJunctions(map, tm.origin);
+            IsBuildingMask();
+            IslandMs[2] += sw.Elapsed.TotalMilliseconds;
             yield return 0;
+            sw.Restart();
             // ---- distance (chamfer 10 / 14 a cell) and the nearest pavement's height into the land ----
             for (int k = 0; k < NN; k++)
             {
@@ -172,7 +181,9 @@ namespace PSXRacing.City
                     if (i + 1 < N) IsRelax2(k, k + 1, 10);
                     if (j + 1 < N) { IsRelax2(k, k + N, 10); if (i + 1 < N) IsRelax2(k, k + N + 1, 14); if (i > 0) IsRelax2(k, k + N - 1, 14); }
                 }
+            IslandMs[3] += sw.Elapsed.TotalMilliseconds;
             yield return 0;
+            sw.Restart();
             // ---- 2. the land's components -------------------------------------------------------------
             var o = tm.origin;
             int comp = 0;
@@ -236,11 +247,18 @@ namespace PSXRacing.City
                 // grow the core back over tip cells within tipCells of it (an opening)
                 IsGrowCore(cells, growCells);
                 IsEmitComponent(map, tm, cells, o);
+                IslandMs[4] += sw.Elapsed.TotalMilliseconds;
                 yield return 0;
+                sw.Restart();
             }
+            IslandMs[4] += sw.Elapsed.TotalMilliseconds; sw.Restart();
             if (isTipsPending) { isTipsPending = false; foreach (var bk in IslandSheetBuckets()) IsDropCells(bk); }
             IsDropOrphans();
+            IslandMs[5] += sw.Elapsed.TotalMilliseconds;
         }
+        /// <summary>Milliseconds by part, summed over builds: raster, overlays, bands+knives+marks, distances,
+        /// components+islands, tips+orphans (the cost split).</summary>
+        public static readonly double[] IslandMs = new double[6];
 
         /// <summary>Beside a junction or split node, a lane's band on land this near the drawn pavement is
         /// paved whatever land it is part of (the knife edge where two roads part, a branch's lane its
@@ -277,8 +295,8 @@ namespace PSXRacing.City
             int n = 0;
             foreach (int k in cells)
             {
-                if (!isNearJ[k]) continue;
-                bool lane = isBand[k] && isDist[k] <= lim;
+                if (!isNearJ[k] && !isKnife[k]) continue;
+                bool lane = isBand[k] && (isDist[k] <= lim || isKnife[k]);
                 // the KNIFE where two roads part (or join): land thinner than a nose with no wider land beside it,
                 // between the lanes of two roads that leave one node within 60 degrees of each other - pavement,
                 // the nose starts where the island is a real one (a narrow median between OPPOSING carriageways stays)
@@ -364,18 +382,27 @@ namespace PSXRacing.City
             return false;
         }
 
+        /// <summary>The island's curb stands this far outside the travelled way's own edge, past the road's
+        /// shoulder (e.shl / e.shr, 0.3 m on the city's streets: the drawn pavement edge where a curbed street's
+        /// curb stands): the line gate fails a curb more than CurbInLaneM (0.15 m) inside an edge line.</summary>
+        public const float IslandCurbMarginM = 0.15f;
+        static readonly HashSet<int> isSegs = new HashSet<int>();
+        static readonly HashSet<int> isEdgesNear = new HashSet<int>();
+
         static void IsRasterBands(CityMap map, Trims trims, Vector3 o)
         {
             float x0 = o.x - IsMargin, z0 = o.z - IsMargin, x1 = o.x + TileSize + IsMargin, z1 = o.z + TileSize + IsMargin;
-            foreach (var e in map.edges)
+            isSegs.Clear(); isEdgesNear.Clear();
+            map.EdgeSegsInRect(new Vector2(x0 - 30f, z0 - 30f), new Vector2(x1 + 30f, z1 + 30f), isSegs);
+            foreach (int packed in isSegs) isEdgesNear.Add(packed >> 12);
+            foreach (int ei in isEdgesNear)
             {
+                var e = map.edges[ei];
                 if (e.pts == null || e.pts.Length < 2 || e.a == e.b) continue;
                 bool up = e.bridge || e.tunnel;
-                float bx0 = float.MaxValue, bz0 = float.MaxValue, bx1 = float.MinValue, bz1 = float.MinValue;
-                foreach (var q in e.pts) { bx0 = Mathf.Min(bx0, q.x); bz0 = Mathf.Min(bz0, q.y); bx1 = Mathf.Max(bx1, q.x); bz1 = Mathf.Max(bz1, q.y); }
                 float pad = e.HalfMax + 2f;
-                if (bx1 + pad < x0 || bx0 - pad > x1 || bz1 + pad < z0 || bz0 - pad > z1) continue;
-                // the ribbon's own run, not inside a fan (a junction's corners are the fan's)
+                // the ribbon's own run, not inside a fan (a junction's corners are the fan's), except where the roads
+                // part (a split, a branch): there the lanes run on to the node as drawn
                 float sA = trims != null && trims.atA != null && trims.patch != null && trims.patch[e.a] && !IsParting(map, e, e.a) ? trims.atA[e.index] : 0f;
                 float sB = trims != null && trims.atB != null && trims.patch != null && trims.patch[e.b] && !IsParting(map, e, e.b) ? e.length - trims.atB[e.index] : e.length;
                 for (float sv = sA; sv <= sB; sv += 0.4f)
@@ -385,17 +412,103 @@ namespace PSXRacing.City
                     bool upHere = up || e.ElevatedAt(sv);
                     LineModel.Extents(e, sv, out float eM, out float eP);
                     var tg = e.TangentAt(sv); var left = new Vector2(-tg.y, tg.x);
-                    float lo = -(eM - e.shr), hi = eP - e.shl;
-                    for (float l = lo; l <= hi; l += 0.35f)
+                    float lo = -eM - IslandCurbMarginM, hi = eP + IslandCurbMarginM;
+                    for (float l = lo; l <= hi + 0.01f; l += 0.35f)
                     {
-                        var q = pt + left * l;
+                        var q = pt + left * Mathf.Min(l, hi);
                         if (!IsCellAt(q.x - o.x, q.y - o.z, out int k)) continue;
                         if (upHere) { isBandUp[k] = true; continue; }
                         isBand[k] = true; isBandEdge[k] = e.index;
                     }
                 }
             }
+            IsRasterKnives(map, o);
         }
+
+        // ---- B. every split: the knife between two roads that part is paved until it is nose-wide -----------
+        /// <summary>A raised island's nose is at least this wide (AASHTO Green Book 9.6.3: a curbed island's
+        /// approach nose 2-4 ft; the city takes 1.2 m, the island pass's own minimum).</summary>
+        public static int IslandKnifePairs;
+
+        static void IsRasterKnives(CityMap map, Vector3 o)
+        {
+            float x0 = o.x - IsMargin - 40f, z0 = o.z - IsMargin - 40f, x1 = o.x + TileSize + IsMargin + 40f, z1 = o.z + TileSize + IsMargin + 40f;
+            var arms = new List<int>(8);
+            for (int n = 0; n < map.nodes.Length; n++)
+            {
+                var np = map.nodes[n];
+                if (np.x < x0 || np.x > x1 || np.y < z0 || np.y > z1) continue;
+                var ne = map.nodeEdges[n];
+                if (ne == null || ne.Count < 3) continue;
+                arms.Clear();
+                foreach (int ei in ne) { var E = map.edges[ei]; if (E.a != E.b && !E.bridge && !E.tunnel) arms.Add(ei); }
+                for (int i = 0; i < arms.Count; i++)
+                    for (int j = i + 1; j < arms.Count; j++)
+                    {
+                        var A = map.edges[arms[i]]; var B = map.edges[arms[j]];
+                        var dA = A.a == n ? A.TangentAt(0f) : -A.TangentAt(A.length);
+                        var dB = B.a == n ? B.TangentAt(0f) : -B.TangentAt(B.length);
+                        if (Vector2.Angle(dA, dB) > 60f) continue;
+                        // two carriageways of one road running opposite ways part at a split node: their median's nose
+                        // is the median's (CurbMedian); this is for roads that part the same way
+                        bool aOut = !A.oneway || A.a == n, bOut = !B.oneway || B.a == n;
+                        if (aOut != bOut && A.oneway && B.oneway) continue;
+                        IsKnife(A, B, n, dA, dB, o);
+                    }
+            }
+        }
+
+        /// <summary>The facing pavement edges of A and B (grown by the curb margin) from the node out; the strip
+        /// between them is marked as lane (paved) while it is narrower than a nose.</summary>
+        static void IsKnife(CityMap.Edge A, CityMap.Edge B, int n, Vector2 dA, Vector2 dB, Vector3 o)
+        {
+            float cross = dA.x * dB.y - dA.y * dB.x;     // > 0: B lies left of A's outward direction
+            Vector2 prevA = Vector2.zero, prevB = Vector2.zero; bool havePrev = false;
+            float lim = Mathf.Min(60f, Mathf.Min(A.length, B.length));
+            int nb = Mathf.FloorToInt(lim / 0.5f) + 1;
+            if (isKB.Length < nb) isKB = new Vector2[nb * 2];
+            for (int q = 0; q < nb; q++) isKB[q] = IsFacingEdge(B, n, q * 0.5f, cross < 0f);
+            for (float d = 0f; d <= lim; d += 0.5f)
+            {
+                var pa = IsFacingEdge(A, n, d, cross > 0f);
+                // B's facing edge nearest pa
+                var pb = isKB[0]; float bd = (pb - pa).sqrMagnitude;
+                for (int q = 1; q < nb; q++) { float dd = (isKB[q] - pa).sqrMagnitude; if (dd < bd) { bd = dd; pb = isKB[q]; } }
+                float gap = Vector2.Distance(pa, pb);
+                if (havePrev) IsFillQuad(prevA, pa, pb, prevB, o);
+                if (gap >= IslandMinWidthM + 2f * IslandCurbMarginM) { if (d > 0f) IslandKnifePairs++; break; }
+                prevA = pa; prevB = pb; havePrev = true;
+            }
+        }
+
+        static Vector2 IsFacingEdge(CityMap.Edge e, int node, float fromNode, bool leftOfOutward)
+        {
+            float s = e.a == node ? fromNode : e.length - fromNode;
+            s = Mathf.Clamp(s, 0f, e.length);
+            LineModel.Extents(e, s, out float eM, out float eP);
+            var tg = e.TangentAt(s); var left = new Vector2(-tg.y, tg.x);     // left of a->b
+            bool leftAB = e.a == node ? leftOfOutward : !leftOfOutward;
+            return e.PointAt(s) + left * (leftAB ? eP + IslandCurbMarginM : -(eM + IslandCurbMarginM));
+        }
+
+        static Vector2[] isKB = new Vector2[256];
+
+        static void IsFillQuad(Vector2 a, Vector2 b, Vector2 c, Vector2 d, Vector3 o)
+        {
+            float minx = Mathf.Min(Mathf.Min(a.x, b.x), Mathf.Min(c.x, d.x)) - o.x, maxx = Mathf.Max(Mathf.Max(a.x, b.x), Mathf.Max(c.x, d.x)) - o.x;
+            float minz = Mathf.Min(Mathf.Min(a.y, b.y), Mathf.Min(c.y, d.y)) - o.z, maxz = Mathf.Max(Mathf.Max(a.y, b.y), Mathf.Max(c.y, d.y)) - o.z;
+            for (float z = Mathf.Floor(minz / IsCell) * IsCell + 0.5f * IsCell; z <= maxz + IsCell; z += IsCell)
+                for (float x = Mathf.Floor(minx / IsCell) * IsCell + 0.5f * IsCell; x <= maxx + IsCell; x += IsCell)
+                {
+                    var q = new Vector2(x + o.x, z + o.z);
+                    if (!InQuad(q, a, b, c, d)) continue;
+                    if (!IsCellAt(x, z, out int k) || isBandUp[k]) continue;
+                    isBand[k] = true; if (isBandEdge[k] < 0) isBandEdge[k] = -2;
+                    isKnife[k] = true;
+                }
+        }
+
+        static bool InQuad(Vector2 p, Vector2 a, Vector2 b, Vector2 c, Vector2 d) => InTri(a, b, c, p) || InTri(a, c, d, p) || InTri(a, c, b, p) || InTri(a, d, c, p);
 
         static void IsRelax(int k, int from, int w)
         {
@@ -576,18 +689,28 @@ namespace PSXRacing.City
             }
         }
 
-        static bool IsHasBuilding(List<int> cells)
+        static bool[] isBld;
+        static int[] isWalkCnt;
+        static void IsBuildingMask()
         {
-            // a building's walls or roof inside the land: a block, not an island
+            int NN = IsN * IsN;
+            if (isBld == null || isBld.Length != NN) { isBld = new bool[NN]; isWalkCnt = new int[NN]; }
+            System.Array.Clear(isBld, 0, NN);
             foreach (var s in BuildingSlots)
             {
                 var bk = buckets[(int)s];
                 for (int t = 0; t + 2 < bk.t.Count; t += 9)   // a sample of its triangles is enough
                 {
                     var m = (bk.v[bk.t[t]] + bk.v[bk.t[t + 1]] + bk.v[bk.t[t + 2]]) / 3f;
-                    if (IsCellAt(m.x, m.z, out int k) && isFlag[k] == 1 && isComp[k] == isComp[cells[0]]) return true;
+                    if (IsCellAt(m.x, m.z, out int k)) isBld[k] = true;
                 }
             }
+        }
+
+        static bool IsHasBuilding(List<int> cells)
+        {
+            // a building's walls or roof inside the land: a block, not an island
+            foreach (int k in cells) if (isBld[k]) return true;
             // a block with sidewalks round it (an urban street's walk, 2.4 m wide) is not an island; a
             // median's curb top (0.25 m) is
             var walk = buckets[(int)Slot.Sidewalk];
@@ -845,6 +968,8 @@ namespace PSXRacing.City
 
         static void IsDropInside(Bucket bk, List<Vector2> poly, float[] yP)
         {
+            float bx0 = float.MaxValue, bz0 = float.MaxValue, bx1 = float.MinValue, bz1 = float.MinValue;
+            foreach (var q in poly) { bx0 = Mathf.Min(bx0, q.x); bz0 = Mathf.Min(bz0, q.y); bx1 = Mathf.Max(bx1, q.x); bz1 = Mathf.Max(bz1, q.y); }
             float topMin = float.MaxValue; foreach (var y in yP) topMin = Mathf.Min(topMin, y);
             for (int pass = 0; pass < 2; pass++)
             {
@@ -855,6 +980,8 @@ namespace PSXRacing.City
                 for (int t = 0; t + 2 < tl.Count; t += 3)
                 {
                     Vector3 a = bk.v[tl[t]], b = bk.v[tl[t + 1]], c = bk.v[tl[t + 2]];
+                    if (Mathf.Max(a.x, Mathf.Max(b.x, c.x)) < bx0 || Mathf.Min(a.x, Mathf.Min(b.x, c.x)) > bx1 || Mathf.Max(a.z, Mathf.Max(b.z, c.z)) < bz0 || Mathf.Min(a.z, Mathf.Min(b.z, c.z)) > bz1)
+                    { isKeep.Add(tl[t]); isKeep.Add(tl[t + 1]); isKeep.Add(tl[t + 2]); continue; }
                     bool ia = InPoly(poly, new Vector2(a.x, a.z)), ib = InPoly(poly, new Vector2(b.x, b.z)), ic = InPoly(poly, new Vector2(c.x, c.z));
                     if (ia && ib && ic) { dropped++; if (!ReferenceEquals(bk, kerbBucket)) IsNoteGone(a, b, c); continue; }
                     // a sheet reaching in from outside stays; one standing up through the top is counted

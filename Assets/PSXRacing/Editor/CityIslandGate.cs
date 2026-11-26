@@ -181,6 +181,7 @@ namespace PSXRacing.EditorTools
                 log.Append(string.Format(inv, "tiles built {0}, {1:0} ms a tile; islands {2} ({3:0} m2), tips paved {4} cells, overlays out {5}, inside out {6}, poke verts {7}, skipped at a border {8}, too big {9}; median runs filled {10} sections, dropped {11} runs; {12:0} s\n",
                     built, built > 0 ? buildMs / built : 0, CityMeshes.IslandCount, CityMeshes.IslandAreaM2, CityMeshes.IslandTipCells, CityMeshes.IslandOverlayTris, CityMeshes.IslandInsideTris, CityMeshes.IslandPokeVerts,
                     CityMeshes.IslandSkippedBorder, CityMeshes.IslandSkippedBig, CityMeshes.MedianRunsFilled, CityMeshes.MedianRunsDropped, clock.Elapsed.TotalSeconds));
+                log.Append(string.Format(inv, "island pass ms (sum over builds): raster {0:0}, overlays {1:0}, bands+knives {2:0}, distances {3:0}, islands {4:0}, tips+orphans {5:0}; knife pairs {6}\n", CityMeshes.IslandMs[0], CityMeshes.IslandMs[1], CityMeshes.IslandMs[2], CityMeshes.IslandMs[3], CityMeshes.IslandMs[4], CityMeshes.IslandMs[5], CityMeshes.IslandKnifePairs));
                 log.Append($"tips: knife {CityMeshes.IslandKnifeCells} cells, lanes {CityMeshes.IslandLaneTips} cells, gores {CityMeshes.IslandGores}; orphan faces out {CityMeshes.IslandOrphanTris}; island tops fanned {CityMeshes.IslandTopFails}\n");
                 // the limits
                 string mx = System.Environment.GetEnvironmentVariable("PSX_ISL_MAX");
