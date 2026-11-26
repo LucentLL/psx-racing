@@ -323,8 +323,14 @@ namespace PSXRacing
             // missing or when several liveries tie.
             widthMm = spec.widthMm;
             specGeometry = CarModelLibrary.SpecGeometry.Of(spec);
+            if (specIdForBay != spec.id) CarEngineBay.Release(bodyFilter);   // another row: perhaps another engine
+            specIdForBay = spec.id;
+            CarEngineBay.Note(bodyFilter, spec);   // carparts: the engine's shape
             Apply(def, def.SkinFor(spec.color, Mathf.Abs(spec.id != null ? spec.id.GetHashCode() : 0) % 97));
         }
+
+        CarModelDef cachedDefForBay;
+        string specIdForBay;
 
         public void ApplyKey(string key, int skin)
         {
@@ -378,6 +384,8 @@ namespace PSXRacing
 
             // a re-dress always starts shut (CarParts: the closed body back, parts gone)
             CarParts.TearDown(bodyFilter);
+            if (cachedDefForBay != def) CarEngineBay.Release(bodyFilter);   // another shell: another engine
+            cachedDefForBay = def;
             if (bodyFilter != null) bodyFilter.sharedMesh = def.bodyMesh;
             PSXTexDecode.Stamp(mat);   // a livery's 16-bit sheet is decoded in the shader
             if (bodyRenderer != null && mat != null) bodyRenderer.sharedMaterial = mat;

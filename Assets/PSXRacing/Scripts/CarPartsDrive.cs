@@ -16,6 +16,8 @@ namespace PSXRacing
     /// </summary>
     public static class CarPartsDrive
     {
+        /// <summary>The engine is let go above this (the hysteresis over the 15 km/h load).</summary>
+        public const float ReleaseAboveKmh = 30f;
         static float downAt = -1f;
         static CarController lastCar;
         static CarBody lastBody;
@@ -36,6 +38,10 @@ namespace PSXRacing
                 downAt = -1f;
                 return;
             }
+            // the engine: loaded as the car slows where its lid may open, let go once it is away again
+            float kmh = Mathf.Abs(car.speedKmh);
+            if (kmh < CarParts.ShutAboveKmh && CarParts.PlaceAllows()) CarEngineBay.Preload(body.bodyFilter, def);
+            else if (kmh > ReleaseAboveKmh && CarParts.MaskOf(body.bodyFilter) == 0) CarEngineBay.Release(body.bodyFilter);
             bool cockpit = ChaseCamera.Current == ChaseCamera.View.Cockpit;
             int avail = CarParts.Available(def);
             int now = CarParts.MaskOf(body.bodyFilter);

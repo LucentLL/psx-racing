@@ -63,8 +63,8 @@ namespace PSXRacing.EditorTools
                     // THE FRAME: authored (Blender, Z up, nose +Y) -> GLB / OBJ (x, z, -y) -> imported (x negated)
                     var hood = def.openingParts.First(p => p.name == "Hood");
                     var bat = def.kitMounts.First(k => k.name == "Kit_Battery");
-                    Vector3 hoodWant = new Vector3(0f, 0.765f, -0.96f), batWant = new Vector3(0.52f, 0.39f, -1.70f);
-                    Vector3 mountWant = four ? new Vector3(0.30f, 0.48f, -1.55f) : new Vector3(0f, 0.52f, -1.05f);
+                    Vector3 hoodWant = new Vector3(0f, 1.055f, -0.96f), batWant = new Vector3(0.52f, 0.39f, -1.70f);
+                    Vector3 mountWant = four ? new Vector3(0.30f, 0.58f, -1.55f) : new Vector3(0f, 0.58f, -1.05f);
                     Check((hood.pivot - hoodWant).magnitude < 0.001f && (bat.pos - batWant).magnitude < 0.001f && (def.engineMountPos - mountWant).magnitude < 0.001f,
                           key + ": the hood hinge, Kit_Battery and Engine_Mount where they were authored (1 mm)",
                           $"hood {hood.pivot.ToString("F3")} battery {bat.pos.ToString("F3")} mount {def.engineMountPos.ToString("F3")}");

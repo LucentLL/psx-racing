@@ -432,11 +432,31 @@ namespace PSXRacing
                 float want = (target & p.bit) != 0 ? 1f : 0f;
                 if (p.t != want)
                 {
+                    // a lid never rises onto an empty bay: it waits for its engine
+                    if (p.bit == Hood && p.t == 0f && want > 0f && !BayReady()) continue;
                     p.t = Mathf.MoveTowards(p.t, want, dt / Mathf.Max(0.01f, p.seconds));
                     Pose(p);
                 }
             }
             Dress();
+        }
+
+        /// <summary>The engine's in for the hood to rise (or there is none to wait for).</summary>
+        bool BayReady()
+        {
+            var bay = CarEngineBay.Of(filter);
+            if (bay == null) bay = CarEngineBay.Preload(filter, def);
+            return bay == null || bay.ReadyForLid();
+        }
+
+        /// <summary>The engine and kit draw only while the hood is off its seat.</summary>
+        void ShowBay()
+        {
+            var bay = CarEngineBay.Of(filter);
+            if (bay == null) return;
+            bool up = false;
+            foreach (var p in parts) if (p.bit == Hood && p.t > 0f) up = true;
+            if (bay.Shown != up) bay.Show(up);
         }
 
         /// <summary>Every part straight to where it was asked (no easing).</summary>
@@ -445,6 +465,7 @@ namespace PSXRacing
             foreach (var p in parts)
             {
                 p.t = (target & p.bit) != 0 ? 1f : 0f;
+                if (p.bit == Hood && p.t > 0f && !BayReady()) p.t = 0f;
                 Pose(p);
             }
             Dress();
@@ -455,6 +476,7 @@ namespace PSXRacing
         void Dress()
         {
             int open = OpenNow;
+            ShowBay();
             if (open == 0 && target == 0)
             {
                 TearDown(filter);
@@ -492,6 +514,8 @@ namespace PSXRacing
         void Dispose()
         {
             disposed = true;
+            var bay = filter != null ? CarEngineBay.Of(filter) : null;
+            if (bay != null) bay.Show(false);
             live.Remove(this);
             target = 0;
             if (filter != null && wearsOpen)

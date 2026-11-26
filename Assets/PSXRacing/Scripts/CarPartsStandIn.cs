@@ -208,8 +208,8 @@ namespace PSXRacing
             var rad = new Vector3(0f, 0.30f, Mathf.Min(d.noseZ, noseZ) - 0.34f);
             s.kitMounts = new[]
             {
-                new CarModelDef.KitMount { name = "Kit_Battery", pos = ToMesh(bat, yaw, off), rot = Quaternion.Inverse(yaw) },
-                new CarModelDef.KitMount { name = "Kit_Radiator", pos = ToMesh(rad, yaw, off), rot = Quaternion.Inverse(yaw) },
+                new CarModelDef.KitMount { name = "Kit_Battery", pos = ToMesh(bat, yaw, off), rot = Quaternion.identity },
+                new CarModelDef.KitMount { name = "Kit_Radiator", pos = ToMesh(rad, yaw, off), rot = Quaternion.identity },
             };
             report.Add($"  Kit_Battery (car frame) {bat}, Kit_Radiator {rad}");
             return s;

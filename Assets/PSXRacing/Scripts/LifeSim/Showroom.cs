@@ -745,6 +745,7 @@ namespace PSXRacing.LifeSim
             bool show = CarParts.Allowed(def, body);
             if (button.gameObject.activeSelf != show) button.gameObject.SetActive(show);
             if (!show) return;
+            CarEngineBay.Preload(body, def);   // the showroom is a place the hood opens
             int avail = CarParts.Available(def), next = CarParts.NextStep(CarParts.MaskOf(body), avail, true);
             var t = button.GetComponentInChildren<Text>();
             string label = next == 0 ? "SHUT ALL" : "OPEN " + CarParts.StepName(next, avail);

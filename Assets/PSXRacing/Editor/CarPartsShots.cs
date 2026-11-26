@@ -93,6 +93,158 @@ namespace PSXRacing.EditorTools
             Object.DestroyImmediate(shell.gameObject);
         }
 
+        // ==================================================================
+        //  STAGE 4: the stand-in bay, the kit's two paths, the cost of 1 / 2 / 4 open hoods
+        // ==================================================================
+
+        /// <summary>Batch, STAGE 4: bake the stand-in engines and the test cars,
+        /// photograph the bay for three shapes and the kit's two paths, measure
+        /// the draws and the render time with 0, 1, 2 and 4 hoods open, then the
+        /// self-test.</summary>
+        public static void RunStage4()
+        {
+            log.Clear();
+            outDir = System.Environment.GetEnvironmentVariable("PSX_CP_OUT");
+            if (string.IsNullOrEmpty(outDir)) outDir = Path.Combine(Path.GetDirectoryName(Application.dataPath), "Screenshots", "carparts");
+            tag = System.Environment.GetEnvironmentVariable("PSX_CP_TAG") ?? "";
+            Directory.CreateDirectory(outDir);
+            bool shots = System.Environment.GetEnvironmentVariable("PSX_CP_NOSHOTS") != "1";
+            try
+            {
+                EngineStandInBaker.Bake();
+                log.AppendLine("STAND-IN ENGINES (EDITOR):");
+                var f = Path.Combine(Path.GetDirectoryName(Application.dataPath), "PSXRacing_engine_standins.txt");
+                if (File.Exists(f)) foreach (var l in File.ReadAllLines(f)) log.AppendLine("  " + l);
+                CarModelBaker.BakeTestCars();
+                foreach (var l in CarModelBaker.LastLog) if (l.Contains("Engine_Mount") || l.StartsWith("FAIL")) log.AppendLine("  " + l);
+                log.AppendLine("profile " + (PlatformProfile.PC ? "PC (HD engines)" : "non-PC (low engines, a relative figure)"));
+                if (SetupPad())
+                {
+                    if (shots) BayShots();
+                    HoodCost();
+                }
+            }
+            catch (System.Exception e) { log.AppendLine("EXCEPTION " + e); Debug.LogException(e); }
+            finally
+            {
+                CarEngineBay.IgnoreKitEmpties = false;
+                CarParts.ShutAllNow();
+                File.WriteAllText(Path.Combine(outDir, tag + "carparts_stage4.txt"), log.ToString());
+                Debug.Log("[CarPartsShots stage 4] " + log);
+            }
+            LifeSimSelfTest.RunCarParts();
+        }
+
+        static (Vector3, Quaternion) IntoBay(Vector3 at, float side)
+        {
+            Vector3 f = spot.forward, r = spot.right;
+            var eye = at + f * 2.3f + r * (1.5f * side) + Vector3.up * 1.9f;
+            return (eye, Quaternion.LookRotation(at - eye));
+        }
+
+        static void BayShots()
+        {
+            var shapes = new (string car, string key)[] { ("test5a_4door", EngineLibrary.I4), ("test5a_2door", EngineLibrary.V8), ("test5a_2door", EngineLibrary.F4) };
+            foreach (var (carKey, key) in shapes)
+            {
+                var def = CarModelBaker.LoadTestCar(carKey);
+                if (def == null) { log.AppendLine("no test car " + carKey); continue; }
+                EngineLibrary.Table[def.key] = new EngineLibrary.Row { key = key };
+                foreach (bool defaults in key == EngineLibrary.I4 ? new[] { false, true } : new[] { false })
+                {
+                    CarEngineBay.IgnoreKitEmpties = defaults;
+                    var shell = CarShell.Spawn(spot, def, 0, out _, solid: false);
+                    PSXTexDecode.StampTree(shell.gameObject);
+                    var mf = shell.Find("Body").GetComponent<MeshFilter>();
+                    var bay = CarEngineBay.Preload(mf, def);
+                    CarParts.Set(mf, def, CarParts.Hood, instant: true);
+                    var at = bay != null ? bay.EngineRenderer.bounds.center : spot.position;
+                    string layout = bay != null ? bay.Choice.layout.ToString().ToLowerInvariant() : "-";
+                    string name = "bay_" + EngineLibrary.ShapeWords(key).ToLowerInvariant() + "_" + layout + (key == EngineLibrary.I4 ? (defaults ? "_kit_defaults" : "_kit_empties") : "");
+                    int et = bay != null ? bay.EngineRenderer.GetComponent<MeshFilter>().sharedMesh.triangles.Length / 3 : 0;
+                    int kt = bay != null ? bay.KitRenderer.GetComponent<MeshFilter>().sharedMesh.triangles.Length / 3 : 0;
+                    log.AppendLine("  " + name + ": " + carKey + " " + (bay != null ? bay.Choice.key + " x" + bay.Scale.ToString("0.000") + (bay.Reflected ? " reflected" : "") + " gearbox " + bay.Choice.gearbox : "NO BAY") +
+                                   "; engine " + et + " tris, kit " + kt + " tris; pieces: " + (bay != null ? string.Join(" ", bay.EnginePieces) : "") +
+                                   "; kit: " + (bay != null ? string.Join(", ", bay.KitPieces) : ""));
+                    var (p1, r1) = IntoBay(at, 1f);
+                    Save(Render(p1, r1), name);
+                    if (!defaults) { var (p2, r2) = IntoBay(at, -1f); Save(Render(p2, r2), name + "_left"); }
+                    CarParts.TearDown(mf);
+                    CarEngineBay.Release(mf);
+                    Object.DestroyImmediate(shell.gameObject);
+                }
+                CarEngineBay.IgnoreKitEmpties = false;
+                EngineLibrary.Table.Remove(def.key);
+            }
+        }
+
+        /// <summary>Four test cars in a row, a view over them: the draws and the
+        /// render time with 0, 1, 2 and 4 hoods open (and an A/A).</summary>
+        static void HoodCost()
+        {
+            var def = CarModelBaker.LoadTestCar("test5a_2door");
+            if (def == null) return;
+            var mfs = new List<MeshFilter>();
+            var root = new GameObject("CP_Row");
+            for (int i = 0; i < 4; i++)
+            {
+                var a = new GameObject("Row" + i);
+                a.transform.SetParent(root.transform, false);
+                a.transform.position = spot.position + spot.right * ((i - 1.5f) * 2.6f);
+                a.transform.rotation = spot.rotation;
+                var sh = CarShell.Spawn(a.transform, def, 0, out _, solid: false);
+                PSXTexDecode.StampTree(sh.gameObject);
+                var mf = sh.Find("Body").GetComponent<MeshFilter>();
+                CarEngineBay.Preload(mf, def);
+                mfs.Add(mf);
+            }
+            Vector3 fw = spot.forward;
+            var eye = spot.position + fw * 9f + Vector3.up * 3.2f;
+            var rot = Quaternion.LookRotation(spot.position + Vector3.up * 0.6f - eye);
+            const int N = 20, Blocks = 5;
+            var rt = new RenderTexture(W, H, 32, RenderTextureFormat.ARGB32); rt.Create();
+            var buf = new Texture2D(4, 4, TextureFormat.RGBA32, false);
+            cam.transform.SetPositionAndRotation(eye, rot);
+            var req = new RenderPipeline.StandardRequest { destination = rt };
+            void Open(int n) { for (int i = 0; i < 4; i++) CarParts.Set(mfs[i], def, i < n ? CarParts.Hood : 0, instant: true); }
+            double Block(int n)
+            {
+                Open(n);
+                cam.transform.SetPositionAndRotation(eye, rot);
+                RenderPipeline.SubmitRenderRequest(cam, req); Sync(rt, buf);
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                for (int k = 0; k < N; k++) { RenderPipeline.SubmitRenderRequest(cam, req); Sync(rt, buf); }
+                return sw.Elapsed.TotalMilliseconds / N;
+            }
+            foreach (int n in new[] { 0, 1, 2, 4 })
+            {
+                Open(n);
+                int draws = 0, casters = 0, tris = 0;
+                foreach (var mf in mfs)
+                {
+                    var d = Count(mf.transform.parent, eye, rot);
+                    draws += d.draws; casters += d.casters;
+                    foreach (var r in mf.transform.parent.GetComponentsInChildren<MeshRenderer>())
+                        if (r.enabled && r.gameObject.activeInHierarchy) { var m = r.GetComponent<MeshFilter>() != null ? r.GetComponent<MeshFilter>().sharedMesh : null; if (m != null) tris += m.triangles.Length / 3; }
+                }
+                log.AppendLine("  " + n + " of 4 hoods open: " + draws + " draws, " + casters + " casters, " + tris + " triangles drawn in the four cars");
+                if (n == 4) Save(Render(eye, rot), "hoods_4_open");
+            }
+            var res = new Dictionary<int, List<double>> { { 0, new List<double>() }, { 1, new List<double>() }, { 2, new List<double>() }, { 4, new List<double>() }, { -1, new List<double>() } };
+            for (int b = 0; b < Blocks; b++)
+            {
+                res[0].Add(Block(0)); res[1].Add(Block(1)); res[2].Add(Block(2)); res[4].Add(Block(4)); res[-1].Add(Block(0));
+            }
+            double Med(List<double> l) { var q = l.OrderBy(x => x).ToList(); return (q[q.Count / 2] + q[(q.Count - 1) / 2]) * 0.5; }
+            string D(int k) => (Med(res[k]) - Med(res[0])).ToString("+0.000;-0.000");
+            log.AppendLine("  TIME (EDITOR, " + W + "x" + H + ", " + Blocks + " blocks x " + N + " frames, median ms incl. a 4x4 read-back; shared machine - read the differences): " +
+                           "0 open " + Med(res[0]).ToString("0.000") + ", 1 open " + D(1) + ", 2 open " + D(2) + ", 4 open " + D(4) + "; A/A (0 again) " + D(-1));
+            Open(0);
+            rt.Release(); Object.DestroyImmediate(rt); Object.DestroyImmediate(buf);
+            foreach (var mf in mfs) CarEngineBay.Release(mf);
+            Object.DestroyImmediate(root);
+        }
+
         static (Vector3, Quaternion) Rear34()
         {
             Vector3 c = spot.position, f = spot.forward, r = spot.right;

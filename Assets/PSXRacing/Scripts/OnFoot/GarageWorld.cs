@@ -264,6 +264,8 @@ namespace PSXRacing.OnFoot
                 st.def = def;
                 // carparts: the player's own car in its bay opens on foot
                 st.parts = CarPartsFoot.Attach(st.shell, st.shell != null ? st.shell.Find("Body")?.GetComponent<MeshFilter>() : null, def);
+                // and its engine loaded now, ready before the hood can move (decision 10)
+                if (st.parts != null) CarEngineBay.Preload(st.shell.Find("Body").GetComponent<MeshFilter>(), def, spec);
 
                 BuildRaiseRig(st, def, spec);
                 // Straight to wherever the save says it was left. A car the

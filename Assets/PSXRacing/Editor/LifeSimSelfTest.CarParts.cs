@@ -24,6 +24,7 @@ namespace PSXRacing.EditorTools
             Guard(nameof(TestCarParts), TestCarParts);
             Guard(nameof(TestCarPartsConverter), TestCarPartsConverter);   // LifeSimSelfTest.CarPartsConverter.cs
             Guard(nameof(TestCarPartsRules), TestCarPartsRules);   // LifeSimSelfTest.CarPartsRules.cs
+            Guard(nameof(TestCarPartsEngine), TestCarPartsEngine);   // LifeSimSelfTest.CarPartsEngine.cs
             Line(failures == 0 ? "CARPARTS SELF-TEST OK" : "CARPARTS SELF-TEST FAILED (" + failures + ")");
             System.IO.File.WriteAllText(
                 System.IO.Path.Combine(Application.dataPath, "../PSXRacing_selftest_carparts.txt"), log.ToString());
@@ -75,13 +76,13 @@ namespace PSXRacing.EditorTools
 
                 shell = CarShell.Spawn(anchor.transform, def, 0, out _, solid: false);
                 mf = shell.Find("Body").GetComponent<MeshFilter>();
-                rendsBefore = shell.GetComponentsInChildren<Renderer>(true).Length;
+                rendsBefore = shell.GetComponentsInChildren<Renderer>(true).Count(r => r.enabled);
                 Check(mf.GetComponent<CarParts>() == null, "a shut stand-in car carries no component (closed car = today's car)");
                 cp = CarParts.Set(mf, def, CarParts.Hood, true);
                 Check(cp != null && cp.OpenNow == CarParts.Hood && mf.sharedMesh == def.bodyMesh,
                       "hood open: the component is up, the closed body stays (no open body on the stand-in)");
                 cp = CarParts.Set(mf, def, 0, true);
-                Check(mf.GetComponent<CarParts>() == null && shell.GetComponentsInChildren<Renderer>(true).Length == rendsBefore && mf.sharedMesh == def.bodyMesh,
+                Check(mf.GetComponent<CarParts>() == null && shell.GetComponentsInChildren<Renderer>(true).Count(r => r.enabled) == rendsBefore && mf.sharedMesh == def.bodyMesh,
                       "the last shut: component and part renderers gone, the closed body on the filter");
 
                 // ---- the hinge chain: 0 mm shut, no shear open -------------

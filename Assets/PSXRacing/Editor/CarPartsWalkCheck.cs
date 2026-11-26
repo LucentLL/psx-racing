@@ -116,6 +116,7 @@ namespace PSXRacing.EditorTools
             var interactor = Object.FindAnyObjectByType<FootInteractor>();
             Check(ForecourtMode.OnFoot && home != null && walker != null && interactor != null, "on foot at home, the walker and the interactor up");
             if (home == null || walker == null || interactor == null) { Done(); yield break; }
+            if (System.Environment.GetEnvironmentVariable("PSX_CP_ENGINE") == "1") { yield return EngineRoutine(home); yield break; }
 
             // every car: its targets
             var sets = Object.FindObjectsByType<CarPartsFoot>().ToList();
@@ -197,6 +198,87 @@ namespace PSXRacing.EditorTools
             Check(live == null || live.Targets.All(x => !x.t.gameObject.activeSelf), "LAB preview OFF: no part target offers anything");
             CarPartsStandIn.Preview = true;
             for (int i = 0; i < 4; i++) yield return null;
+            Done();
+        }
+
+        /// <summary>
+        /// STAGE 4 in play (PSX_CP_ENGINE=1): the car with the keys on the drive.
+        /// The load's hitch (the worst frame around a fresh preload against the
+        /// frames before it); a press that comes before the load completes (the
+        /// lid waits, and no frame shows an open lid over an empty bay); ten
+        /// open-shut and load-release cycles (objects, meshes, memory).
+        /// </summary>
+        IEnumerator EngineRoutine(GarageWorld home)
+        {
+            var car = home.liveCar;
+            var cb = car != null ? car.GetComponent<CarBody>() : null;
+            var body = cb != null ? cb.bodyFilter : null;
+            var def = cb != null ? cb.Def : null;
+            var bay0 = CarEngineBay.Of(body);
+            Check(bay0 != null && bay0.Ready, "on foot at the car on the drive: its engine was loaded on arrival (ForecourtMode)", bay0 != null ? bay0.Choice.key : "none");
+            if (body == null) { Done(); yield break; }
+            var L = CarPartsWalkCheck.log;
+            // ---- the load's hitch ----------------------------------------------
+            for (int run = 0; run < 3; run++)
+            {
+                CarEngineBay.Release(body);
+                for (int i = 0; i < 10; i++) yield return null;
+                float before = 0f;
+                for (int i = 0; i < 60; i++) { yield return null; before = Mathf.Max(before, Time.unscaledDeltaTime); }
+                var t0 = Time.realtimeSinceStartup;
+                var bay = CarEngineBay.Preload(body, def);
+                int frames = 0; float worst = 0f;
+                while (bay != null && !bay.Ready && frames < 600) { yield return null; frames++; worst = Mathf.Max(worst, Time.unscaledDeltaTime); }
+                for (int i = 0; i < 30; i++) { yield return null; worst = Mathf.Max(worst, Time.unscaledDeltaTime); }
+                L.AppendLine($"    load {run + 1}: ready in {frames} frames ({(Time.realtimeSinceStartup - t0) * 1000f:0} ms incl. 30 frames after); worst frame {worst * 1000f:0.0} ms against {before * 1000f:0.0} ms in the 60 frames before (EDITOR, shared machine)");
+            }
+            // ---- the press that comes first --------------------------------------
+            CarEngineBay.LongestWait = 0f;
+            int bad = 0, seen = 0;
+            for (int run = 0; run < 3; run++)
+            {
+                CarParts.Request(body, def, 0, true);
+                for (int i = 0; i < 70; i++) yield return null;
+                CarEngineBay.Release(body);
+                yield return null;
+                CarParts.Request(body, def, CarParts.Hood, true);   // before any load
+                for (int i = 0; i < 200; i++)
+                {
+                    yield return null;
+                    var cp = CarParts.Find(body);
+                    float ang = cp != null ? cp.Angle(CarParts.Hood) : 0f;
+                    var bay = CarEngineBay.Of(body);
+                    if (ang > 0f)
+                    {
+                        seen++;
+                        if (bay == null || !bay.Ready || !bay.EngineRenderer.enabled || !bay.KitRenderer.enabled) bad++;
+                    }
+                    if (ang >= 54.9f) break;
+                }
+            }
+            Check(seen > 0 && bad == 0, "a press before the load: the lid waits; no frame with the lid off its seat and the bay empty", $"{seen} frames with the lid up, {bad} with an empty bay");
+            L.AppendLine($"    the longest a lid waited for its engine: {CarEngineBay.LongestWait * 1000f:0} ms ({CarEngineBay.Waits} waits logged)");
+            // ---- ten cycles -------------------------------------------------------
+            CarParts.Request(body, def, 0, true);
+            for (int i = 0; i < 70; i++) yield return null;
+            System.GC.Collect();
+            int me0 = Resources.FindObjectsOfTypeAll<Mesh>().Length, go0 = Resources.FindObjectsOfTypeAll<GameObject>().Length;
+            long mem0 = UnityEngine.Profiling.Profiler.GetTotalAllocatedMemoryLong();
+            for (int c = 0; c < 10; c++)
+            {
+                CarEngineBay.Release(body);
+                yield return null;
+                CarParts.Request(body, def, CarParts.Hood, true);
+                for (int i = 0; i < 70; i++) yield return null;
+                CarParts.Request(body, def, 0, true);
+                for (int i = 0; i < 70; i++) yield return null;
+            }
+            for (int i = 0; i < 5; i++) yield return null;
+            System.GC.Collect();
+            int me1 = Resources.FindObjectsOfTypeAll<Mesh>().Length, go1 = Resources.FindObjectsOfTypeAll<GameObject>().Length;
+            long mem1 = UnityEngine.Profiling.Profiler.GetTotalAllocatedMemoryLong();
+            L.AppendLine($"    ten load-open-shut-release cycles: meshes {me0} -> {me1}, objects {go0} -> {go1}, allocated {mem0 / 1048576f:0.0} -> {mem1 / 1048576f:0.0} MB; loads {CarEngineBay.EngineAssets.Loads}, bays live {CarEngineBay.LiveCount}");
+            Check(me1 == me0 && go1 == go0, "ten cycles: meshes and objects as before", $"{me0}->{me1}, {go0}->{go1}");
             Done();
         }
 

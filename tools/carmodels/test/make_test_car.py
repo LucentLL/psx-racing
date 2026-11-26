@@ -123,6 +123,7 @@ HW = 0.85         # half width
 F_AX, R_AX = 1.25, -1.25
 SILL, BELT, ROOF = 0.40, 0.80, 1.25
 HOOD_Y0, HOOD_Y1 = 0.95, 2.02      # hood: hinge at the cowl (y0), front edge (y1)
+HOOD_Z = 1.06                       # hood skin underside (stage 4: a bay deep enough for an engine)
 TRUNK_Y0, TRUNK_Y1 = -2.02, -1.12  # trunk lid: rear edge (y0), hinge (y1)
 if DOORS == 2:
     DOOR_SPANS = [("", 0.88, -0.62)]              # (suffix, hinge y, rear y)
@@ -131,9 +132,9 @@ else:
 
 body_boxes = [
     ((-HW, -2.20, 0.25), (HW, 2.20, 0.33), "trim"),                 # floor pan
-    ((-HW, 2.02, 0.33), (HW, 2.20, 0.78), "paint"),                 # nose
+    ((-HW, 2.02, 0.33), (HW, 2.20, HOOD_Z + 0.02), "paint"),        # nose
     ((-HW, -2.20, 0.33), (HW, -2.02, 0.82), "paint"),               # tail
-    ((-HW, HOOD_Y0 - 0.06, 0.33), (HW, HOOD_Y0, BELT), "paint"),    # cowl / firewall
+    ((-HW, HOOD_Y0 - 0.06, 0.33), (HW, HOOD_Y0, HOOD_Z + 0.02), "paint"),  # cowl / firewall
     ((-HW, TRUNK_Y1, 0.33), (HW, TRUNK_Y1 + 0.06, 0.84), "paint"),  # rear bulkhead
     ((-0.70, -1.06, ROOF - 0.05), (0.70, 0.62, ROOF), "paint"),     # roof
     ((-0.70, 0.62, BELT), (0.70, HOOD_Y0 - 0.06, BELT + 0.04), "trim"),       # windscreen base
@@ -143,7 +144,7 @@ for s in (-1, 1):
     xo, xi = s * HW, s * (HW - 0.08)
     lo_x, hi_x = min(xo, xi), max(xo, xi)
     body_boxes += [
-        ((lo_x, HOOD_Y0, 0.33), (hi_x, 2.02, 0.78), "paint"),                   # front wing
+        ((lo_x, HOOD_Y0, 0.33), (hi_x, 2.02, HOOD_Z + 0.02), "paint"),          # front wing
         ((lo_x, -2.02, 0.33), (hi_x, DOOR_SPANS[-1][2] - 0.02, 0.84), "paint"),  # rear quarter
         ((lo_x, DOOR_SPANS[-1][2] - 0.02, 0.33), (hi_x, DOOR_SPANS[0][1] + 0.02, SILL), "paint"),  # sill
         ((s * 0.62 if s > 0 else -0.70, 0.56, BELT), (0.70 if s > 0 else -0.62, 0.66, ROOF), "trim"),    # A pillar
@@ -168,9 +169,9 @@ for nm, x, y in (("Wheel_FL", -0.74, F_AX), ("Wheel_FR", 0.74, F_AX), ("Wheel_RL
 panels = []   # (name, parent, M, open_deg) for the JSON
 
 # ---- HOOD: hinge across the car just ahead of the cowl, under the skin; front rises
-hM = frame(Vector((0, HOOD_Y0 + 0.01, 0.765)), Vector((1, 0, 0)))
-hood = make_obj("Hood", [((-0.76, HOOD_Y0 + 0.005, 0.77), (0.76, HOOD_Y1, 0.79), "paint")], body, hM)
-make_obj("Hood_Inner", [((-0.72, HOOD_Y0 + 0.03, 0.755), (0.72, HOOD_Y1 - 0.03, 0.768), "inner")], hood, hM)
+hM = frame(Vector((0, HOOD_Y0 + 0.01, HOOD_Z - 0.005)), Vector((1, 0, 0)))
+hood = make_obj("Hood", [((-0.76, HOOD_Y0 + 0.005, HOOD_Z), (0.76, HOOD_Y1, HOOD_Z + 0.02), "paint")], body, hM)
+make_obj("Hood_Inner", [((-0.72, HOOD_Y0 + 0.03, HOOD_Z - 0.015), (0.72, HOOD_Y1 - 0.03, HOOD_Z - 0.002), "inner")], hood, hM)
 panels.append(("Hood", hood, 55.0))
 
 # ---- TRUNK: hinge across at the lid's front edge; rear edge rises -> local +X = -X world
@@ -213,8 +214,8 @@ for s, side in ((-1, "L"), (1, "R")):
         jb.append(((min(xa, xb), y_r - 0.02, SILL), (max(xa, xb), y_r, BELT), "inner"))
     make_obj("Jamb_" + side, jb, body)
 bay = make_obj("Bay", [((-0.74, HOOD_Y0, 0.36), (0.74, 2.00, 0.39), "bay"),
-                       ((-0.76, HOOD_Y0, 0.39), (-0.72, 2.00, 0.70), "bay"), ((0.72, HOOD_Y0, 0.39), (0.76, 2.00, 0.70), "bay"),
-                       ((-0.72, 1.96, 0.39), (0.72, 2.00, 0.70), "bay")], body)
+                       ((-0.76, HOOD_Y0, 0.39), (-0.72, 2.00, HOOD_Z - 0.06), "bay"), ((0.72, HOOD_Y0, 0.39), (0.76, 2.00, HOOD_Z - 0.06), "bay"),
+                       ((-0.72, 1.96, 0.39), (0.72, 2.00, HOOD_Z - 0.06), "bay")], body)
 make_obj("TrunkWell", [((-0.74, TRUNK_Y0 + 0.02, 0.36), (0.74, TRUNK_Y1, 0.39), "bay")], body)
 
 # ---- Engine_Mount: on the crank at the flywheel face; +Y to the timing end, +Z up the bore
@@ -222,15 +223,15 @@ if DOORS == 2:
     layout = "longitudinal"
     # crank along the car, timing end forward, block slanted 15 degrees to the right
     mR = Matrix.Rotation(math.radians(15.0), 4, "Y")
-    mount_o = Vector((0.0, 1.05, 0.52))
-    clear = [0.80, 0.12, 0.40, 0.40, 0.22, 0.14]
+    mount_o = Vector((0.0, 1.05, 0.58))
+    clear = [0.90, 0.10, 0.70, 0.70, 0.46, 0.19]
     downpipe = [0.32, 1.00, 0.36]          # Body space
 else:
     layout = "transverse"
     # crank across the car, timing end on the car's right (+X), bore up, leaned back 10
     mR = Matrix.Rotation(math.radians(-90.0), 4, "Z") @ Matrix.Rotation(math.radians(10.0), 4, "Y")
-    mount_o = Vector((-0.30, 1.55, 0.48))
-    clear = [0.30, 0.45, 0.25, 0.75, 0.25, 0.10]
+    mount_o = Vector((-0.30, 1.55, 0.58))
+    clear = [1.00, 0.40, 0.40, 0.55, 0.46, 0.19]
     downpipe = [-0.10, 1.30, 0.34]
 mM = Matrix.Translation(mount_o) @ mR
 mount = make_obj("Engine_Mount", [], body, mM)

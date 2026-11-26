@@ -332,6 +332,7 @@ namespace PSXRacing.OnFoot
             {
                 var cb = playerCar.GetComponent<CarBody>();
                 parts = cb != null ? CarPartsFoot.Attach(playerCar.transform, cb.bodyFilter, cb.Def) : null;
+                if (parts != null) CarEngineBay.Preload(cb.bodyFilter, cb.Def);   // ready before the hood can move
                 if (parts != null && parts.HoodTarget != null && carTarget != null)
                 {
                     parts.HoodTarget.action2 = carTarget.action2;
