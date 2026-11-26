@@ -365,7 +365,7 @@ Owner 2026-11-25: "please mute all testing. I constantly hear the game without e
 
 # HANDOFF - CITYAI ROUND 5: the Tryon jam (S Tryon over I-277: four strip lanes, three on the bridge), stale lane looks, near misses measured as body gaps, cost meters (agent "cityai", 11-26; branch `city-ai-turns` from mountain-nm 41761e41, head below; NOT pushed, NOT merged)
 
-New switches (default on, LAB rows, Traffic group; 0 = round 4): PSX_TRAFFIC_GAP_STANDING (TRAFFIC SEES STOPPED CARS BESIDE IT), PSX_TRAFFIC_LANE_DROP (TRAFFIC MERGES BEFORE A LANE ENDS).
+New switches (default on, LAB rows, Traffic group; 0 = round 4): PSX_TRAFFIC_GAP_STANDING (TRAFFIC SEES STOPPED CARS), PSX_TRAFFIC_LANE_DROP (TRAFFIC MERGES AT LANE END).
 Bug fix, no switch: a spawned / recycled traffic car starts with its own lane as its lane look (it kept its last life's and steered for that lane seconds after spawning).
 
 - Tryon s 746-910 is South Tryon Street on its bridge over I-277 (OSM ways 34764115 / 1183425772, bridge, 3 lanes, 11.6 m). The bridge parapet (CityWorld/Tile_-12_15|16/Barriers) stands 5.4-5.6 m either side of the strip's line; the strip lays lanes at +-1.8 and +-5.5 with a 7.8 m half width, so the outer lanes run through the parapet. "Ground" at s 759 / 933 is Tile_-12_16/Ground beside the parapet end.

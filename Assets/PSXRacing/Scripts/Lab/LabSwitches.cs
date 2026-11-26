@@ -406,13 +406,13 @@ namespace PSXRacing
             });
             Register(new LabRow
             {
-                id = "trafficgapstanding", group = LabGroup.Traffic, name = "TRAFFIC SEES STOPPED CARS BESIDE IT", when = LabWhen.Now,
+                id = "trafficgapstanding", group = LabGroup.Traffic, name = "TRAFFIC SEES STOPPED CARS", when = LabWhen.Now,
                 look = "City races: traffic changes lane or edges out only into a gap clear of every car, stopped ones included.",
                 env = new[] { "PSX_TRAFFIC_GAP_STANDING" }, members = new[] { "TrafficSystem.GapCountsStandingOn" },
             });
             Register(new LabRow
             {
-                id = "trafficlanedrop", group = LabGroup.Traffic, name = "TRAFFIC MERGES BEFORE A LANE ENDS", when = LabWhen.Now,
+                id = "trafficlanedrop", group = LabGroup.Traffic, name = "TRAFFIC MERGES AT LANE END", when = LabWhen.Now,
                 look = "City races: where four lanes become three (a bridge), traffic merges early and waits short of the end, not into the parapet.",
                 env = new[] { "PSX_TRAFFIC_LANE_DROP" }, members = new[] { "TrafficSystem.LaneDropOn" },
             });
