@@ -27,6 +27,53 @@ namespace PSXRacing.EditorTools
         static readonly Dictionary<CarController, int> stays = new Dictionary<CarController, int>();
         static readonly Dictionary<(Object, Object), float> missAt = new Dictionary<(Object, Object), float>();
         static int nearMisses;
+        // (cityai round 5) THE SMALLEST GAP between the two car bodies over each meeting, not the first sample. The old
+        // figure was the side-to-side offset minus 1.9 m taken the first tick the cars were within 4.5 m along (seed 4:
+        // -0.82 m while still nose to nose, no contact). Now each meeting keeps its smallest collider-to-collider gap and
+        // is written when it ends; a gap at or under 0 is a touch, counted whatever the contact's impulse.
+        class Meet { public float min = float.MaxValue, closing, t, lat; public int lastStep; public string who, other; }
+        static readonly Dictionary<(Object, Object), Meet> meets = new Dictionary<(Object, Object), Meet>();
+        static readonly Dictionary<Object, Collider> bodyOf = new Dictionary<Object, Collider>();
+        static readonly List<(Object, Object)> meetDone = new List<(Object, Object)>();
+        static int meetTouches, stepN; static float meetMin = float.MaxValue;
+        static Collider Body(Component c)
+        {
+            if (bodyOf.TryGetValue(c, out var b) && b != null) return b;
+            Collider best = null; float bv = 0f;
+            foreach (var k in c.GetComponentsInChildren<Collider>())
+            {
+                if (k.isTrigger || !k.enabled || k is WheelCollider) continue;
+                if (!(k is BoxCollider || k is SphereCollider || k is CapsuleCollider || (k is MeshCollider mc && mc.convex))) continue;
+                var e = k.bounds.size; float v = e.x * e.y * e.z;
+                if (v > bv) { bv = v; best = k; }
+            }
+            bodyOf[c] = best;
+            return best;
+        }
+        /// <summary>Gap between two convex colliders (m); negative = overlap depth.</summary>
+        static float Gap(Collider a, Collider b)
+        {
+            if (Physics.ComputePenetration(a, a.transform.position, a.transform.rotation, b, b.transform.position, b.transform.rotation, out _, out float depth))
+                return -depth;
+            Vector3 p = a.ClosestPoint(b.bounds.center), q = p;
+            for (int i = 0; i < 6; i++) { q = b.ClosestPoint(p); p = a.ClosestPoint(q); }
+            return Vector3.Distance(p, q);
+        }
+        static void CloseMeets(bool all)
+        {
+            meetDone.Clear();
+            foreach (var kv in meets) if (all || kv.Value.lastStep < stepN) meetDone.Add(kv.Key);
+            foreach (var k in meetDone)
+            {
+                var m = meets[k]; meets.Remove(k);
+                meetMin = Mathf.Min(meetMin, m.min);
+                if (m.min > 0.6f) continue;
+                nearMisses++;
+                if (m.min <= 0f) meetTouches++;
+                if (missLines.Count < 12)
+                    missLines.Add($"NEAR MISS {m.who} at {m.t:0.0}s: oncoming {m.other} smallest gap {m.min:0.00} m between the bodies{(m.min <= 0f ? " (TOUCHED)" : "")}, {m.closing:0} m/s closing, racer {m.lat:+0.0;-0.0} m off its line");
+            }
+        }
         static readonly List<string> missLines = new List<string>();
         // aipass 11-17: oncoming-stream traffic met on a road the rival's own map calls ONE-WAY (the race strip lays
         // oncoming lanes along the whole route), every head-on's context, and the last respawn of each car
@@ -42,7 +89,7 @@ namespace PSXRacing.EditorTools
         {
             rm = race; t0 = Time.time;
             overS.Clear(); stayS.Clear(); longest.Clear(); stays.Clear(); missAt.Clear(); missLines.Clear();
-            nearMisses = 0;
+            nearMisses = 0; meets.Clear(); bodyOf.Clear(); meetTouches = 0; meetMin = float.MaxValue;
             owMeets = 0; owSeconds = 0f; owAt.Clear(); owLines.Clear(); respawnAt.Clear(); headLines.Clear();
             headOnsRival = headOnsPlayer = headOnsSlow = headOnsAfterRespawn = headOnsOneWay = headOnsPassing = 0;
             oncomingStreamHits = oncomingStreamHard = 0; streamLines.Clear();
@@ -151,6 +198,8 @@ namespace PSXRacing.EditorTools
         public static void Step(float dt)
         {
             if (rm == null || rm.State != RaceManager.RaceState.Racing) return;
+            stepN++;
+            CloseMeets(false);   // meetings not seen last step have ended
             var ts = TrafficSystem.Instance;
             SampleLegal(ts);
             foreach (var c in rm.allCars)
@@ -209,15 +258,14 @@ namespace PSXRacing.EditorTools
                     float closing = c.forwardSpeed - along;
                     if (closing < 10f) continue;
                     Vector3 lo = c.transform.InverseTransformPoint(rb.position);
-                    if (Mathf.Abs(lo.z) > 4.5f) continue;                       // not level with us
-                    float air = Mathf.Abs(lo.x) - 0.95f - 0.95f;
-                    if (air > 0.6f) continue;
+                    if (Mathf.Abs(lo.z) > 9f || Mathf.Abs(lo.x) > 4.5f) continue;   // not about to be level with us
+                    var ca = Body(c); var cb = Body(rb);
+                    if (ca == null || cb == null) continue;
+                    float gap = Gap(ca, cb);
                     var key = ((Object)c, (Object)rb);
-                    if (missAt.TryGetValue(key, out float at) && Time.time - at < 3f) continue;
-                    missAt[key] = Time.time;
-                    nearMisses++;
-                    if (missLines.Count < 8)
-                        missLines.Add($"NEAR MISS {c.name} at {Time.time - t0:0.0}s: oncoming {rb.name} {air:0.00} m of air, {closing:0} m/s closing, racer {lat:+0.0;-0.0} m off its line");
+                    if (!meets.TryGetValue(key, out var m)) { m = new Meet { who = c.name, other = rb.name }; meets[key] = m; }
+                    m.lastStep = stepN;
+                    if (gap < m.min) { m.min = gap; m.closing = closing; m.t = Time.time - t0; m.lat = lat; }
                 }
             }
         }
@@ -225,6 +273,7 @@ namespace PSXRacing.EditorTools
         public static void End()
         {
             if (rm == null) return;
+            CloseMeets(true);
             int begun = 0, oncoming = 0, held = 0, done = 0, aborted = 0, overBegun = 0, overDone = 0;
             float over = 0f, lg = 0f, open = 0f; int stayN = 0; string lgWho = "";
             var per = new List<string>();
@@ -242,7 +291,7 @@ namespace PSXRacing.EditorTools
                 per.Add($"{c.name}: passes {ai.PassesBegun} (oncoming lane {ai.PassesOncoming}, held {ai.PassesHeld}) done {ai.PassesDone} aborted {ai.PassesAborted}, over the line {o:0.0} s in {n} stays (longest {l:0.0} s), better line {ai.OpenLineSeconds:0.0} s");
             }
             RacePlayCheck.Note($"LANE USE: passes begun {begun} (into the oncoming lane {oncoming}, on a rival it was held behind {held}), done {done}, aborted {aborted}; " +
-                               $"near misses {nearMisses}; over the centreline {over:0} s in {stayN} stays, longest {lg:0.0} s ({lgWho}); better-line seconds {open:0}");
+                               $"near misses {nearMisses} (touched {meetTouches}, smallest gap {(meetMin < 1e6f ? meetMin.ToString("0.00") + " m" : "-")}); over the centreline {over:0} s in {stayN} stays, longest {lg:0.0} s ({lgWho}); better-line seconds {open:0}");
             foreach (var s in per) RacePlayCheck.Note("  " + s);
             foreach (var s in missLines) RacePlayCheck.Note("  " + s);
             RacePlayCheck.Note($"ONE-WAY MEETS (oncoming-stream traffic within 60 m ahead on a road the rival's map calls one-way): {owMeets}, {owSeconds:0} s; the race path's one-way waypoints (no oncoming stream there, PSX_TRAFFIC_ONEWAY): {(TrafficSystem.Instance != null ? TrafficSystem.Instance.OneWayWaypoints : 0)}");
@@ -269,7 +318,7 @@ namespace PSXRacing.EditorTools
             }
             foreach (var s in headLines) RacePlayCheck.Note("  " + s);
             foreach (var s in streamLines) RacePlayCheck.Note("  " + s);
-            RacePlayCheck.Summary($"LANE USE {(AIDriver.PassOncoming ? "ON" : "OFF")} | passes {begun} oncoming-lane {oncoming} held {held} done {done} aborted {aborted} | near misses {nearMisses} | over-line {over:0}s longest {lg:0.0}s | better-line {open:0}s" +
+            RacePlayCheck.Summary($"LANE USE {(AIDriver.PassOncoming ? "ON" : "OFF")} | passes {begun} oncoming-lane {oncoming} held {held} done {done} aborted {aborted} | near misses {nearMisses} touched {meetTouches} min gap {(meetMin < 1e6f ? meetMin.ToString("0.00") : "-")} | over-line {over:0}s longest {lg:0.0}s | better-line {open:0}s" +
                                   $" | head-ons rival {headOnsRival} player {headOnsPlayer} (slow {headOnsSlow}, after respawn {headOnsAfterRespawn}, one-way {headOnsOneWay}, passing {headOnsPassing}) | one-way meets {owMeets} {owSeconds:0}s" +
                                   $" | oncoming-stream hits {oncomingStreamHits} (hard {oncomingStreamHard}) | over-line passes {overBegun} done {overDone} | mean stay {(stayN > 0 ? over / stayN : 0f):0.0}s");
             RacePlayCheck.Check(lg <= 20f, "every rival comes back to the right lane (no stay over the centreline past 20 s)", $"{lg:0.0} s ({lgWho})");
