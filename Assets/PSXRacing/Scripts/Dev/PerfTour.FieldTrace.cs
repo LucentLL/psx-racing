@@ -174,6 +174,21 @@ namespace PSXRacing
             isOn = false;
         }
 
+        /// <summary>(cityai round 5) the reason column: the AI's own give-way reason, else, for a car on the throttle that is
+        /// not moving (under 2 m/s), what it is pressed against ("blocked by X") or "no way, no reason" when nothing touches it.</summary>
+        static string WhyNow(CarController c, AIDriver ai)
+        {
+            string w = ai != null ? ai.DebugGiveWhy : "";
+            if (!string.IsNullOrEmpty(w) || ai == null) return w ?? "";
+            if (c.throttleInput > 0.5f && Mathf.Abs(c.forwardSpeed) < 2f)
+            {
+                var cr = c.GetComponent<CollisionResponder>();
+                if (cr != null && Time.time - cr.LastContactTime < 0.5f) return "blocked by " + cr.LastContactName;
+                return "no way, no reason";
+            }
+            return "";
+        }
+
         void FieldSample()
         {
             if (ftb == null) return;
@@ -201,7 +216,7 @@ namespace PSXRacing
                     var ai = c.GetComponent<AIDriver>();
                     string kind = c == rm.playerCar ? "player" : "rival";
                     Row(t, c.name, kind, c.transform.position, c.transform.forward, Mathf.Abs(c.forwardSpeed),
-                        c.steerInput, c.throttleInput, c.brakeInput, ai != null && ai.DebugBackingUp, ai != null ? ai.DebugGiveWhy : "");
+                        c.steerInput, c.throttleInput, c.brakeInput, ai != null && ai.DebugBackingUp, WhyNow(c, ai));
                 }
             var ts = TrafficSystem.Instance;
             if (ts != null && ts.WreckLog.Count > ftWrecks) { for (int w = ftWrecks; w < ts.WreckLog.Count; w++) ftWreckNotes.Append(t.ToString("0.0", FtCI)).Append(" s: ").Append(ts.WreckLog[w]).Append('\n'); ftWrecks = ts.WreckLog.Count; }
