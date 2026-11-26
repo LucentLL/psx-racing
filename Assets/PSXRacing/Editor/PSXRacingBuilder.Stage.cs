@@ -7002,8 +7002,10 @@ namespace PSXRacing.EditorTools
         /// and the solid leans with the face above the plinth (a second slab, plinth to band top). The rock top's
         /// face collider takes the same depth. On every stage with cuts (circuits and the city build no stage banks).
         /// PSX_BANKFIT=0 = 77f4abf8.
+        /// OPT-IN since 11-26 (PSX_BANKFIT=1): the owner compared PC71 | PC72 in the exe and ruled that the flat lower
+        /// 2 m "looks very flat and unrealistic"; the blocky relief stays until the solid is shaped to the blocks instead.
         /// </summary>
-        public static bool BankFit = System.Environment.GetEnvironmentVariable("PSX_BANKFIT") != "0";
+        public static bool BankFit = System.Environment.GetEnvironmentVariable("PSX_BANKFIT") == "1";
         /// <summary>The top of the band (over the tarmac edge) where the drawn rock keeps to the solid.</summary>
         const float BankFitBandH = 2.1f;
         /// <summary>The most the drawn rock stands behind the solid's surface in the band (blocks, cracks).</summary>

@@ -254,7 +254,7 @@ namespace PSXRacing
             Register(new LabRow
             {
                 id = "bankfit", group = LabGroup.World, name = "ROCK CUTS: SOLID ON ROCK", when = LabWhen.BuiltIn,
-                look = "Built into the stage scenes: a car stops on the rock it sees; the lowest 2 m of a cut is flatter. A scene build.",
+                look = "OFF from PC75 by your ruling of 11-26 (in PC72-PC74): a car stops on the rock it sees, but the lowest 2 m of a cut is flat. The blocky rock is back until the solid is shaped to the blocks. A scene build.",
                 env = new[] { "PSX_BANKFIT" }, requires = "TunnelHeadlights.EaseHandBack",
             });
             Register(new LabRow
