@@ -542,7 +542,9 @@ namespace PSXRacing.EditorTools
                         // (round 5, stage 0 a) the road surface under a lane: none (HOLES), two sheets over 1 cm apart
                         // (LAYERS), a break in it over 1 cm (STEP: the second difference along x or z); decks are judged
                         // by the deck gates
-                        if (!e.bridge && !e.tunnel && !e.ElevatedAt(s))
+                        // (outside the junction fans only: the fan plate is not in this raster's road slots - found at spot 81,
+                        // where the paved fan at n8008 read as 48 holes; the outline stage judges inside the junctions)
+                        if (!e.bridge && !e.tunnel && !e.ElevatedAt(s) && s >= trims.atA[e.index] && s <= e.length - trims.atB[e.index])
                         {
                             if (float.IsNaN(pave[k])) th.hits[4].Add(new Vector3(q.x, 0f, q.y));
                             else
