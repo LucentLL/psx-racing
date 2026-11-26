@@ -401,6 +401,31 @@ Base: the round 4 head. Every run edit-mode batch (0 play runs). Scratch under 1
     78 RAISED 5 LINEUNDER 4 LAYERS 7 STEP 11 KINK 51; 79 RAISED 3 LINEUNDER 1 LAYERS 6 KINK 7; 80 RAISED 4 LAYERS 1 STEP 2
     KINK 5; 81 HOLES 3 LAYERS 8 STEP 13 KINK 52.
 
+## Round 5, items 1-4 (11-26 afternoon): gallery with aerials, the gate inside junctions, the pure solver and its tests
+- 1. Gallery with the 55 NC OneMap crops (fetched by the coordinator on the owner's approval; scratch only): aerial | EDITOR
+  plan, north up, 71 x 40 m (scratchpad\c7roads\gallery_r5\*.jpg) and gallery_truth.csv (per junction: median kind, noses,
+  bays, slip wedges, kerb radii, crossings, every edge the game draws straight or pointed, map vs photo). At 9 of 55 the
+  map's junction lies 10-30 m from the photo's (g02, g07, g10, g11, g21, g28, g40, g44, g47): the outline follows the map,
+  so those need the map moved, not the outline. 81 (g05): the photo has a PAINTED gore to the stop line, no raised land.
+- 2. The island gate's HOLES inside junctions: a junction's fan is drawn whole by its node's tile, so the next tile's lane
+  cells under it read as holes (81's 48). Every road triangle reaching past its tile is now rasterised whole into a shared
+  set and such holes are dropped. Checked place by place at the five spots (known.csv): STEP at fan mouths = the fan's
+  12 mm lift (FanProudM, real against the 1 cm rule), LAYERS = the stacked crossings at 79 / 80 (real), HOLES 77 / 80 on a
+  carriageway's edge (the lane band past the drawn pavement: unverified), 81 HOLES 0.
+- 3. Scripts/City/JunctionOutline.cs: the solver as a pure function (arms' border polylines, class, one-way, name in;
+  outline, cut rows, corners, a hole-bridged ear-clip fill out; no CityMap). Editor/JunctionOutlineTests.cs: EditMode tests
+  on synthetic arms (NUnit; batch: JunctionOutlineTests.RunAll), 4.2 s in all. PASS: T, crossing, skew, curved-arm T; the
+  fixed-seed sweep 58 / 60. FAIL: bay at host, slip end, fork, split (the nose's shared cut: the two arms' cut rows and
+  the nose's tangent points are not yet one line - the outline crosses itself by centimetres there), median opening (the
+  connector meets the borders with a kink), the island hole fill (the bridged ear clip covers 1,413 samples twice: the
+  cheap route FAILS as written; a bridge-aware clip or the constrained triangulation is next). Slivers: most fill triangles
+  are slivers (ear clipping of long thin rings), e.g. 71 of 79 in the T.
+- 4. CityOutlineProto.RunClusters: the generator's own clusters (FanKey) through the pure solver. 79's corner (n3499) and
+  81's 4-node junction pass the checks; 77's 2-node cluster crosses itself; at 80 the median opening's two far nodes
+  (n4435, n4441) are SEPARATE clusters in the generator and their outlines overlap - the clustering must join a
+  crossover's pair. Solve 2-34 ms a junction, fill 0.2-12 ms.
+- Stage 1 (mesh) NOT started: the solver fails its own tests on exactly the kinds at his spots.
+
 # TEST RUNS ARE SILENT (coordinator, 11-25; mountain-nm 8a5737c0)
 
 Owner 2026-11-25: "please mute all testing. I constantly hear the game without ever seeing it". Measured at 18:02: two hidden batch editors (RacePlayCheck in PSXPerf and PSXCity) were at full-scale peak on his speakers. Batch mode hides the window, not the sound.
