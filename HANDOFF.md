@@ -8343,3 +8343,16 @@ launch old 109/585, uniform 102/395, routes 0/0/0; census = g5r6; route p99 1.12
    past the e2437/e2438 deck V (own approach rails ending sloped in a 14 m grass median), Independence junction fans.
 3. `PSX_CITY_TWIN_RECIP` / `PSX_CITY_UNION_SEAM` measured apart (together: none +1 at I-77 e1880 s 45).
 4. Twin hold stays OFF; e9877 s 18 rail end; mitre snap alone; 8 off-route deck holes.
+
+## Round 5, items 1-6 continued (11-26 evening): the solver passes its kinds; real clusters not yet
+- Item 1: gallery bboxes already used the exporter's projection (export_osm.mjs); map centrelines overlay the aerials and
+  game frames overlay the map. The "10-30 m off at 9 of 55" claim was a by-eye misreading, withdrawn; no new aerial request.
+  Only g10 differs (roads under construction in the photo).
+- JunctionOutline.cs: nose = 1.2 m fillet with its cut line built first and both rows on it; through tapers; link noses
+  (median crossover / U-turn crossing); borders carried behind their start for fillets; standard hole bridge + ear clip
+  + interior points + Lawson flips; height = quadratic + per-arm remainder planes (C1 at rows), spacing refined to 9 mm
+  plane deviation, >2.5 m rise refused; MergeBays (narrow arm alongside = lane of its host, its crossing a link).
+- JunctionOutlineTests: 22 / 22 pass in Unity (jt4, c0a38a0a) and in a stub harness (4.5 s).
+- CityOutlineProto.RunClusters (op5): JoinOpenings (median-opening rule) did NOT join 80's n4435 / n4441 (the two U-turn
+  links' centrelines come no closer than 9.3 m; threshold 3 m). 79 and both 80 nodes solve but each keeps one kink; 77
+  (2 nodes) and 81 (4 nodes) refuse with a self-crossing. Stage 1 not started.
