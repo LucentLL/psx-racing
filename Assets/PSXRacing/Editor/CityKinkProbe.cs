@@ -23,7 +23,7 @@ namespace PSXRacing.EditorTools
     /// </summary>
     public static class CityKinkProbe
     {
-        public const float SagMaxM = 0.01f, TurnMaxDeg = 6f, RBigM = 6f, SpotR = 60f, MinPieceM = 0.05f;
+        public const float TjuncM = 0.002f, SagMaxM = 0.01f, TurnMaxDeg = 6f, RBigM = 6f, SpotR = 60f, MinPieceM = 0.05f;
         static readonly (string id, Vector2 p)[] Spots =
         {
             ("77", new Vector2(5587.78f, 11806.86f)), ("78", new Vector2(5564.06f, 11839.02f)), ("79", new Vector2(6246.80f, 13380.12f)),
@@ -41,7 +41,9 @@ namespace PSXRacing.EditorTools
             if (th < 1e-4f) return false;
             float L = Mathf.Min(lu, lv);
             float sag = L * th / 8f, r = L / th;
-            return sag > SagMaxM || (r >= RBigM && turnDeg > TurnMaxDeg);
+            // (stage 0 d) a piece sampled AT the limit (the generator's own 1 cm / 6 degrees) is within it: float noise
+            // put 1,888 of the 1,938 'faceted' crossing and T returns at 1.0x cm / 6.0x degrees
+            return sag > SagMaxM * 1.02f || (r >= RBigM && turnDeg > TurnMaxDeg + 0.1f);
         }
 
         /// <summary>The scorecard's kind of a junction fan (its node's arms).</summary>
@@ -129,6 +131,8 @@ namespace PSXRacing.EditorTools
                 var kindK = new SortedDictionary<string, int>();
                 var kindFacet = new SortedDictionary<string, int>();
                 var facetWhy = new SortedDictionary<string, int>(); var facetDump = new StringBuilder();
+                var kindTj = new SortedDictionary<string, int>(); int mouths = 0, mouthNoRibbon = 0;
+                var kindsTsv = new StringBuilder("node\tkind\tx\tz\tarms\tnames\n");
                 var seen = new HashSet<int>();
                 int rings = 0, verts = 0;
                 for (int n = 0; n < map.nodes.Length; n++)
@@ -140,9 +144,29 @@ namespace PSXRacing.EditorTools
                     int m = ring.Count;
                     string kind = KindOf(map, n, crossFar, splitNodes);
                     kindN.TryGetValue(kind, out int kn0); kindN[kind] = kn0 + 1;
+                    kindsTsv.Append(string.Format(inv, "{0}\t{1}\t{2:0.0}\t{3:0.0}\t{4}\t{5}\n", n, kind, map.nodes[n].x, map.nodes[n].y, map.nodeEdges[n].Count, string.Join(" / ", map.nodeEdges[n].Select(x => map.edges[x].name).Where(x => !string.IsNullOrEmpty(x)).Distinct())));
                     for (int i = 0; i < m; i++)
                     {
                         var prev = ring[(i - 1 + m) % m]; var cur = ring[i]; var next = ring[(i + 1) % m];
+                        // (stage 0 b) TJUNC: a mouth's two corners must be the arm ribbon's own end-row vertices
+                        if (cur.mouthNext && cur.edge >= 0 && cur.edge < map.edges.Length)
+                        {
+                            mouths++;
+                            Vector2[] L = null, R = null;
+                            bool ok = false;
+                            try { ok = CityMeshes.RibbonOutline(map, trims, cur.edge, out L, out R); } catch (System.Exception) { ok = false; }
+                            if (ok)
+                            {
+                                float d0 = Mathf.Min(Mathf.Min((L[0] - cur.p).magnitude, (R[0] - cur.p).magnitude), Mathf.Min((L[L.Length - 1] - cur.p).magnitude, (R[R.Length - 1] - cur.p).magnitude));
+                                float d1 = Mathf.Min(Mathf.Min((L[0] - next.p).magnitude, (R[0] - next.p).magnitude), Mathf.Min((L[L.Length - 1] - next.p).magnitude, (R[R.Length - 1] - next.p).magnitude));
+                                if (d0 > TjuncM || d1 > TjuncM)
+                                {
+                                    kindTj.TryGetValue(kind, out int tj0); kindTj[kind] = tj0 + 1;
+                                    Count("fan: TJUNC (mouth corner not the ribbon's end vertex)", NearSpot(cur.p), cur.p, Mathf.Max(d0, d1) * 1000f, n, cur.edge);
+                                }
+                            }
+                            else mouthNoRibbon++;
+                        }
                         // only a vertex between two free (kerb) pieces: a mouth is where a ribbon carries on
                         if (prev.mouthNext || cur.mouthNext) continue;
                         verts++;
@@ -209,8 +233,10 @@ namespace PSXRacing.EditorTools
                             }
                     }
                 }
-                log.Append("SCORECARD (kind | places | kinks at a corner with no return | facet kinks on a return):\n");
-                foreach (var kv in kindN) log.Append($"  {kv.Key} | {kv.Value} | {(kindK.TryGetValue(kv.Key, out int a1) ? a1 : 0)} | {(kindFacet.TryGetValue(kv.Key, out int a2) ? a2 : 0)}\n");
+                File.WriteAllText(Path.Combine(dir, $"c7_kinds_{tag}.tsv"), kindsTsv.ToString());
+                log.Append($"TJUNC: mouths {mouths}, with no ribbon (buried or collapsed arm) {mouthNoRibbon}\n");
+                log.Append("SCORECARD (kind | places | kinks at a corner with no return | facet kinks on a return | TJUNC mouths):\n");
+                foreach (var kv in kindN) log.Append($"  {kv.Key} | {kv.Value} | {(kindK.TryGetValue(kv.Key, out int a1) ? a1 : 0)} | {(kindFacet.TryGetValue(kv.Key, out int a2) ? a2 : 0)} | {(kindTj.TryGetValue(kv.Key, out int a4) ? a4 : 0)}\n");
                 foreach (var kv in zN) log.Append($"  {kv.Key} | {kv.Value} | ribbon-outline kinks within {SpotR:0} m + D of the node: {(zK.TryGetValue(kv.Key, out int a3) ? a3 : 0)}\n");
                 log.Append($"ribbons read near the spots {ribs} (failed {ribFail})\n");
                 log.Append("CITY-WIDE (fan rings; ribbons only near the spots):\n");
