@@ -44,4 +44,16 @@
   <assembly fullname="mscorlib">
     <type fullname="System.Threading.OSSpecificSynchronizationContext" preserve="all" />
   </assembly>
+  <!-- PEOPLE (Stage 1, 2026-11-26): technique B, the baked bone texture drawn with
+       Graphics.RenderMeshInstanced. Kept explicitly so the load line "[People] load:"
+       in a player log names them; the PSX_BAKEDSKIN shader variant is NOT kept by
+       this file (a variant needs a material or a variant collection in the build). -->
+  <assembly fullname="UnityEngine.CoreModule">
+    <type fullname="UnityEngine.RenderParams" preserve="all" />
+    <type fullname="UnityEngine.MaterialPropertyBlock" preserve="all" />
+  </assembly>
+  <assembly fullname="Assembly-CSharp">
+    <type fullname="PSXRacing.People.PeopleCrowd" preserve="all" />
+    <type fullname="PSXRacing.People.Mannequin" preserve="all" />
+  </assembly>
 </linker>
