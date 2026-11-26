@@ -377,6 +377,7 @@ namespace PSXRacing
             public float knockHoldUntil;
             public float knockWindowAt; public int knocks;
             public float lastRacerAt = -100f;
+            public float fitNext, fitLane;
         }
 
         /// <summary>Called by RaceManager.Start once the path is final (a
@@ -1068,7 +1069,7 @@ namespace PSXRacing
                     // a touch: it stops where it is and, after a moment, drives on along its lane
                     c.speed = 0f;
                     c.knockHoldUntil = Time.time + SoftKnockHoldS;
-                    if (SoftKnockLog.Count < 2000) SoftKnockLog.Add(Time.time.ToString("0.0") + " s: " + (c.lastContact ?? "?") + ", " + knock.ToString("0.0") + " m/s");
+                    if (SoftKnockLog.Count < 2000) SoftKnockLog.Add(Time.time.ToString("0.0") + " s: " + (c.dir > 0 ? "with" : "oncoming") + " touched by " + (c.lastContact ?? "?") + ", " + knock.ToString("0.0") + " m/s");
                 }
                 else
                 {
@@ -1104,9 +1105,22 @@ namespace PSXRacing
             // (round 4) its lane on the pavement ahead: another lane of its direction, or a crawl where none fits
             if (paveR != null)
             {
-                float fit = FittingLane(c);
+                // looked at twice a second (the look is ~20 lane tests); a lane change only into a clear gap
+                if (Time.time >= c.fitNext) { c.fitNext = Time.time + 0.5f; c.fitLane = FittingLane(c); }
+                float fit = c.fitLane;
                 if (float.IsNaN(fit)) v = Mathf.Min(v, 4f);
-                else if (Mathf.Abs(fit - c.lat) > 0.05f) { c.lat = fit; c.edgeLat = float.NaN; }
+                else if (Mathf.Abs(fit - c.lat) > 0.05f)
+                {
+                    bool clear = true;
+                    foreach (var o in live)
+                    {
+                        if (o == c || o.dir != c.dir || Mathf.Abs(o.lat - fit) > 1.5f) continue;
+                        float gapS = Delta(c.s, o.s) * c.dir;
+                        if (gapS > -10f - Mathf.Max(0f, o.speed - c.speed) * 1.5f && gapS < 12f + Mathf.Max(0f, c.speed - o.speed) * 1.5f) { clear = false; break; }
+                    }
+                    if (clear) { c.lat = fit; c.edgeLat = float.NaN; }
+                    else v = Mathf.Min(v, Mathf.Max(4f, c.speed - 3f));   // ease off and merge behind it
+                }
             }
             // A RACER COMING, and what this driver does about it (Temper).
             float latTarget = c.lat;

@@ -66,7 +66,7 @@ namespace PSXRacing
         /// <summary>(round 4) Mid-race misses: deferred to a sliced search (PSX_CP_TURNS_DEFER=0: searched in the plan).</summary>
         public static bool DeferOn = System.Environment.GetEnvironmentVariable("PSX_CP_TURNS_DEFER") != "0";
         public static bool InRace, Searching, LastSliced;
-        public static float SearchBudgetMs = 0.6f;
+        public static float SearchBudgetMs = 0.35f;
         public static int Deferred;
         public static readonly System.Diagnostics.Stopwatch sliceSw = new System.Diagnostics.Stopwatch();
         public static readonly Queue<(long key, int sIn, int sOut)> Pending = new Queue<(long, int, int)>();
@@ -360,9 +360,9 @@ namespace PSXRacing
                     for (float T = T0; T >= 1f - 1e-3f; T -= CoarseStepM)
                     {
                         if (T / tanH < MinR) break;
-                        // (round 4) a slice a frame: out of budget, carry on from here next frame
-                        if (Searching && sliceSw.Elapsed.TotalMilliseconds > SearchBudgetMs) { resumeT[fkey] = T; sliced = true; break; }
                         if (Arc(T, out _, out _, out _, out _, out _, out _)) { bestT = T; break; }
+                        // (round 4) a slice a frame: one trial at least, then out of budget carries on from the next T
+                        if (Searching && sliceSw.Elapsed.TotalMilliseconds > SearchBudgetMs) { resumeT[fkey] = T - CoarseStepM; sliced = true; break; }
                     }
                     if (sliced) { LastSliced = true; continue; }
                     resumeT.Remove(fkey);
