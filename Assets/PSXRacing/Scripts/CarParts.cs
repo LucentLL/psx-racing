@@ -224,7 +224,7 @@ namespace PSXRacing
             public int bit;
             public CarModelDef.OpeningPart src;
             public Transform hinge, swing, part;
-            public MeshRenderer r;
+            public MeshRenderer r, cover;
             public float seconds;
             /// <summary>0 shut .. 1 open, linear in time; the angle is eased from it.</summary>
             public float t;
@@ -271,7 +271,11 @@ namespace PSXRacing
         {
             get
             {
-                foreach (var p in parts) if (p.r != null) yield return p.r;
+                foreach (var p in parts)
+                {
+                    if (p.r != null) yield return p.r;
+                    if (p.cover != null) yield return p.cover;
+                }
                 if (cabinPanel != null) yield return cabinPanel;
             }
         }
@@ -324,6 +328,20 @@ namespace PSXRacing
                 p.r = p.part.gameObject.AddComponent<MeshRenderer>();
                 p.r.sharedMaterial = standIn ? CarPartsStandIn.Material : bodyR.sharedMaterial;
                 CopyLook(bodyR, p.r);
+                // a clear cover the panel carries (a lid's lamp cover): its own
+                // renderer on the moving part, PSX/CarLens like the body's covers
+                if (op.coverMesh != null && pdef.coverMaterial != null && CarCovers.On)
+                {
+                    var cg = NewNode(op.name + "_" + CarCovers.ChildName, p.part);
+                    cg.gameObject.AddComponent<MeshFilter>().sharedMesh = op.coverMesh;
+                    p.cover = cg.gameObject.AddComponent<MeshRenderer>();
+                    p.cover.sharedMaterial = pdef.coverMaterial;
+                    p.cover.shadowCastingMode = ShadowCastingMode.Off;
+                    p.cover.receiveShadows = false;
+                    p.cover.lightProbeUsage = LightProbeUsage.Off;
+                    p.cover.reflectionProbeUsage = ReflectionProbeUsage.Off;
+                    p.cover.renderingLayerMask = bodyR.renderingLayerMask;
+                }
                 list.Add(p);
             }
             parts = list.ToArray();

@@ -1,0 +1,5 @@
+# PSX Racing car model
+newmtl test5a_2door_covers_open
+Ka 1 1 1
+Kd 1 1 1
+illum 1

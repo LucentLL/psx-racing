@@ -500,6 +500,22 @@ const MODELS = [
     tex: `${here}/converted/fullsize_trooper`, skins: /^fullsize_trooper_512x256$/, gt4LengthM: 5.385 },
 ];
 
+// THE SYNTHETIC 5A TEST CARS (carparts stage 2): box-built cars with every
+// opening-panel name (tools/carmodels/test/make_test_car.py -> glb2parts.py).
+// Exported ONLY when named on the command line, never in a full run, and never
+// in the catalog: `node export_models.mjs test5a_2door test5a_4door`.
+const TEST_MODELS = ['test5a_2door', 'test5a_4door'].map(k => ({
+  key: k, test: true, obj: `${here}/test/out/${k}/${k}.obj`, tex: `${here}/test/out/${k}/textures`,
+  opening: `${here}/test/out/${k}/${k}_parts.json`,
+}));
+
+/// SECTION 5A CAPS (carparts decision 3): the closed set inside the rev45 cap,
+/// the open-only set inside its own pilot cap. A car over either is refused.
+// (CM_CAP_CLOSED / CM_CAP_OPEN: test/test_caps.mjs lowers them to prove the refusal)
+const CLOSED_CAP = +(process.env.CM_CAP_CLOSED || 10000);
+const OPEN_CAP_2DOOR = +(process.env.CM_CAP_OPEN || 3000), OPEN_CAP_4DOOR = +(process.env.CM_CAP_OPEN || 3500);
+const tris = faces => faces.reduce((a, f) => a + Math.max(0, f.length - 2), 0);
+
 // `node export_models.mjs civic_eg` re-exports one model and leaves the rest
 // of the folder exactly as it is.
 const only = process.argv.slice(2);
@@ -613,8 +629,9 @@ function writeObj(file, src, groups, mtlName) {
 const safe = n => n.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
 
 let report = [];
-for (const m of MODELS) {
+for (const m of MODELS.concat(TEST_MODELS)) {
   if (only.length && !only.includes(m.key)) continue;
+  if (m.test && !only.includes(m.key)) continue;
   const src = parseObj(m.obj);
   // THE ONE EXCEPTION to "nothing here moves geometry": a model that comes
   // with a GT4 length is scaled, uniformly, to it. A car's length is its
@@ -662,6 +679,100 @@ for (const m of MODELS) {
     bodyFaces.push(...o.faces.filter(f => keepFace(m, f)));
   }
   if (corners.size !== 4) throw new Error(`${m.key}: expected 4 wheels, got ${[...corners]}`);
+
+  // SECTION 5A, OPENING PANELS (`opening`: glb2parts.py's <car>_parts.json).
+  // Today's merge above would put the whole open-only set (inner skins, jambs,
+  // bay, trunk well) into the body of every copy of the car, traffic included,
+  // so for such a car the body is rebuilt here from the sets:
+  //   <key>.obj               the CLOSED car: Body + the outer panels + what
+  //                           they carry (mirrors, lid lenses): today's path
+  //                           and every reader see the closed car as now
+  //   <key>_open.obj          Body + Jamb_L + Jamb_R + Bay + TrunkWell (+ what
+  //                           else sits on Body): worn only while a part is open
+  //   <key>_part_<Panel>.obj  the panel, its _Inner and everything parented to
+  //                           it at any depth
+  //   <key>_openonly.obj      the open-only objects alone (the closed-match check)
+  //   <key>_covers.obj        every clear cover (over the closed body, as today);
+  //   <key>_covers_open.obj   the covers on Body (over the open body);
+  //   <key>_part_<Panel>_covers.obj  a cover a lid carries (it moves with the lid)
+  //   <key>_parts.json        the hinges, the mount and the kit empties, scaled
+  //                           by the body's factor s, in the vertices' frame.
+  // Open-only objects never enter the closed body. A cover's faces never enter
+  // an opaque mesh (the OBJ path would paint them opaque).
+  let opening = null;
+  if (m.opening) {
+    if (m.lampsUp || m.lens) throw new Error(`${m.key}: opening parts are refused on a pop-up (lampsUp) or lens-variant shell this round`);
+    const pj = JSON.parse(fs.readFileSync(m.opening, 'utf8'));
+    if (pj.problems && pj.problems.length) throw new Error(`${m.key}: ${m.opening} carries glb2parts problems: ${pj.problems.join('; ')}`);
+    const panelNames = new Set(pj.panels.map(p => p.name));
+    const parentOf = new Map(), setOf = new Map();
+    for (const p of pj.panels) { parentOf.set(p.name, p.parent); setOf.set(p.name, 'closed'); }
+    for (const o of pj.objects) { parentOf.set(o.name, o.parent); setOf.set(o.name, o.set); }
+    const carrier = n => { for (let c = n, i = 0; c && i < 64; c = parentOf.get(c), i++) if (panelNames.has(c)) return c; return null; };
+    if (m.parts) {
+      const missing = [...setOf.keys()].filter(n => !wheelSlot(n) && !m.parts.includes(n));
+      if (missing.length) throw new Error(`${m.key}: an opening car's parts list must be null or name every 5A object; missing ${missing.join(', ')}`);
+    }
+    const objFaces = new Map();
+    for (const o of src.objects) {
+      if (!setOf.has(o.name)) throw new Error(`${m.key}: OBJ object ${o.name} is not in ${path.basename(m.opening)}`);
+      objFaces.set(o.name, o.faces);
+    }
+    const isCov = f => isCover(m, f.mtl);
+    const pick = (test, cov = false) => {
+      const out = [];
+      for (const [n, faces] of objFaces) {
+        if (wheelSlot(n) || (m.parts && !m.parts.includes(n)) || !test(n)) continue;
+        out.push(...faces.filter(f => keepFace(m, f) && (cov ? isCov(f) : !isCov(f))));
+      }
+      return out;
+    };
+    const closedF = pick(n => setOf.get(n) === 'closed');
+    const openF = pick(n => carrier(n) === null);
+    const onlyF = pick(n => setOf.get(n) === 'open');
+    const partF = new Map(pj.panels.map(p => [p.name, pick(n => carrier(n) === p.name)]));
+    const partCov = new Map(pj.panels.map(p => [p.name, pick(n => carrier(n) === p.name, true)]));
+    const allCov = pick(() => true, true);
+    const bodyCov = pick(n => carrier(n) === null, true);
+    // the triangle report: per object, the two sets, the caps
+    const perObj = [...objFaces].map(([n, f]) => ({ name: n, parent: parentOf.get(n) || '', set: setOf.get(n), carrier: carrier(n) || '', tris: tris(f) }));
+    const closedTris = perObj.filter(o => o.set === 'closed').reduce((a, o) => a + o.tris, 0);
+    const openTris = perObj.filter(o => o.set === 'open').reduce((a, o) => a + o.tris, 0);
+    const doors = pj.panels.some(p => p.name === 'Door_RL' || p.name === 'Door_RR') ? 4 : 2;
+    const openCap = doors === 4 ? OPEN_CAP_4DOOR : OPEN_CAP_2DOOR;
+    report.push(`${m.key.padEnd(14)} 5A ${doors}-door: closed set ${closedTris} tris (cap ${CLOSED_CAP}), open-only set ${openTris} tris (cap ${openCap})`);
+    for (const o of perObj) report.push(`    ${o.name.padEnd(18)} ${o.set.padEnd(6)} ${String(o.tris).padStart(5)} tris  ${o.carrier ? 'on ' + o.carrier : 'on Body'}`);
+    if (closedTris > CLOSED_CAP) throw new Error(`${m.key}: closed set ${closedTris} tris over the cap ${CLOSED_CAP}`);
+    if (openTris > openCap) throw new Error(`${m.key}: open-only set ${openTris} tris over the ${doors}-door cap ${openCap}`);
+    // the hinge data in the vertices' frame: scaled by the body's factor s
+    const S = v => v.map(x => x * s);
+    const bounds = faces => {
+      const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+      for (const f of faces) for (const c of f) { const p = src.v[c.v - 1]; for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], p[k]); hi[k] = Math.max(hi[k], p[k]); } }
+      return { lo, hi };
+    };
+    const em = pj.engine_mount;
+    opening = {
+      closedF, openF, onlyF, partF, partCov, allCov, bodyCov,
+      json: {
+        key: m.key, scale: s, doors, trisClosed: closedTris, trisOpenOnly: openTris,
+        space: 'OBJ / GLB frame (metres, Y up, nose -Z), scaled by the body factor; Unity imports it with x negated',
+        panels: pj.panels.map(p => {
+          const b = bounds(partF.get(p.name));
+          return { name: p.name, file: `${m.key}_part_${p.name}`, coverFile: partCov.get(p.name).length ? `${m.key}_part_${p.name}_covers` : '',
+                   origin: S(p.origin), axis: p.axis, openDeg: p.open_deg, boundsMin: b.lo, boundsMax: b.hi };
+        }),
+        hasMount: !!em,
+        mount: em ? { origin: S(em.origin), x: em.axes.x, y: em.axes.y, z: em.axes.z, layout: em.layout || '',
+                      clearBox: S(em.clear_box_m || []), downpipe: em.downpipe_m ? S(em.downpipe_m) : [0, 0, 0],
+                      downpipeSide: em.downpipe_side || '' } : null,
+        kits: (pj.kits || []).map(k => ({ name: k.name, origin: S(k.origin), yawDeg: k.yaw_deg })),
+        objects: perObj,
+      },
+    };
+    bodyFaces.length = 0;
+    bodyFaces.push(...closedF);
+  }
   if (bodyFaces.length === 0) throw new Error(`${m.key}: no body faces`);
 
   const skins = fs.readdirSync(texDir).filter(f => /\.png$/i.test(f))
@@ -704,7 +815,27 @@ for (const m of MODELS) {
     fs.writeFileSync(path.join(dir, mtl + '.mtl'), `# PSX Racing car model\nnewmtl ${mtl}\nKa 1 1 1\nKd 1 1 1\nillum 1\n`);
     return faces.length;
   };
-  const nCovers = writeCovers(coverFaces(m, src), '_covers', src);
+  const nCovers = writeCovers(opening ? opening.allCov : coverFaces(m, src), '_covers', src);
+  if (opening) {
+    const writeMesh = (name, faces, textured) => {
+      stats[name] = writeObj(path.join(dir, name + '.obj'), src, [{ name, faces }], name);
+      fs.writeFileSync(path.join(dir, name + '.mtl'),
+        `# PSX Racing car model\nnewmtl ${name}\nKa 1 1 1\nKd 1 1 1\nillum 1\n` + (textured ? `map_Kd textures/${first}.png\n` : ''));
+    };
+    // stale part files of an older export go first
+    for (const f of fs.readdirSync(dir)) if (f.startsWith(m.key + '_part_') && !f.endsWith('.meta')) fs.unlinkSync(path.join(dir, f));
+    writeMesh(m.key + '_open', opening.openF, true);
+    writeMesh(m.key + '_openonly', opening.onlyF, true);
+    for (const p of opening.json.panels) {
+      writeMesh(p.file, opening.partF.get(p.name), true);
+      if (p.coverFile) writeMesh(p.coverFile, opening.partCov.get(p.name), false);
+    }
+    writeCovers(opening.bodyCov, '_covers_open', src);
+    fs.writeFileSync(path.join(dir, m.key + '_parts.json'), JSON.stringify(opening.json, null, 1));
+    report.push(`${m.key.padEnd(14)} 5A files: _open ${stats[m.key + '_open'].faces}f, ` +
+      opening.json.panels.map(p => `${p.name} ${stats[p.file].faces}f${p.coverFile ? ' +cover ' + stats[p.coverFile].faces + 'f' : ''}`).join(', ') +
+      `, covers ${opening.allCov.length}f (on Body ${opening.bodyCov.length}f), mount ${opening.json.hasMount ? opening.json.mount.layout : 'none'}, kits ${opening.json.kits.map(k => k.name).join('+') || 'none'}`);
+  }
   coverReport.push(`${m.key.padEnd(17)} covers ${String(nCovers).padStart(4)}f` +
     (nCovers ? '  [' + [...new Set(src.objects.filter(o => o.faces.some(f => isCover(m, f.mtl) && (!(!m.parts || m.parts.includes(o.name)) || !keepFace(m, f)))).map(o => o.name))].join(', ') + ']' : ''));
 

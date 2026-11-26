@@ -242,7 +242,16 @@ namespace PSXRacing
             public Vector3 axis;
             /// <summary>How far it opens, positive degrees.</summary>
             public float openDeg;
+            /// <summary>A clear cover the panel carries (a lid's lamp cover),
+            /// drawn with <see cref="coverMaterial"/> on the moving part; null
+            /// for none.</summary>
+            public Mesh coverMesh;
         }
+
+        /// <summary>The clear covers that sit on Body (no lid's), drawn over
+        /// <see cref="bodyOpenMesh"/>; <see cref="coverMesh"/> (every cover)
+        /// stays the closed body's.</summary>
+        public Mesh coverOpenMesh;
 
         /// <summary>The engine's seat (5A `Engine_Mount`): origin on the crank
         /// centreline at the flywheel face, +Y along the crank to the timing

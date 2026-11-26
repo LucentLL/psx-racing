@@ -41,6 +41,66 @@ namespace PSXRacing.EditorTools
             ("shut", 0), ("hood", CarParts.Hood), ("trunk", CarParts.Trunk), ("doors", CarParts.Doors), ("all", CarParts.All),
         };
 
+        /// <summary>Batch, STAGE 2: bake the synthetic 5A test cars (CarModelBaker.BakeTestCars),
+        /// photograph each closed and all open on the pad, then the self-test.</summary>
+        public static void RunStage2()
+        {
+            log.Clear();
+            outDir = System.Environment.GetEnvironmentVariable("PSX_CP_OUT");
+            if (string.IsNullOrEmpty(outDir)) outDir = Path.Combine(Path.GetDirectoryName(Application.dataPath), "Screenshots", "carparts");
+            tag = System.Environment.GetEnvironmentVariable("PSX_CP_TAG") ?? "";
+            Directory.CreateDirectory(outDir);
+            try
+            {
+                CarModelBaker.BakeTestCars();
+                log.AppendLine("BAKE (EDITOR, TEST CARS):");
+                foreach (var l in CarModelBaker.LastLog) log.AppendLine("  " + l);
+                if (SetupPad())
+                    foreach (var k in CarModelBaker.TestKeys) PadTestCar(CarModelBaker.LoadTestCar(k), k);
+            }
+            catch (System.Exception e) { log.AppendLine("EXCEPTION " + e); Debug.LogException(e); }
+            finally
+            {
+                CarParts.ShutAllNow();
+                File.WriteAllText(Path.Combine(outDir, tag + "carparts_stage2.txt"), log.ToString());
+                Debug.Log("[CarPartsShots stage 2] " + log);
+            }
+            LifeSimSelfTest.RunCarParts();
+        }
+
+        static void PadTestCar(CarModelDef def, string key)
+        {
+            if (def == null) { log.AppendLine("no baked test car " + key); return; }
+            var shell = CarShell.Spawn(spot, def, 0, out _, solid: false);
+            PSXTexDecode.StampTree(shell.gameObject);
+            var mf = shell.Find("Body").GetComponent<MeshFilter>();
+            var (fp, fr) = Front34();
+            var (sp, sr) = Side();
+            var (rp, rr) = Rear34();
+            foreach (var (name, mask) in new[] { ("closed", 0), ("hood", CarParts.Hood), ("all", CarParts.All) })
+            {
+                var cp = CarParts.Set(mf, def, mask, instant: true);
+                log.AppendLine($"  {key} {name,-6}: body {(mf.sharedMesh == def.bodyOpenMesh ? "OPEN mesh" : mf.sharedMesh == def.bodyMesh ? "closed mesh" : "?")}, " +
+                               $"front3/4 {Count(shell, fp, fr)}, side {Count(shell, sp, sr)}");
+                Save(Render(fp, fr), $"test_{key}_{name}_front34");
+                if (mask != CarParts.Hood)
+                {
+                    Save(Render(sp, sr), $"test_{key}_{name}_side");
+                    Save(Render(rp, rr), $"test_{key}_{name}_rear34");
+                }
+            }
+            CarParts.TearDown(mf);
+            Object.DestroyImmediate(shell.gameObject);
+        }
+
+        static (Vector3, Quaternion) Rear34()
+        {
+            Vector3 c = spot.position, f = spot.forward, r = spot.right;
+            var dir = (-f * 0.80f - r * 0.62f).normalized;
+            var eye = c + dir * 7.2f + Vector3.up * 2.3f;
+            return (eye, Quaternion.LookRotation(c + Vector3.up * 0.6f - eye));
+        }
+
         /// <summary>Batch: the shots, then the self-test (one editor start).</summary>
         public static void RunWithSelfTest()
         {
@@ -84,10 +144,18 @@ namespace PSXRacing.EditorTools
         // ------------------------------------------------------------------
         static void Pad(bool shots)
         {
+            if (!SetupPad()) return;
+            var def = CarModelLibrary.Load(CarPartsStandIn.Key);
+            PadStandIn(def, shots);
+        }
+
+        /// <summary>The seller's drive, rebuilt from this branch's code, noon, the camera found.</summary>
+        static bool SetupPad()
+        {
             SellerLotSceneBuilder.Build();
             EditorSceneManager.OpenScene(SellerLotSceneBuilder.ScenePath, OpenSceneMode.Single);
             var world = Object.FindAnyObjectByType<SellerLotWorld>();
-            if (world == null) { log.AppendLine("no SellerLotWorld"); return; }
+            if (world == null) { log.AppendLine("no SellerLotWorld"); return false; }
             world.PreviewBuild();
             var plot = world.plots[world.plots.Length / 2];
             spot = plot.Find("CarSpot");
@@ -98,13 +166,16 @@ namespace PSXRacing.EditorTools
             cam = output != null ? output.GetComponent<Camera>() : null;
             if (cam == null) cam = Object.FindObjectsByType<Camera>().FirstOrDefault(c => c.targetTexture == null);
             foreach (var l in Object.FindObjectsByType<Light>()) if (l.type == LightType.Directional) { sun = l; break; }
-            if (cam == null) { log.AppendLine("no camera"); return; }
+            if (cam == null) { log.AppendLine("no camera"); return false; }
             cam.fieldOfView = 40f; cam.nearClipPlane = 0.05f; cam.farClipPlane = 3000f;
             if (sun != null) TimeOfDay.Apply(TimeOfDay.Noon, sun);
             var g = Object.FindAnyObjectByType<PSXGlobals>();
             if (g != null) g.SendMessage("Apply", SendMessageOptions.DontRequireReceiver);
+            return true;
+        }
 
-            var def = CarModelLibrary.Load(CarPartsStandIn.Key);
+        static void PadStandIn(CarModelDef def, bool shots)
+        {
             if (def == null) { log.AppendLine("no shell " + CarPartsStandIn.Key); return; }
             var standIn = CarParts.PartsDef(def);
             foreach (var sh in new[] { def.SkinCount > 0 ? def.skinMaterials[0].shader : null, Shader.Find("PSX/Lit") })

@@ -1,0 +1,342 @@
+{
+ "key": "test5a_2door",
+ "scale": 1,
+ "doors": 2,
+ "trisClosed": 480,
+ "trisOpenOnly": 180,
+ "space": "OBJ / GLB frame (metres, Y up, nose -Z), scaled by the body factor; Unity imports it with x negated",
+ "panels": [
+  {
+   "name": "Door_L",
+   "file": "test5a_2door_part_Door_L",
+   "coverFile": "",
+   "origin": [
+    -0.8399999737739563,
+    0.824999988079071,
+    -0.8700000047683716
+   ],
+   "axis": [
+    -2.220446049250313e-16,
+    -1,
+    0
+   ],
+   "openDeg": 65,
+   "boundsMin": [
+    -0.97,
+    0.405,
+    -0.86
+   ],
+   "boundsMax": [
+    -0.775,
+    1.18,
+    0.62
+   ]
+  },
+  {
+   "name": "Door_R",
+   "file": "test5a_2door_part_Door_R",
+   "coverFile": "",
+   "origin": [
+    0.8399999737739563,
+    0.824999988079071,
+    -0.8700000047683716
+   ],
+   "axis": [
+    -2.220446049250313e-16,
+    1,
+    0
+   ],
+   "openDeg": 65,
+   "boundsMin": [
+    0.775,
+    0.405,
+    -0.86
+   ],
+   "boundsMax": [
+    0.97,
+    1.18,
+    0.62
+   ]
+  },
+  {
+   "name": "Hood",
+   "file": "test5a_2door_part_Hood",
+   "coverFile": "",
+   "origin": [
+    0,
+    0.7649999856948853,
+    -0.9599999785423279
+   ],
+   "axis": [
+    1,
+    0,
+    0
+   ],
+   "openDeg": 55,
+   "boundsMin": [
+    -0.76,
+    0.755,
+    -2.02
+   ],
+   "boundsMax": [
+    0.76,
+    0.79,
+    -0.955
+   ]
+  },
+  {
+   "name": "Trunk",
+   "file": "test5a_2door_part_Trunk",
+   "coverFile": "test5a_2door_part_Trunk_covers",
+   "origin": [
+    0,
+    0.8149999976158142,
+    1.1299999952316284
+   ],
+   "axis": [
+    -1,
+    0,
+    8.742277657347586e-8
+   ],
+   "openDeg": 60,
+   "boundsMin": [
+    -0.76,
+    0.8,
+    1.125
+   ],
+   "boundsMax": [
+    0.76,
+    0.84,
+    2.026
+   ]
+  }
+ ],
+ "hasMount": true,
+ "mount": {
+  "origin": [
+   0,
+   0.5199999809265137,
+   -1.0499999523162842
+  ],
+  "x": [
+   0.9659258127212524,
+   -0.25881901383399963,
+   0
+  ],
+  "y": [
+   0,
+   0,
+   -1
+  ],
+  "z": [
+   0.25881901383399963,
+   0.9659258127212524,
+   0
+  ],
+  "layout": "longitudinal",
+  "clearBox": [
+   0.8,
+   0.12,
+   0.4,
+   0.4,
+   0.22,
+   0.14
+  ],
+  "downpipe": [
+   0.3199999928474426,
+   0.36000001430511475,
+   -1
+  ],
+  "downpipeSide": "+X"
+ },
+ "kits": [
+  {
+   "name": "Kit_Battery",
+   "origin": [
+    -0.5199999809265137,
+    0.38999998569488525,
+    -1.7000000476837158
+   ],
+   "yawDeg": 12.000002595388487
+  },
+  {
+   "name": "Kit_Radiator",
+   "origin": [
+    0,
+    0.38999998569488525,
+    -1.9299999475479126
+   ],
+   "yawDeg": 0
+  }
+ ],
+ "objects": [
+  {
+   "name": "Body",
+   "parent": "",
+   "set": "closed",
+   "carrier": "",
+   "tris": 264
+  },
+  {
+   "name": "Bay",
+   "parent": "Body",
+   "set": "open",
+   "carrier": "",
+   "tris": 48
+  },
+  {
+   "name": "Door_L",
+   "parent": "Body",
+   "set": "closed",
+   "carrier": "Door_L",
+   "tris": 24
+  },
+  {
+   "name": "Door_L_Inner",
+   "parent": "Door_L",
+   "set": "open",
+   "carrier": "Door_L",
+   "tris": 12
+  },
+  {
+   "name": "Mirror_L",
+   "parent": "Door_L",
+   "set": "closed",
+   "carrier": "Door_L",
+   "tris": 12
+  },
+  {
+   "name": "MirrorGlass_L",
+   "parent": "Mirror_L",
+   "set": "closed",
+   "carrier": "Door_L",
+   "tris": 12
+  },
+  {
+   "name": "Door_R",
+   "parent": "Body",
+   "set": "closed",
+   "carrier": "Door_R",
+   "tris": 24
+  },
+  {
+   "name": "Door_R_Inner",
+   "parent": "Door_R",
+   "set": "open",
+   "carrier": "Door_R",
+   "tris": 12
+  },
+  {
+   "name": "Mirror_R",
+   "parent": "Door_R",
+   "set": "closed",
+   "carrier": "Door_R",
+   "tris": 12
+  },
+  {
+   "name": "MirrorGlass_R",
+   "parent": "Mirror_R",
+   "set": "closed",
+   "carrier": "Door_R",
+   "tris": 12
+  },
+  {
+   "name": "HeadLensCover",
+   "parent": "Body",
+   "set": "closed",
+   "carrier": "",
+   "tris": 24
+  },
+  {
+   "name": "Hood",
+   "parent": "Body",
+   "set": "closed",
+   "carrier": "Hood",
+   "tris": 12
+  },
+  {
+   "name": "Hood_Inner",
+   "parent": "Hood",
+   "set": "open",
+   "carrier": "Hood",
+   "tris": 12
+  },
+  {
+   "name": "Jamb_L",
+   "parent": "Body",
+   "set": "open",
+   "carrier": "",
+   "tris": 36
+  },
+  {
+   "name": "Jamb_R",
+   "parent": "Body",
+   "set": "open",
+   "carrier": "",
+   "tris": 36
+  },
+  {
+   "name": "Trunk",
+   "parent": "Body",
+   "set": "closed",
+   "carrier": "Trunk",
+   "tris": 12
+  },
+  {
+   "name": "Trunk_Inner",
+   "parent": "Trunk",
+   "set": "open",
+   "carrier": "Trunk",
+   "tris": 12
+  },
+  {
+   "name": "Trunk_Lenses",
+   "parent": "Trunk",
+   "set": "closed",
+   "carrier": "Trunk",
+   "tris": 12
+  },
+  {
+   "name": "Trunk_LensCover",
+   "parent": "Trunk_Lenses",
+   "set": "closed",
+   "carrier": "Trunk",
+   "tris": 12
+  },
+  {
+   "name": "TrunkWell",
+   "parent": "Body",
+   "set": "open",
+   "carrier": "",
+   "tris": 12
+  },
+  {
+   "name": "Wheel_FL",
+   "parent": "",
+   "set": "closed",
+   "carrier": "",
+   "tris": 12
+  },
+  {
+   "name": "Wheel_FR",
+   "parent": "",
+   "set": "closed",
+   "carrier": "",
+   "tris": 12
+  },
+  {
+   "name": "Wheel_RL",
+   "parent": "",
+   "set": "closed",
+   "carrier": "",
+   "tris": 12
+  },
+  {
+   "name": "Wheel_RR",
+   "parent": "",
+   "set": "closed",
+   "carrier": "",
+   "tris": 12
+  }
+ ]
+}

@@ -22,6 +22,7 @@ namespace PSXRacing.EditorTools
             log = new System.Text.StringBuilder();
             failures = 0;
             Guard(nameof(TestCarParts), TestCarParts);
+            Guard(nameof(TestCarPartsConverter), TestCarPartsConverter);   // LifeSimSelfTest.CarPartsConverter.cs
             Line(failures == 0 ? "CARPARTS SELF-TEST OK" : "CARPARTS SELF-TEST FAILED (" + failures + ")");
             System.IO.File.WriteAllText(
                 System.IO.Path.Combine(Application.dataPath, "../PSXRacing_selftest_carparts.txt"), log.ToString());
