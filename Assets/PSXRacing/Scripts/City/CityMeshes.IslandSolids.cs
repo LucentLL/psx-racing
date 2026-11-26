@@ -48,13 +48,13 @@ namespace PSXRacing.City
     //       the island is a real one.
     //  An island that crosses a tile's border keeps the old look (counted:
     //  IslandSkippedBorder), as does land too big or too wide to be one.
-    //  PSX_CITY_ISLANDSOLID=0: the tile as before (round 1 had it opt-in; round 2 traces from the travelled way).
+    //  PSX_CITY_ISLANDSOLID=1 turns it on; default off (round 2 gates 11-25: line gate MEDIAN 111 vs 76, SHIFT +64, WIDTH +38).
     // ======================================================================
     public static partial class CityMeshes
     {
-        /// <summary>Round 2: default ON again (=0: the tiles as before); the islands are traced from the line
+        /// <summary>Opt-in (=1). Round 2 measured it worse than the base on the line gate, so it stays off by default; traced from the line
         /// model's travelled way (IsRasterBands), not the drawn pavement.</summary>
-        public static bool IslandSolidsOn = System.Environment.GetEnvironmentVariable("PSX_CITY_ISLANDSOLID") != "0";
+        public static bool IslandSolidsOn = System.Environment.GetEnvironmentVariable("PSX_CITY_ISLANDSOLID") == "1";
 
         const float IsCell = 0.5f;
         const float IsMargin = 8f;
