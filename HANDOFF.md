@@ -258,6 +258,37 @@ Owner 2026-11-25: "please mute all testing. I constantly hear the game without e
 - `MasterOut` (Scripts/AudioFader.cs) is the only writer of `AudioListener.volume`. Game code and checks set and read `MasterOut.Level`. In a test run (batch mode, or `-psx-mute` on a windowed run) the level stays what the game set and the listener is held at zero. The mix still runs, so frame times stay comparable. `-psx-sound` is for a run the owner asked to hear.
 - A muted run logs `[MasterOut] test run: the sound is muted`. `tools/lab-check.ps1` fails a run without that line (NOT SILENT). The coordinator's smoke also measures each tour's audio session peak; it must be 0.0000.
 - Never run an exe built before 8a5737c0 as a test. Never mute a game exe in the Windows volume mixer: Windows keeps that setting per exe path, so it would silence the owner's own game.
+
+# HANDOFF - STAGE4: the cut's solid IS the drawn rock; the soil lip, outcrops, talus and boulders solid as drawn; zero ghost barriers (agent "stage4", 11-26; branch `stage4` from mountain-nm f568128e; NOT pushed, NOT merged)
+
+Owner 11-26 (PC71 | PC72): the blocky relief of 77f4abf8 "looks better and is more engaging", PSX_BANKFIT's flat fit "looks very flat and unrealistic". So nothing drawn changes; the solids are built from what is drawn.
+
+## Switches
+BUILD TIME (BUILT IN on the LAB page):
+- PSX_BANKSOLID (PSXRacingBuilder.BankSolid, default ON; =0 = 77f4abf8's slab). LAB row ROCK CUTS: SOLID IS ROCK (World). With it:
+  - BAND SOLID (PSXRacingBuilder.BankSolid.cs): per faced stretch of a cut one closed MeshCollider (Solid layer, "BankColl", mesh CollBand*) whose road face is the relief's OWN vertices and zip (ReliefChordCols, now shared by ReliefFace and the solid; the refactor keeps the arithmetic, the drawn meshes hash the same) from the toe to the first row 2.5 m over the edge. Then only moved toward the road: pockets narrower than 1.2 m closed (an opening along the cut), at most 1.5 m in per m along, no overhang past 0.5 m/m up to 1.1 m over the edge, never more than 0.4 m off the drawn rock. Why one mesh, not hulls per block: a hull stands in front of every concave block face and joint, and one mesh per stretch keeps the wall solids' no-seam rule.
+  - CREST LIP within 2.6 m of the edge solid (its own triangles, off the Solid layer: a mound of soil). THE CUT-END FAULT ("drawn 4-6.5 m in front of the solid at every cut end") was this lip: where a face tapers off, its crest comes into reach and the drawn-only soil lip stood up to a metre over it and half a metre in front, with only the rock top's far slope solid behind.
+  - OUTCROPS AND TALUS in reach (MeshForest-drawn Meadow cliffs and stones PlaceCliffs sets into the cut, no collider before): a static MeshCollider of the drawn LOD0 at its own place ("BankRock", one cooked mesh per model; a stone the forest pass drops takes it along).
+  - BOULDERS (PlaceBoulders): the stone mesh itself, not its convex hull. B: Chimney Rock's ghost at wp 704 was the hull: the forest stone models are clusters of stones and the hull spans their gaps.
+  - Lake Lure's GRASS banks (no relief): no slab; the drawn face's collider on every chord.
+- PSX_BANKSOLID_AB=1: MEASURING ONLY, never in a shipped build: the old slab + face collider also built, inactive, under "BankSolidOld" per cut.
+TOOLS: BankFitProbe (> 0.05 m line, names, pockets with attribution, MeshForest rock counted as drawn, PSX_BF_SOLIDSET=old, Boulders(), Obstacles(), DrawnHash()); TrackObstacleAudit PSX_GHOST_SOLIDRAY (air along each ray from the solid, not from its nearest point: a relief-shaped solid read as air) and PSX_GHOST_FORESTROCK (MeshForest stones count as drawn); BankWireOverlay + LightPopCheck PSX_LIGHTPOP_WIRE=1 (wire frames).
+
+## Measured (PSXPerf, EDITOR, hidden; scenes built from this code; OLD = the AB scenes' old set; BANKFIT = PSX_BANKFIT=1 builds)
+- Held off > 0.15 m (target <= 5 %): OLD 68.8-96.8 % | BANKFIT 7.0-13.3 % (LS/CR/LL) | NEW 1.2-2.1 % on all nine. MET.
+- Drawn cut rock in front > 0.05 m, cut ends included (target <= 1 %): OLD 4.4-29.0 % | BANKFIT 7.1-31.3 % | NEW 1.07-1.83 % on eight stages, Lake Lure 3.75 %. NOT MET (close): the rest is soil lip over 2.6 m, outcrops the probe hits between their collider samples, the rock top read as "drawn" where it slopes too gently to count as a face, and on Lake Lure relief in front of the band in places not traced.
+- Pockets: along the cut 0.35-0.65 % of spots (wider than 1.2 m or deeper than the 0.4 m fill cap). Overhangs 4.6-26 % of spots, 75-95 % of them under the SOIL LIP at low crests, which is solid exactly as drawn; rock overhangs (band under band) 4-17 spots a stage. NOT closed for the lip.
+- Ghost barriers: ZERO on all nine (stage3's lab: LS 0, CR 1 = the boulder, LL 1 = CollGuard19; the other six were not audited before this round).
+- Drawn rock unchanged: hash of every drawn bank mesh (relief, tops, lips) on LS: old build = new build. MeshForest's table: 781,222 | 781,378 instances (the plant fit keeps 156 plants the slab used to push out).
+- Cost: LS band solids 27 meshes / 184k tris (old 27 / 12.5k), soil lip 25.6k, 2,872 rock colliders on 23 shared cooked models; band build 13-27 s per stage build. Physics, hidden play (rivals, 150 s): one-step-frame phys p50 OLD 0.36 / 0.38 ms, NEW 0.37 / 0.43 / 0.45 ms; phys / script-fixed ratio OLD 0.40 / 0.37, NEW 0.38 / 0.39 / 0.39 (the machine was shared: physics spikes > 5 ms in old and new runs alike come with stalls in unrelated systems). No cost visible at editor resolution. Exe cost and scene load not measured.
+- Silent: 8 play runs (3 shot runs, 5 tours), every log has "[MasterOut] test run: the sound is muted".
+- Frames (EDITOR, chase, LS 1400/1412/1428 m): old | new pixel difference is the same size as two runs of the NEW scene (wind, clouds, the car's reflection): 1400 m 85.6 | 87.0 %, 1412 m 49.5 | 32.2 %, 1428 m 43.2 | 13.6 %; the rock in the full-size crops is the same. The drawn-mesh hash is the proof that the rock did not change; the pixels alone cannot show it.
+- C (reference only): scratchpad stage4\C_rock_vs_real.txt.
+
+## Not done / for the merge
+- A FULL stage scene pass (every stage). Circuits and the city: no output change.
+- Not verified: an exe; a car driven into the cut in play; the stage lab's other audits (self-test roadside, lanes, terrain, plant-solid) on the new scenes.
+- Deliverable 2 (D-G) not started.
 # HANDOFF - CITYAI ROUND 2: runtime field trace, the junction block (wrecked traffic), plan cost read not searched, finishers brake, lane hold everywhere (agent "cityai", 11-25 night; branch `city-ai-turns` on mountain-nm 07d467b3; NOT pushed, NOT merged)
 
 All runs: EDITOR in PSXCity, hidden, muted (every log has `[MasterOut] test run: the sound is muted`).
