@@ -346,7 +346,10 @@ namespace PSXRacing
                     Arc(bestT, out float fa0, out float fa1, out var fc, out float fr, out float fang0, out float fsweep);
                     found.Add((fa0, fa1, fc, fr, fang0, fsweep, defl));
                     // kept only when the path's own ends did not limit the search (a shorter arc forced by them is not the turn's)
-                    if (prev <= aJ + uP - Tcap - 0.5f && next >= aO + vP + Tcap + 0.5f) arcCache[fkey] = (bestT, fc, fr, fang0, fsweep);
+                    // (round 3) kept whatever bounded it: an arc cut short by the path's ends is still on the pavement, and
+                    // re-searched it cost every later plan 3-5 ms (X1); one found unbounded replaces a bounded one
+                    bool bounded = !(prev <= aJ + uP - Tcap - 0.5f && next >= aO + vP + Tcap + 0.5f);
+                    if (!bounded || !arcCache.TryGetValue(fkey, out var had) || had.r <= 0f || had.T < bestT) arcCache[fkey] = (bestT, fc, fr, fang0, fsweep);
                     ArcSearches++;
                     if (LogSearches && searchLogs++ < 30) Debug.Log($"[RacingTurns] searched node {J.node} in {J.ein} out {J.eout} at ({pts[j].x:0},{pts[j].y:0}): r {fr:0.0} m, T {bestT:0.0} of cap {Tcap:0.0}, prev {prev:0.0} a0 {fa0:0.0}, next {next - aO:0.0} past the out point; cached {(prev <= aJ + uP - Tcap - 0.5f && next >= aO + vP + Tcap + 0.5f)}");
                     lastA1 = fa1;
