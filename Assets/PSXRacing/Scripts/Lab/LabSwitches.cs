@@ -237,12 +237,44 @@ namespace PSXRacing
                 look = "Built into the stage scenes: gravel strips, shoulders, cut rock and rails with square texels. A scene build.",
                 env = new[] { "PSX_ROADSIDEUV2" }, requires = "TunnelHeadlights.On",
             });
+            // stage round 3 (merged 11-25): build-time switches of the stage scenes; they show once its play-time code is in
+            Register(new LabRow
+            {
+                id = "bankfit", group = LabGroup.World, name = "ROCK CUTS: SOLID ON ROCK", when = LabWhen.BuiltIn,
+                look = "Built into the stage scenes: a car stops on the rock it sees; the lowest 2 m of a cut is flatter. A scene build.",
+                env = new[] { "PSX_BANKFIT" }, requires = "TunnelHeadlights.EaseHandBack",
+            });
+            Register(new LabRow
+            {
+                id = "timberuv", group = LabGroup.World, name = "TIMBER RAIL UNSTRETCHED", when = LabWhen.BuiltIn,
+                look = "Built into the stage scenes: the timber rail's boards and posts with square texels. A scene build.",
+                env = new[] { "PSX_TIMBERUV" }, requires = "TunnelHeadlights.EaseHandBack",
+            });
+            Register(new LabRow
+            {
+                id = "portalgaps", group = LabGroup.World, name = "TUNNELS: PORTAL GAPS", when = LabWhen.BuiltIn,
+                look = "Built into the stage scenes: the portal wall's end and the arch's edge closed to the stones. A scene build.",
+                env = new[] { "PSX_PORTALEND", "PSX_PORTALARRIS" }, requires = "TunnelHeadlights.EaseHandBack",
+            });
+            Register(new LabRow
+            {
+                id = "tunnelexact", group = LabGroup.World, name = "TUNNELS: EXACT MESHES", when = LabWhen.BuiltIn,
+                look = "Built into the stage scenes: tunnel and near-ground meshes saved exact, no hairline see-through. A scene build.",
+                env = new[] { "PSX_TUNNELEXACT" }, requires = "TunnelHeadlights.EaseHandBack",
+            });
             // tunnel round 2 (merged 11-23): the cars' lights come on by day through a tunnel; read every frame, so live.
             Register(new LabRow
             {
                 id = "tunnellights", group = LabGroup.World, name = "HEADLIGHTS IN TUNNELS", when = LabWhen.Now,
                 look = "By day the cars' lights come on from 50 m before a tunnel mouth to 50 m past it. OLD: lights follow the hour.",
                 env = new[] { "PSX_TUNNEL3" }, members = new[] { "TunnelHeadlights.On" },
+            });
+            // stage round 3 (merged 11-25): read where the tunnel hands the lights back, so live
+            Register(new LabRow
+            {
+                id = "easehandback", group = LabGroup.World, name = "TUNNEL EXIT: LAMPS EASE", when = LabWhen.Now,
+                look = "Leaving a tunnel by day the headlights go out with no one-frame flash of the lenses.",
+                env = new[] { "PSX_EASEHANDBACK" }, members = new[] { "TunnelHeadlights.EaseHandBack" },
             });
             // ---- CARS -----------------------------------------------------------
             Register(new LabRow
@@ -258,6 +290,13 @@ namespace PSXRacing
                 look = "Rain on the paint at real size (2-6 mm beads, thin runs); cars stay wet in the menus.",
                 env = new[] { "PSX_CARDROPS2" }, members = new[] { "TireSpray.CarDrops2" },
                 apply = TireSpray.PushCarDrops2,
+            });
+            // stage round 3 (merged 11-25): the lamp switch is read every frame, so live
+            Register(new LabRow
+            {
+                id = "brakelamphold", group = LabGroup.Cars, name = "BRAKE LAMPS: NO FLICKER", when = LabWhen.Now,
+                look = "Brake lamps stay lit through light braking instead of flickering every frame or two.",
+                env = new[] { "PSX_BRAKELAMPHOLD" }, members = new[] { "CarLights.BrakeLampHold" },
             });
             // ---- TRAFFIC --------------------------------------------------------
             Register(new LabRow
@@ -283,6 +322,13 @@ namespace PSXRacing
                 id = "rulerhold", group = LabGroup.Traffic, name = "RACE DISTANCE: LANE HOLD", when = LabWhen.Now,
                 look = "City races: your distance to the gate and your place do not jump in a slip lane or turn bay.",
                 env = new[] { "PSX_CP_RULER_HOLD" }, members = new[] { "CheckpointRace.RulerHoldOn" },
+            });
+            // stage round 3 (merged 11-25): the planner reads it every tick, so live; every car, the autopilot too
+            Register(new LabRow
+            {
+                id = "aiplancap", group = LabGroup.Traffic, name = "RIVALS: BEND SPEED CAP", when = LabWhen.Now,
+                look = "Rivals plan fast bends by measured grip, so they stop running wide into trees. OLD: faster, wider.",
+                env = new[] { "PSX_AI_PLANCAP" }, members = new[] { "AIDriver.PlanAeroCap" },
             });
         }
 
