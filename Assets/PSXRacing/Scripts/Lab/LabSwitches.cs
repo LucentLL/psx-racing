@@ -351,6 +351,24 @@ namespace PSXRacing
             // cityai round 3: the traffic side and the finishers
             Register(new LabRow
             {
+                id = "trafficlanesfit", group = LabGroup.Traffic, name = "TRAFFIC KEEPS TO PAVEMENT", when = LabWhen.NextLoad,
+                look = "City races: where the road narrows (a ramp, a merge) traffic moves in a lane instead of into the barrier.",
+                env = new[] { "PSX_TRAFFIC_LANES_FIT" }, members = new[] { "TrafficSystem.LanesFitOn" },
+            });
+            Register(new LabRow
+            {
+                id = "turnsahead", group = LabGroup.Traffic, name = "RIVAL TURNS LAID AHEAD", when = LabWhen.NextLoad,
+                look = "City races: every junction turn near the route is laid at load; a new one mid-race costs a slice a frame.",
+                env = new[] { "PSX_CP_TURNS_WARMALL", "PSX_CP_TURNS_DEFER" }, members = new[] { "RacingTurns.WarmAllTurns", "RacingTurns.DeferOn" },
+            });
+            Register(new LabRow
+            {
+                id = "packfilein", group = LabGroup.Traffic, name = "RIVALS FILE IN, NO SQUEEZE", when = LabWhen.Now,
+                look = "With oncoming traffic, a rival squeezed toward the centre line lifts and drops in behind, never over it.",
+                env = new[] { "PSX_AI_PACK_FILEIN" }, members = new[] { "AIDriver.PackFileInOn" },
+            });
+            Register(new LabRow
+            {
                 id = "finishdriveon", group = LabGroup.Traffic, name = "FINISHERS CLEAR THE LANE", when = LabWhen.Now,
                 look = "After the flag a rival drives on at traffic speed and stops on the verge, never parked in the lane.",
                 env = new[] { "PSX_AI_FINISH_DRIVEON" }, members = new[] { "AIDriver.FinishDriveOnOn" },

@@ -376,6 +376,8 @@ namespace PSXRacing
             /// <summary>(round 3) Held still after a soft knock until this time.</summary>
             public float knockHoldUntil;
             public float knockWindowAt; public int knocks;
+            public float lastRacerAt = -100f;
+            public float fitNext, fitLane;
         }
 
         /// <summary>Called by RaceManager.Start once the path is final (a
@@ -423,6 +425,7 @@ namespace PSXRacing
             // closed circuit.
             BuildLanes(path.roadWidth, oneWay);
             if (!oneWay) MapOneWay(def);
+            MapPavement(def);
 
             // Enough cars for the window at this density, both ways, with a
             // quarter over for the random gaps; none at all for NONE.
@@ -475,6 +478,90 @@ namespace PSXRacing
             }
             if (OneWayWaypoints > 0) oneWayWp = flags;
         }
+        /// <summary>
+        /// (cityai round 4) THE PAVEMENT UNDER EACH LANE (PSX_TRAFFIC_LANES_FIT, LAB row TRAFFIC KEEPS TO PAVEMENT). The strip
+        /// lays its lanes at one width the whole race; where the route's own road is narrower (a ramp, a merge, a
+        /// narrowing) the outer lanes ran into the barriers and rails: every static-object wreck of the H6 and I-485 West
+        /// runs was a car in a +-5.5 m lane, with no racer near (s 788-3185 on H6, a cluster at s 1724 on I-485 West).
+        /// Per waypoint of a city race's path: metres from the line to the drawn pavement edge either side (the route's
+        /// own edge under it, LineModel's extents); a car whose lane does not fit ahead moves to the nearest lane of its
+        /// direction that does, and slows to a crawl where none does. Null elsewhere (stages): no change.
+        /// </summary>
+        float[] paveR, paveL;
+        public static bool LanesFitOn = System.Environment.GetEnvironmentVariable("PSX_TRAFFIC_LANES_FIT") != "0";
+        const float LaneFitAirM = 0.35f;
+        void MapPavement(TrackCatalog.TrackDef def)
+        {
+            paveR = paveL = null;
+            if (!LanesFitOn || def == null || !def.IsCityRace) return;
+            var map = City.CityMap.Get();
+            var route = map != null ? map.RouteById(def.cityRoute) : null;
+            if (route == null || route.edges == null || route.edges.Length == 0) return;
+            int len = route.edges.Length, n = path.Count;
+            var pr = new float[n]; var pl = new float[n];
+            int k = -1;
+            for (int i = 0; i < n; i++)
+            {
+                Vector3 w = path.GetPoint(i);
+                var p = new Vector2(w.x, w.z);
+                int best = 0; float bestD = float.MaxValue;
+                int from = k < 0 ? 0 : k - 1, to = k < 0 ? len - 1 : k + 3;
+                for (int kk = from; kk <= to; kk++)
+                {
+                    int e = route.loop ? ((kk % len) + len) % len : kk;
+                    if (e < 0 || e >= len) continue;
+                    float d = PolylineDist(map.edges[route.edges[e]].pts, p);
+                    if (d < bestD) { bestD = d; best = e; }
+                }
+                k = best;
+                var ed = map.edges[route.edges[k]];
+                // the edge's point nearest the waypoint, and its arc
+                float sAt = 0f; float bd = float.MaxValue; Vector2 o = p;
+                for (int q = 0; q + 1 < ed.pts.Length; q++)
+                {
+                    var a = ed.pts[q]; var ab = ed.pts[q + 1] - a;
+                    float L2 = ab.sqrMagnitude; if (L2 < 1e-8f) continue;
+                    float t = Mathf.Clamp01(Vector2.Dot(p - a, ab) / L2);
+                    var c = a + ab * t; float dd = (p - c).sqrMagnitude;
+                    if (dd < bd) { bd = dd; sAt = ed.s[q] + t * (ed.s[q + 1] - ed.s[q]); o = c; }
+                }
+                Vector3 t3 = path.GetTangent(i); var tp = new Vector2(t3.x, t3.z).normalized;
+                var right = new Vector2(tp.y, -tp.x);
+                int sgn = Vector2.Dot(ed.TangentAt(sAt), tp) >= 0f ? 1 : -1;
+                float latO = Vector2.Dot(o - p, right);
+                pr[i] = Mathf.Max(2f, latO + ed.PaveEdgeM(sAt, sgn));
+                pl[i] = Mathf.Max(2f, -latO + ed.PaveEdgeM(sAt, -sgn));
+            }
+            paveR = pr; paveL = pl;
+        }
+
+        /// <summary>Does a car of half width hw at lane lat fit the pavement at s?</summary>
+        bool LaneFits(float s, float lat, float hw)
+        {
+            if (paveR == null) return true;
+            int i = Mathf.RoundToInt(Wrap(s) / path.spacing);
+            i = path.HasEnds ? Mathf.Clamp(i, 0, paveR.Length - 1) : ((i % paveR.Length) + paveR.Length) % paveR.Length;
+            return lat + hw + LaneFitAirM <= paveR[i] && -lat + hw + LaneFitAirM <= paveL[i];
+        }
+
+        /// <summary>The lane this car keeps over the next stretch: its own, or the nearest of its direction that fits
+        /// the pavement all the way (NaN: none does).</summary>
+        float FittingLane(Car c)
+        {
+            float look = Mathf.Max(30f, c.speed * 2.5f + 10f);
+            bool Fits(float lat) { for (float d = 0f; d <= look; d += path.spacing) if (!LaneFits(c.s + c.dir * d, lat, c.halfW)) return false; return true; }
+            if (Fits(c.lat)) return c.lat;
+            var lanes = c.dir > 0 ? lanesFwd : lanesBack;
+            float best = float.NaN, bestD = float.MaxValue;
+            foreach (float l in lanes)
+            {
+                if (Mathf.Abs(l - c.lat) < 0.05f || !Fits(l)) continue;
+                float d = Mathf.Abs(l - c.lat);
+                if (d < bestD) { bestD = d; best = l; }
+            }
+            return best;
+        }
+
         static float PolylineDist(Vector2[] pts, Vector2 p)
         {
             float best = float.MaxValue;
@@ -850,6 +937,8 @@ namespace PSXRacing
             if (path.HasEnds && (s < 8f || s > total - 8f)) return false;
             // no oncoming car on a one-way street (MapOneWay)
             if (dir < 0 && OneWayAt(s)) return false;
+            // (round 4) never born in a lane the pavement does not hold there (a ramp's narrow end)
+            if (!LaneFits(s, lat, 1.0f)) return false;
             // Never on top of anything: another traffic car in the lane, or a
             // racer (they use the whole road).
             foreach (var c in live)
@@ -970,17 +1059,21 @@ namespace PSXRacing
             if (c.hasCommand && (c.rb.linearVelocity - c.commanded).magnitude > WreckSpeed)
             {
                 float knock = (c.rb.linearVelocity - c.commanded).magnitude;
+                // (round 4, PC76) one contact is one knock: while the hold runs the car is still being pushed apart, and
+                // three steps of it spent the whole allowance (Tryon MEDIUM seed 0: 94.0, 94.0, 94.1 s, the Civic)
+                bool holding = SoftKnockOn && Time.time < c.knockHoldUntil && knock < SoftKnockMps;
                 // only a touch by a car (a racer or traffic) is shrugged off: a kerb, rail or the ground is a crash as
                 // before, and a car knocked again and again (pinned) is a wreck after its third in 10 s
                 string by = c.lastContact ?? "";
                 bool byCar = by.Contains(" AI") || by.Contains("Player") || by.StartsWith("Traffic");
                 if (Time.time - c.knockWindowAt > 10f) { c.knockWindowAt = Time.time; c.knocks = 0; }
-                if (SoftKnockOn && knock < SoftKnockMps && byCar && ++c.knocks <= 3)
+                if (holding) { c.speed = 0f; }
+                else if (SoftKnockOn && knock < SoftKnockMps && byCar && ++c.knocks <= 3)
                 {
                     // a touch: it stops where it is and, after a moment, drives on along its lane
                     c.speed = 0f;
                     c.knockHoldUntil = Time.time + SoftKnockHoldS;
-                    if (SoftKnockLog.Count < 2000) SoftKnockLog.Add(Time.time.ToString("0.0") + " s: " + (c.lastContact ?? "?") + ", " + knock.ToString("0.0") + " m/s");
+                    if (SoftKnockLog.Count < 2000) SoftKnockLog.Add(Time.time.ToString("0.0") + " s: " + (c.dir > 0 ? "with" : "oncoming") + " touched by " + (c.lastContact ?? "?") + ", " + knock.ToString("0.0") + " m/s");
                 }
                 else
                 {
@@ -1013,6 +1106,26 @@ namespace PSXRacing
             float firm = 6f * roadGrip;
             float decel = gap < c.speed * c.speed / (2f * firm) + StopGap ? 9f : firm;
 
+            // (round 4) its lane on the pavement ahead: another lane of its direction, or a crawl where none fits
+            if (paveR != null)
+            {
+                // looked at twice a second (the look is ~20 lane tests); a lane change only into a clear gap
+                if (Time.time >= c.fitNext) { c.fitNext = Time.time + 0.5f; c.fitLane = FittingLane(c); }
+                float fit = c.fitLane;
+                if (float.IsNaN(fit)) v = Mathf.Min(v, 4f);
+                else if (Mathf.Abs(fit - c.lat) > 0.05f)
+                {
+                    bool clear = true;
+                    foreach (var o in live)
+                    {
+                        if (o == c || o.dir != c.dir || Mathf.Abs(o.lat - fit) > 1.5f) continue;
+                        float gapS = Delta(c.s, o.s) * c.dir;
+                        if (gapS > -10f - Mathf.Max(0f, o.speed - c.speed) * 1.5f && gapS < 12f + Mathf.Max(0f, c.speed - o.speed) * 1.5f) { clear = false; break; }
+                    }
+                    if (clear) { c.lat = fit; c.edgeLat = float.NaN; }
+                    else v = Mathf.Min(v, Mathf.Max(4f, c.speed - 3f));   // ease off and merge behind it
+                }
+            }
             // A RACER COMING, and what this driver does about it (Temper).
             float latTarget = c.lat;
             bool coming = RacerComing(c, dt, out float racerLat, out bool sat);
@@ -1222,7 +1335,9 @@ namespace PSXRacing
                     }
                     continue;
                 }
-                if (o.dir != c.dir || Mathf.Abs(o.lat - c.lat) > 1.5f) continue;
+                // (round 4) in its lane, or where it physically is: a car changing lane (TRAFFIC KEEPS TO PAVEMENT) still
+                // sees the car ahead in the lane it is leaving (two rear-ended one in seven runs, Tryon)
+                if (o.dir != c.dir || (Mathf.Abs(o.lat - c.lat) > 1.5f && !(LanesFitOn && Mathf.Abs(o.latNow - c.latNow) < 1.9f))) continue;
                 float d = Delta(c.s, o.s) * c.dir;
                 if (d > 0f && d < best) { best = d; leaderV = o.speed; }
             }
@@ -1398,14 +1513,22 @@ namespace PSXRacing
             // ride height when it is hit, so this box starts just above the
             // tarmac, not in it.
             c.box.center = c.fullCenter; c.box.size = c.fullSize;
-            WreckLog.Add((c.dir > 0 ? "with" : "oncoming") + " hit by " + (by ?? "?"));
+            // (round 4) where, in which lane, and whether a racer touched it in the 5 s before (the barrier wrecks)
+            var wp = c.go.transform.position;
+            WreckLog.Add((c.dir > 0 ? "with" : "oncoming") + " hit by " + (by ?? "?") +
+                         $" | at ({wp.x:0.0},{wp.z:0.0}) s {c.s:0} lane {c.lat:+0.0;-0.0} now {c.latNow:+0.0;-0.0} road half {path.roadWidth * 0.5f:0.0} v {c.speed:0.0}" +
+                         (Time.time - c.lastRacerAt < 5f ? $" | racer touched {Time.time - c.lastRacerAt:0.0} s before" : " | no racer within 5 s"));
             c.rb.useGravity = true;
         }
 
         internal void NoteContact(GameObject go, string what)
         {
             var c = live.Find(x => x.go == go);
-            if (c != null) c.lastContact = what;
+            if (c != null)
+            {
+                c.lastContact = what;
+                if (what != null && (what.Contains(" AI") || what.Contains("Player"))) c.lastRacerAt = Time.time;
+            }
         }
 
         // ---- the replay ---------------------------------------------------------
