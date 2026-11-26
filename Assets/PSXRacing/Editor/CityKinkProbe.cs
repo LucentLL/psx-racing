@@ -94,6 +94,7 @@ namespace PSXRacing.EditorTools
                 var kindN = new SortedDictionary<string, int>();
                 var kindK = new SortedDictionary<string, int>();
                 var kindFacet = new SortedDictionary<string, int>();
+                var facetWhy = new SortedDictionary<string, int>(); var facetDump = new StringBuilder();
                 var seen = new HashSet<int>();
                 int rings = 0, verts = 0;
                 for (int n = 0; n < map.nodes.Length; n++)
@@ -115,8 +116,21 @@ namespace PSXRacing.EditorTools
                         Count(cur.arc ? "fan: return facet" : "fan: corner, no return", NearSpot(cur.p), cur.p, deg, n, cur.edge);
                         var kd = cur.arc ? kindFacet : kindK;
                         kd.TryGetValue(kind, out int kk0); kd[kind] = kk0 + 1;
+                        // (stage 0 d) why a return facet: where on the arc, which test, the pieces' lengths
+                        if (cur.arc && (kind.StartsWith("T corner") || kind.StartsWith("crossing")))
+                        {
+                            float lu = (cur.p - prev.p).magnitude, lv = (next.p - cur.p).magnitude, L = Mathf.Min(lu, lv), th = deg * Mathf.Deg2Rad;
+                            bool sagFlag = L * th / 8f > SagMaxM;
+                            string where = prev.arc && next.arc ? "mid-arc" : !prev.arc ? "arc start (from the straight)" : "arc end (into the straight)";
+                            string why = where + (sagFlag ? ", sagitta" : ", turn over 6 deg at r >= 6 m");
+                            facetWhy.TryGetValue(why, out int fw0); facetWhy[why] = fw0 + 1;
+                            if (facetDump.Length < 6000)
+                                facetDump.Append(string.Format(inv, "  n{0} {1}: turn {2:0.0} deg, pieces {3:0.00} / {4:0.00} m, est r {5:0.0} m, sag {6:0.0} cm at ({7:0.0},{8:0.0})\n",
+                                    n, why, deg, lu, lv, L / Mathf.Max(th, 1e-4f), 100f * L * th / 8f, cur.p.x, cur.p.y));
+                        }
                     }
                 }
+                log.Append("RETURN FACETS AT T AND CROSSING CORNERS, BY WHERE AND WHY:\n"); foreach (var kv in facetWhy) log.Append($"  {kv.Key}: {kv.Value}\n"); log.Append(facetDump.ToString());
                 log.Append($"fan rings {rings}, free vertices {verts}\n");
                 int ribs = 0, ribFail = 0;
                 var segs = new HashSet<int>();
