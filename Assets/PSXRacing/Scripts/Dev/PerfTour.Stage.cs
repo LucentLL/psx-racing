@@ -521,7 +521,7 @@ namespace PSXRacing
                 recording = true;
                 FieldBegin(id, path);   // (cityai) &trace=1: every car, 10 Hz
                 // (cityai round 2) the plan cost counted from the green: the plans laid while the countdown is held are load
-                AIRoutePlanner.BuildMsLog.Clear(); RacingTurns.ResetStats(); TrafficSystem.StepMs.Clear(); CheckpointRace.SliceMs.Clear(); TrafficSystem.FitMs.Clear(); TrafficSystem.FitLooksMax = 0; AIDriver.FileInLooks = 0; AIDriver.FileInBand = 0; AIDriver.FileInMs = 0; System.Array.Clear(TrafficSystem.PartMs, 0, 4); TrafficSystem.PartN = 0; TrafficSystem.LiveSum = 0;
+                AIRoutePlanner.BuildMsLog.Clear(); RacingTurns.ResetStats(); TrafficSystem.StepMs.Clear(); CheckpointRace.SliceMs.Clear(); TrafficSystem.FitMs.Clear(); TrafficSystem.FitLooksMax = 0; AIDriver.FileInLooks = 0; AIDriver.FileInBand = 0; AIDriver.FileInMs = 0; System.Array.Clear(TrafficSystem.PartMs, 0, 4); TrafficSystem.PartN = 0; TrafficSystem.LiveSum = 0; TrafficSystem.SlowSteps.Clear();
                 Say("STAGE " + id + " from " + (i0 * path.spacing).ToString("0") + " m, up in " + loadS.ToString("0.0") + " s");
 
                 float dist = 0f; var last = car.transform.position;
@@ -670,6 +670,7 @@ namespace PSXRacing
                         { long pn = System.Math.Max(1L, TrafficSystem.PartN); var pm = TrafficSystem.PartMs;
                           sum1.AppendLine($"traffic step parts ms a step: field {pm[0] / pn:0.0000} recycle {pm[1] / pn:0.0000} spawn {pm[2] / pn:0.0000} drive {pm[3] / pn:0.0000}; live cars mean {(double)TrafficSystem.LiveSum / pn:0.0}");
                           System.Array.Clear(pm, 0, 4); TrafficSystem.PartN = 0; TrafficSystem.LiveSum = 0; }
+                        sum1.AppendLine($"traffic steps over 2 ms: {TrafficSystem.SlowSteps.Count}" + (TrafficSystem.SlowSteps.Count > 0 ? "\n  " + string.Join("\n  ", TrafficSystem.SlowSteps) : "")); TrafficSystem.SlowSteps.Clear();
                         TrafficSystem.FitMs.Clear(); TrafficSystem.FitLooksMax = 0; AIDriver.FileInLooks = 0; AIDriver.FileInBand = 0; AIDriver.FileInMs = 0;
                     }
                     TrafficSystem.StepMs.Clear();

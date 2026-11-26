@@ -203,6 +203,7 @@ namespace PSXRacing
         public static int FitLooksMax;
         // (cityai round 5) the step's parts, ms summed: measure field, recycle, spawn, drive; steps; live cars summed
         public static readonly double[] PartMs = new double[4]; public static long PartN, LiveSum;
+        public static readonly List<string> SlowSteps = new List<string>(); static int lastGc;   // steps over 2 ms
         static readonly System.Diagnostics.Stopwatch fitSw = new System.Diagnostics.Stopwatch();
         static int fitLooksStep;
         /// <summary>Gap between the collision box and the road, driving.</summary>
@@ -849,6 +850,10 @@ namespace PSXRacing
             float dt = Time.fixedDeltaTime;
             foreach (var c in live) Drive(c, dt);
             double p4 = swStep.Elapsed.TotalMilliseconds;
+            int gcNow = System.GC.CollectionCount(0);
+            if (p4 > 2.0 && SlowSteps.Count < 40)
+                SlowSteps.Add($"{Time.time:0.0} s: {p4:0.00} ms - field {p1 - p0:0.00} recycle {p2 - p1:0.00} spawn {p3 - p2:0.00} drive {p4 - p3:0.00} (lane fit {fitSw.Elapsed.TotalMilliseconds:0.00}), {live.Count} cars, {fitLooksStep} lane looks, gc {(gcNow != lastGc ? "YES" : "no")}, frame {Time.frameCount}");
+            lastGc = gcNow;
             PartMs[0] += p1 - p0; PartMs[1] += p2 - p1; PartMs[2] += p3 - p2; PartMs[3] += p4 - p3; PartN++; LiveSum += live.Count;
             Obstacles.Clear();
             ObstacleHalfW.Clear();
