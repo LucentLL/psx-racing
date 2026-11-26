@@ -583,7 +583,11 @@ namespace PSXRacing.City
                 int node = dir < 0 ? edge.a : edge.b;
                 // straightest first; with none within 40 degrees, a turn (up to 100) rather than a dead end
                 int bestE = -1, bestDir = 0; float bestDot = Mathf.Cos(100f * Mathf.Deg2Rad);
-                if (map.nodeEdges != null && node >= 0 && node < map.nodeEdges.Length && map.nodeEdges[node] != null)
+                // (a second, looser pass where that finds nothing: any way along a one-way, a turn up to 150)
+                for (int pass = 0; pass < 2 && bestE < 0; pass++)
+                {
+                    if (pass == 1) bestDot = Mathf.Cos(150f * Mathf.Deg2Rad);
+                    if (map.nodeEdges == null || node < 0 || node >= map.nodeEdges.Length || map.nodeEdges[node] == null) break;
                     foreach (int ci in map.nodeEdges[node])
                     {
                         if (ci == edge.index || ci < 0 || ci >= map.edges.Length) continue;
@@ -592,11 +596,12 @@ namespace PSXRacing.City
                         // walking backwards out of the node along ce: +1 from its first point, -1 from its last
                         int cdir = ce.a == node ? 1 : ce.b == node ? -1 : 0;
                         if (cdir == 0) continue;
-                        if (ce.oneway && cdir != -1) continue;   // a one-way is driven along its points
+                        if (pass == 0 && ce.oneway && cdir != -1) continue;   // a one-way is driven along its points
                         var outDir = ce.TangentAt(cdir > 0 ? 0f : ce.length) * cdir;
                         float dot = Vector2.Dot(outDir, back);
                         if (dot > bestDot) { bestDot = dot; bestE = ci; bestDir = cdir; }
                     }
+                }
                 if (bestE < 0) break;
                 walked += dir < 0 ? s : edge.length - s;
                 edge = map.edges[bestE];
