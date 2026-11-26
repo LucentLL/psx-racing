@@ -168,14 +168,20 @@ namespace PSXRacing.City
                     float b = q.fromA ? dHi - q.d0 : e.length - (dLo - q.d0);
                     a = Mathf.Max(0f, a); b = Mathf.Min(e.length, b);
                     if (b - a < 0.3f) continue;
-                    bool pocket = leftTurn && q.side > 0 && PocketClass(map, e);
+                    bool pocket = (leftTurn && q.side > 0 && PocketClass(map, e)) || (z.bay && BayMarksOn);
+                    // (c7roads round 4, A3) a bay: an arrow every BayArrowEveryM back from its end, at least one
+                    if (z.bay && BayMarksOn && q.side > 0)
+                        for (float sa = b - 6f, n = 0; sa - ArrowH >= a + 2f && n < 6; sa -= BayArrowEveryM, n++)
+                            if (PocketArrow(t, e, sa, Mathf.Min(q.auxW, PocketLaneM))) MarkStats.pocketArrows++;
                     AddMark(new PaintMark { style = pocket ? MkAuxLS : MkAuxDW, edge = ei, s0 = a, s1 = b, side = q.side, zone = z.id });
                     MarkStats.auxMarks++; MarkStats.auxM += b - a; any = true;
                     if (pocket) { MarkStats.pocketZoneLines++; if (b - a > arrowLen) { arrowLen = b - a; arrowE = e; arrowS = b - 6f; arrowW = q.auxW; } }
                 }
             }
             if (any) MarkStats.auxZones++;
-            if (arrowE != null && arrowLen >= ArrowH + 8f && PocketArrow(t, arrowE, arrowS, Mathf.Min(arrowW, PocketLaneM))) MarkStats.pocketArrows++;
+            if (!(z.bay && BayMarksOn) && arrowE != null && arrowLen >= ArrowH + 8f && PocketArrow(t, arrowE, arrowS, Mathf.Min(arrowW, PocketLaneM))) MarkStats.pocketArrows++;
+            // (c7roads round 4, A3) a bay ends at a stop line across its lane at the nose; no exit gore
+            if (z.bay && BayMarksOn) { BayStopLine(map, z); return; }
 
             // ---- GORE CH: from N to the physical nose P
             var host = z.hostChain;

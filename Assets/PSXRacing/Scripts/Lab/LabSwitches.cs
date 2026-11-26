@@ -264,6 +264,12 @@ namespace PSXRacing
             });
             Register(new LabRow
             {
+                id = "baymarks", group = LabGroup.World, name = "TURN BAY MARKINGS", when = LabWhen.BuiltIn,
+                look = "Built into the city tiles: a turn bay has a solid white line beside the through lanes, a left arrow every 40 m and a stop line at its nose. A city bake.",
+                env = new[] { "PSX_CITY_BAYMARKS" }, requires = "CityMeshes.BayMarksOn",
+            });
+            Register(new LabRow
+            {
                 id = "goresplit", group = LabGroup.World, name = "SPLITS SHARE ONE EDGE", when = LabWhen.BuiltIn,
                 look = "Opt-in (PSX_CITY_GORESPLIT=1), built into the city tiles: two roads leaving a node on the same side no longer overlap. Off by default: worse than the base on the line gate. A city bake.",
                 env = new[] { "PSX_CITY_GORESPLIT" }, requires = "LineModel.GoreSplitOn",

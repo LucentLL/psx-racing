@@ -104,5 +104,40 @@ namespace PSXRacing.City
                 if (ez[i].aux && bayZoneIds.Contains(ez[i].auxZone) && LineModel.AuxAt(e, ez[i], s) > 0.5f) return true;
             return false;
         }
+
+        // ------------------------------------------------------------------
+        //  A3 (the bay's marks, MUTCD 2009): the line between the bay and the through lanes SOLID WHITE over the
+        //  bay's full width (3B.04: a lane-use control line), a left-turn arrow every BayArrowEveryM back from its
+        //  end (at least one; 3B.20), a STOP LINE across the bay at its nose (3B.16: 12-24 in wide, here 0.6 m),
+        //  no exit gore chevrons; the median-side edge line stays yellow (it rides the aux lane).
+        //  PSX_CITY_BAYMARKS=0: the zone's marks as before.
+        // ------------------------------------------------------------------
+        public static bool BayMarksOn = System.Environment.GetEnvironmentVariable("PSX_CITY_BAYMARKS") != "0";
+        public const float BayArrowEveryM = 40f, BayStopBarM = 0.6f;
+        public static int BayStopLines;
+
+        static void BayStopLine(CityMap map, MergeZone z)
+        {
+            // the host piece just before the nose
+            if (!z.HostAt(map, z.D - 1f, out var H, out float sH, out int sideH) || H == null) return;
+            float w = LineModel.AuxWidth(H, sH, sideH);
+            if (w < 2f) return;
+            float la = AuxThroughLat(H, sH, sideH);
+            if (float.IsNaN(la)) return;
+            // the bar's far side toward the nose: along the host's own s, the side the zone runs to
+            var tH = H.TangentAt(sH);
+            z.HostAt(map, z.D - 0.2f, out var H2, out float sH2, out _);
+            float dir = H2 == H ? Mathf.Sign(sH2 - sH) : 1f;
+            if (dir == 0f) dir = 1f;
+            float s0 = sH + dir * (0.8f - BayStopBarM), s1 = sH + dir * 0.8f;
+            if (s0 > s1) { float tmp = s0; s0 = s1; s1 = tmp; }
+            s0 = Mathf.Clamp(s0, 0f, H.length); s1 = Mathf.Clamp(s1, 0f, H.length);
+            if (s1 - s0 < 0.2f) return;
+            float l0 = la, l1 = la + sideH * w;
+            var piece = new[] { new Vector2(l0, s0), new Vector2(l1, s0), new Vector2(l1, s1), new Vector2(l0, s1) };
+            AddMark(new PaintMark { style = MkGlyph, edge = H.index, s0 = s0, s1 = s1, pieces = new List<Vector2[]> { piece }, bps = new[] { s0, s1 }, side = -1, what = "bay stop line",
+                                    hdg = Mathf.Repeat(Mathf.Atan2(tH.x, tH.y) * Mathf.Rad2Deg, 360f) });
+            BayStopLines++;
+        }
     }
 }
