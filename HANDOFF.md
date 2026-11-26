@@ -8356,3 +8356,18 @@ launch old 109/585, uniform 102/395, routes 0/0/0; census = g5r6; route p99 1.12
 - CityOutlineProto.RunClusters (op5): JoinOpenings (median-opening rule) did NOT join 80's n4435 / n4441 (the two U-turn
   links' centrelines come no closer than 9.3 m; threshold 3 m). 79 and both 80 nodes solve but each keeps one kink; 77
   (2 nodes) and 81 (4 nodes) refuse with a self-crossing. Stage 1 not started.
+
+## Round 5, real junctions (11-26 late afternoon): fixtures, whole-city run, the rules for 80 / 81, abreast arms
+- Whole city in edit mode (CityOutlineProto.RunCity, city3, 0562ed90): 7,268 junction clusters (fan clusters, the opening
+  rule, the painted-split rule, and the 3+-arm nodes the generator draws without a fan), 301 s: 6,331 clean, 19 with a
+  kink, 917 refused (337 arc-did-not-fit, 122 nose-not-found, the rest named self-crossings), 1 fill mismatch.
+- Real fixtures (Editor/JunctionFixtures, RunCity's PSX_C7_FIXTURES) in the test RealJunctions: 9 of 11 pass (79, 80, 81,
+  g20 T, g28 crossing, g32 median, g40 skew, g48 split); s77 refused (abreast arms, no cut line before the next node),
+  g44 one 6.0 deg joint where a fillet meets a map corner of e13974.
+- Rules added: the opening rule on the paved gaps along the road (80 joined: one opening, rounded noses both sides);
+  MergeBays takes bays drawn over their host (80's U-turn lanes); the painted-split rule (81: n4449 joins the UC Blvd
+  junction, no nose, the island is the slip/boulevard corner); ABREAST corners (two carriageways' arms touching);
+  fillets at any angle; link noses strict-then-loose; map corners relaxed inside the outline's own border stretch; the
+  2.5 m rise replaced by a warp (1.25 m off the rows' plane) and slope (15 %) rule; real clusters solved in their own
+  frame (absolute float metres made 81 cross itself by half a millimetre).
+- Stage 1 (mesh) still not started.
