@@ -1,3 +1,221 @@
+# HANDOFF - c7roads: the University City loop's junction islands as solids in one paved surface (owner 11-25, CltC7, shots 77-81)
+
+Branch `charlotte-c7roads` from mountain-nm e472b9da (+ 8a5737c0 cherry-picked). Editor frames only (PSXRoadA, WebGL target, tiles built live,
+PSX_TILECACHE=0); the coordinator shoots the PC exe after the re-bake. Scratch:
+`C:\Users\mcgee\AppData\Local\Temp\claude\be91fcb74e64226b\40ca151a-c5be-4aaa-9ea2-b8dd0e7c98a9\scratchpad\c7roads\`
+(INVENTORY.md, c7roads_sheet.png, out\, shots\).
+
+## Where his shots are
+The brief's route metres were one gate off (the HUD's "CHECKPOINT k" is 0-based): 77 = route 3,626 (UC Blvd -> N Tryon
+channelised right turn, slip e13224 - the edge his log names), 78 = 3,715 (N Tryon after the turn, the light-rail median),
+79 = 1,327 and 80 = 1,507-1,527 (W T Harris: a left-turn link e2292 across the median; the link to N Tryon), 81 = 2,479
+(the W T Harris -> UC Blvd link splitting at n4449). Frames from there match his shots.
+
+## What was wrong (INVENTORY.md has every piece with file:line)
+- Nobody owned the land a junction leaves between its roads. Each grounded road laid its own verge out from its own edge
+  (`LayStripQuad` CityMeshes.cs:9537 via LayStrip / LayTucked), each fan its chord faces (CityMeshes.cs:10942), the closing
+  pass a single-sided face under every open edge (`SkirtDown` Skirts.cs:852). Where roads part, those sheets cross the other
+  road: 5-12.5 cm over a lane at 77, 79, 81; a corner fill 12 cm over the link at 79 (CityMeshes.cs:11711).
+- A clipped branch's drawn pavement stops short of its own lanes, so the land beside it - and its 1:4 verge ramp - lies in
+  its lane (80's wedge; the host's white lines run on under it).
+- At a split node (81 n4449) the land starts as a knife edge at the stop line, in the right lane's path.
+- A wide median (78, N Tryon's 40 m light-rail median) was laid in fragments: each carriageway's half island where its ray
+  found the twin (CurbMedian.cs PrepareCurbMedian), each fragment's ends a concrete "nose" (MedianDress.cs MedianSpanTop)
+  with a 0.6 m face down (CurbMedianCap): the slabs.
+- Islands had no curb face of their own: half islands ramp to the road over 1.5 m at every stop (CurbMedian.cs:275).
+
+## What changed (each a public static bool read from its variable)
+DEFAULTS: MEDIANRUNS ON (=0 today's tiles); ISLANDSOLID OPT-IN (=1) - the brief asked for default ON, but with it on the
+line gate's MEDIAN class rose 76 -> 624 places (+ SHIFT +5, KINK +3) and the island gate's SEETHRU and LINEUNDER rose, so it
+is not proven (the LL rule: OFF for what is not). The frames marked "this round" at 77 / 79 / 80 / 81 are WITH =1.
+- `CityMeshes.IslandSolidsOn` (PSX_CITY_ISLANDSOLID, new file Scripts/City/CityMeshes.IslandSolids.cs, called from
+  TileSteps after the closing faces, a step at a time): the tile's drawn pavement rasterised (0.5 m);
+  1. anything non-road lying on the pavement (verges, skirts, curbs, lattice; all three corners over it, its middle 0.35 m
+     inside, 3 mm - 1 m over it) is taken out;
+  2. every grounded road's lanes as designed (ribbon less shoulders, along its own run) are pavement: land in a lane
+     inside an enclosed island, or within 1.5 m of the pavement and 25 m of a split / junction node, is paved (junction
+     slab asphalt in the neighbour's surface, world UVs);
+  3. land enclosed by pavement (not reaching the tile's border, <= 2,500 m2, <= 14 m from pavement, no building, no
+     sidewalks round it) is one CLOSED SOLID: outline traced from the pavement, a vertical 15 cm curb face all round (the
+     walk's curb texels) from 6 cm under the road, one top (grass; concrete under 2.4 m across: the median dress's rule),
+     an asphalt apron round its foot tucked 2 cm under the road; every sheet that lay inside is taken out;
+     narrower than 1.2 m it is not island but paved (the nose starts where it is a real one); a short knife sliver
+     (<= 30 m2, <= 20 m long) is a paved gore.
+  4. the curb stands 0.35 m inside the traced outline (off the edge line), the apron 0.9 m wide covers the band; the lanes'
+     bands run on through a junction's trim where two roads part (within 60 deg); within 25 m of a split / junction node the
+     knife where two roads part (thinner than a nose, no wider land beside it, not two opposing carriageways) is paved;
+     faces (skirts, curb faces) hung from a sheet the pass removed go with it.
+- `CityMeshes.MedianRunsOn` (PSX_CITY_MEDIANRUNS, default ON; CurbMedian.cs / MedianDress.cs / Walks.cs PavedRule): where
+  the ray to the twin found nothing for up to 8 m between two runs of one kind, the run is filled (never across an opening,
+  a fan or a crossing street); flat runs under 20 m and any run under 3 m are dropped; a flat (wide, at grade) median is
+  grass end to end (no concrete nose slabs); a lattice cell between a divided road's carriageways is the median's grass,
+  not a 20 m building forecourt. (Tried and taken back: islands at full height to a closed end - the roadside audit found
+  one more face in the body box's way.)
+- Instruments: `CityMeshes.ProvHook` (editor only, null in the game), Editor/CityC7Probe.cs (his poses: chase night /
+  noon, plan, inventory), Editor/CityIslandGate.cs (the four classes on any routes).
+- LAB page: both switches listed in the built-in rows (Scripts/Lab/LabSwitches.cs).
+
+## Gates
+ISLAND GATE (new: Editor/CityIslandGate.cs; four classes from the tiles as the game builds them, along every lane of
+the routes of all ten city races; a place = a 4 m cell within 25 m of the route with a hit; base = PSX_CITY_ISLANDSOLID=0
+PSX_CITY_MEDIANRUNS=0, which draws e472b9da's tiles):
+  RAISED anything non-road > 5 cm over the pavement inside it, or in a lane's driven band, or in a gentle turn path through
+  a junction; SEETHRU a ray from bumper / cockpit / chase height meets a face from behind first or goes under the land;
+  OVERLAY a non-road sheet within -3 mm..+5 cm of the pavement inside it; LINEUNDER anything over painted line texels.
+- THE DEFAULTS (MEDIANRUNS only, run ia12 on eae1c827): identical to the base, place for place (0 lines differ):
+  RAISED 5,735, SEETHRU 215, OVERLAY 841, LINEUNDER 60; C7: 89 / 1 / 8 / 22. Nothing on the routes is fixed or broken
+  by the defaults; MEDIANRUNS's change (78's slabs) lies off the lanes these classes measure.
+- WITH ISLANDSOLID=1 (run ia11, 224ab24c), before / after:
+| route | RAISED before / after | SEETHRU | OVERLAY | LINEUNDER |
+
+|---|---|---|---|---|
+
+| c7 | 89 / 125 | 1 / 5 | 8 / 10 | 22 / 27 |
+
+| c1 | 352 / 294 | 17 / 31 | 175 / 102 | 8 / 6 |
+
+| c2 | 660 / 636 | 25 / 42 | 315 / 231 | 7 / 18 |
+
+| h6 | 163 / 187 | 28 / 29 | 18 / 16 | 0 / 0 |
+
+| h7 | 730 / 737 | 4 / 4 | 2 / 2 | 1 / 1 |
+
+| x1 | 231 / 216 | 21 / 35 | 100 / 64 | 6 / 13 |
+
+| independence | 300 / 333 | 31 / 32 | 26 / 24 | 2 / 8 |
+
+| tryon | 442 / 420 | 27 / 46 | 179 / 121 | 9 / 22 |
+
+| uptown | 2668 / 2687 | 44 / 48 | 3 / 2 | 5 / 5 |
+
+| i485west | 100 / 108 | 17 / 24 | 15 / 11 | 0 / 0 |
+
+| TOTAL | 5735 / 5743 | 215 / 296 | 841 / 583 | 60 / 100 |
+  OVERLAY falls 31 % (the layers laid on the asphalt); RAISED +8, SEETHRU +81, LINEUNDER +40. The C7 RAISED rise is a narrow
+  curbed strip island at 80 and at UC Blvd 5810-5826,11878-11890 that the gate finds inside a link's lane band as designed
+  (the link's drawn ribbon is clipped narrower than its lane); SEETHRU: faces seen from behind beside the new islands
+  (removing faces hung from removed sheets took 6,841 triangles out and moved SEETHRU 305 -> 296 only); LINEUNDER: island
+  curbs over the edge line beside them. Not one class is at 0 on any route, on the base or after; most of the base's
+  RAISED places are chord faces and verges at fans (Uptown alone 2,668). No leftover is listed one by one with a picture.
+
+LINE GATE (tools\city-linegate.ps1, whole city, run against a run of the base: gbase = e472b9da, 17,712 places; the
+committed baseline's STEP 9,671 is stale, as the brief says).
+
+THE DEFAULTS (MEDIANRUNS on, ISLANDSOLID off): run gfin on the final head 719d3dc8 - LINE GATE OK, every class equal to the
+base run, place for place in totals (also run gmr on 224ab24c with ISLANDSOLID=0: the same):
+| class | base run | this round | change |
+
+|---|---:|---:|---:|
+
+| SHIFT | 2764 | 2764 | +0 |
+
+| SJOG | 2774 | 2774 | +0 |
+
+| KINK | 3231 | 3231 | +0 |
+
+| WIDTH | 630 | 630 | +0 |
+
+| CONT | 1726 | 1726 | +0 |
+
+| SURFACE | 261 | 261 | +0 |
+
+| JUNCTION | 657 | 657 | +0 |
+
+| MEDIAN | 76 | 76 | +0 |
+
+| STEP | 3951 | 3951 | +0 |
+
+| BARRIER | 1630 | 1630 | +0 |
+
+| BRIDGE | 12 | 12 | +0 |
+WITH ISLANDSOLID=1 (run ghead3, 224ab24c): FAILS - 3 classes rise:
+| class | base run | this round | change |
+
+|---|---:|---:|---:|
+
+| SHIFT | 2764 | 2769 | +5 |
+
+| SJOG | 2774 | 2773 | -1 |
+
+| KINK | 3231 | 3234 | +3 |
+
+| WIDTH | 630 | 628 | -2 |
+
+| CONT | 1726 | 1701 | -25 |
+
+| SURFACE | 261 | 261 | +0 |
+
+| JUNCTION | 657 | 657 | +0 |
+
+| MEDIAN | 76 | 624 | +548 |
+
+| STEP | 3951 | 3913 | -38 |
+
+| BARRIER | 1630 | 1630 | +0 |
+
+| BRIDGE | 12 | 12 | +0 |
+The MEDIAN rise is "curb or island in the travelled way": the island curbs stand 0.16-0.4 m inside a road's travelled way
+as the gate draws it (and a few islands 5-10 m inside one: IKEA Blvd, McCullough Dr). The 0.35 m inset (38a96a20) moved it
+639 -> 624 only. This is why ISLANDSOLID is opt-in.
+C7 route (within 25 m): 131 places on the base and the defaults (SHIFT 35, SJOG 25, STEP 27, CONT 15, KINK 14, WIDTH 6,
+SURFACE 6, JUNCTION 2, BARRIER 1); 144 with ISLANDSOLID=1 (+12 MEDIAN, +1 KINK).
+CITY AUDIT (CityAudit.Run, PSXRoadA): base e472b9da 24 FAILURES; final head 719d3dc8 (defaults) 24 FAILURES, the same 24
+checks with the same counts (the FAIL lines differ in nothing). An intermediate head (eae1c827, islands at full height to a
+closed end) had the roadside audit's "face in the body box's way" at 5 against 4 (a new face on North Tryon e10932 at
+-666,6256): that change was taken back (719d3dc8).
+
+## Cost
+- Defaults (MEDIANRUNS only): the line gate built all 10,626 tiles in 1,092-1,164 s against the base's 1,131 s (noise);
+  the island gate's 297 route tiles: 27,163 -> 27,156 triangles, 51,267 -> 51,250 vertices, 19.1 -> 19.1 submeshes a tile,
+  build 335 -> 345 ms a tile. No measurable cost.
+- ISLANDSOLID=1 (island gate, the 297 tiles of the ten race routes, editor): 27,163 -> 27,812 triangles a tile (+2.4 %),
+  51,267 -> 52,921 vertices (+3.2 %), 19.1 -> 19.3 submeshes (draws; the junction slab's fill slots where a tile had
+  none); build 335-409 -> 470-542 ms a tile (about +40 %); the whole-city line gate build 1,131 -> 1,865-2,122 s
+  (+65-88 %). The pass runs as TileJob steps, so live streaming spreads it, but the bake gets that much longer.
+- No frame-time measurement (no PC run while the owner plays; the coordinator's perf tour after the re-bake).
+
+## For the next PC build
+- City tile bake inputs changed: Scripts/City/CityMeshes.cs (TileSteps calls the pass when =1; the ProvHook null checks),
+  CityMeshes.IslandSolids.cs (new, with its .meta), CityMeshes.CurbMedian.cs, CityMeshes.MedianDress.cs, CityMeshes.Walks.cs
+  (PavedRule), CityMeshes.Houses.cs / Lots.cs / Minor.cs (hook calls only). So the next PC build RE-BAKES THE CITY TILES
+  (MEDIANRUNS changes divided streets' medians and the lattice cells between carriageways city-wide). The tile cache
+  fingerprint covers the generator's sources and switches, so an old bake is ignored, not misread.
+- 8a5737c0 (silent test runs) is cherry-picked on the branch (436c62b6): the coordinator's own commit.
+- No exporter run: nothing in tools\city changed and no Resources data changed (the pass reads the tiles' own geometry and
+  the map's edges / nodes).
+- No scene pass needed beyond the city bake (no slot was added: fills and aprons use the junction slab's existing slots).
+- Scripts/Lab/LabSwitches.cs: two BuiltIn rows (islandsolid, medianruns).
+
+## Not verified
+- Muting (owner rule 18:00): 8a5737c0 cherry-picked (436c62b6). None of this round's runs entered play mode (edit-mode
+  tile builds and camera captures in batch: CityC7Probe, CityIslandGate, the line gate, the city audit), so no run log has
+  the "[MasterOut] test run" line and none needed it: 0 play runs checked, 0 with the line.
+- Nothing in the PC exe: editor frames only (WebGL-target sandbox, the PSX dither); the night frames are not the PC night.
+- No play test, no drive: the launch / unload audit (CityLaunchAudit) was not run - an island curb (15 cm, vertical) where the
+  old verge sloped could launch a wheel; the AI's paths at the new noses were not driven.
+- 81 is NOT clean: the knife-edge land at the split node n4449 still starts at the stop line (it is part of a large land
+  region, and the split lies inside the n4449 fan's trim, where the lanes' bands are not drawn); only the verges lying on
+  the lane are gone. The n8008 fan's edge standing 11.5 cm over the slip's ribbon (two road sheets) is untouched.
+- 77: the white + yellow lines fencing the gore strip before the island nose are unchanged (the branch clip's gore pavement).
+- The lines (bay taper too short at 79, S-jogs at 79 / 81, lines ending in their road at 77) are the line model's: not
+  fixed here.
+- Islands that cross a tile border keep the old look (counted in the gate log: "skipped at a border").
+- The paved lane fills carry no paint: where a branch's lane was land, it is now plain asphalt with no edge line.
+- Bake time per tile with the pass on, measured in the editor only (island gate cost line).
+- The light rail in N Tryon's median is not drawn.
+
+## Proof
+- Sheet: scratchpad\c7roads\c7roads_sheet.png (five rows: his shot | base | this round, defaults | + ISLANDSOLID=1, at
+  night and noon, and the plans; every cell labelled; editor frames from the game's chase rig at rest, not the PC exe).
+- INVENTORY.md (scratchpad\c7roads): every drawn piece within 40 m of each spot with its emitter (file:line and callers),
+  what it lies on, its rise over the pavement and its face areas; his sentences mapped to the pieces; the B answers.
+
+## What the owner will notice
+At 78 the pale concrete slabs on North Tryon's grass median are gone (one grass median, no fragments). At 77, 79, 80 and 81
+nothing changes by default: the junction islands as closed solids (his "one paved surface with raised parts") exist behind
+PSX_CITY_ISLANDSOLID=1 and fix the wedge at 80 and the layers at 77 / 79 in the pictures, but they fail the line gate, so
+they are not switched on. 81's curb nose in the turn lane is not fixed in any state.
+
 # HANDOFF - NIGHT5: NIGHT 4 keeps the lane paint and the paving joints, no light past medians and corners, the LAB row back from OFF, two tool faults (agent "night5", 11-25; branch `city-night5` from cdf3fc87; NOT pushed, NOT merged)
 
 All frames and timings are EDITOR runs in PSXPerf (hidden batch editor, PSX_PROFILE=PC, PSX_PC_CONTENT=1, StandaloneWindows64, city tiles built live), except the two PC67 exe leak runs (hidden, -batchmode, no other PSXRacing.exe running). No player was built. NIGHT 4 stays OFF by default.
