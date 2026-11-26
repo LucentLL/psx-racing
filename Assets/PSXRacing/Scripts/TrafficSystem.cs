@@ -1014,7 +1014,8 @@ namespace PSXRacing
             if (free == null) return false;
             free.active = true; free.wrecked = false; free.hasCommand = false; free.lastContact = null;
             free.box.center = free.rideCenter; free.box.size = free.rideSize;
-            free.dir = dir; free.lat = lat; free.latNow = lat; free.latVel = 0f; free.s = s; free.hint = -1;
+            free.dir = dir; free.lat = lat; free.latNow = lat; free.fitNext = 0f; free.fitLane = lat;   // (round 5) a recycled car kept its last life's lane look: it steered for that lane 2 s after spawning (PC77 Tryon s 727)
+            free.latVel = 0f; free.s = s; free.hint = -1;
             free.haveYaw = false; free.steer = 0f; free.edgeLat = float.NaN;
             free.temper = RollTemper();
             TempersSeen[(int)free.temper]++;
@@ -1161,7 +1162,7 @@ namespace PSXRacing
                 fitSw.Start();
                 // looked at twice a second (the look is ~20 lane tests); a lane change only into a clear gap
                 // each car's look on its own phase of the half second (not every car in one step)
-                if (c.fitNext <= 0f) c.fitNext = Time.time + ((c.GetHashCode() & 31) / 64f);
+                if (c.fitNext <= 0f) { c.fitNext = Time.time + ((c.GetHashCode() & 31) / 64f); c.fitLane = c.lat; }
                 if (Time.time >= c.fitNext) { c.fitNext = Time.time + 0.5f; c.fitLane = FittingLane(c); fitLooksStep++; }
                 float fit = c.fitLane;
                 if (float.IsNaN(fit)) v = Mathf.Min(v, 4f);
