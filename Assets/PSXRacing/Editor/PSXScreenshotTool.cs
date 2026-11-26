@@ -1281,6 +1281,7 @@ namespace PSXRacing.EditorTools
         {
             get
             {
+                if (HeightOverride > 0) return HeightOverride;
                 var o = Object.FindFirstObjectByType<PSXCameraOutput>();
                 return o != null ? Mathf.Clamp(o.height, 120, 720) : 240;
             }
@@ -1289,6 +1290,8 @@ namespace PSXRacing.EditorTools
         /// <summary>A tool shooting another screen shape (CockpitInteriorShots'
         /// phone frame) sets this for the duration; 0 = 16:9.</summary>
         internal static float AspectOverride;
+        /// <summary>A review tool's frame height for the duration (c7roads: 1080 to judge edges); 0 = the game's.</summary>
+        internal static int HeightOverride;
         /// <summary>Nearest-neighbour blow-up for the PNG only, and only while
         /// the framebuffer is small enough to need it. The picture is the
         /// game's either way; point-doubling adds no information and hides

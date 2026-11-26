@@ -114,6 +114,7 @@ namespace PSXRacing.EditorTools
         {
             var inv = CultureInfo.InvariantCulture;
             string tag = System.Environment.GetEnvironmentVariable("PSX_C7_TAG") ?? "run";
+            int.TryParse(System.Environment.GetEnvironmentVariable("PSX_C7_H") ?? "1080", out PSXScreenshotTool.HeightOverride);
             CityMeshes.ZoneTraceEdges = new HashSet<int>((System.Environment.GetEnvironmentVariable("PSX_ZONETRACE") ?? "").Split(',').Where(x => x.Trim().Length > 0).Select(x => int.Parse(x.Trim())));
             float planHalf = 40f;
             float.TryParse(System.Environment.GetEnvironmentVariable("PSX_C7_PLAN") ?? "40", NumberStyles.Float, inv, out planHalf);
@@ -146,7 +147,7 @@ namespace PSXRacing.EditorTools
                 {
                     string id = c[0];
                     float x = float.Parse(c[1], inv), z = float.Parse(c[2], inv), hdg = float.Parse(c[3], inv);
-                    string[] views = c.Length > 4 && c[4].Trim().Length > 0 ? c[4].Trim().Split(',') : new[] { "chase_night", "chase_noon", "plan" };
+                    string[] views = c.Length > 4 && c[4].Trim().Length > 0 ? c[4].Trim().Split(',') : new[] { "chase_night", "chase_noon", "plan", "plan40" };
                     var p2 = new Vector2(x, z);
                     float y = 0f;
                     if (map.NearestRoadPoint(p2, 40f, false, out int ei0, out float s0, out float d0)) y = map.edges[ei0].YAt(s0);
@@ -223,12 +224,12 @@ namespace PSXRacing.EditorTools
                         cam.ResetProjectionMatrix();
                         cam.orthographic = false;
                         Vector3 eye; Quaternion look; float shift = 0f;
-                        if (view == "plan")
+                        if (view.StartsWith("plan"))
                         {
                             eye = new Vector3(x, y + 45f, z);
                             look = Quaternion.LookRotation(Vector3.down, fwd); eye.y = y + 45f;
                             cam.orthographic = true;
-                            cam.orthographicSize = planHalf;
+                            cam.orthographicSize = view == "plan40" ? 20f : planHalf;
                             cam.nearClipPlane = 39f;   // nothing more than 6 m over the car (canopies, decks, wires): the ground plan
                         }
                         else
@@ -239,7 +240,7 @@ namespace PSXRacing.EditorTools
                             cam.fieldOfView = fov;
                         }
                         cam.transform.SetPositionAndRotation(eye, look);
-                        if (globals != null && view != "plan")
+                        if (globals != null && !view.StartsWith("plan"))
                         {
                             globals.adapt = ExposureAdapt.SteadyFor(eye, player.transform, sun != null ? -sun.transform.forward : Vector3.up,
                                                                     globals.night, path, def, globals.dayFill);
@@ -249,7 +250,7 @@ namespace PSXRacing.EditorTools
                         StreetLights.Push(eye, look * Vector3.forward);
                         // the plan: no sun shadows (a pole's or a tree card's shadow from straight above reads as a black slab)
                         var shadowsWas = sun != null ? sun.shadows : LightShadows.None;
-                        if (view == "plan" && sun != null) sun.shadows = LightShadows.None;
+                        if (view.StartsWith("plan") && sun != null) sun.shadows = LightShadows.None;
                         SunShadows.RenderFor(cam);
                         cam.aspect = 16f / 9f;
                         if (Mathf.Abs(shift) > 1e-5f) cam.projectionMatrix = ChaseCamera.ShiftedProjection(cam.fieldOfView, cam.aspect, cam.nearClipPlane, cam.farClipPlane, shift);
