@@ -63,6 +63,7 @@ namespace PSXRacing
         static readonly Dictionary<long, (float T, Vector2 c, float r, float ang0, float sweep)> arcCache = new Dictionary<long, (float, Vector2, float, float, float)>(1024);
         /// <summary>Plans' turns read from <see cref="arcCache"/> and searched (the harness; cleared with the stats).</summary>
         public static int ArcReads, ArcSearches;
+        public static bool LogSearches = System.Environment.GetEnvironmentVariable("PSX_CP_TURNS_LOG") == "1"; static int searchLogs;
         /// <summary>(round 3, the islands check) Every cached arc's points, every <paramref name="step"/> metres, with its
         /// turn's key (node, road in, road out).</summary>
         public static void CachedArcPoints(List<Vector2> pts, List<long> keys, float step = 1f)
@@ -347,6 +348,7 @@ namespace PSXRacing
                     // kept only when the path's own ends did not limit the search (a shorter arc forced by them is not the turn's)
                     if (prev <= aJ + uP - Tcap - 0.5f && next >= aO + vP + Tcap + 0.5f) arcCache[fkey] = (bestT, fc, fr, fang0, fsweep);
                     ArcSearches++;
+                    if (LogSearches && searchLogs++ < 30) Debug.Log($"[RacingTurns] searched node {J.node} in {J.ein} out {J.eout} at ({pts[j].x:0},{pts[j].y:0}): r {fr:0.0} m, T {bestT:0.0} of cap {Tcap:0.0}, prev {prev:0.0} a0 {fa0:0.0}, next {next - aO:0.0} past the out point; cached {(prev <= aJ + uP - Tcap - 0.5f && next >= aO + vP + Tcap + 0.5f)}");
                     lastA1 = fa1;
                     fit = true;
                     Laid++; LaidR.Add(fr); MinLaidR = Mathf.Min(MinLaidR, fr);
