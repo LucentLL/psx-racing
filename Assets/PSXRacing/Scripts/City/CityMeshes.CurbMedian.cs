@@ -466,6 +466,18 @@ namespace PSXRacing.City
             // other quads match it, flat an inch under the edge there (h 0)
             CurbMedianProfile(eA, outA, wA, yA, hA, cA, cmProfA);
             CurbMedianProfile(eB, outB, wB, yB, hB, cB, cmProfB);
+            // (c7roads round 4, A2) beside a turn bay the island ends in a ROUNDED NOSE (radius = its half width)
+            // at its last full section, not a ramp down and a square cap
+            if (cmBayRun && BayMedianOn && (cmW[i - 1] > 0f) != (cmW[i] > 0f) && cA >= 0.99f && cB >= 0.99f)
+            {
+                bool endAtB = cmW[i - 1] > 0f;
+                CurbMedianProfile(endAtB ? eA : eB, endAtB ? outA : outB, endAtB ? cmW[i - 1] : cmW[i], endAtB ? cmY[i - 1] : cmY[i], 1f, 1f, cmNose);
+                var fwd = Flat2(endAtB ? eB - eA : eA - eB);
+                float span = Vector2.Distance(new Vector2(eA.x, eA.z), new Vector2(eB.x, eB.z));
+                BayNose(tm, cmNose, endAtB ? outA : outB, fwd, span, endAtB ? uA0(sA) : uA0(sB));
+                CurbMedianSpans++; BayNoses++;
+                return true;
+            }
             float uA = sA / WalkTexM, uB = sB / WalkTexM;
             bool curbed = cA > 0f || cB > 0f;
             // the curb: its face (dark, CurbFaceDark) and the rounded top, the walk's texels
@@ -550,6 +562,44 @@ namespace PSXRacing.City
                 bk.Up(a0, a1, b1, b0, new Vector2(CurbFaceU, uA), new Vector2(CurbFaceU, uA), new Vector2(CurbFaceU, uB), new Vector2(CurbFaceU, uB));
             else
                 bk.Up(a0, a1, b1, b0, new Vector2(uA, walkBandV[0]), new Vector2(uA, walkBandV[1]), new Vector2(uB, walkBandV[1]), new Vector2(uB, walkBandV[0]));
+        }
+
+        // ---- (c7roads round 4, A2) the rounded nose of a median beside a turn bay ----
+        /// <summary>Set by PrepareMedianDress: the carriageway's island run lies beside a bay (concrete, rounded noses).</summary>
+        static bool cmBayRun;
+        static readonly Vector3[] cmNose = new Vector3[5];
+        public static int BayNoses;
+        const int BayNoseSteps = 8;
+        static float uA0(float s) => s / WalkTexM;
+
+        /// <summary>A quarter-round nose on one island half: centre on the axis at the last full section (p[3]),
+        /// radius the curb nose's distance from the axis (never past the span), the curb's foot, face and rounded top
+        /// swept round it, the top a fan to the centre; the half beside it closes the other quarter.</summary>
+        static void BayNose(TileMeshes tm, Vector3[] p, Vector2 outw, Vector2 fwd, float span, float u0)
+        {
+            var o = tm.origin;
+            var C = p[3];
+            var toCurb = new Vector2(p[2].x - C.x, p[2].z - C.z);
+            float r = Mathf.Min(toCurb.magnitude, Mathf.Max(0.3f, span));
+            if (r < 0.05f) return;
+            var dirC = toCurb.normalized;   // from the axis to the curb
+            float rFoot = r + Mathf.Abs(Vector2.Dot(new Vector2(p[2].x - p[0].x, p[2].z - p[0].z), dirC));
+            float rFace = r + Mathf.Abs(Vector2.Dot(new Vector2(p[2].x - p[1].x, p[2].z - p[1].z), dirC));
+            var tb = MedianTopBucket(MedianTopConcrete);
+            Vector3 At(float rad, float th, float y) { var d = dirC * Mathf.Cos(th) + fwd * Mathf.Sin(th); return new Vector3(C.x + d.x * rad, y, C.z + d.y * rad); }
+            for (int k = 0; k < BayNoseSteps; k++)
+            {
+                float t0 = 0.5f * Mathf.PI * k / BayNoseSteps, t1 = 0.5f * Mathf.PI * (k + 1) / BayNoseSteps;
+                Vector3 n0 = At(r, t0, p[2].y), n1 = At(r, t1, p[2].y);
+                // the top: a fan to the centre (the island's top height at the axis)
+                tb.Up(C, n0, n1, n1, MedianTopUV(MedianTopConcrete, C.x + o.x, C.z + o.z), MedianTopUV(MedianTopConcrete, n0.x + o.x, n0.z + o.z),
+                      MedianTopUV(MedianTopConcrete, n1.x + o.x, n1.z + o.z), MedianTopUV(MedianTopConcrete, n1.x + o.x, n1.z + o.z));
+                // the curb: face from its foot to its top, then the rounded top to the nose
+                Vector3 f0 = At(rFoot, t0, p[0].y), f1 = At(rFoot, t1, p[0].y), c0 = At(rFace, t0, p[1].y), c1 = At(rFace, t1, p[1].y);
+                float ua = u0 + r * t0 / WalkTexM, ub = u0 + r * t1 / WalkTexM;
+                CurbFaceQuad(WalkBucket, f0, c0, c1, f1, ua, ub);
+                WalkBucket.Up(c0, n0, n1, c1, new Vector2(ua, walkBandV[1]), new Vector2(ua, walkBandV[2]), new Vector2(ub, walkBandV[2]), new Vector2(ub, walkBandV[1]));
+            }
         }
     }
 }
