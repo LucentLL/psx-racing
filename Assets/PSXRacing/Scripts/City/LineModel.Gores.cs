@@ -223,7 +223,7 @@ namespace PSXRacing.City
             var clock = System.Diagnostics.Stopwatch.StartNew();
             GoreSplits.Clear(); goreAt.Clear(); Bays.Clear(); bayEdges.Clear();
             GorePairs = 0; GoreOverlapBefore = 0; GoreOverlapAfter = 0; GoreSkippedDeck = 0; GoreZoneLeft = 0;
-            if (!GoreSplitOn || map.nodeEdges == null) { GoreBuildMs = 0f; return; }
+            if ((!GoreSplitOn && !CityMeshes.BayLanesOn) || map.nodeEdges == null) { GoreBuildMs = 0f; return; }
             const float ds = 1f;
             var add = new List<Ease>[map.edges.Length];
             var moved = new HashSet<int>();
@@ -275,7 +275,7 @@ namespace PSXRacing.City
                                 continue;
                             }
                         }
-                        if (ov0 <= 0.02f) continue;
+                        if (!GoreSplitOn || ov0 <= 0.02f) continue;   // R1 off: the bays alone (R0)
                         GoreOverlapBefore++;
                         if (moved.Contains(X.index) && moveY) moveX = false;      // an arm already moved at this node keeps its shift
                         if (moved.Contains(Y.index) && moveX) moveY = false;
