@@ -300,6 +300,61 @@ they are not switched on. 81's curb nose in the turn lane is not fixed in any st
 - Sheet: scratchpad\c7roads\c7roads_sheet_r3.png (80, 79, 81, 77, 78: his shot | base | round 3 defaults, night,
   noon and plans, a what-changed cell each; editor frames from 5ecbb460, where no R1 pair lay within 70 m of a spot).
 
+## Round 4 (11-26 06:50 on): spots 80 and 79 finished toward the real road (bays, opening, concrete median, marks)
+Linear on c1211c87 (nothing rebased). Every run edit-mode batch: 0 play runs, 0 MasterOut lines needed. Frames now
+1920x1080 (PSX_C7_H; plans 80 m and 40 m tall). Scratch kept under 1 GB (my rounds 1-2 shot folders and snapshots deleted;
+job.ps1 / gate.ps1 now refuse an unknown commit and drop their code snapshot when done).
+- A1 THE CROSSING (CityMeshes.Bays.cs, under PSX_CITY_BAYLANES): a median crossover's far node (a one-way link way of at
+  most 250 m between the two opposite carriageways of one road) is forced to a junction fan (ComputeTrims' forceFan, the
+  mitre-fan path): 126 nodes city-wide. With the crossing run shortened to 0.8 x the lateral move (LineModel.Gores
+  BayCrossK, was 1.6) the opening is one paved area; the sliver and the sawtooth diagonals are gone.
+- A2 THE MEDIAN ALONG A BAY (PSX_CITY_BAYMEDIAN, LAB row): the stepped pale slab was CurbMedian's island top switching
+  between concrete and grass span by span on each half (MedianDress: concrete at a nose / pocket / narrow, grass or a
+  bed elsewhere). Beside a bay's aux lane (either carriageway) the run is concrete end to end, stands full height and
+  ends in a rounded nose (a quarter round per island half, radius its half width: curb foot, face, rounded top, the top
+  fanned to the axis). Kerb lines are the island's own (it starts at the bay lane's edge). 79's island is about 4.4 m
+  wide (the real one 3-4 m).
+- A3 MARKS (PSX_CITY_BAYMARKS, LAB row; MUTCD 2009 3B.04 / 3B.16 / 3B.20): solid white between the bay and the through
+  lanes over its full width, a left arrow every 40 m (at least one), a stop line 0.6 m across the bay at its nose, no
+  exit-gore chevrons; the median-side edge line stays yellow (it rides the aux lane). A bay's aux lane no longer stops
+  a turn-only arrow and ONLY group beside it (80's right-turn ONLY had gone).
+- A4 the bay's taper is the gate's own rule (Green Book 8:1-15:1); a bay the merge zones do not take (111 of 207) has
+  its line-model shift stood down after the zones: it is drawn as before.
+- R0 refined: a median bay must leave its host on the host's left (right-hand traffic).
+- D: city-wide 96 bays carried as their host's lane (95 median, 51 with a turn:lanes tag), by host road: Concord Pkwy S
+  10, South Tryon 9, East W T Harris 9, Independence Blvd 8, West W T Harris 7, Albemarle Rd 7, Wilkinson 6, North Tryon
+  6, Freedom Dr 5, University City Blvd 4, Matthews Township Pkwy 4, George W. Liles Pkwy 4, Steele Creek Rd 3,
+  Statesville Rd 3, others 1-2. Contact sheet of 12 on 11 roads: scratchpad\c7roads\c7roads_r4_bays.png.
+- RULE 4 (owner 11-26 11:33, "everything angular"; PSX_CITY_SMOOTHCURB, LAB row): curb returns within 1 cm of their arc
+  and at most 6 degrees a joint from a 6 m radius (was 6 cm / 10 pieces); the line model's eased edges (tapers, aux
+  lanes) faceted within 1 cm (was 2 cm). Return facets city-wide 66,428 -> 4,394 (the kink probe); the fan rings' free
+  vertices 81,898 -> 171,425.
+- RULE 6, THE KINK PROBE (Editor/CityKinkProbe.cs): every junction fan's drawn free outline city-wide, every merge
+  zone's host and branch outlines, and every ribbon outline within 60 m of the spots; a kink = a vertex more than 1 cm
+  off the curve through it, or over 6 degrees where that curve's radius is 6 m or more. Base (every round-1..4 switch
+  off) | round 4, by kind: see the hand-back scorecard (scratchpad out\kb_shots, out\kn_shots).
+- NOT MET at 80, 79, 77, 81 (rule 1 / 2 / 3): corners with no return remain (CurbRadiusAt gives 0 for links meeting, a
+  skew crossing under 60 deg, one road going on; a clipped arm has no fan at all), the opening's fan outline at 80 has
+  corners, the island south of 80's opening starts square and stepped, and every road's own outline follows its map
+  polyline straight from point to point (no curve fitting: the "ribbon outline" kinks). The two crossings at 80 still
+  cross as two ribbons (RAISED 60), 80's right-turn ONLY is still missing (Group refuses it; cause not found).
+- SMOOTHCURB measured (da4b8745, ten race routes' 297 tiles): build 336 -> 568 ms a tile (+69 %), 27,163 -> 28,433
+  triangles (+4.7 %), SEETHRU 215 -> 236; so it is OPT-IN (=1). The round-4 defaults are 13f15450's tiles.
+- FINAL DEFAULTS (13f15450 tiles = this head with SMOOTHCURB off), against the base e472b9da:
+  - line gate: SHIFT 2748 (-16), SJOG 2744 (-30), KINK -2, WIDTH -4, CONT -69, SURFACE -35, JUNCTION -25, MEDIAN -1,
+    STEP -19, BRIDGE =, BARRIER 1635 (+5: wall-against-edge-line places on bay links e1233 / e1234 / e9756 / e8400 /
+    e3468 / e3472 and West Boulevard e15033) - NOT <= base in BARRIER.
+  - island gate: RAISED 5711 (-24), OVERLAY 828 (-13), LINEUNDER 43 (-17), SEETHRU 218 (+3, C7 at the bay ends on
+    W T Harris) - NOT <= base in SEETHRU. At the spots: 80 RAISED 9 -> 60 (the two crossings stacked in the opening),
+    79 RAISED 152 -> 81, OVERLAY 34 -> 0, LINEUNDER 0 -> 11.
+  - city audit: 24 FAILURES (= base, no new line); verge steps 76 -> 87 - NOT <= 76.
+  - cost: 27,432 triangles (+1.0 %), 19.0 draws (=), 343-361 ms a tile (+2-7 %) - within the limits.
+  - rivals' arc check: 0 / 0 on all ten routes.
+- Sheets: scratchpad\c7roads\c7roads_r4_sheet_80_79.png (80 and 79: his shot | base | round 4, noon, night, plans 80 m and
+  40 m, EDITOR frames 1920x1080) and c7roads_r4_bays.png (12 bays on 11 roads, base | round 4, EDITOR plans 40 m).
+- NOT DONE: 81 and 77 (not started this round); the aerial side-by-sides (no aerial source here but the owner's 84);
+  R3; the opening as one surface at 80 (two crossing ribbons); 80's right-turn ONLY.
+
 # TEST RUNS ARE SILENT (coordinator, 11-25; mountain-nm 8a5737c0)
 
 Owner 2026-11-25: "please mute all testing. I constantly hear the game without ever seeing it". Measured at 18:02: two hidden batch editors (RacePlayCheck in PSXPerf and PSXCity) were at full-scale peak on his speakers. Batch mode hides the window, not the sound.
