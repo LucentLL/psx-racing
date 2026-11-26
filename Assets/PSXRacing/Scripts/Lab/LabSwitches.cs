@@ -290,6 +290,12 @@ namespace PSXRacing
                 look = "After the flag, rivals brake for the bends and the end of their run-out instead of coasting on.",
                 env = new[] { "PSX_AI_FINISH_RUNOUT" }, members = new[] { "AIDriver.FinishRunOutOn" },
             });
+            Register(new LabRow
+            {
+                id = "junctionwait", group = LabGroup.Traffic, name = "RIVALS WAIT IN JUNCTIONS", when = LabWhen.Now,
+                look = "City races: a rival held up in a junction waits for the car crossing instead of reversing to and fro.",
+                env = new[] { "PSX_AI_JUNCTION_WAIT" }, members = new[] { "AIDriver.JunctionWaitOn" },
+            });
         }
 
         /// <summary>Add a row (at boot, in RegisterAll). Resolves its members by name; a row whose member is missing
