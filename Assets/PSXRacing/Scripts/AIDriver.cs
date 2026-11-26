@@ -54,6 +54,13 @@ namespace PSXRacing
         /// <summary>(cityai round 2) Standing behind a car in a city junction's zone, wait: no back-up unless pinned
         /// (PSX_AI_JUNCTION_WAIT=0: as before). LAB row RIVALS WAIT IN JUNCTIONS.</summary>
         float junctionStand;
+        /// <summary>(cityai round 4) With oncoming traffic within the guard, a rival whose body edge comes within
+        /// <see cref="FileInAirM"/> of the centre line lifts and brakes back into line behind the car squeezing it
+        /// (PSX_AI_PACK_FILEIN=0: as before). LAB row RIVALS FILE IN, NO SQUEEZE.</summary>
+        public static bool PackFileInOn = System.Environment.GetEnvironmentVariable("PSX_AI_PACK_FILEIN") != "0";
+        const float FileInAirM = 0.25f;
+        /// <summary>For the harness: filing in this tick.</summary>
+        public bool FilingIn { get; private set; }
         public static bool JunctionWaitOn = System.Environment.GetEnvironmentVariable("PSX_AI_JUNCTION_WAIT") != "0";
         /// <summary>
         /// (cityai round 3) A FINISHER CLEARS THE LANE: past the flag it drives on at <see cref="FinishCruiseMps"/> in its
@@ -2085,6 +2092,34 @@ namespace PSXRacing
                 if (Time.time < passRetryAt || SightAhead(out _) < needSee) leftLimit = OwnLaneInnerM - lineOffset;
             }
             DebugLeftLimit = leftLimit;
+            // (cityai round 4) THE PACK FILES IN. With oncoming traffic within the guard, the limit above holds the
+            // TARGET right of the line, but a car squeezed by a rival alongside drifts off its target: Tryon MEDIUM seed 2,
+            // both arms, a rival at 94 km/h four-wide, its target 1.5 m right of the line, its centre at +0.5 m (body over
+            // the line) into oncoming traffic. Body edge within FileInAirM of the line with something coming: lift and
+            // brake (harder with a racer alongside on the right, the squeeze) until it is back in its lane behind it.
+            FilingIn = false;
+            if (PackFileInOn && !float.IsNegativeInfinity(leftLimit) && path != null)
+            {
+                Vector3 prr = Vector3.Cross(Vector3.up, path.GetTangent(nearestIdx)).normalized;
+                float myLatNow = Vector3.Dot(transform.position - path.GetPoint(nearestIdx), prr);
+                float edgeAir = myLatNow - MyHalfW;
+                if (edgeAir < FileInAirM)
+                {
+                    bool squeezed = false;
+                    var rmS = RaceManager.Instance;
+                    if (rmS != null)
+                        foreach (var o in rmS.allCars)
+                        {
+                            if (o == null || o == car || !o.gameObject.activeInHierarchy) continue;
+                            Vector3 lo = transform.InverseTransformPoint(o.transform.position);
+                            if (lo.x > 0.5f && lo.x < 3.2f && Mathf.Abs(lo.z) < 5f) { squeezed = true; break; }
+                        }
+                    FilingIn = true;
+                    throttleLift = 1f;
+                    trafficBrake = Mathf.Max(trafficBrake, squeezed ? 0.5f : 0.25f);
+                    Why("file in", throttleLift, trafficBrake);
+                }
+            }
             bool passApproved = false;
             var rm = RaceManager.Instance;
             if (rm != null)

@@ -376,6 +376,7 @@ namespace PSXRacing
             /// <summary>(round 3) Held still after a soft knock until this time.</summary>
             public float knockHoldUntil;
             public float knockWindowAt; public int knocks;
+            public float lastRacerAt = -100f;
         }
 
         /// <summary>Called by RaceManager.Start once the path is final (a
@@ -1398,14 +1399,22 @@ namespace PSXRacing
             // ride height when it is hit, so this box starts just above the
             // tarmac, not in it.
             c.box.center = c.fullCenter; c.box.size = c.fullSize;
-            WreckLog.Add((c.dir > 0 ? "with" : "oncoming") + " hit by " + (by ?? "?"));
+            // (round 4) where, in which lane, and whether a racer touched it in the 5 s before (the barrier wrecks)
+            var wp = c.go.transform.position;
+            WreckLog.Add((c.dir > 0 ? "with" : "oncoming") + " hit by " + (by ?? "?") +
+                         $" | at ({wp.x:0.0},{wp.z:0.0}) s {c.s:0} lane {c.lat:+0.0;-0.0} now {c.latNow:+0.0;-0.0} road half {path.roadWidth * 0.5f:0.0} v {c.speed:0.0}" +
+                         (Time.time - c.lastRacerAt < 5f ? $" | racer touched {Time.time - c.lastRacerAt:0.0} s before" : " | no racer within 5 s"));
             c.rb.useGravity = true;
         }
 
         internal void NoteContact(GameObject go, string what)
         {
             var c = live.Find(x => x.go == go);
-            if (c != null) c.lastContact = what;
+            if (c != null)
+            {
+                c.lastContact = what;
+                if (what != null && (what.Contains(" AI") || what.Contains("Player"))) c.lastRacerAt = Time.time;
+            }
         }
 
         // ---- the replay ---------------------------------------------------------

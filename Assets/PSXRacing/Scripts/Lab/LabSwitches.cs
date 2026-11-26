@@ -351,6 +351,12 @@ namespace PSXRacing
             // cityai round 3: the traffic side and the finishers
             Register(new LabRow
             {
+                id = "packfilein", group = LabGroup.Traffic, name = "RIVALS FILE IN, NO SQUEEZE", when = LabWhen.Now,
+                look = "With oncoming traffic, a rival squeezed toward the centre line lifts and drops in behind, never over it.",
+                env = new[] { "PSX_AI_PACK_FILEIN" }, members = new[] { "AIDriver.PackFileInOn" },
+            });
+            Register(new LabRow
+            {
                 id = "finishdriveon", group = LabGroup.Traffic, name = "FINISHERS CLEAR THE LANE", when = LabWhen.Now,
                 look = "After the flag a rival drives on at traffic speed and stops on the verge, never parked in the lane.",
                 env = new[] { "PSX_AI_FINISH_DRIVEON" }, members = new[] { "AIDriver.FinishDriveOnOn" },
