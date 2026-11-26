@@ -204,6 +204,17 @@ namespace PSXRacing
         // (cityai round 5) the step's parts, ms summed: measure field, recycle, spawn, drive; steps; live cars summed
         public static readonly double[] PartMs = new double[4]; public static long PartN, LiveSum;
         public static readonly List<string> SlowSteps = new List<string>(); static int lastGc;   // steps over 2 ms
+        // the main thread's own CPU cycles (QueryThreadCycleTime), turned into ms by the cycles a ms of the ordinary steps
+        // took: a slow step the thread did not spend running was taken from it by the machine (other processes), not
+        // spent in the traffic code. Dev tour only (WreckTrace).
+        static double cycSum, cycMs, cycPerMs;
+#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")] static extern System.IntPtr GetCurrentThread();
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")] static extern bool QueryThreadCycleTime(System.IntPtr h, out ulong cycles);
+        static ulong ThreadCycles() { return QueryThreadCycleTime(GetCurrentThread(), out ulong c) ? c : 0; }
+#else
+        static ulong ThreadCycles() => 0;
+#endif
         static readonly System.Diagnostics.Stopwatch fitSw = new System.Diagnostics.Stopwatch();
         static int fitLooksStep;
         /// <summary>Gap between the collision box and the road, driving.</summary>
@@ -843,6 +854,7 @@ namespace PSXRacing
 
             var swStep = System.Diagnostics.Stopwatch.StartNew();
             fitSw.Reset(); fitLooksStep = 0;
+            ulong cyc0 = WreckTrace ? ThreadCycles() : 0;
             float ps = PlayerS();
             double p0 = swStep.Elapsed.TotalMilliseconds;
             MeasureField();
@@ -856,8 +868,9 @@ namespace PSXRacing
             double p4 = swStep.Elapsed.TotalMilliseconds;
             int gcNow = System.GC.CollectionCount(0);
             if (p4 > 2.0 && SlowSteps.Count < 40)
-                SlowSteps.Add($"{Time.time:0.0} s: {p4:0.00} ms - field {p1 - p0:0.00} recycle {p2 - p1:0.00} spawn {p3 - p2:0.00} drive {p4 - p3:0.00} (lane fit {fitSw.Elapsed.TotalMilliseconds:0.00}), {live.Count} cars, {fitLooksStep} lane looks, gc {(gcNow != lastGc ? "YES" : "no")}, frame {Time.frameCount}");
+                SlowSteps.Add($"{Time.time:0.0} s: {p4:0.00} ms (this thread ran {(WreckTrace && cycPerMs > 0 ? (ThreadCycles() - cyc0) / cycPerMs : -1):0.00} ms of it) - field {p1 - p0:0.00} recycle {p2 - p1:0.00} spawn {p3 - p2:0.00} drive {p4 - p3:0.00} (lane fit {fitSw.Elapsed.TotalMilliseconds:0.00}), {live.Count} cars, {fitLooksStep} lane looks, gc {(gcNow != lastGc ? "YES" : "no")}, frame {Time.frameCount}");
             lastGc = gcNow;
+            if (WreckTrace && p4 < 1.0 && p4 > 0.05) { ulong dc = ThreadCycles() - cyc0; cycSum += dc; cycMs += p4; cycPerMs = cycSum / cycMs; }
             PartMs[0] += p1 - p0; PartMs[1] += p2 - p1; PartMs[2] += p3 - p2; PartMs[3] += p4 - p3; PartN++; LiveSum += live.Count;
             Obstacles.Clear();
             ObstacleHalfW.Clear();
