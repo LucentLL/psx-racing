@@ -25,6 +25,12 @@ namespace PSXRacing
         int ftWrecks; readonly StringBuilder ftWreckNotes = new StringBuilder();
         static readonly CultureInfo FtCI = CultureInfo.InvariantCulture;
 
+        static readonly float[] FtMarks = { 60f, 90f, 120f };
+        readonly float[] ftMarkM = new float[3];
+        int ftMarkI; float ftRaceT;
+        /// <summary>For the stage summary's rivals line: the race time the run reached and the rivals' mean distance at 60 / 90 / 120 s.</summary>
+        string FieldMarks() => ftb == null && ftRaceT <= 0f ? "" :
+            $"; race time {ftRaceT:0.0} s; rivals mean m at 60/90/120 s of race time: {(ftMarkI > 0 ? ftMarkM[0].ToString("0") : "-")}/{(ftMarkI > 1 ? ftMarkM[1].ToString("0") : "-")}/{(ftMarkI > 2 ? ftMarkM[2].ToString("0") : "-")}";
         bool FieldTraceOn => ShotLink.Query(Request() ?? "", "trace") == "1";
 
         void FieldBegin(string id, TrackPath path)
@@ -33,7 +39,7 @@ namespace PSXRacing
             if (!FieldTraceOn || path == null) return;
             ftb = new StringBuilder(1 << 20);
             ftb.Append("t,id,kind,x,z,heading,speed,steer,thr,brk,rev,why\n");
-            ftNext = 0f; ftT0 = Time.time; ftIds.Clear(); ftWreckNotes.Length = 0; ftWrecks = TrafficSystem.Instance != null ? TrafficSystem.Instance.WreckLog.Count : 0;
+            ftNext = 0f; ftT0 = Time.time; ftIds.Clear(); ftMarkI = 0; ftRaceT = 0f; ftWreckNotes.Length = 0; ftWrecks = TrafficSystem.Instance != null ? TrafficSystem.Instance.WreckLog.Count : 0;
             TurnMapDump.Turns(path, ftTurns, ftDeg);
             Post(id + "_turns.csv", TurnMapDump.TurnsCsv(ftTurns, ftDeg));
             TurnMapDump.Map(ftTurns, out string edges, out string kerbs);
@@ -125,6 +131,15 @@ namespace PSXRacing
             if (ftb == null) return;
             IslandStep();
             float t = Time.time - ftT0;
+            // (round 4, PC76) the rivals' distance at fixed RACE-time marks (a loaded machine loses race time in a run)
+            ftRaceT = t;
+            while (ftMarkI < FtMarks.Length && t >= FtMarks[ftMarkI])
+            {
+                var cr = CheckpointRace.Active; float sum = 0f; int n = 0;
+                if (cr != null) foreach (var cp in cr.All) { if (cp.isPlayer) continue; sum += cp.odometer; n++; }
+                ftMarkM[ftMarkI] = n > 0 ? sum / n : -1f;
+                ftMarkI++;
+            }
             if (t < ftNext) return;
             ftNext = t + 0.1f;
             var rm = RaceManager.Instance;

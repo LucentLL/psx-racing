@@ -1059,12 +1059,16 @@ namespace PSXRacing
             if (c.hasCommand && (c.rb.linearVelocity - c.commanded).magnitude > WreckSpeed)
             {
                 float knock = (c.rb.linearVelocity - c.commanded).magnitude;
+                // (round 4, PC76) one contact is one knock: while the hold runs the car is still being pushed apart, and
+                // three steps of it spent the whole allowance (Tryon MEDIUM seed 0: 94.0, 94.0, 94.1 s, the Civic)
+                bool holding = SoftKnockOn && Time.time < c.knockHoldUntil && knock < SoftKnockMps;
                 // only a touch by a car (a racer or traffic) is shrugged off: a kerb, rail or the ground is a crash as
                 // before, and a car knocked again and again (pinned) is a wreck after its third in 10 s
                 string by = c.lastContact ?? "";
                 bool byCar = by.Contains(" AI") || by.Contains("Player") || by.StartsWith("Traffic");
                 if (Time.time - c.knockWindowAt > 10f) { c.knockWindowAt = Time.time; c.knocks = 0; }
-                if (SoftKnockOn && knock < SoftKnockMps && byCar && ++c.knocks <= 3)
+                if (holding) { c.speed = 0f; }
+                else if (SoftKnockOn && knock < SoftKnockMps && byCar && ++c.knocks <= 3)
                 {
                     // a touch: it stops where it is and, after a moment, drives on along its lane
                     c.speed = 0f;

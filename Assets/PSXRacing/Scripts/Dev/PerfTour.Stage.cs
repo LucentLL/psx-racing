@@ -642,7 +642,7 @@ namespace PSXRacing
                             rvN++; rvGates += cp.passedTotal; rvSum += cp.odometer;
                             rvMin = Mathf.Min(rvMin, cp.odometer); rvMax = Mathf.Max(rvMax, cp.odometer);
                         }
-                        if (rvN > 0) sum1.AppendLine($"rivals {rvN}: driven m min {rvMin:0} mean {rvSum / rvN:0} max {rvMax:0}; gates passed {rvGates} in all");
+                        if (rvN > 0) sum1.AppendLine($"rivals {rvN}: driven m min {rvMin:0} mean {rvSum / rvN:0} max {rvMax:0}; gates passed {rvGates} in all" + FieldMarks());
                     }
                     {
                         var sl = CheckpointRace.SliceMs; float sw2 = 0f; foreach (var x in sl) sw2 = Mathf.Max(sw2, x);
