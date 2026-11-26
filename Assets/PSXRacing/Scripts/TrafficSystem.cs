@@ -498,6 +498,10 @@ namespace PSXRacing
         /// direction that does, and slows to a crawl where none does. Null elsewhere (stages): no change.
         /// </summary>
         float[] paveR, paveL;
+        /// <summary>(cityai round 5) the mapped pavement either side of the strip's line at s (NaN: no map).</summary>
+        public float PaveAt(float s, bool right) { if (paveR == null) return float.NaN; int i = Mathf.RoundToInt(Wrap(s) / path.spacing); i = path.HasEnds ? Mathf.Clamp(i, 0, paveR.Length - 1) : ((i % paveR.Length) + paveR.Length) % paveR.Length; return right ? paveR[i] : paveL[i]; }
+        public float RoadHalf => path != null ? path.roadWidth * 0.5f : 0f;
+        public System.Collections.Generic.IReadOnlyList<float> LanesFwd => lanesFwd; public System.Collections.Generic.IReadOnlyList<float> LanesBack => lanesBack;
         public static bool LanesFitOn = System.Environment.GetEnvironmentVariable("PSX_TRAFFIC_LANES_FIT") != "0";
         const float LaneFitAirM = 0.35f;
         /// <summary>(cityai round 5) PSX_TRAFFIC_GAP_STANDING: a lane change or a move out round a stopped racer needs the
