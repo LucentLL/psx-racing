@@ -171,6 +171,7 @@ namespace PSXRacing.EditorTools
                                 var p2 = new Vector2(h.x, h.z);
                                 if (!NearAny(near, p2, NearRouteM)) continue;
                                 if (spotMode && (p2 - spotRows[rid].p).magnitude > spotRows[rid].r) continue;
+                                if (c == 4 && spillPaved.Contains(CellKey(h.x, h.z))) continue;   // paved by the neighbour's fan
                                 long pk = Key(Mathf.FloorToInt(h.x / PlaceM), Mathf.FloorToInt(h.z / PlaceM));
                                 placeSets[c].Add(pk);
                                 placeHits.TryGetValue((c, pk), out int n); placeHits[(c, pk)] = n + 1;
@@ -373,6 +374,9 @@ namespace PSXRacing.EditorTools
         }
 
         static long Key(int x, int z) => ((long)x << 32) ^ (uint)z;
+        /// <summary>(round 5) pavement drawn past a tile's own edge (a fan drawn whole by its node's tile).</summary>
+        static readonly HashSet<long> spillPaved = new HashSet<long>();
+        static long CellKey(float x, float z) => Key(Mathf.FloorToInt(x / Cell), Mathf.FloorToInt(z / Cell));
 
         static bool NearAny(List<Vector2> pts, Vector2 p, float r)
         {
@@ -486,6 +490,17 @@ namespace PSXRacing.EditorTools
                     }
                 }
             }
+            // (round 5) a junction's fan is drawn whole by ONE tile: the pavement this tile draws past its own edge
+            // (its 8 m margin) is kept, so a neighbour's lane cells under it are not read as holes
+            for (int j = 0; j < N; j++)
+                for (int i = 0; i < N; i++)
+                {
+                    int k = j * N + i;
+                    if (float.IsNaN(pave[k])) continue;
+                    float wx = o.x + m0 + (i + 0.5f) * Cell, wz = o.z + m0 + (j + 0.5f) * Cell;
+                    if (wx >= o.x && wz >= o.z && wx < o.x + CityMeshes.TileSize && wz < o.z + CityMeshes.TileSize) continue;
+                    lock (spillPaved) spillPaved.Add(CellKey(wx, wz));
+                }
             // everything else that stands on the ground
             foreach (var m in new[] { tm.ground, tm.kerbs, tm.barriers, tm.banks })
             {
@@ -542,9 +557,9 @@ namespace PSXRacing.EditorTools
                         // (round 5, stage 0 a) the road surface under a lane: none (HOLES), two sheets over 1 cm apart
                         // (LAYERS), a break in it over 1 cm (STEP: the second difference along x or z); decks are judged
                         // by the deck gates
-                        // (outside the junction fans only: the fan plate is not in this raster's road slots - found at spot 81,
-                        // where the paved fan at n8008 read as 48 holes; the outline stage judges inside the junctions)
-                        if (!e.bridge && !e.tunnel && !e.ElevatedAt(s) && s >= trims.atA[e.index] && s <= e.length - trims.atB[e.index])
+                        // (inside the junctions too: a fan drawn by the neighbouring tile is read from spillPaved; found at
+                        // spot 81, where n8008's fan, drawn by its own tile, read as 48 holes in the next tile)
+                        if (!e.bridge && !e.tunnel && !e.ElevatedAt(s))
                         {
                             if (float.IsNaN(pave[k])) th.hits[4].Add(new Vector3(q.x, 0f, q.y));
                             else
