@@ -377,6 +377,22 @@ namespace PSXRacing.EditorTools
         /// <summary>(round 5) pavement drawn past a tile's own edge (a fan drawn whole by its node's tile).</summary>
         static readonly HashSet<long> spillPaved = new HashSet<long>();
         static long CellKey(float x, float z) => Key(Mathf.FloorToInt(x / Cell), Mathf.FloorToInt(z / Cell));
+        static void SpillTri(Vector3 a, Vector3 b, Vector3 c, Vector3 o)
+        {
+            int i0 = Mathf.FloorToInt(Mathf.Min(a.x, Mathf.Min(b.x, c.x)) / Cell), i1 = Mathf.FloorToInt(Mathf.Max(a.x, Mathf.Max(b.x, c.x)) / Cell);
+            int j0 = Mathf.FloorToInt(Mathf.Min(a.z, Mathf.Min(b.z, c.z)) / Cell), j1 = Mathf.FloorToInt(Mathf.Max(a.z, Mathf.Max(b.z, c.z)) / Cell);
+            if ((long)(i1 - i0 + 1) * (j1 - j0 + 1) > 400000) return;
+            for (int j = j0; j <= j1; j++)
+                for (int i = i0; i <= i1; i++)
+                {
+                    float x = (i + 0.5f) * Cell, z = (j + 0.5f) * Cell;
+                    if (x >= o.x && z >= o.z && x < o.x + CityMeshes.TileSize && z < o.z + CityMeshes.TileSize) continue;
+                    float d1 = (x - b.x) * (a.z - b.z) - (a.x - b.x) * (z - b.z), d2 = (x - c.x) * (b.z - c.z) - (b.x - c.x) * (z - c.z), d3 = (x - a.x) * (c.z - a.z) - (c.x - a.x) * (z - a.z);
+                    bool neg = d1 < 0 || d2 < 0 || d3 < 0, pos = d1 > 0 || d2 > 0 || d3 > 0;
+                    if (neg && pos) continue;
+                    lock (spillPaved) spillPaved.Add(Key(i, j));
+                }
+        }
 
         static bool NearAny(List<Vector2> pts, Vector2 p, float r)
         {
@@ -487,6 +503,11 @@ namespace PSXRacing.EditorTools
                             }
                         }
                         Raster(a, b, c, N, m0, (k, y) => { if (float.IsNaN(pave[k]) || y < pave[k]) pave[k] = y; if (y > paveHi[k]) paveHi[k] = y; if (isPaint) paint[k] = true; });
+                        // (round 5) a road triangle reaching past this tile (a fan drawn whole by its node's tile): its
+                        // whole outside part is kept, so the neighbour's lanes under it are not read as holes
+                        float tx0 = Mathf.Min(a.x, Mathf.Min(b.x, c.x)) + o.x, tx1 = Mathf.Max(a.x, Mathf.Max(b.x, c.x)) + o.x;
+                        float tz0 = Mathf.Min(a.z, Mathf.Min(b.z, c.z)) + o.z, tz1 = Mathf.Max(a.z, Mathf.Max(b.z, c.z)) + o.z;
+                        if (tx0 < o.x || tz0 < o.z || tx1 >= o.x + CityMeshes.TileSize || tz1 >= o.z + CityMeshes.TileSize) SpillTri(a + o, b + o, c + o, o);
                     }
                 }
             }
