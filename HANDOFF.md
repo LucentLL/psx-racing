@@ -251,6 +251,55 @@ they are not switched on. 81's curb nose in the turn lane is not fixed in any st
   night, noon, plans; editor frames, labelled). INVENTORY.md has the LYNX light rail as its own item (Item L).
 - Muting: every run was edit-mode batch (no play mode): 0 play runs, 0 with the MasterOut line; none needed.
 
+## Round 3 (11-26, head see below): turn bays are lanes (R0), nothing in a lane (R2); R1 tried and made opt-in
+- Merged mountain-nm c658ffcb (1c3b4d85, clean). Every run edit-mode batch: 0 play runs, 0 MasterOut lines needed.
+- R0 TURN BAYS ARE LANES (PSX_CITY_BAYLANES, default ON, LAB row baylanes): LineModel.Gores.cs BayShift +
+  CityMeshes.Merge.cs. Test: a one-way link leaving a tier-1 through host within 35 deg whose way is under 250 m,
+  ends on a road of the host's name and lies within the corridor for 60 % of its 1 m stations (the median, 20 m,
+  where another carriageway of that name lies beyond it within 40 m; otherwise one lane + 1 m). Its lanes are laid
+  against the host's through lanes by a sampled shift ease up to the turn point (way length less 1.6 x the lateral
+  move + a lane, at least 15 m), then eased back onto its own line to its end node. The merge zone then carries it
+  as the host's aux lane to a nose at the turn point (the link's ribbon, verges, foreslope and land along the bay
+  are cut), bay taper = Green Book (2011) 9.7.2, 8:1 at 30 mph to 15:1 at 50 mph x 3.66 m. 80: e3176 (way 204897710)
+  host lane for 103.7 m, nose 3.66 m; its twin e3177 98.6 m; 79: e2292 34.4 m. Lines: the existing zone marks
+  (median-side zone = solid white + left arrow). The driving line: the link's edge stays in the graph; LanePoint maps
+  its lane between node and nose to the host's aux lane (ZoneLanePoint). Map fields that change for RoutedPath /
+  RacingTurns: Edge.lmEase (shift eases on bay edges), CityMeshes.Zones (bay zones; ZoneFor's nose arc) - no edge
+  geometry. The island gate's rivals' arc check: 0 points on an island, 0 within 0.5 m of a curb on all ten routes.
+- R2 NOTHING IN A LANE (PSX_CITY_LANECLIP, default ON, LAB row laneclip): CityMeshes.LaneClip.cs, one pass at the end
+  of the tile build over the ground-level buckets (Ground, Pavement, Sidewalk, MedianBed, WalkPaver, Concrete, kerbs,
+  banks): the part of a triangle inside a drawn arm's travelled way + 0.15 m (never past its own shoulder less 0.1 m)
+  standing at or above its pavement less 6 cm is cut away (plan polygon subtraction, UVs by barycentrics); steep
+  faces go whole by their centre. Bands only where the ribbon is drawn (not in branch clips or zone cuts).
+- R1 SPLITS SHARE ONE EDGE (PSX_CITY_GORESPLIT=1, OPT-IN, LAB row goresplit): shift eases pushing two arms that leave a
+  node on the same side within 60 deg apart past their junction trims. City-wide it moved too much (line gate SHIFT
+  +619, SJOG +156, STEP +48, MEDIAN +4 at 8265a347): off by default. The paved gore between node and nose was NOT built.
+- Line gate per rule (all 10,626 tiles, against gbase): R2 alone every class = base, MEDIAN 75 (-1);
+  R0 + R2: SHIFT +12, SJOG +15, KINK -11, WIDTH -12, CONT -64, SURFACE -22, JUNCTION -1, MEDIAN -1, STEP -19,
+  BARRIER -8 (the +12 / +15 are mostly bay tapers a few metres short of the gate's AASHTO bay length and ramp edges);
+  R0 + R1 + R2: SHIFT +619 ... (above).
+- FINAL DEFAULTS (fe60e722: R0 + R2 on, R1 off), against the base e472b9da:
+  - line gate (gx3, same config): SHIFT 2764 -> 2776 (+12), SJOG 2774 -> 2789 (+15) - NOT <= base; every other class
+    equal or better (above).
+  - island gate (ten routes): RAISED 5735 -> 5711, SEETHRU 215 -> 215, OVERLAY 841 -> 847 (+6, c7 8 -> 22: the bays'
+    turn-across ribbons meeting the far carriageway at a mitred node with no fan, 80 at n4441 and n10942), LINEUNDER
+    60 -> 43. C7: 89/1/8/22 -> 65/1/22/5.
+  - his spots (places within 45 m): 80 RAISED 9 -> 0, OVERLAY 0 -> 79 (above), LINEUNDER 1 = 1; 79 RAISED 152 -> 7,
+    OVERLAY 34 -> 17; 77 and 78 unchanged (RAISED 39, LINEUNDER 14); 81 0 = 0 in the gate, unchanged in the frames.
+    SEETHRU 0 at all five, as in the base.
+  - city audit: 24 FAILURES = base, no new failure line; one line worse: verge steps 76 -> 87 of 77,067 points.
+  - cost (island gate, 297 route tiles): 27,163 -> 27,442 triangles (+1.0 %), 19.1 = 19.1 draws, build 336 -> 341 ms
+    a tile (+1.5 %). The line model's pass (bays, plus R1 when on): 550-640 ms once per city load. R2: about 4 ms a
+    tile (the probe's 440 ms over its tile builds).
+  - rivals' arc check: 0 / 0 on all ten routes.
+- NOT DONE: R3 (closed solids for faces seen from behind; SEETHRU was already 0 at the spots); 81 (a merge-zone slip;
+  needs its nose moved back to the 2.4 m point with a paved gore); 77; the median's closed concrete nose at a bay's
+  end and a stop line; the turn-across ribbon's overlap at a mitred far node; the lines (79 S-jogs, 77 line ends);
+  bay classification checked on 8 nearby links only (79 e2292, 80 e3176 + e3177, e9611, e13684 bays; e2285, e284,
+  e3184 not), not the asked ten.
+- Sheet: scratchpad\c7roads\c7roads_sheet_r3.png (80, 79, 81, 77, 78: his shot | base | round 3 defaults, night,
+  noon and plans, a what-changed cell each; editor frames from 5ecbb460, where no R1 pair lay within 70 m of a spot).
+
 # TEST RUNS ARE SILENT (coordinator, 11-25; mountain-nm 8a5737c0)
 
 Owner 2026-11-25: "please mute all testing. I constantly hear the game without ever seeing it". Measured at 18:02: two hidden batch editors (RacePlayCheck in PSXPerf and PSXCity) were at full-scale peak on his speakers. Batch mode hides the window, not the sound.
