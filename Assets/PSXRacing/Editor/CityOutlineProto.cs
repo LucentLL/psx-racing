@@ -286,6 +286,93 @@ namespace PSXRacing.EditorTools
         }
 
 
+        /// <summary>(round 5 item 6) THE MEDIAN-OPENING CLUSTER RULE: two fan clusters become one junction when a node of
+        /// each is the FAR NODE of a crossover (a one-way link arriving from the other carriageway of the same road, which
+        /// runs the other way) and the two crossovers share ONE opening: their crossings meet (cross, or pass within 3 m)
+        /// near the two nodes. Bounded so it cannot swallow two openings 100 m apart: the two nodes lie within the
+        /// opening's own length along the road (twice the carriageways' spacing, at most OpeningMaxM), and NO THROUGH ARM
+        /// between them: no other road leaves either carriageway at a node lying between the two along the road. Returns
+        /// a line per decision; merges the key lists in place.</summary>
+        public const float OpeningMaxM = 60f;
+        public static List<string> JoinOpenings(CityMap map, Dictionary<int, List<int>> keys)
+        {
+            var log = new List<string>();
+            var keyOf = new Dictionary<int, int>();
+            foreach (var kv in keys) foreach (int n in kv.Value) keyOf[n] = kv.Key;
+            // the far nodes: n with a one-way link ARRIVING from a carriageway of n's road that runs the other way
+            var far = new List<(int n, int e, string road, Vector2 dir)>();
+            foreach (int n in keyOf.Keys)
+            {
+                string road = null; Vector2 dir = Vector2.zero;
+                foreach (int ei in map.nodeEdges[n]) { var e = map.edges[ei]; if (!e.link && e.oneway && !string.IsNullOrEmpty(e.name)) { road = e.name; dir = (map.nodes[e.b] - map.nodes[e.a]).normalized; break; } }
+                if (road == null) continue;
+                bool found = false;
+                foreach (int ei in map.nodeEdges[n])
+                {
+                    var e = map.edges[ei];
+                    if (found || !e.link || !e.oneway || e.b != n) continue;
+                    foreach (int fe in map.nodeEdges[e.a])
+                    {
+                        var c = map.edges[fe];
+                        if (c.link || !c.oneway || c.name != road) continue;
+                        var cd = (map.nodes[c.b] - map.nodes[c.a]).normalized;
+                        if (Vector2.Dot(cd, dir) < -0.5f) { far.Add((n, ei, road, dir)); found = true; break; }
+                    }
+                }
+            }
+            for (int i = 0; i < far.Count; i++)
+                for (int j = i + 1; j < far.Count; j++)
+                {
+                    var A = far[i]; var B = far[j];
+                    if (A.road != B.road || Vector2.Dot(A.dir, B.dir) > -0.5f) continue;   // the two carriageways of one road
+                    if (!keyOf.TryGetValue(A.n, out int ka) || !keyOf.TryGetValue(B.n, out int kb) || ka == kb) continue;
+                    var ea = map.edges[A.e]; var eb = map.edges[B.e];
+                    Vector2 pa = map.nodes[A.n], pb = map.nodes[B.n];
+                    var u = A.dir; var w = new Vector2(-u.y, u.x);
+                    float along = Mathf.Abs(Vector2.Dot(pb - pa, u)), across = Mathf.Abs(Vector2.Dot(pb - pa, w));
+                    float open = Mathf.Min(OpeningMaxM, 2f * across);
+                    if (along > open) { log.Add($"n{A.n} / n{B.n}: not joined, {along:0.0} m apart along the road (the opening's length {open:0.0} m)"); continue; }
+                    // their crossings meet near the two nodes
+                    float best = float.MaxValue;
+                    var mid = 0.5f * (pa + pb); float reach = (pb - pa).magnitude + 10f;
+                    for (int x = 0; x + 1 < ea.pts.Length; x++)
+                        for (int y = 0; y + 1 < eb.pts.Length; y++)
+                        {
+                            if ((ea.pts[x] - mid).magnitude > reach || (eb.pts[y] - mid).magnitude > reach) continue;
+                            best = Mathf.Min(best, SegDist(ea.pts[x], ea.pts[x + 1], eb.pts[y], eb.pts[y + 1]));
+                        }
+                    if (best > 3f) { log.Add($"n{A.n} / n{B.n}: not joined, their crossings come no closer than {best:0.0} m (not one opening)"); continue; }
+                    // no through arm between: no other road at a node of either carriageway lying between them along the road
+                    string between = null;
+                    float sb = Vector2.Dot(pb - pa, u);
+                    foreach (int end in new[] { A.n, B.n })
+                        foreach (int ei in map.nodeEdges[end])
+                        {
+                            var e = map.edges[ei]; if (e.link || e.name != A.road) continue;
+                            int o = e.a == end ? e.b : e.a;
+                            float so = Vector2.Dot(map.nodes[o] - pa, u);
+                            if (so <= Mathf.Min(0f, sb) + 0.5f || so >= Mathf.Max(0f, sb) - 0.5f) continue;
+                            foreach (int oe in map.nodeEdges[o]) { var x = map.edges[oe]; if (x.name != A.road && !x.link) between = $"n{o} ({x.name})"; }
+                        }
+                    if (between != null) { log.Add($"n{A.n} / n{B.n}: not joined, a through arm between them at {between}"); continue; }
+                    foreach (int n in keys[kb]) { keys[ka].Add(n); keyOf[n] = ka; }
+                    keys.Remove(kb);
+                    log.Add($"n{A.n} / n{B.n}: JOINED (one median opening: {along:0.0} m along, {across:0.0} m across, crossings {best:0.0} m apart; e{A.e} / e{B.e})");
+                }
+            return log;
+        }
+        static float SegDist(Vector2 a, Vector2 b, Vector2 c, Vector2 d)
+        {
+            var r = b - a; var s = d - c; float den = r.x * s.y - r.y * s.x;
+            if (Mathf.Abs(den) > 1e-9f)
+            {
+                var q = c - a; float t = (q.x * s.y - q.y * s.x) / den, v = (q.x * r.y - q.y * r.x) / den;
+                if (t >= 0f && t <= 1f && v >= 0f && v <= 1f) return 0f;
+            }
+            return Mathf.Min(Mathf.Min(PD(a, c, d), PD(b, c, d)), Mathf.Min(PD(c, a, b), PD(d, a, b)));
+        }
+        static float PD(Vector2 p, Vector2 x, Vector2 y) { var xy = y - x; float l2 = xy.sqrMagnitude; float tt = l2 > 1e-9f ? Mathf.Clamp01(Vector2.Dot(p - x, xy) / l2) : 0f; return (x + xy * tt - p).magnitude; }
+
         /// <summary>(round 5 item 4) THE REAL CLUSTERS: for each spot of the table, every junction fan cluster within its
         /// radius (the generator's own clustering: the nodes that share a FanKey), its arms (edges with one end in the
         /// cluster) sampled from the line model's borders out to 80 m, solved by the pure JunctionOutline. Writes
@@ -319,6 +406,7 @@ namespace PSXRacing.EditorTools
                     foreach (var k in keys.Keys.ToList())
                         for (int n = 0; n < map.nodes.Length; n++)
                             if (trims.patch[n] && CityMeshes.FanKey(trims, n) == k && !keys[k].Contains(n)) keys[k].Add(n);
+                    foreach (var line in JoinOpenings(map, keys)) log.Append($"spot {sp.id}: {line}\n");
                     if (!firstSpot) json.Append(",\n"); firstSpot = false;
                     json.Append($"  \"{sp.id}\": [");
                     bool firstC = true;
@@ -326,6 +414,24 @@ namespace PSXRacing.EditorTools
                     {
                         var cluster = new HashSet<int>(kv.Value);
                         var arms = new List<JunctionOutline.Arm>();
+                        var links = new List<JunctionOutline.Link>();
+                        // the cluster's internal edges (both ends in it): links, their borders from the line model
+                        var seenE = new HashSet<int>();
+                        foreach (int n in cluster)
+                            foreach (int ei in map.nodeEdges[n])
+                            {
+                                var e = map.edges[ei];
+                                if (e.a == e.b || !cluster.Contains(e.a) || !cluster.Contains(e.b) || !seenE.Add(ei)) continue;
+                                var lk = new JunctionOutline.Link { id = ei };
+                                for (float d = 0f; d <= e.length + 1e-3f; d += JunctionOutline.Step)
+                                {
+                                    var t = e.TangentAt(d); var left = new Vector2(-t.y, t.x);
+                                    LineModel.Extents(e, d, out float eM, out float eP);
+                                    var p = e.PointAt(d);
+                                    lk.L.Add(p + left * eP); lk.R.Add(p - left * eM);
+                                }
+                                if (lk.L.Count >= 2) links.Add(lk);
+                            }
                         foreach (int n in cluster)
                             foreach (int ei in map.nodeEdges[n])
                             {
@@ -333,7 +439,7 @@ namespace PSXRacing.EditorTools
                                 if (e.a == e.b) continue;
                                 int other = e.a == n ? e.b : e.a;
                                 if (cluster.Contains(other)) continue;
-                                var arm = new JunctionOutline.Arm { id = ei, oneway = e.oneway, name = e.name ?? "", radius = e.link ? 15f : e.cls >= 3 ? 12f : e.cls >= 1 ? 9f : 6f };
+                                var arm = new JunctionOutline.Arm { id = ei, oneway = e.oneway, name = e.name ?? "", radius = e.link ? 15f : e.cls >= 3 ? 12f : e.cls >= 1 ? 9f : 6f, Y = new List<float>() };
                                 bool fwd = e.a == n;
                                 for (float d = 0f; d <= Mathf.Min(e.length, 80f) + 1e-3f; d += JunctionOutline.Step)
                                 {
@@ -342,20 +448,26 @@ namespace PSXRacing.EditorTools
                                     var left = new Vector2(-t.y, t.x);
                                     LineModel.Extents(e, s, out float eM, out float eP);
                                     var p = e.PointAt(s);
-                                    arm.C.Add(p); arm.L.Add(p + left * (fwd ? eP : eM)); arm.R.Add(p - left * (fwd ? eM : eP));
+                                    arm.C.Add(p); arm.L.Add(p + left * (fwd ? eP : eM)); arm.R.Add(p - left * (fwd ? eM : eP)); arm.Y.Add(e.YAt(s));
                                 }
                                 if (arm.C.Count >= 4) arms.Add(arm);
                             }
-                        var r = JunctionOutline.Solve(arms);
+                        var rawArms = arms.ConvertAll(x => new JunctionOutline.Arm { id = x.id, L = new List<Vector2>(x.L), R = new List<Vector2>(x.R), C = x.C });
+                        foreach (var line in JunctionOutline.MergeBays(arms, links)) log.Append($"spot {sp.id} cluster {kv.Key}: {line}\n");
+                        var r = JunctionOutline.Solve(arms, null, links);
                         log.Append(string.Format(inv, "spot {0} cluster {1} ({2} nodes {3}): {4} arms; corners: {5}; {6}; outline {7} vertices, fill {8} triangles ({9} slivers); solve {10:0.0} ms, fill {11:0.0} ms; check: {12}\n",
                             sp.id, kv.Key, cluster.Count, string.Join(" ", cluster.Select(x => "n" + x)), arms.Count, string.Join(", ", r.corners.Select(c => c.shape + (c.r > 0 ? $" r{c.r:0.0}" : ""))),
                             r.refused == null ? "solved" : "REFUSED: " + r.refused, r.outline.Count, r.tris.Count / 3, r.slivers, r.solveMs, r.fillMs, JunctionOutlineTests.Check(r, 0.5f) ?? "PASS"));
                         if (!firstC) json.Append(", "); firstC = false;
                         json.Append($"{{\"key\": {kv.Key}, \"nodes\": [{string.Join(",", cluster)}], \"refused\": \"{(r.refused ?? "").Replace("\"", "'")}\", \"corners\": [");
                         json.Append(string.Join(", ", r.corners.Select(c => string.Format(inv, "{{\"shape\": \"{0}\", \"r\": {1:0.00}, \"tA\": [{2:0.00}, {3:0.00}], \"tB\": [{4:0.00}, {5:0.00}]}}", c.shape, c.r, c.tA.x, c.tA.y, c.tB.x, c.tB.y))));
-                        json.Append("], \"outline\": [");
-                        json.Append(string.Join(", ", r.outline.Select(q => string.Format(inv, "[{0:0.00}, {1:0.00}]", q.x, q.y))));
-                        json.Append("]}");
+                        string P(IEnumerable<Vector2> l) => "[" + string.Join(",", l.Select(q => string.Format(inv, "[{0:0.00},{1:0.00}]", q.x, q.y))) + "]";
+                        json.Append("], \"outline\": " + P(r.outline));
+                        json.Append(", \"raw\": [" + string.Join(",", rawArms.Select(x => "{\"id\":" + x.id + ",\"L\":" + P(x.L.Take(121)) + ",\"R\":" + P(x.R.Take(121)) + "}")) + "]");
+                        json.Append(", \"arms\": [" + string.Join(",", r.arms.Select(x => "{\"id\":" + x.id + ",\"L\":" + P(x.L.Take(121)) + ",\"R\":" + P(x.R.Take(121)) + "}")) + "]");
+                        json.Append(", \"links\": [" + string.Join(",", links.Select(x => "{\"id\":" + x.id + ",\"L\":" + P(x.L) + ",\"R\":" + P(x.R) + "}")) + "]");
+                        json.Append(", \"verts\": " + P(r.fillVerts) + ", \"tris\": [" + string.Join(",", r.tris) + "]");
+                        json.Append(string.Format(inv, ", \"planeDev\": {0:0.0000}, \"rows\": \"{1}\"}}", r.planeDev, r.yR == null ? "" : string.Join(" ", r.yR.Select(y => y.ToString("0.00", inv)))));
                     }
                     json.Append("]");
                 }
