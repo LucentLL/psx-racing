@@ -5,6 +5,27 @@ Owner 2026-11-25: "please mute all testing. I constantly hear the game without e
 - `MasterOut` (Scripts/AudioFader.cs) is the only writer of `AudioListener.volume`. Game code and checks set and read `MasterOut.Level`. In a test run (batch mode, or `-psx-mute` on a windowed run) the level stays what the game set and the listener is held at zero. The mix still runs, so frame times stay comparable. `-psx-sound` is for a run the owner asked to hear.
 - A muted run logs `[MasterOut] test run: the sound is muted`. `tools/lab-check.ps1` fails a run without that line (NOT SILENT). The coordinator's smoke also measures each tour's audio session peak; it must be 0.0000.
 - Never run an exe built before 8a5737c0 as a test. Never mute a game exe in the Windows volume mixer: Windows keeps that setting per exe path, so it would silence the owner's own game.
+
+# HANDOFF - CITYAI ROUND 3: the traffic side (soft knocks, wrecks passed, standing cars seen, lanes round corners), finishers clear the lane, turns laid at load, the islands check (agent "cityai", 11-26; branch `city-ai-turns`, merge commit c658ffcb = mountain-nm 0141cd50; NOT pushed, NOT merged)
+
+All runs: hidden EDITOR in PSXCity, muted (every log has `[MasterOut] test run: the sound is muted`). Tables: scratchpad\cityai\r3_table.md; sheet cityai_round3_sheet.png.
+- TrafficSystem (all default ON, LAB rows in the Traffic group, live):
+  - PSX_TRAFFIC_SOFTKNOCK (TRAFFIC SHRUGS OFF KNOCKS): a knock under 6 m/s BY A CAR stops the traffic car 1.5 s, then it drives on;
+    rails/ground/barriers and a 4th knock in 10 s stay wrecks. Logged knocks: junction touches 1.5-5.0 m/s, real crashes 7.8+ m/s.
+  - PSX_TRAFFIC_ROUND_WRECK (TRAFFIC GOES ROUND WRECKS): a wreck ahead is met like a standing racer (edge round it, else wait).
+  - PSX_TRAFFIC_SEE_STANDING (TRAFFIC STOPS FOR CARS): a racer in the lane is judged by its footprint at its heading (+0.3 m), and
+    one coming this way closes the gap by its own speed (the lane test was centre-to-centre 1.9 m).
+  - PSX_TRAFFIC_LANE_CORNERS (TRAFFIC LANES ON CORNERS): a lane's heading averaged over a window that makes every lane turn on a
+    radius larger than its offset (the outer lane swept back across the inner one at C7's 118 deg corner: traffic into traffic).
+  - TrafficSystem.StepMs: the traffic update per physics step (perf tour summary `traffic step ms`).
+- AIDriver: PSX_AI_FINISH_DRIVEON (FINISHERS CLEAR THE LANE): past the flag a finisher drives on at 12 m/s behind whatever is
+  ahead and stops on the verge only where its run-out ends. Junction traffic cap: standing cars skipped; gives way after 3 s.
+- RacingTurns: PSX_CP_TURNS_WARMALL: every turn pair at the route's nodes laid at load; arcs bounded by a path's ends cached too.
+  PSX_CP_TURNS_LOG=1 logs searches. Junction zones by binary search in RoutedPath.
+- Islands check (for after the junction-surfaces merge): perf tour `&trace=1&islands=1` writes `<tag>_<stage>_islands.txt`: every
+  racing-turn arc of the course, 1 m samples + 8 rays at 0.3 m, checked once the tour car is within 90 m; BAD = lands on a
+  non-road-layer surface or on nothing. Today: X1, C7, C1 = 0 bad.
+
 # HANDOFF - CITYAI ROUND 2: runtime field trace, the junction block (wrecked traffic), plan cost read not searched, finishers brake, lane hold everywhere (agent "cityai", 11-25 night; branch `city-ai-turns` on mountain-nm 07d467b3; NOT pushed, NOT merged)
 
 All runs: EDITOR in PSXCity, hidden, muted (every log has `[MasterOut] test run: the sound is muted`).
