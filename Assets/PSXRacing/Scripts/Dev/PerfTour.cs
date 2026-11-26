@@ -161,6 +161,12 @@ namespace PSXRacing
             if (!string.IsNullOrEmpty(pm)) float.TryParse(pm, NumberStyles.Float, CultureInfo.InvariantCulture, out t.popLen);
             string secs = ShotLink.Query(url, "secs");
             if (!string.IsNullOrEmpty(secs)) float.TryParse(secs, NumberStyles.Float, CultureInfo.InvariantCulture, out t.maxSecs);
+            // &place=town&stand=meet&people=10,20,40&peopletech=A,B,D[&peopleshot=1]: the people cost test (PerfTour.People.cs)
+            t.placeArg = (ShotLink.Query(url, "place") ?? "").ToLowerInvariant();
+            t.standArg = ShotLink.Query(url, "stand") ?? "meet";
+            t.peopleArg = ShotLink.Query(url, "people") ?? "";
+            t.peopleTechArg = ShotLink.Query(url, "peopletech") ?? "";
+            t.peopleShotArg = ShotLink.Query(url, "peopleshot") ?? "";
             // &snap=N: a picture of the drive every N seconds (a LOOK run: the
             // capture is itself a long frame, marked "SNAP" in the frames)
             string snap = ShotLink.Query(url, "snap");
@@ -223,6 +229,20 @@ namespace PSXRacing
             catch (System.Exception e) { Say("FAIL the career would not seed: " + e.Message); }
             int hour = HourIndex();
             int weather = System.Enum.TryParse(weatherArg, true, out Weather w) ? (int)w : -1;
+            // &place=town: the people cost test at the town's meet lot (PerfTour.People.cs)
+            if (placeArg == "town")
+            {
+                yield return TownPeople(hour, weather);
+                Post("done.txt", "DONE " + tag);
+                Say("DONE " + tag);
+                yield return new WaitForSecondsRealtime(1f);
+#if UNITY_EDITOR
+                UnityEditor.EditorApplication.Exit(0);
+#elif !UNITY_WEBGL
+                Application.Quit();
+#endif
+                yield break;
+            }
             if (!string.IsNullOrEmpty(stageArg))
             {
                 yield return StageTour(hour, weather);

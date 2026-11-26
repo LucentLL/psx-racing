@@ -380,6 +380,10 @@ Shader "PSX/Lit"
             #pragma shader_feature_local __ PSX_LODFADE
             #pragma shader_feature_local_fragment __ PSX_GROUNDBLEND
             #pragma shader_feature_local_fragment __ PSX_ROCKFACE
+            // THE BAKED-BONE SKIN (people, Stage 1 cost test): a figure skinned in this vertex
+            // shader from a texture of bone matrices (PSXBakedSkin.cginc). Set only by the test
+            // crowd (Scripts/People); no saved material carries it.
+            #pragma shader_feature_local_vertex __ PSX_BAKEDSKIN
             // the furniture draws from the prop atlas too
             #if defined(PSX_ATLAS_RECT) || defined(PSX_FURNITURE)
                 #define PSX_ATLAS 1
@@ -1424,11 +1428,18 @@ Shader "PSX/Lit"
                 return SWASH_BASE + SWASH_RUN * r + SWASH_LOBE * lobe * r;
             }
 
+            #ifdef PSX_BAKEDSKIN
+                #include "PSXBakedSkin.cginc"
+            #endif
             struct appdata
             {
                 float4 vertex : POSITION;
                 float3 normal : NORMAL;
                 float2 uv : TEXCOORD0;
+            #ifdef PSX_BAKEDSKIN
+                float4 skinIdx : TEXCOORD3;  // four bone indices (PSXBakedSkin.cginc)
+                float4 skinW : TEXCOORD4;    // and their weights
+            #endif
             // (HOUSE WALLS 2026-11-11: read in every variant now - the house siding's colour, _HouseTint)
                 float4 color : COLOR;       // the cell: see _AtlasPx (PSX_FACADE: tint + column; PSX_BAKEDSKY: r = the sky seen) - full precision: its bytes are decoded bit by bit
             #ifdef PSX_FURNITURE
@@ -1496,6 +1507,9 @@ Shader "PSX/Lit"
             {
                 v2f o;
                 UNITY_SETUP_INSTANCE_ID(v);
+            #ifdef PSX_BAKEDSKIN
+                PSXBakedSkin(v.vertex, v.normal, v.skinIdx, v.skinW);
+            #endif
             #ifdef PSX_LODFADE
                 {
                     float3 it = float3(unity_ObjectToWorld._m03, unity_ObjectToWorld._m13, unity_ObjectToWorld._m23);
