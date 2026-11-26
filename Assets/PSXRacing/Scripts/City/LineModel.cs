@@ -697,6 +697,8 @@ namespace PSXRacing.City
                     ReShifts++;
                 }
             for (int i = 0; i < add.Length; i++) if (add[i] != null) map.edges[i].lmEase = add[i].ToArray();
+            // c7roads round 3 (R1): arm pairs that leave a node on the same side pushed apart (LineModel.Gores.cs)
+            BuildGoreSplits(map, partner, splitAt);
         }
         public static int SplitTapers, HeldJoins, CrossedJoins;
 

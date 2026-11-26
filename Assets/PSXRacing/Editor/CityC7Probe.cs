@@ -139,6 +139,7 @@ namespace PSXRacing.EditorTools
                 var globals = Object.FindAnyObjectByType<PSXGlobals>();
                 var path = Object.FindAnyObjectByType<TrackPath>();
                 log.Append($"tile cache {(CityTileCache.Enabled ? "ON" : "off")}\n");
+                log.Append($"GORESPLIT {(LineModel.GoreSplitOn ? 1 : 0)}: arm pairs within {LineModel.GoreMaxDeg:0} deg {LineModel.GorePairs}, overlapping before {LineModel.GoreOverlapBefore}, still overlapping {LineModel.GoreOverlapAfter}, decks skipped {LineModel.GoreSkippedDeck}, {LineModel.GoreBuildMs:0} ms\n");
                 foreach (var c in rows)
                 {
                     string id = c[0];
@@ -177,6 +178,10 @@ namespace PSXRacing.EditorTools
                         log.Append(string.Format(inv, "  n{0} ({1:0.0},{2:0.0}) d {3:0.0} edges {4}\n", n, map.nodes[n].x, map.nodes[n].y, dn, string.Join(",", map.nodeEdges[n])));
                     }
 
+                    foreach (var g in LineModel.GoreSplits)
+                        if ((map.nodes[g.node] - p2).magnitude < 70f)
+                            log.Append(string.Format(inv, "  GORE n{0} e{1} / e{2}: {3:0} deg, overlap at node {4:0.00} m (worst {5:0.00}), shift e{1} {6:0.00} e{2} {7:0.00} over {8:0} m, shared to {9:0.0} m, nose at {10:0.0} m, left {11:0.00} {12}{13}\n",
+                                g.node, g.x, g.y, g.angle, g.overlap0, g.overlapMax, g.shiftX, g.shiftY, g.len, g.dShared, g.dNose, g.after, g.ok ? "ok" : "NOT CLEARED ", g.note));
                     bool doInv = views.Contains("inv");
                     if (doInv) { recs.Clear(); spotsXZ = new[] { p2 }; CityMeshes.ProvHook = Hook; }
                     CityMeshes.IslandDebugAt = p2; CityMeshes.IslandDebug.Clear();
