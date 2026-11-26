@@ -255,7 +255,19 @@ namespace PSXRacing
 
         /// <summary>The engine's seat (5A `Engine_Mount`): origin on the crank
         /// centreline at the flywheel face, +Y along the crank to the timing
-        /// end, +Z up the bore (or the banks' bisector). Body mesh space.</summary>
+        /// end, +Z up the bore (or the banks' bisector). Body mesh space.
+        ///
+        /// STAGE 4, READ THIS FIRST - THE MIRROR. Unity's OBJ importer negates x,
+        /// so the imported frame is the source (GLB) frame mirrored. The baker
+        /// (CarModelBaker.BakeOpeningParts) keeps +Y and +Z as authored (x
+        /// negated) and builds the rotation from them, so the imported mount's
+        /// +X is the SOURCE's -X. Hence: <see cref="engineDownpipeSide"/> is
+        /// measured in the imported frame (the source's "+X" reads -1 here), and
+        /// a Kit_ empty's yaw is stored as Euler(0, -yaw, 0). An engine model
+        /// imported the same way (OBJ) is mirrored the same way, so its own
+        /// exhaust_side must be read in ITS imported frame too before the two
+        /// are compared (reflect when they differ); never mix a source-frame side
+        /// with an imported-frame one.</summary>
         public bool hasEngineMount;
         public Vector3 engineMountPos;
         public Quaternion engineMountRot = Quaternion.identity;

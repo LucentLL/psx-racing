@@ -18,13 +18,17 @@ namespace PSXRacing
     /// </summary>
     public static class WheelSetupCatalog
     {
-        public static readonly string[] TabNames = { "STEER", "PEDALS", "BUTTONS", "FORCE" };
+        // MORE (carparts, 11-26): BUTTONS is full - seven rows, all a phone's
+        // page holds (ControlsCheck) - so a new button takes the page after
+        // FORCE, appended so every saved page index keeps its meaning.
+        public static readonly string[] TabNames = { "STEER", "PEDALS", "BUTTONS", "FORCE", "MORE" };
         public static readonly string[] TabBlurbs =
         {
             "Which axis steers, how far the base turns, and how that reaches the road wheels.",
             "Throttle, brake and clutch: press each one to teach it.",
             "Paddles and buttons for the gears, the handbrake, the camera and the rest.",
             "Force feedback through the browser, on a PC.",
+            "Buttons for the rest: opening the car.",
         };
 
         public const int StrengthStep = 10;
@@ -200,6 +204,18 @@ namespace PSXRacing
                     Capture("CAMERA", WheelCapture.Target.Camera, () => ButtonLive(WheelConfig.Data.camera), "Changes the view." + wait);
                     Capture("PAUSE", WheelCapture.Target.Pause, () => ButtonLive(WheelConfig.Data.pause), "Opens and closes the pause menu." + wait);
                     break;
+
+                case 4: // MORE
+                {
+                    const string wait4 = " Press it again and wait to clear it.";
+                    // carparts (LAB "OPEN HOOD, TRUNK AND DOORS"; no OPEN row with it off)
+                    if (CarParts.On)
+                        Capture("OPEN", WheelCapture.Target.Open, () => ButtonLive(WheelConfig.Data.open),
+                                "Parked: opens the hood, trunk and doors in turn; hold it to shut them all." + wait4);
+                    else
+                        Step("NO MORE BUTTONS", () => "-", "Nothing else to set here.", () => { });
+                    break;
+                }
 
                 case 3: // FORCE
                     Step("FORCE FEEDBACK", () => WheelConfig.Data.ffbOn ? "ON" : "OFF",

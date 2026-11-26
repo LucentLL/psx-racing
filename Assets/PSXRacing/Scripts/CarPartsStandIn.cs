@@ -16,9 +16,10 @@ namespace PSXRacing
     /// can test both placement paths. No open body: its boxes sit over the
     /// intact car, so the body swap is skipped for it.
     ///
-    /// Drawn in a flat checker with STAND-IN written on it, and ONLY behind
-    /// PSX_PARTS_STANDIN=1 (a test switch, never a LAB row) or a test's
-    /// <see cref="Override"/>: it never appears in the owner's game by default.
+    /// Drawn in a flat checker with STAND-IN written on it, and ONLY behind the
+    /// LAB row "OPENING PARTS: STAND-IN PREVIEW" (default OFF; env
+    /// PSX_PARTS_STANDIN=1) or a test's <see cref="Override"/>: it never appears
+    /// in the owner's game by default.
     /// </summary>
     public static class CarPartsStandIn
     {
@@ -28,8 +29,19 @@ namespace PSXRacing
         /// <summary>-1 = the environment (PSX_PARTS_STANDIN=1), 0 off, 1 on (tests).</summary>
         public static int Override = -1;
 
-        public static bool On =>
-            Override >= 0 ? Override == 1 : System.Environment.GetEnvironmentVariable("PSX_PARTS_STANDIN") == "1";
+        public static bool On => Override >= 0 ? Override == 1 : Preview;
+
+        /// <summary>LAB "carpartspreview" (OPENING PARTS: STAND-IN PREVIEW), default
+        /// OFF; env PSX_PARTS_STANDIN=1. The only way to see the feature in an exe
+        /// before a pilot car exists (coordinator, 2026-11-26: the owner cannot set
+        /// environment variables).</summary>
+        public static bool Preview = System.Environment.GetEnvironmentVariable("PSX_PARTS_STANDIN") == "1";
+
+        /// <summary>The LAB row's apply: switched off, the stand-in's parts shut.</summary>
+        public static void ApplyLab()
+        {
+            if (!Preview) CarParts.ShutAllNow();
+        }
 
         /// <summary>Tests only: the shell the stand-in is built on instead of
         /// <see cref="Key"/> (null = Key), and a copy of the closed body as a

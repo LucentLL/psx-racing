@@ -41,6 +41,14 @@ namespace PSXRacing.EditorTools
             RaceHandoff.TrackIndex = vi;
             var cars = CarCatalog.All;
             if (cars.Count > 0) RaceHandoff.CarSpecId = cars[0].id;
+            // PSX_LAB_SHELL=<model key>: the first catalog car on that shell (carparts: the stand-in's)
+            string shellKey = Env("PSX_LAB_SHELL", "");
+            if (shellKey.Length > 0)
+                foreach (var c in cars)
+                {
+                    var d = CarModelLibrary.LoadFor(c);
+                    if (d != null && d.key == shellKey) { RaceHandoff.CarSpecId = c.id; break; }
+                }
             RaceHandoff.StartFuelPct = 100f;
             string hour = Env("PSX_LAB_HOUR", "Night");
             RaceHandoff.TimeOfDayIndex = TimeOfDay.Night;
@@ -94,6 +102,18 @@ namespace PSXRacing.EditorTools
             {
                 car.throttleInput = 0f; car.brakeInput = 1f;
                 yield return null;
+            }
+            // PSX_LAB_PARTS=<mask> (carparts): the parked car with those parts open, snapped open
+            if (int.TryParse(LabPlayCheck.Env("PSX_LAB_PARTS", ""), out int partsMask) && partsMask != 0)
+            {
+                var cb = car.GetComponent<CarBody>();
+                bool got = CarParts.Request(cb, partsMask, true);
+                var cp = cb != null ? CarParts.Find(cb.bodyFilter) : null;
+                if (cp != null) cp.Snap();
+                Debug.Log("[LabPlayCheck] parts " + partsMask + " on " + (cb != null ? cb.modelKey : "-") + ": granted " + got +
+                          ", open now " + CarParts.MaskOf(cb != null ? cb.bodyFilter : null) + ", speed " + car.speedKmh.ToString("0.0"));
+                report += "PARTS: asked " + partsMask + " on " + (cb != null ? cb.modelKey : "-") + ", open " + CarParts.MaskOf(cb != null ? cb.bodyFilter : null) + "\n";
+                for (int i = 0; i < 5; i++) yield return null;
             }
             bool snaps = LabPlayCheck.Env("PSX_LAB_SNAPS", "0") == "1";
             yield return LabCheck.Run(place, "labplay", LabPlayCheck.Env("PSX_LAB_WEATHER", "Rain"), snaps,

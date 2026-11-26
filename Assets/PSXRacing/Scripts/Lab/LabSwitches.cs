@@ -355,6 +355,15 @@ namespace PSXRacing
                 env = new[] { "PSX_CARPARTS" }, members = new[] { "CarParts.On" },
                 apply = CarParts.ApplyLab,
             });
+            // carparts (stage 3, coordinator 11-26): the stand-in, so a build can open something before a pilot car exists
+            Register(new LabRow
+            {
+                id = "carpartspreview", group = LabGroup.Cars, name = "OPENING PARTS: STAND-IN PREVIEW", when = LabWhen.Now,
+                option = true, def = () => false,
+                look = "Striped placeholder panels on one car (the late-80s coupe) until real car art arrives; they open with the normal control.",
+                env = new[] { "PSX_PARTS_STANDIN" }, members = new[] { "CarPartsStandIn.Preview" },
+                apply = CarPartsStandIn.ApplyLab,
+            });
             // ---- TRAFFIC --------------------------------------------------------
             Register(new LabRow
             {

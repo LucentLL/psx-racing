@@ -15,10 +15,12 @@ namespace PSXRacing
         static bool active;
         static float? steer;
         static float throttle, brake, clutch;
-        static readonly bool[] held = new bool[7];
-        static readonly bool[] was = new bool[7];
+        // Sized from the enum: a slot is APPENDED to B (carparts: Open; the
+        // events work: Challenge), never inserted, and nothing here counts them.
+        static readonly bool[] held = new bool[System.Enum.GetValues(typeof(B)).Length];
+        static readonly bool[] was = new bool[System.Enum.GetValues(typeof(B)).Length];
 
-        enum B { ShiftUp, ShiftDown, Handbrake, LookBack, Reset, Camera, Pause }
+        enum B { ShiftUp, ShiftDown, Handbrake, LookBack, Reset, Camera, Pause, Open }
 
         /// <summary>Overrides the "is this frame's reading fresh" stamp (tests).</summary>
         public static void Invalidate() { frame = -1; RawPads.Invalidate(); }
@@ -47,6 +49,7 @@ namespace PSXRacing
             held[(int)B.Reset] = WheelConfig.Held(d.reset);
             held[(int)B.Camera] = WheelConfig.Held(d.camera);
             held[(int)B.Pause] = WheelConfig.Held(d.pause);
+            held[(int)B.Open] = WheelConfig.Held(d.open);
         }
 
         static bool Pressed(B b) { Tick(); return held[(int)b] && !was[(int)b]; }
@@ -66,6 +69,8 @@ namespace PSXRacing
         public static bool ResetPressed => Pressed(B.Reset);
         public static bool CameraPressed => Pressed(B.Camera);
         public static bool PausePressed => Pressed(B.Pause);
+        /// <summary>The OPEN button (carparts: hood, trunk, doors), held.</summary>
+        public static bool OpenHeld => Held(B.Open);
 
         /// <summary>
         /// The road-wheel angle (degrees) this wheel asks of <paramref name="car"/>,

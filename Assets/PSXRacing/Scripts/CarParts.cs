@@ -39,7 +39,7 @@ namespace PSXRacing
     ///
     /// LAB row "carparts" (<see cref="On"/>, PSX_CARPARTS=0 = the old game).
     /// </summary>
-    public class CarParts : MonoBehaviour
+    public partial class CarParts : MonoBehaviour
     {
         // ---- the owner's numbers, in one place -----------------------------
         /// <summary>The one door-opening time (the characters' get-in reads it too).</summary>
@@ -64,7 +64,10 @@ namespace PSXRacing
         /// <summary>The LAB row's apply: switched off, every car shuts now.</summary>
         public static void ApplyLab()
         {
-            if (!On) ShutAllNow();
+            // off: every car shut now (what was open is remembered); on again:
+            // given back at once, so the row is live both ways
+            if (!On) { Remember(); ShutAllNow(); }
+            else GiveBack();
         }
 
         /// <summary>The mask bit of a 5A outer panel name, 0 for anything else.</summary>
@@ -413,8 +416,7 @@ namespace PSXRacing
 
         void Update()
         {
-            if (disposed) return;
-            if (!On) { TearDown(filter); return; }
+            if (disposed || !On) return;
             Step(Time.deltaTime);
         }
 
@@ -424,6 +426,7 @@ namespace PSXRacing
         {
             if (filter == null) { Kill(this); return; }
             if (filter.transform.localScale != solvedScale) Solve();
+            Rules();
             foreach (var p in parts)
             {
                 float want = (target & p.bit) != 0 ? 1f : 0f;

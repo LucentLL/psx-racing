@@ -2878,6 +2878,7 @@ namespace PSXRacing.EditorTools
             Guard(nameof(TestLab), TestLab);   // labswitches: LifeSimSelfTest.Lab.cs
             Guard(nameof(TestCarParts), TestCarParts);   // carparts: LifeSimSelfTest.CarParts.cs
             Guard(nameof(TestCarPartsConverter), TestCarPartsConverter);   // carparts stage 2
+            Guard(nameof(TestCarPartsRules), TestCarPartsRules);   // carparts stage 3
             TestLampControlMaps();
             TestOneToneCurve();
             TestReversedStageDistance();

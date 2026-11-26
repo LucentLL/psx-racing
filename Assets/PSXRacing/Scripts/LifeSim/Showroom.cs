@@ -377,6 +377,17 @@ namespace PSXRacing.LifeSim
                 prev = p;
                 next = n;
             }
+            // carparts: OPEN on the stage (bottom left) for a car whose shell
+            // has parts; ShowroomParts shows it only then, and reads O and the
+            // wheel's OPEN as well as a click, a tap or the pad's A on it
+            if (viewer != null && CarParts.On)
+            {
+                var sp = stage.gameObject.AddComponent<ShowroomParts>();
+                sp.viewer = viewer;
+                sp.button = MenuKit.Button(stage, "OPEN HOOD", new Vector2(0f, 0f), new Vector2(16f, 16f), new Vector2(200f, 46f),
+                    sp.Step, 17, new Color(0.10f, 0.10f, 0.11f, 0.92f));
+                sp.button.gameObject.SetActive(CarParts.Allowed(viewer.Shown, viewer.BodyRenderer != null ? viewer.BodyRenderer.GetComponent<MeshFilter>() : null));
+            }
             return stage;
         }
 
@@ -700,6 +711,61 @@ namespace PSXRacing.LifeSim
             float dx = (e.position - e.pressPosition).x;
             // A tenth of the screen, in pixels: the same flick on any device.
             if (browse != null && Mathf.Abs(dx) > Screen.width * 0.06f) browse(dx < 0f ? 1 : -1);
+        }
+    }
+
+    /// <summary>
+    /// carparts: the showroom's OPEN (decision 5: the showroom is a place parts
+    /// open). One button on the stage steps the car on it SHUT, HOOD, TRUNK,
+    /// DOORS, ALL; keyboard O and the wheel's OPEN do the same, and holding
+    /// either shuts everything. Hidden for a car without parts (or with the LAB
+    /// rows off); the stage's car is a turntable shell, so no speed rule and
+    /// no sound (it stands far below the listener).
+    /// </summary>
+    public class ShowroomParts : MonoBehaviour
+    {
+        public CarViewer viewer;
+        public Button button;
+        float downAt = -1f;
+        bool shutFired;
+
+        MeshFilter Body => viewer != null && viewer.BodyRenderer != null ? viewer.BodyRenderer.GetComponent<MeshFilter>() : null;
+
+        public void Step()
+        {
+            var def = viewer != null ? viewer.Shown : null;
+            CarParts.Cycle(Body, def, player: false, doorsAllowed: true);
+        }
+
+        void Update()
+        {
+            if (button == null || viewer == null) return;
+            var def = viewer.Shown;
+            var body = Body;
+            bool show = CarParts.Allowed(def, body);
+            if (button.gameObject.activeSelf != show) button.gameObject.SetActive(show);
+            if (!show) return;
+            int avail = CarParts.Available(def), next = CarParts.NextStep(CarParts.MaskOf(body), avail, true);
+            var t = button.GetComponentInChildren<Text>();
+            string label = next == 0 ? "SHUT ALL" : "OPEN " + CarParts.StepName(next, avail);
+            if (t != null && t.text != label) t.text = label;
+            var kb = UnityEngine.InputSystem.Keyboard.current;
+            bool held = (kb != null && kb.oKey.isPressed) || (WheelInput.Active && WheelInput.OpenHeld);
+            float now = Time.unscaledTime;
+            if (held)
+            {
+                if (downAt < 0f) { downAt = now; shutFired = false; }
+                else if (!shutFired && now - downAt >= CarParts.HoldToShutSeconds)
+                {
+                    shutFired = true;
+                    CarParts.Request(body, def, 0);
+                }
+            }
+            else if (downAt >= 0f)
+            {
+                if (!shutFired) Step();
+                downAt = -1f;
+            }
         }
     }
 }

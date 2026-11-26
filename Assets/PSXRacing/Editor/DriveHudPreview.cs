@@ -52,11 +52,17 @@ namespace PSXRacing.EditorTools
             int fails = 0;
             foreach (var s in Sizes) fails += Shoot(outDir, s.name, s.w, s.h, true);
             fails += Shoot(outDir, "pc_16x9", 1920, 1080, false);
+            // carparts: the touch panel at 1920 x 1080 too when OPEN is checked
+            if (OpenCheck) fails += Shoot(outDir, "touch_1920x1080", 1920, 1080, true);
 
             Debug.Log(fails == 0 ? "[DriveHud] ALL CHECKS OK"
                                  : "[DriveHud] FAIL — " + fails + " check(s) failed");
             Debug.Log("[DriveHud] done");
         }
+
+        /// <summary>carparts (PSX_DRIVEHUD_OPEN=1): the OPEN button shown, with
+        /// FUEL in the contextual slot, and checked clear of every control.</summary>
+        static bool OpenCheck => System.Environment.GetEnvironmentVariable("PSX_DRIVEHUD_OPEN") == "1";
 
         static int Shoot(string outDir, string label, int w, int h, bool touch)
         {
@@ -88,6 +94,7 @@ namespace PSXRacing.EditorTools
                 SetPedal(tc, "gasPedal", 0.85f);
                 var shifter = Field<TouchShifter>(tc, "shifter");
                 if (shifter != null) shifter.SetGear(4);
+                if (OpenCheck) { tc.SetAction(true, "FUEL"); tc.SetOpen(true, "OPEN TRUNK"); }
             }
 
             // ---- the cluster, on the canvas the builder gives it ---------
@@ -253,6 +260,39 @@ namespace PSXRacing.EditorTools
                                          speedo.Value.xMin.ToString("0") + ", centre " + mid.ToString("0"));
             }
 
+            if (OpenCheck)
+            {
+                // carparts: OPEN clear of the wheel, the pedals and shifter, the
+                // ACTION slot, the MENU, the map, the pizza cam and both dials
+                var openR = PixelRect(cam, panel, "Open");
+                var others = new (string, Rect?)[]
+                {
+                    ("the wheel", wheelR), ("the throttle", PixelRect(cam, panel, "Gas")), ("the brake", PixelRect(cam, panel, "Brake")),
+                    ("the handbrake", PixelRect(cam, panel, "Handbrake")), ("the shifter", shift),
+                    ("the ACTION button", PixelRect(cam, panel, "Action")), ("the MENU", menuR), ("the map", mapR),
+                    ("the pizza cam", PixelRect(cam, pizza.transform, "PizzaCamCanvas/Panel")),
+                    ("the rev counter", tach), ("the speedometer", speedo),
+                };
+                if (!openR.HasValue) fails += Fail(label, "OPEN missing - nothing measured");
+                else
+                {
+                    var o = openR.Value;
+                    bool onScreen = o.xMin >= -0.5f && o.yMin >= -0.5f && o.xMax <= w + 0.5f && o.yMax <= h + 0.5f;
+                    if (onScreen) Ok(label, "OPEN on screen at x " + o.xMin.ToString("0") + "-" + o.xMax.ToString("0") + ", y " + o.yMin.ToString("0") + "-" + o.yMax.ToString("0"));
+                    else fails += Fail(label, "OPEN OFF SCREEN");
+                    foreach (var (n, r) in others)
+                    {
+                        if (!r.HasValue) { Ok(label, "OPEN: " + n + " not on this frame"); continue; }
+                        var q = r.Value;
+                        float dx = Mathf.Max(q.xMin - o.xMax, o.xMin - q.xMax), dy = Mathf.Max(q.yMin - o.yMax, o.yMin - q.yMax);
+                        float gap = Mathf.Max(dx, dy);
+                        if (gap >= -0.5f) Ok(label, "OPEN " + gap.ToString("0") + " px clear of " + n);
+                        else fails += Fail(label, "OPEN OVERLAPS " + n.ToUpperInvariant() + " by " + (-gap).ToString("0") + " px");
+                    }
+                }
+                Snap(cam, rt, w, h, Path.Combine(outDir, "drivehud_" + label + "_open.png"));
+                return fails;
+            }
             Snap(cam, rt, w, h, Path.Combine(outDir, "drivehud_" + label + ".png"));
             return fails;
         }
