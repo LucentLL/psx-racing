@@ -404,7 +404,7 @@ namespace PSXRacing
                                     }
                             }
                     }
-                Destroy(holder);
+                warmHolder = holder; warmPath = tmp;   // kept (inactive) for the mid-race sliced searches
                 Debug.Log($"[Checkpoints] racing turns: {pairs} turn pairs at {warmNodes.Count} route nodes laid too");
                 Debug.Log($"[Checkpoints] racing turns laid at load: {legs} legs, {RacingTurns.Laid} turns ({RacingTurns.NoFit} no fit) in {wsw.Elapsed.TotalMilliseconds:0} ms");
             }
@@ -418,6 +418,7 @@ namespace PSXRacing
             // the first plans, one per frame, before the green
             for (int guard = 0; guard < 64 && queue.Count > 0; guard++) { PumpQueue(); yield return null; }
             Ready = true;
+            RacingTurns.InRace = true;
             Debug.Log($"[Checkpoints] ready: lap {LapM:0} m, race {TotalM:0} m, fields {FieldBuildMs:0} ms");
         }
 
@@ -448,7 +449,8 @@ namespace PSXRacing
         void Update()
         {
             if (RaceReplay.Playing) return;
-            PumpQueue();
+            // a plan or a turn search's slice a frame, never both
+            if (queue.Count > 0) PumpQueue(); else if (Ready) SliceTurnSearch();
             if (Ready && rm != null) { UpdateGps(); TowWrecks(); }
         }
 
@@ -476,6 +478,9 @@ namespace PSXRacing
 
         void OnDestroy()
         {
+            RacingTurns.InRace = false;
+            RacingTurns.ClearPending();
+            if (warmHolder != null) Destroy(warmHolder);
             if (Active == this) Active = null;
             // the camcorder's feed goes with the race (a later race in another scene must not film these gates)
             if (provider != null && RacePoints.Provider == provider) RacePoints.Provider = null;
@@ -483,6 +488,36 @@ namespace PSXRacing
 
         // ------------------------------------------------------------------ fields, for the planners and the self-test
         public CityRouter Router => R;
+
+        // ---- (cityai round 4) mid-race racing-turn searches, a slice a frame -------------------------------------
+        GameObject warmHolder; TrackPath warmPath;
+        readonly List<RoutedPath.Piece> slicePcs = new List<RoutedPath.Piece>(4);
+        /// <summary>Each frame's slice of a deferred turn search, ms (the harness: worst after the green).</summary>
+        public static readonly List<float> SliceMs = new List<float>(256);
+        void SliceTurnSearch()
+        {
+            if (RacingTurns.Pending.Count == 0 || map == null || R == null) return;
+            if (warmPath == null)
+            {
+                warmHolder = new GameObject("CheckpointRace_slices"); warmHolder.SetActive(false);
+                warmPath = warmHolder.AddComponent<TrackPath>();
+            }
+            var pnd = RacingTurns.Pending.Peek();
+            slicePcs.Clear();
+            slicePcs.Add(new RoutedPath.Piece { st = pnd.sIn, t0 = Mathf.Max(0f, R.len[pnd.sIn] - 45f), t1 = R.len[pnd.sIn] });
+            slicePcs.Add(new RoutedPath.Piece { st = pnd.sOut, t0 = 0f, t1 = Mathf.Min(R.len[pnd.sOut], 45f) });
+            RacingTurns.sliceSw.Restart();
+            RacingTurns.Searching = true; RacingTurns.LastSliced = false;
+            try { RoutedPath.Build(map, slicePcs, warmPath, 12f); }
+            finally { RacingTurns.Searching = false; }
+            float ms = (float)RacingTurns.sliceSw.Elapsed.TotalMilliseconds;
+            if (SliceMs.Count < 10000) SliceMs.Add(ms);
+            if (RacingTurns.LastSliced) return;   // more next frame
+            RacingTurns.Pending.Dequeue();
+            RacingTurns.PendingDone(pnd.key);
+            // the field plans again (one a frame, the race's queue), now reading the arc
+            foreach (var c in cars.Values) if (c.planner != null && !c.isPlayer) Request(c.planner);
+        }
         /// <summary>Gate k's field: its cost (the route) and its ruler metres (RM).</summary>
         public CityRouter.Field Cost(int k) => fields != null ? fields[k] : null;
         public int NextAfter(int k)

@@ -521,7 +521,7 @@ namespace PSXRacing
                 recording = true;
                 FieldBegin(id, path);   // (cityai) &trace=1: every car, 10 Hz
                 // (cityai round 2) the plan cost counted from the green: the plans laid while the countdown is held are load
-                AIRoutePlanner.BuildMsLog.Clear(); RacingTurns.ResetStats(); TrafficSystem.StepMs.Clear();
+                AIRoutePlanner.BuildMsLog.Clear(); RacingTurns.ResetStats(); TrafficSystem.StepMs.Clear(); CheckpointRace.SliceMs.Clear();
                 Say("STAGE " + id + " from " + (i0 * path.spacing).ToString("0") + " m, up in " + loadS.ToString("0.0") + " s");
 
                 float dist = 0f; var last = car.transform.position;
@@ -643,6 +643,11 @@ namespace PSXRacing
                             rvMin = Mathf.Min(rvMin, cp.odometer); rvMax = Mathf.Max(rvMax, cp.odometer);
                         }
                         if (rvN > 0) sum1.AppendLine($"rivals {rvN}: driven m min {rvMin:0} mean {rvSum / rvN:0} max {rvMax:0}; gates passed {rvGates} in all");
+                    }
+                    {
+                        var sl = CheckpointRace.SliceMs; float sw2 = 0f; foreach (var x in sl) sw2 = Mathf.Max(sw2, x);
+                        sum1.AppendLine($"racing-turn searches after the green: {RacingTurns.Deferred} turns deferred, {sl.Count} slices, worst slice {sw2:0.00} ms (in-plan searches {RacingTurns.ArcSearches})");
+                        sl.Clear();
                     }
                     // (cityai round 3) the race traffic's own update, ms a physics step
                     var tl = new System.Collections.Generic.List<float>(TrafficSystem.StepMs); tl.Sort();

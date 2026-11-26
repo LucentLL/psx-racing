@@ -43,7 +43,7 @@ namespace PSXRacing
         public static int Tried, Laid, NoFit;
         public static float MinLaidR = float.PositiveInfinity;
         public static readonly List<float> LaidR = new List<float>(256);
-        public static void ResetStats() { Tried = Laid = NoFit = 0; ArcReads = ArcSearches = 0; MinLaidR = float.PositiveInfinity; LaidR.Clear(); }
+        public static void ResetStats() { Tried = Laid = NoFit = 0; ArcReads = ArcSearches = 0; Deferred = 0; MinLaidR = float.PositiveInfinity; LaidR.Clear(); }
 
         static readonly List<Vector2> np = new List<Vector2>(8192), lp = new List<Vector2>(256);
         static readonly List<float> ny = new List<float>(8192), no = new List<float>(8192);
@@ -63,6 +63,18 @@ namespace PSXRacing
         static readonly Dictionary<long, (float T, Vector2 c, float r, float ang0, float sweep)> arcCache = new Dictionary<long, (float, Vector2, float, float, float)>(1024);
         /// <summary>Plans' turns read from <see cref="arcCache"/> and searched (the harness; cleared with the stats).</summary>
         public static int ArcReads, ArcSearches;
+        /// <summary>(round 4) Mid-race misses: deferred to a sliced search (PSX_CP_TURNS_DEFER=0: searched in the plan).</summary>
+        public static bool DeferOn = System.Environment.GetEnvironmentVariable("PSX_CP_TURNS_DEFER") != "0";
+        public static bool InRace, Searching, LastSliced;
+        public static float SearchBudgetMs = 0.6f;
+        public static int Deferred;
+        public static readonly System.Diagnostics.Stopwatch sliceSw = new System.Diagnostics.Stopwatch();
+        public static readonly Queue<(long key, int sIn, int sOut)> Pending = new Queue<(long, int, int)>();
+        static readonly HashSet<long> pendingKeys = new HashSet<long>();
+        static readonly Dictionary<long, float> resumeT = new Dictionary<long, float>();
+        /// <summary>Done with a pending turn (found, no fit, or given up): it may be queued again only on a new map.</summary>
+        public static void PendingDone(long key) { resumeT.Remove(key); }
+        public static void ClearPending() { Pending.Clear(); pendingKeys.Clear(); resumeT.Clear(); }
         public static bool LogSearches = System.Environment.GetEnvironmentVariable("PSX_CP_TURNS_LOG") == "1"; static int searchLogs;
         /// <summary>(round 3, the islands check) Every cached arc's points, every <paramref name="step"/> metres, with its
         /// turn's key (node, road in, road out).</summary>
@@ -265,6 +277,19 @@ namespace PSXRacing
                         continue;
                     }
                 }
+                // (round 4) AFTER THE GREEN, NEVER SEARCH IN A PLAN: the turn is laid as the corner this once and queued;
+                // CheckpointRace searches it a slice a frame (SearchBudgetMs) and re-plans the field once it is cached
+                if (DeferOn && InRace && !Searching && kerbCacheMap == map)
+                {
+                    if (pendingKeys.Add(fkey))
+                    {
+                        var ei = map.edges[J.ein]; var eo = map.edges[J.eout];
+                        int sIn = J.ein * 2 + (ei.b == J.node ? 0 : 1), sOut = J.eout * 2 + (eo.a == J.node ? 0 : 1);
+                        Pending.Enqueue((fkey, sIn, sOut));
+                    }
+                    Deferred++;
+                    continue;
+                }
                 if (tr == null) tr = CityWorld.TrimsFor(map);
                 var ein = map.edges[J.ein]; var eout = map.edges[J.eout];
                 kerbSegs.Clear();
@@ -330,11 +355,17 @@ namespace PSXRacing
                 else if (memo && tm < 0f) bestT = -1f;
                 else
                 {
-                    for (float T = Tcap; T >= 1f - 1e-3f; T -= CoarseStepM)
+                    float T0 = Searching && resumeT.TryGetValue(fkey, out float rt) ? Mathf.Min(rt, Tcap) : Tcap;
+                    bool sliced = false;
+                    for (float T = T0; T >= 1f - 1e-3f; T -= CoarseStepM)
                     {
                         if (T / tanH < MinR) break;
+                        // (round 4) a slice a frame: out of budget, carry on from here next frame
+                        if (Searching && sliceSw.Elapsed.TotalMilliseconds > SearchBudgetMs) { resumeT[fkey] = T; sliced = true; break; }
                         if (Arc(T, out _, out _, out _, out _, out _, out _)) { bestT = T; break; }
                     }
+                    if (sliced) { LastSliced = true; continue; }
+                    resumeT.Remove(fkey);
                     if (bestT > 0f)
                         for (float T = Mathf.Min(Tcap, bestT + CoarseStepM - StepM); T > bestT + 1e-3f; T -= StepM)
                             if (Arc(T, out _, out _, out _, out _, out _, out _)) { bestT = T; break; }
