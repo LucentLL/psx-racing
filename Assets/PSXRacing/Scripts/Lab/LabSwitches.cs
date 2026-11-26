@@ -271,7 +271,7 @@ namespace PSXRacing
             Register(new LabRow
             {
                 id = "smoothcurb", group = LabGroup.World, name = "SMOOTH CURB RETURNS", when = LabWhen.BuiltIn,
-                look = "Built into the city tiles: a junction's curb returns follow their arc within 1 cm (at most 6 degrees a joint), no visible facets. A city bake.",
+                look = "Opt-in (PSX_CITY_SMOOTHCURB=1), built into the city tiles: curb returns within 1 cm of their arc. Off by default: +69 % tile build time. A city bake.",
                 env = new[] { "PSX_CITY_SMOOTHCURB" }, requires = "CityMeshes.SmoothCurbOn",
             });
             Register(new LabRow
