@@ -211,10 +211,12 @@ namespace PSXRacing
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
         [System.Runtime.InteropServices.DllImport("kernel32.dll")] static extern System.IntPtr GetCurrentThread();
         [System.Runtime.InteropServices.DllImport("kernel32.dll")] static extern bool QueryThreadCycleTime(System.IntPtr h, out ulong cycles);
-        static ulong ThreadCycles() { return QueryThreadCycleTime(GetCurrentThread(), out ulong c) ? c : 0; }
+        internal static ulong ThreadCycles() { return QueryThreadCycleTime(GetCurrentThread(), out ulong c) ? c : 0; }
 #else
-        static ulong ThreadCycles() => 0;
+        internal static ulong ThreadCycles() => 0;
 #endif
+        /// <summary>Thread cycles to ms by the ordinary traffic steps' own rate (-1 before any is measured).</summary>
+        internal static double CyclesToMs(ulong c) => cycPerMs > 0 ? c / cycPerMs : -1;
         static readonly System.Diagnostics.Stopwatch fitSw = new System.Diagnostics.Stopwatch();
         static int fitLooksStep;
         /// <summary>Gap between the collision box and the road, driving.</summary>

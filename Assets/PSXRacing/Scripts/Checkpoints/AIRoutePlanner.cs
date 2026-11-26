@@ -39,6 +39,9 @@ namespace PSXRacing
         public float WorstBuildMs { get; private set; }
         /// <summary>Every plan's build time, ms, all cars (the harness's p50 / p99; cleared by it).</summary>
         public static readonly List<float> BuildMsLog = new List<float>(4096);
+        /// <summary>(cityai round 5) every plan build over 1 ms: whose, the search's and the road build's shares, how
+        /// much of it the main thread ran (thread cycles), the legs and pieces, and whether a GC ran.</summary>
+        public static readonly List<string> SlowPlans = new List<string>();
         /// <summary>The leg signature of the last plan, for the play check: the edges it drives.</summary>
         public string LastSignature { get; private set; } = "";
         /// <summary>For the play check: legs planned off the optimum (variety), and re-plans for being off its road.</summary>
@@ -160,6 +163,7 @@ namespace PSXRacing
         {
             if (race == null || cp == null || ai == null) return;
             var sw = System.Diagnostics.Stopwatch.StartNew();
+            ulong cyc0 = TrafficSystem.ThreadCycles(); int gc0 = System.GC.CollectionCount(0);
             var R = race.Router;
             var map = R.map;
             var car = cp.car;
@@ -261,7 +265,9 @@ namespace PSXRacing
             if (pieces.Count == 0) return;
             var into = Path == a ? b : a;
             float rw = RaceManager.Instance != null && RaceManager.Instance.path != null ? RaceManager.Instance.path.roadWidth : 12f;
+            double searchMs = sw.Elapsed.TotalMilliseconds;
             if (!RoutedPath.Build(map, pieces, into, rw)) return;
+            double roadMs = sw.Elapsed.TotalMilliseconds - searchMs;
             // the plan's own metres go live with its road
             planPieces.Clear(); planCum.Clear();
             float run = 0f;
@@ -278,6 +284,11 @@ namespace PSXRacing
             LastBuildMs = (float)sw.Elapsed.TotalMilliseconds;
             WorstBuildMs = Mathf.Max(WorstBuildMs, LastBuildMs);
             if (BuildMsLog.Count < 100000) BuildMsLog.Add(LastBuildMs);
+            if (LastBuildMs > 1f && SlowPlans.Count < 40)
+            {
+                double ran = TrafficSystem.CyclesToMs(TrafficSystem.ThreadCycles() - cyc0);
+                SlowPlans.Add($"{Time.time:0.0} s {car.name}: {LastBuildMs:0.00} ms (thread ran {ran:0.00} ms of it) - search {searchMs:0.00}, road build {roadMs:0.00}; {nextLegGate.Count} legs, {pieces.Count} pieces, {have:0} m; gc {(System.GC.CollectionCount(0) != gc0 ? "YES" : "no")}");
+            }
         }
 
         float variedLastT;
