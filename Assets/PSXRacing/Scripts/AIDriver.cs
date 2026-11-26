@@ -49,6 +49,9 @@ namespace PSXRacing
         /// stop, and a car that hauls up in its own length is a car the player
         /// — who still has their own throttle past the flag — drives into.</summary>
         const float ShutdownBrake = 0.22f;
+        /// <summary>(cityai round 2) A finisher brakes for its run-out's bends and end (PSX_AI_FINISH_RUNOUT=0: the
+        /// 0.22 coast alone). LAB row FINISHERS BRAKE FOR ROAD.</summary>
+        public static bool FinishRunOutOn = System.Environment.GetEnvironmentVariable("PSX_AI_FINISH_RUNOUT") != "0";
         /// <summary>A retired car's brake: out of the race, it stops.</summary>
         const float RetiredBrake = 0.6f;
         /// <summary>How far past the tarmac edge a retired car parks its
@@ -1197,6 +1200,19 @@ namespace PSXRacing
                 backPhase = BackPhase.Off;
                 // A wreck pulls up; a finisher rolls down (ShutdownBrake).
                 car.brakeInput = coasting ? (Retired ? RetiredBrake : ShutdownBrake) : 0.4f;
+                // THE RUN-OUT BRAKES FOR THE ROAD (cityai round 2; X1's finishers coasted into a building at up to 43 m/s
+                // on the 0.22 brake): a finisher still brakes for the bends of its run-out and to a stop before its end
+                if (coasting && !Retired && FinishRunOutOn && path != null && path.Count > 2)
+                {
+                    float want = PlanSpeed(rolling, out _, out float dec, out _, out _);
+                    if (path.HasEnds)
+                    {
+                        float dEnd = (path.Count - 1 - nearestIdx) * path.spacing - 15f;
+                        want = Mathf.Min(want, Mathf.Sqrt(2f * Mathf.Max(3f, dec * 0.8f) * Mathf.Max(0f, dEnd)));
+                    }
+                    if (rolling > want + 0.5f)
+                        car.brakeInput = Mathf.Max(car.brakeInput, Mathf.Clamp01((rolling - want) / 6f + 0.3f));
+                }
                 return;
             }
 
