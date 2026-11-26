@@ -215,6 +215,42 @@ At 78 the pale concrete slabs on North Tryon's grass median are gone (one grass 
 nothing changes by default: the junction islands as closed solids (his "one paved surface with raised parts") exist behind
 PSX_CITY_ISLANDSOLID=1 and fix the wedge at 80 and the layers at 77 / 79 in the pictures, but they fail the line gate, so
 they are not switched on. 81's curb nose in the turn lane is not fixed in any state.
+
+## Round 2 (11-25 late, head d26b75b6): islands default ON was tried, measured worse, and put back to opt-in
+- Merged mountain-nm 0141cd50 first (c096de5f; LabSwitches.cs and HANDOFF.md conflicts kept both sides).
+- ISLANDSOLID=1 now traces islands from the LINE MODEL's travelled way (`LineModel.Extents`, full eM/eP) grown by
+  `IslandCurbMarginM` = 0.15 m (the line gate's CurbInLaneM), not the drawn pavement (8f05851b). Land inside a road's
+  extents is paved in the neighbour's fill slot at its texel density; between two arms meeting at a node within 60 deg,
+  the "knife" between their facing edges is paved where the signed gap is under the island width (d882d14f, c1ef370e,
+  opposing carriageways included). Island rule: a land region stands as a curbed solid only where it is wider than the
+  nose width everywhere and lies wholly inside the tile (8 m from the edge: `IslandPaveEdgeM`, 70d3d601); thinner land is
+  paved. Paved cells merge into row runs (8d097e64). Island gate: a rivals'-line arc check and a RAISED sub-kind column.
+- Measured with ISLANDSOLID default ON (8d097e64), against the base e472b9da:
+  - line gate (all 10,626 tiles): MEDIAN 76 -> 111, SHIFT 2764 -> 2828, WIDTH 630 -> 668; better: STEP 3951 -> 3529,
+    CONT 1726 -> 1626, SJOG 2774 -> 2699, KINK 3231 -> 3229. FAILS the rule "equal or better in every class".
+    The new MEDIAN places are island curbs 5-10 m inside two-way roads' travelled way at split nodes (McCullough Dr
+    e18831, IKEA Blvd) where the two arms' design extents overlap, plus 0.15-0.4 m cases at curb margins.
+  - island gate (ten routes): RAISED 5735 -> 5799, SEETHRU 215 -> 306, OVERLAY 841 -> 611, LINEUNDER 60 -> 99;
+    C7 89/1/8/22 -> 121/4/12/27. Only OVERLAY improves.
+  - his spots (ISLANDSOLID=1, places within 45 m): 77 RAISED 39 -> 43, LINEUNDER 14 = 14; 79 OVERLAY 34 -> 15, RAISED
+    152 -> 125 (new cells at the link's mouth); 80 RAISED 9 -> 86 (the narrow strip island stands in the link's lane
+    band); 81 0 = 0 in the gate but the knife still reaches the stop line in the frames.
+  - cost: 27,163 -> 27,742 triangles a tile (+2.1 %), 19.1 -> 19.2 draws, build 336 -> 389 ms a tile (+16 %, over the
+    +10 % limit; before the row runs it was +20 % and +7 % triangles). Split (sums, 297 tiles, 5328406b): raster 3.9 s,
+    overlays 0.8 s, bands + knives 3.1 s, distance field 4.6 s, islands 11.8 s, tips + orphans 1.0 s.
+  - rivals' line (RoutedPath + cityai's RacingTurns arcs) vs the islands: 0 points on an island, 0 within 0.5 m of a
+    curb, every route. RacingTurns knows only FanKerbs and PaveEdgeM, not islands; it agrees today by measurement only.
+- So, per the brief, ISLANDSOLID is back to opt-in (d26b75b6, `== "1"`; LAB row says so). Defaults at d26b75b6 equal the
+  base exactly: line gate every class equal (17,712 places); island gate 5735 / 215 / 841 / 60, 27,156 triangles,
+  19.1 draws, 336 ms a tile; city audit 24 FAILURES, the same FAIL lines.
+- NOT done in round 2: B (81's nose: e3187 and e10102's design extents overlap by -10.7 to -0.9 m over the first 12 m
+  from the stop line, so the land there cannot be nose-wide without changing the line model's split; not changed);
+  C (the 79 bay taper 31 m vs 55 m, the S-jogs at 79 / 81, the lines ending in their road at 77: line model, not changed;
+  the TAPERFLOOR trial's run was unreliable and is not reported); D (SEETHRU) and E (zero at his spots) not met.
+- Sheet: scratchpad\c7roads\c7roads_sheet_r2.png (his shot | base | round 1 = round 2 defaults | round 2 ISLANDSOLID=1,
+  night, noon, plans; editor frames, labelled). INVENTORY.md has the LYNX light rail as its own item (Item L).
+- Muting: every run was edit-mode batch (no play mode): 0 play runs, 0 with the MasterOut line; none needed.
+
 # TEST RUNS ARE SILENT (coordinator, 11-25; mountain-nm 8a5737c0)
 
 Owner 2026-11-25: "please mute all testing. I constantly hear the game without ever seeing it". Measured at 18:02: two hidden batch editors (RacePlayCheck in PSXPerf and PSXCity) were at full-scale peak on his speakers. Batch mode hides the window, not the sound.
