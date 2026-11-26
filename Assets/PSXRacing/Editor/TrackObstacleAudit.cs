@@ -2414,6 +2414,8 @@ namespace PSXRacing.EditorTools
             return sb.ToString();
         }
 
+        static bool GhostSolidRay => DrawnWorld.SolidRayOn;
+
         static void AuditGhostBarriers(TrackCatalog.TrackDef def, TrackPath path,
                                        Collider[] colliders, float trackHalf, StringBuilder log)
         {
@@ -2451,7 +2453,7 @@ namespace PSXRacing.EditorTools
                 return world.RayOut(a, d / len, len - GhostHiddenM, out _) >= 0f;
             }
             void Sample(Collider col, int i, Vector3 road, List<(Vector3 origin, Vector3 dir)> faces,
-                        float lo, float hi, float top, Vector3 where, bool askHidden = false)
+                        float lo, float hi, float top, Vector3 where, bool askHidden = false, bool solidRay = false)
             {
                 float drawnTop = lo - GhostStep, worstGap = 0f, lastNear = float.NegativeInfinity;
                 bool anyDrawn = false;
@@ -2467,6 +2469,11 @@ namespace PSXRacing.EditorTools
                         string w2;
                         float h2 = world.RayOut(o, fc.dir, GhostReach + GhostBack, out w2);
                         if (h2 < 0f) continue;
+                        // (stage4, PSX_GHOST_SOLIDRAY) a wall solid's face is not one plane (a cut's band solid is
+                        // the relief's own shape): the air is between the solid and the drawn surface ALONG THIS
+                        // RAY, not between the drawn surface and the solid's nearest point to the road
+                        if (solidRay && WallGeom.Raycast(col, o, fc.dir, GhostReach + GhostBack, out float sdist, out _))
+                            h2 = h2 - sdist + GhostBack;
                         if (hit < 0f || h2 < hit) { hit = h2; who = w2; }
                     }
                     if (askHidden && HiddenFromRoad(road, y, faces[0].origin))
@@ -2728,7 +2735,7 @@ namespace PSXRacing.EditorTools
                     float lo = Mathf.Max(GhostStep, wallLo - road.y + 0.05f);
                     float hi = Mathf.Min(top, GhostSampleTop);
                     if (hi < lo) continue;      // overhead, or buried under the road
-                    Sample(col, i, road, wallFaces, lo, hi, top, near, askHidden: true);
+                    Sample(col, i, road, wallFaces, lo, hi, top, near, askHidden: true, solidRay: GhostSolidRay);
                 }
             }
 
@@ -2996,6 +3003,9 @@ namespace PSXRacing.EditorTools
             /// that very stone) read as "solid where nothing is drawn" - Chimney Rock's ghost at wp 704. Every rock
             /// instance in the corridor goes in as its own LOD0 triangles, placed as MeshForest places it.</summary>
             public static bool DrawnForestRock = System.Environment.GetEnvironmentVariable("PSX_GHOST_FORESTROCK") != "0";
+            /// <summary>(stage4) as the audit counts air in front of a wall solid: along each sample ray, from the
+            /// solid to the drawn surface (PSX_GHOST_SOLIDRAY=0: from the solid's nearest point, as before).</summary>
+            public static bool SolidRayOn = System.Environment.GetEnvironmentVariable("PSX_GHOST_SOLIDRAY") != "0";
             public int ForestRock;
 
             void AddForestRock(HashSet<long> interest)
@@ -3013,7 +3023,8 @@ namespace PSXRacing.EditorTools
                         var m0 = vr != null && vr.lods != null && vr.lods.Length > 0 ? vr.lods[0] : null;
                         if (m0 == null) continue;
                         string nm = m0.name.ToLowerInvariant();
-                        if (!(nm.Contains("stone") || nm.Contains("rock") || nm.Contains("boulder") || nm.Contains("cliff"))) continue;
+                        // (stones only: an outcrop on a cut is solid as itself, concave, which this pass does not measure)
+                        if (!(nm.Contains("stone") || nm.Contains("rock") || nm.Contains("boulder")) || nm.Contains("cliff")) continue;
                         // (a stone under 0.4 m is ground litter: nothing stands against it)
                         if (vr.height * mfo.instScaleVar[i].x < 0.4f) continue;
                         Vector3 lp = new Vector3(mfo.inst[i].x, mfo.inst[i].y, mfo.inst[i].z);
