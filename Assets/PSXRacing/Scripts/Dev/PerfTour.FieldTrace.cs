@@ -44,57 +44,86 @@ namespace PSXRacing
         }
 
         /// <summary>
-        /// THE ISLANDS CHECK (cityai round 3, &amp;islands=1 on a field run): every racing-turn arc laid so far (the route's,
-        /// at race load) sampled every metre; at each sample and at 8 points 0.3 m round it, a ray down onto what is drawn
-        /// there. A sample is BAD when any of the nine rays lands on something that is not the road layer (an island's
-        /// kerb or top, a median, grass), or on nothing. Cars are skipped. Writes &lt;tag&gt;_&lt;stage&gt;_islands.txt.
+        /// THE ISLANDS CHECK (cityai round 3, &amp;islands=1 on a field run): the racing-turn arcs of THIS course (laid at
+        /// race load, within 40 m of its line) sampled every metre; each sample is checked once the tour's car is within
+        /// 90 m of it (the city's colliders stand only round the cars): at the sample and at 8 points 0.3 m round it, a
+        /// ray down onto what is there. BAD = any of the nine rays lands on something not on the road layer (an island's
+        /// kerb or top, a median, grass), or on nothing. Cars are skipped. Written at the end of the stage:
+        /// &lt;tag&gt;_&lt;stage&gt;_islands.txt (samples checked, bad, and every bad sample with what it hit).
         /// </summary>
+        readonly List<Vector2> isPts = new List<Vector2>(); readonly List<long> isKeys = new List<long>(); readonly List<float> isY = new List<float>();
+        bool[] isDone; bool isOn; int isBad, isChecked; readonly HashSet<long> isBadArcs = new HashSet<long>(), isArcs = new HashSet<long>();
+        readonly StringBuilder isSb = new StringBuilder();
+        readonly RaycastHit[] isHits = new RaycastHit[8];
+
         void IslandCheck(string id, TrackPath path)
         {
-            if (ShotLink.Query(Request() ?? "", "islands") != "1" || path == null) return;
+            isOn = ShotLink.Query(Request() ?? "", "islands") == "1" && path != null;
+            isPts.Clear(); isKeys.Clear(); isY.Clear(); isBadArcs.Clear(); isArcs.Clear(); isSb.Length = 0; isBad = isChecked = 0;
+            if (!isOn) return;
             var pts = new List<Vector2>(); var keys = new List<long>();
             RacingTurns.CachedArcPoints(pts, keys, 1f);
-            var sb = new StringBuilder();
-            int bad = 0, checkedN = 0; var badArcs = new HashSet<long>(); var arcs = new HashSet<long>(keys);
-            const int roadLayer = 8;
-            var hits = new RaycastHit[8];
             int hint = -1;
             for (int i = 0; i < pts.Count; i++)
             {
                 var q = pts[i];
                 hint = path.NearestIndex(new Vector3(q.x, 0f, q.y), hint);
-                float yRef = path.GetPoint(hint).y;
+                var w = path.GetPoint(hint);
+                if ((new Vector2(w.x, w.z) - q).sqrMagnitude > 40f * 40f) { hint = -1; continue; }
+                isPts.Add(q); isKeys.Add(keys[i]); isY.Add(w.y); isArcs.Add(keys[i]);
+            }
+            isDone = new bool[isPts.Count];
+        }
+
+        void IslandStep()
+        {
+            if (!isOn || isDone == null || car == null) return;
+            var cp = car.transform.position;
+            const int roadLayer = 8;
+            for (int i = 0; i < isPts.Count; i++)
+            {
+                if (isDone[i]) continue;
+                var q = isPts[i];
+                if ((new Vector2(cp.x, cp.z) - q).sqrMagnitude > 90f * 90f) continue;
+                isDone[i] = true; isChecked++;
                 string why = null;
                 for (int k = 0; k < 9 && why == null; k++)
                 {
                     Vector2 o = k == 0 ? Vector2.zero : new Vector2(Mathf.Cos(k * Mathf.PI / 4f), Mathf.Sin(k * Mathf.PI / 4f)) * 0.3f;
-                    var from = new Vector3(q.x + o.x, yRef + 4f, q.y + o.y);
-                    int n = Physics.RaycastNonAlloc(from, Vector3.down, hits, 10f, ~0, QueryTriggerInteraction.Ignore);
+                    var from = new Vector3(q.x + o.x, isY[i] + 4f, q.y + o.y);
+                    int n = Physics.RaycastNonAlloc(from, Vector3.down, isHits, 10f, ~0, QueryTriggerInteraction.Ignore);
                     RaycastHit best = default; float bd = float.MaxValue;
                     for (int h = 0; h < n; h++)
                     {
-                        if (hits[h].collider == null || hits[h].collider.attachedRigidbody != null) continue;   // cars
-                        if (hits[h].distance < bd) { bd = hits[h].distance; best = hits[h]; }
+                        if (isHits[h].collider == null || isHits[h].collider.attachedRigidbody != null) continue;   // cars
+                        if (isHits[h].distance < bd) { bd = isHits[h].distance; best = isHits[h]; }
                     }
                     if (bd == float.MaxValue) why = (k == 0 ? "centre" : "0.3 m out") + ": nothing under it";
                     else if (best.collider.gameObject.layer != roadLayer)
-                        why = (k == 0 ? "centre" : "0.3 m out") + $": {best.collider.name} (layer {best.collider.gameObject.layer}) {best.point.y - yRef:+0.00;-0.00} m";
+                        why = (k == 0 ? "centre" : "0.3 m out") + $": {best.collider.name} (layer {best.collider.gameObject.layer}) {best.point.y - isY[i]:+0.00;-0.00} m";
                 }
-                checkedN++;
                 if (why != null)
                 {
-                    bad++; badArcs.Add(keys[i]);
-                    if (bad <= 200) sb.AppendLine($"  BAD ({q.x:0.0},{q.y:0.0}) arc {keys[i]}: {why}");
+                    isBad++; isBadArcs.Add(isKeys[i]);
+                    if (isBad <= 200) isSb.AppendLine($"  BAD ({q.x:0.0},{q.y:0.0}) arc {isKeys[i]}: {why}");
                 }
             }
-            string head = $"islands check {id}: {arcs.Count} racing-turn arcs, {checkedN} samples (1 m, +8 at 0.3 m), {bad} over or within 0.3 m of a non-road surface on {badArcs.Count} arcs";
-            Post(id + "_islands.txt", head + "\n" + sb);
+        }
+
+        void IslandEnd(string id)
+        {
+            if (!isOn) return;
+            int left = 0; if (isDone != null) foreach (bool d in isDone) if (!d) left++;
+            string head = $"islands check {id}: {isArcs.Count} racing-turn arcs on this course, {isPts.Count} samples (1 m; each +8 rays at 0.3 m), {isChecked} checked with the car near ({left} never near), {isBad} over or within 0.3 m of a non-road surface on {isBadArcs.Count} arcs";
+            Post(id + "_islands.txt", head + "\n" + isSb);
             Say(head);
+            isOn = false;
         }
 
         void FieldSample()
         {
             if (ftb == null) return;
+            IslandStep();
             float t = Time.time - ftT0;
             if (t < ftNext) return;
             ftNext = t + 0.1f;
@@ -139,6 +168,7 @@ namespace PSXRacing
         void FieldEnd(string id)
         {
             if (ftb == null) return;
+            IslandEnd(id);
             Post(id + "_field.csv", ftb.ToString());
             var tsw = TrafficSystem.Instance;
             if (tsw != null) Post(id + "_wrecks.txt", ftWreckNotes.ToString() + "soft knocks (round 3: stopped, then drove on): " + tsw.SoftKnockLog.Count + (tsw.SoftKnockLog.Count > 0 ? "\n  " + string.Join("\n  ", tsw.SoftKnockLog) : ""));
