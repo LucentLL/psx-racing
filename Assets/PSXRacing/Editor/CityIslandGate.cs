@@ -36,11 +36,11 @@ namespace PSXRacing.EditorTools
     {
         const float Cell = 0.25f;
         const float PlaceM = 4f, NearRouteM = 25f;
-        static readonly string[] ClassNames = { "RAISED", "SEETHRU", "OVERLAY", "LINEUNDER" };
+        static readonly string[] ClassNames = { "RAISED", "SEETHRU", "OVERLAY", "LINEUNDER", "HOLES", "LAYERS", "STEP" };
 
         sealed class TileHits
         {
-            public readonly List<Vector3>[] hits = { new List<Vector3>(), new List<Vector3>(), new List<Vector3>(), new List<Vector3>() };
+            public readonly List<Vector3>[] hits = { new List<Vector3>(), new List<Vector3>(), new List<Vector3>(), new List<Vector3>(), new List<Vector3>(), new List<Vector3>(), new List<Vector3>() };
             public GameObject go;
             public int tris, verts, draws;
         }
@@ -50,11 +50,22 @@ namespace PSXRacing.EditorTools
             var inv = CultureInfo.InvariantCulture;
             string tag = System.Environment.GetEnvironmentVariable("PSX_ISL_TAG") ?? "run";
             string[] routeIds = (System.Environment.GetEnvironmentVariable("PSX_ISL_ROUTES") ?? "c7").Split(',').Select(x => x.Trim()).Where(x => x.Length > 0).ToArray();
+            // (c7roads round 5, stage 0 a) THE SPOT TABLE: PSX_ISL_SPOTS names tools/city/spots/junction_spots.csv; each row is
+            // judged as a route of every road within its radius, places kept within the radius of its point
+            string spotsCsv = System.Environment.GetEnvironmentVariable("PSX_ISL_SPOTS");
+            bool spotMode = !string.IsNullOrEmpty(spotsCsv);
+            var spotRows = new Dictionary<string, SpotRow>();
+            if (spotMode)
+            {
+                foreach (var r in ReadSpots(spotsCsv)) spotRows[r.id] = r;
+                string only = System.Environment.GetEnvironmentVariable("PSX_ISL_SPOT_IDS");
+                routeIds = (string.IsNullOrEmpty(only) ? spotRows.Keys : only.Split(',').Select(x => x.Trim()).Where(spotRows.ContainsKey)).ToArray();
+            }
             string root = Directory.GetParent(Application.dataPath).FullName;
             var log = new StringBuilder($"ISLAND GATE {System.DateTime.Now:yyyy-MM-dd HH:mm} tag {tag}; ISLANDSOLID {(CityMeshes.IslandSolidsOn ? "on" : "OFF")}, MEDIANRUNS {(CityMeshes.MedianRunsOn ? "on" : "OFF")}\n");
             var tsv = new StringBuilder("route\tclass\tx\tz\thits\n");
             int code = 0;
-            var totals = new int[4];
+            var totals = new int[ClassNames.Length];
             var clock = System.Diagnostics.Stopwatch.StartNew();
             try
             {
@@ -71,7 +82,7 @@ namespace PSXRacing.EditorTools
                 double buildMs = 0; int built = 0;
                 foreach (string rid in routeIds)
                 {
-                    var route = map.routes?.FirstOrDefault(r => r.id == rid);
+                    var route = spotMode ? SpotRoute(map, spotRows[rid]) : map.routes?.FirstOrDefault(r => r.id == rid);
                     if (route == null) { log.Append($"route {rid}: NOT FOUND\n"); code = 2; continue; }
                     // the route's lane samples (each edge forward as driven), its corridor edges
                     var samples = new List<(Vector3 p, Vector2 fwd)>();
@@ -104,8 +115,8 @@ namespace PSXRacing.EditorTools
                                 long k = Key(tx, tz);
                                 if (seen.Add(k)) order.Add(k);
                             }
-                    var placeSets = new HashSet<long>[4];
-                    for (int c = 0; c < 4; c++) placeSets[c] = new HashSet<long>();
+                    var placeSets = new HashSet<long>[ClassNames.Length];
+                    for (int c = 0; c < ClassNames.Length; c++) placeSets[c] = new HashSet<long>();
                     var placeHits = new Dictionary<(int, long), int>();
                     var placeKind = new Dictionary<long, int>();
                     // the rays need the tiles round each sample standing (colliders)
@@ -154,20 +165,22 @@ namespace PSXRacing.EditorTools
                     foreach (long k in order)
                     {
                         if (!cache.TryGetValue(k, out var th)) continue;
-                        for (int c = 0; c < 4; c++)
+                        for (int c = 0; c < ClassNames.Length; c++)
                             foreach (var h in th.hits[c])
                             {
                                 var p2 = new Vector2(h.x, h.z);
                                 if (!NearAny(near, p2, NearRouteM)) continue;
+                                if (spotMode && (p2 - spotRows[rid].p).magnitude > spotRows[rid].r) continue;
                                 long pk = Key(Mathf.FloorToInt(h.x / PlaceM), Mathf.FloorToInt(h.z / PlaceM));
                                 placeSets[c].Add(pk);
                                 placeHits.TryGetValue((c, pk), out int n); placeHits[(c, pk)] = n + 1;
                                 if (c == 0) { placeKind.TryGetValue(pk, out int kb); placeKind[pk] = kb | (1 << (int)h.y); }
                             }
                     }
-                    log.Append(string.Format(inv, "route {0}: {1} lane samples, {2} tiles | RAISED {3} SEETHRU {4} OVERLAY {5} LINEUNDER {6}\n",
-                        rid, samples.Count, order.Count, placeSets[0].Count, placeSets[1].Count, placeSets[2].Count, placeSets[3].Count));
-                    for (int c = 0; c < 4; c++)
+                    log.Append(string.Format(inv, "route {0}: {1} lane samples, {2} tiles | RAISED {3} SEETHRU {4} OVERLAY {5} LINEUNDER {6} HOLES {7} LAYERS {8} STEP {9}\n",
+                        rid, samples.Count, order.Count, placeSets[0].Count, placeSets[1].Count, placeSets[2].Count, placeSets[3].Count, placeSets[4].Count, placeSets[5].Count, placeSets[6].Count));
+                    if (spotMode) SpotLine(log, map, trims, spotRows[rid], placeSets);
+                    for (int c = 0; c < ClassNames.Length; c++)
                     {
                         totals[c] += placeSets[c].Count;
                         foreach (long pk in placeSets[c])
@@ -185,7 +198,7 @@ namespace PSXRacing.EditorTools
                     cache.Count, cache.Count > 0 ? sumT / (double)cache.Count : 0, cache.Count > 0 ? sumV / (double)cache.Count : 0, cache.Count > 0 ? sumD / (double)cache.Count : 0, built > 0 ? buildMs / built : 0));
                 log.Append($"rays: {raysCast} cast, {raysEscaped} met nothing, {raysUnder} of them went under the land, {raysBack} met a face from behind first (SEETHRU hits)\n");
                 log.Append(arcLine.ToString()); arcLine.Clear();
-                log.Append(string.Format(inv, "TOTAL | RAISED {0} SEETHRU {1} OVERLAY {2} LINEUNDER {3}\n", totals[0], totals[1], totals[2], totals[3]));
+                log.Append(string.Format(inv, "TOTAL | RAISED {0} SEETHRU {1} OVERLAY {2} LINEUNDER {3} HOLES {4} LAYERS {5} STEP {6}\n", totals[0], totals[1], totals[2], totals[3], totals[4], totals[5], totals[6]));
                 log.Append(string.Format(inv, "tiles built {0}, {1:0} ms a tile; islands {2} ({3:0} m2), tips paved {4} cells, overlays out {5}, inside out {6}, poke verts {7}, skipped at a border {8}, too big {9}; median runs filled {10} sections, dropped {11} runs; {12:0} s\n",
                     built, built > 0 ? buildMs / built : 0, CityMeshes.IslandCount, CityMeshes.IslandAreaM2, CityMeshes.IslandTipCells, CityMeshes.IslandOverlayTris, CityMeshes.IslandInsideTris, CityMeshes.IslandPokeVerts,
                     CityMeshes.IslandSkippedBorder, CityMeshes.IslandSkippedBig, CityMeshes.MedianRunsFilled, CityMeshes.MedianRunsDropped, clock.Elapsed.TotalSeconds));
@@ -212,6 +225,77 @@ namespace PSXRacing.EditorTools
                 Debug.Log("[IslandGate]\n" + log);
             }
             if (Application.isBatchMode) EditorApplication.Exit(code);
+        }
+
+
+        // ---- (c7roads round 5, stage 0 a) the spot table ----
+        public sealed class SpotRow { public string id, kind, must, words; public Vector2 p; public float hdg, r = 45f; }
+
+        /// <summary>tools/city/spots/junction_spots.csv: id,x,z,heading,edges,nodes,kind,owner_date,owner_words,radius,must</summary>
+        public static List<SpotRow> ReadSpots(string path)
+        {
+            var o = new List<SpotRow>();
+            var inv = CultureInfo.InvariantCulture;
+            foreach (var line in File.ReadAllLines(path).Skip(1))
+            {
+                if (string.IsNullOrWhiteSpace(line) || line.StartsWith("#")) continue;
+                var c = SplitCsv(line);
+                if (c.Count < 11) continue;
+                o.Add(new SpotRow { id = c[0], p = new Vector2(float.Parse(c[1], inv), float.Parse(c[2], inv)), hdg = float.Parse(c[3], inv), kind = c[6], words = c[8],
+                                    r = float.TryParse(c[9], NumberStyles.Float, inv, out float rr) && rr > 0f ? rr : 45f, must = c[10] });
+            }
+            return o;
+        }
+        static List<string> SplitCsv(string line)
+        {
+            var o = new List<string>(); var sb = new StringBuilder(); bool q = false;
+            for (int i = 0; i < line.Length; i++)
+            {
+                char ch = line[i];
+                if (q) { if (ch == '"') { if (i + 1 < line.Length && line[i + 1] == '"') { sb.Append('"'); i++; } else q = false; } else sb.Append(ch); }
+                else if (ch == '"') q = true;
+                else if (ch == ',') { o.Add(sb.ToString()); sb.Clear(); }
+                else sb.Append(ch);
+            }
+            o.Add(sb.ToString());
+            return o;
+        }
+        /// <summary>A spot as a route: every road with a piece within its radius, each way it can be driven.</summary>
+        static CityMap.Route SpotRoute(CityMap map, SpotRow sp)
+        {
+            var segs = new HashSet<int>();
+            map.EdgeSegsInRect(sp.p - Vector2.one * sp.r, sp.p + Vector2.one * sp.r, segs);
+            var es = new List<int>(); var ds = new List<sbyte>();
+            foreach (int ei in segs.Select(x => x >> 12).Distinct())
+            {
+                var e = map.edges[ei];
+                if (e.a == e.b) continue;
+                es.Add(ei); ds.Add(1);
+                if (!e.oneway) { es.Add(ei); ds.Add(-1); }
+            }
+            return new CityMap.Route { id = sp.id, name = sp.id, edges = es.ToArray(), dirs = ds.ToArray() };
+        }
+        /// <summary>One PASS / FAIL line for a spot: each class's places against the row's limits (CLASS=n;...), and the
+        /// kink count within its radius (CityKinkProbe).</summary>
+        static void SpotLine(StringBuilder log, CityMap map, CityMeshes.Trims trims, SpotRow sp, HashSet<long>[] placeSets)
+        {
+            int kinks = CityKinkProbe.KinksNear(map, trims, sp.p, sp.r);
+            var lim = new Dictionary<string, int>(System.StringComparer.OrdinalIgnoreCase);
+            foreach (var kv in (sp.must ?? "").Split(';'))
+            {
+                var p = kv.Split('=');
+                if (p.Length == 2 && int.TryParse(p[1].Trim(), out int v)) lim[p[0].Trim()] = v;
+            }
+            var fails = new List<string>();
+            var counts = new StringBuilder();
+            for (int c = 0; c < ClassNames.Length; c++)
+            {
+                counts.Append($" {ClassNames[c]} {placeSets[c].Count}");
+                if (lim.TryGetValue(ClassNames[c], out int l) && placeSets[c].Count > l) fails.Add($"{ClassNames[c]} {placeSets[c].Count} > {l}");
+            }
+            counts.Append($" KINK {kinks}");
+            if (lim.TryGetValue("KINK", out int lk) && kinks > lk) fails.Add($"KINK {kinks} > {lk}");
+            log.Append($"SPOT {sp.id} [{sp.kind}]:{counts} => {(fails.Count == 0 ? "PASS" : "FAIL (" + string.Join(", ", fails) + ")")}" + "\n");
         }
 
         static readonly StringBuilder arcLine = new StringBuilder();
@@ -455,6 +539,19 @@ namespace PSXRacing.EditorTools
                         if (i < 0 || j < 0 || i >= N || j >= N) continue;
                         if (q.x < o.x || q.y < o.z || q.x >= o.x + CityMeshes.TileSize || q.y >= o.z + CityMeshes.TileSize) continue;
                         int k = j * N + i;
+                        // (round 5, stage 0 a) the road surface under a lane: none (HOLES), two sheets over 1 cm apart
+                        // (LAYERS), a break in it over 1 cm (STEP: the second difference along x or z); decks are judged
+                        // by the deck gates
+                        if (!e.bridge && !e.tunnel && !e.ElevatedAt(s))
+                        {
+                            if (float.IsNaN(pave[k])) th.hits[4].Add(new Vector3(q.x, 0f, q.y));
+                            else
+                            {
+                                if (paveHi[k] - pave[k] > 0.01f) th.hits[5].Add(new Vector3(q.x, 0f, q.y));
+                                if (i > 0 && i + 1 < N && !float.IsNaN(pave[k - 1]) && !float.IsNaN(pave[k + 1]) && Mathf.Abs(pave[k - 1] - 2f * pave[k] + pave[k + 1]) > 0.01f) th.hits[6].Add(new Vector3(q.x, 0f, q.y));
+                                else if (j > 0 && j + 1 < N && !float.IsNaN(pave[k - N]) && !float.IsNaN(pave[k + N]) && Mathf.Abs(pave[k - N] - 2f * pave[k] + pave[k + N]) > 0.01f) th.hits[6].Add(new Vector3(q.x, 0f, q.y));
+                            }
+                        }
                         if (float.IsNegativeInfinity(high[k])) continue;
                         float baseY = float.IsNaN(pave[k]) ? yLane : pave[k];
                         float rise = high[k] - baseY;

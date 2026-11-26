@@ -60,6 +60,40 @@ namespace PSXRacing.EditorTools
             return "bend / dead end (2 arms or fewer)";
         }
 
+        /// <summary>(round 5, stage 0 a) the kinks within r of a point: the free outline of every junction fan whose node lies
+        /// within r + 40 m, and every ribbon outline within r. The spot table's KINK.</summary>
+        public static int KinksNear(CityMap map, CityMeshes.Trims trims, Vector2 p, float r)
+        {
+            int n = 0;
+            var ring = new List<(Vector2 p, bool mouthNext, bool arc, int edge)>(64);
+            var seen = new HashSet<int>();
+            for (int nd = 0; nd < map.nodes.Length; nd++)
+            {
+                if (!trims.patch[nd] || (map.nodes[nd] - p).magnitude > r + 40f) continue;
+                int key = CityMeshes.FanRingCorners(map, trims, nd, ring);
+                if (key < 0 || !seen.Add(key) || ring.Count < 3) continue;
+                int m = ring.Count;
+                for (int i = 0; i < m; i++)
+                {
+                    var prev = ring[(i - 1 + m) % m]; var cur = ring[i]; var next = ring[(i + 1) % m];
+                    if (prev.mouthNext || cur.mouthNext || (cur.p - p).magnitude > r) continue;
+                    if (Kink(prev.p, cur.p, next.p, out _)) n++;
+                }
+            }
+            var segs = new HashSet<int>();
+            map.EdgeSegsInRect(p - Vector2.one * r, p + Vector2.one * r, segs);
+            foreach (int ei in segs.Select(pk => pk >> 12).Distinct().ToList())
+            {
+                Vector2[] L, R;
+                try { if (!CityMeshes.RibbonOutline(map, trims, ei, out L, out R)) continue; }
+                catch (System.Exception) { continue; }
+                foreach (var side in new[] { L, R })
+                    for (int i = 1; i + 1 < side.Length; i++)
+                        if ((side[i] - p).magnitude <= r && Kink(side[i - 1], side[i], side[i + 1], out _)) n++;
+            }
+            return n;
+        }
+
         static string NearSpot(Vector2 p) { foreach (var s in Spots) if ((s.p - p).magnitude < SpotR) return s.id; return null; }
 
         public static void Run()
