@@ -1983,6 +1983,8 @@ namespace PSXRacing.City
             Debug.Log($"[city] line model eases built in {LineModel.BuildEasesMs:0.0} ms (PSX_CITY_SPLITAXIS {LineModel.SplitAxis}, LINEFIX {(LineModel.LineFixOn ? 1 : 0)}): joins {LineModel.PartJoinsMs:0}, refuges {LineModel.PartRefugesMs:0}, twins {LineModel.PartTwinsMs:0} ({LineModel.TightTwinPairs} pairs, {LineModel.TwinPruned} + {LineModel.TwinCoarsePruned} coarse pruned), splits {LineModel.PartSplitsMs:0}, meetings {LineModel.PartMeetingsMs:0} ms");
             // roads pass L5: the merge zones (aux lanes on the hosts, the ramps cut at N)
             BuildMergeZones(map, t);
+            // c7roads round 4: a laid bay that is not a zone is drawn as before
+            if (BayLanesOn && LineModel.Bays.Count > 0) { var zoned = new HashSet<int>(); foreach (var z in Zones) if (z.bay) zoned.Add(z.branch); LineModel.DropBaysWithoutZone(map, zoned); }
             // Five Points round 2: a branch whose drawn end stands past its host's edge gets a paved apron
             BuildBranchAprons(map, t);
             // Five Points round 6: a slip lane widened on the inside of its curve

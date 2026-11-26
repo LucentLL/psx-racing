@@ -145,6 +145,38 @@ namespace PSXRacing.City
         /// <summary>R0: is this link edge part of a bay laid along its host?</summary>
         public static bool IsBayEdge(int edge) => bayEdges.Count > 0 && bayEdges.Contains(edge);
 
+        static long BayTag(int branch) => -1L - branch;
+
+        /// <summary>Round 4: a laid bay the merge zones did not take is drawn as before (its shift taken off), so a
+        /// bay that is not carried as its host's lane is never a second ribbon pressed against the host.
+        /// Called after CityMeshes.BuildMergeZones; returns how many bays were stood down.</summary>
+        public static int DropBaysWithoutZone(CityMap map, HashSet<int> zoned)
+        {
+            int n = 0;
+            for (int b = Bays.Count - 1; b >= 0; b--)
+            {
+                var bay = Bays[b];
+                if (zoned.Contains(bay.branch)) continue;
+                long tg = BayTag(bay.branch);
+                foreach (var e in map.edges)
+                {
+                    var ez = e.lmEase;
+                    if (ez == null || !bayEdges.Contains(e.index)) continue;
+                    int keep = 0; foreach (var z in ez) if (z.tag != tg) keep++;
+                    if (keep == ez.Length) continue;
+                    var nz = new Ease[keep]; int j = 0;
+                    foreach (var z in ez) if (z.tag != tg) nz[j++] = z;
+                    e.lmEase = keep == 0 ? null : nz;
+                }
+                Bays.RemoveAt(b); n++;
+            }
+            bayEdges.Clear();
+            foreach (var bay in Bays) bayEdges.Add(bay.branch);
+            BaysDropped = n;
+            return n;
+        }
+        public static int BaysDropped;
+
         static void BayShift(CityMap map, System.Func<CityMap.Edge, int, int> partner, List<Ease>[] add, CityMap.Edge B, CityMap.Edge H, int n, List<GoreSt> WB, int sideB, int sideH)
         {
             if (bayEdges.Contains(B.index)) return;
@@ -207,7 +239,7 @@ namespace PSXRacing.City
                 bool fwd = E.a == from;
                 var prof = new float[want.Length];
                 for (int i = 0; i < want.Length; i++) prof[i] = (fwd ? 1f : -1f) * sideB * want[i];
-                (add[E.index] ??= new List<Ease>(2)).Add(new Ease { shift = true, fromA = fwd, prof = prof, profD0 = 0f, profDs = ds, d0 = d0, len = wayLen + 1f });
+                (add[E.index] ??= new List<Ease>(2)).Add(new Ease { shift = true, fromA = fwd, prof = prof, profD0 = 0f, profDs = ds, d0 = d0, len = wayLen + 1f, tag = BayTag(B.index) });
                 bayEdges.Add(E.index);
                 d0 += E.length;
                 int nf = fwd ? E.b : E.a;

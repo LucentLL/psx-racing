@@ -158,7 +158,7 @@ namespace PSXRacing.EditorTools
                     }
                     File.WriteAllText(Path.Combine(dir, $"c7_bays_{tag}.tsv"), bt.ToString());
                 }
-                log.Append($"GORESPLIT {(LineModel.GoreSplitOn ? 1 : 0)}: arm pairs within {LineModel.GoreMaxDeg:0} deg {LineModel.GorePairs}, overlapping before {LineModel.GoreOverlapBefore}, still overlapping {LineModel.GoreOverlapAfter}, decks skipped {LineModel.GoreSkippedDeck}, bays laid along their host {LineModel.Bays.Count}, left to the merge zones {LineModel.GoreZoneLeft}, {LineModel.GoreBuildMs:0} ms; BAYLANES {(CityMeshes.BayLanesOn ? 1 : 0)}: crossover far nodes made fans {CityMeshes.CrossoverFans} ({string.Join(",", CityMeshes.CrossoverFanNodes.Take(40))}), zones {CityMeshes.Zones.Count}, of them bays {CityMeshes.Zones.Count(zz => zz.bay)}\n");
+                log.Append($"GORESPLIT {(LineModel.GoreSplitOn ? 1 : 0)}: arm pairs within {LineModel.GoreMaxDeg:0} deg {LineModel.GorePairs}, overlapping before {LineModel.GoreOverlapBefore}, still overlapping {LineModel.GoreOverlapAfter}, decks skipped {LineModel.GoreSkippedDeck}, bays laid along their host {LineModel.Bays.Count} (stood down, no zone: {LineModel.BaysDropped}), left to the merge zones {LineModel.GoreZoneLeft}, {LineModel.GoreBuildMs:0} ms; BAYLANES {(CityMeshes.BayLanesOn ? 1 : 0)}: crossover far nodes made fans {CityMeshes.CrossoverFans} ({string.Join(",", CityMeshes.CrossoverFanNodes.Take(40))}), zones {CityMeshes.Zones.Count}, of them bays {CityMeshes.Zones.Count(zz => zz.bay)}\n");
                 foreach (var c in rows)
                 {
                     string id = c[0];
