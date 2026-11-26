@@ -525,9 +525,11 @@ namespace PSXRacing.EditorTools
                 var crossFar = new HashSet<int>(CityMeshes.CrossoverFanNodes);
                 var splitNodes = new HashSet<int>();
                 if (map.splt != null) foreach (var sp in map.splt) splitNodes.Add(sp.node);
-                var want = new Dictionary<int, string>();
+                var want = new Dictionary<int, List<string>>();
                 foreach (var kv in (System.Environment.GetEnvironmentVariable("PSX_C7_FIXTURES") ?? "").Split(','))
-                { var t = kv.Split(':'); if (t.Length == 2 && int.TryParse(t[1], out int nd)) want[nd] = t[0]; }
+                { var t = kv.Split(':'); if (t.Length == 2 && int.TryParse(t[1], out int nd)) { if (!want.TryGetValue(nd, out var wl)) want[nd] = wl = new List<string>(); wl.Add(t[0]); } }
+                string fixDir = Path.Combine(dir, System.Environment.GetEnvironmentVariable("PSX_C7_FIXDIR") ?? "fixtures");
+                Directory.CreateDirectory(fixDir);
                 var keys = new Dictionary<int, List<int>>();
                 for (int n = 0; n < map.nodes.Length; n++)
                 {
@@ -587,8 +589,9 @@ namespace PSXRacing.EditorTools
                     if (res == "kink") { string w = KinkCategory(detail); kinkWhy[w] = (kinkWhy.TryGetValue(w, out int q) ? q : 0) + 1; }
                     tsv.Append($"{kv.Key}\t{string.Join(" ", cluster)}\t{kind}\t{res}\t{(detail ?? "").Replace('\t', ' ')}\t{arms.Count}\t{links.Count}\t{ms.ToString("0.0", inv)}\n");
                     foreach (int n in cluster)
-                        if (want.TryGetValue(n, out string fname))
-                            File.WriteAllText(Path.Combine(dir, "fixtures", fname + ".txt"), FixtureText(fname, kind + " | " + res + ": " + (detail ?? ""), Vector2.zero, rawArms, rawLinks).Replace("origin 0.00 0.00", "origin " + origin.x.ToString("0.00", inv) + " " + origin.y.ToString("0.00", inv)));
+                        if (want.TryGetValue(n, out var fnames))
+                            foreach (var fname in fnames)
+                            File.WriteAllText(Path.Combine(fixDir, fname + ".txt"), FixtureText(fname, kind + " | " + res + ": " + (detail ?? ""), Vector2.zero, rawArms, rawLinks).Replace("origin 0.00 0.00", "origin " + origin.x.ToString("0.00", inv) + " " + origin.y.ToString("0.00", inv)));
                 }
                 int[] tot = new int[4]; foreach (var c4 in tally.Values) for (int i = 0; i < 4; i++) tot[i] += c4[i];
                 log.Append($"{tot.Sum()} junction clusters (3+ arms or a link) solved in {sw.Elapsed.TotalSeconds:0.0} s ({joinMs / 1000.0:0.0} s the opening rule, {joined} openings joined): " +
