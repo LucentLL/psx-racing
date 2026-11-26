@@ -33,16 +33,31 @@ namespace PSXRacing
                 if (enabled < 0) enabled = System.Environment.GetEnvironmentVariable("PSX_CAMCORDER") == "0" ? 0 : 1;
                 return enabled == 1;
             }
+            // (the LAB's CAMCORDER REPLAYS row; read when a replay starts)
+            set => enabled = value ? 1 : 0;
         }
 
         /// <summary>The camcorder's sound (mono, the mic's band, wind, AGC).</summary>
-        public static bool MicEnabled
+        public static bool MicEnabled => MicOn && Enabled;
+
+        /// <summary>The mic's own switch (the LAB's CAMCORDER: TAPE SOUND row;
+        /// read when a replay's camera is attached).</summary>
+        public static bool MicOn
         {
             get
             {
                 if (mic < 0) mic = System.Environment.GetEnvironmentVariable("PSX_CAM_MIC") == "0" ? 0 : 1;
-                return mic == 1 && Enabled;
+                return mic == 1;
             }
+            set => mic = value ? 1 : 0;
+        }
+
+        /// <summary>The LAB's CAMCORDER: NIGHT GAIN row: round 2's gain cap
+        /// (3.2) or round 1's (1.7). PSX_CAM_GAIN sets any value.</summary>
+        public static bool GainRound2
+        {
+            get => GainCap > 2.45f;
+            set => gainCap = value ? 3.2f : 1.7f;
         }
 
         static float gainCap = -1f;

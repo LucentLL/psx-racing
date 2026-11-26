@@ -31,6 +31,120 @@ namespace PSXRacing
         /// longest the tape waits for a streamed place to be there.</summary>
         public const float CutStaticS = 0.28f, CutWaitS = 4f;
 
+        // ------------------------------------------------------------------
+        //  THE HANDS (the replayfx round, 2026-11-26; the owner: "please tone
+        //  down the shakiness of the cameras. Maybe shakiness can vary between
+        //  holders randomly, but currently they are all very shaky").
+        //
+        //  Round 2's hand shook the aim by a fixed number of DEGREES (up to
+        //  about 1.2 in yaw, a roll wandering up to 2.6 off level) whatever
+        //  the zoom, and the zoom closes to a 5-9 degree field of view on a
+        //  distant car: a degree of shake on a 5 degree lens threw the picture
+        //  a fifth of the frame. Now the tremor and drift are a FRACTION OF
+        //  THE FRAME (a person zoomed in braces), the same at every zoom
+        //  tighter than <see cref="RefFov"/> and capped at
+        //  <see cref="MaxShakeFrame"/> of it; and every bystander has their
+        //  own steadiness (<see cref="HolderOf"/>), fixed for them and the
+        //  same on every play of a tape: most hold fairly steady, some are a
+        //  little shakier, now and then one is rock steady (elbows on a wall,
+        //  a monopod). The same number shades the breathing sway, the roll
+        //  and how far a pan overshoots.
+        //  Switch: <see cref="SteadyHands"/> (LAB "CAMCORDER: STEADIER HANDS",
+        //  PSX_STEADYHANDS=0 = round 2's hands).
+        // ------------------------------------------------------------------
+
+        /// <summary>Per-holder steadiness on (false = round 2's hands, all alike).</summary>
+        public static bool SteadyHands = System.Environment.GetEnvironmentVariable("PSX_STEADYHANDS") != "0";
+
+        /// <summary>The aim's spring rate (rad/s), every hand.</summary>
+        public const float AimOmega = 7.5f;
+        /// <summary>The field of view (deg) the hand's shake is scaled to: at
+        /// it and wider the shake is a fixed angle, tighter it shrinks with
+        /// the frame.</summary>
+        public const float RefFov = 40f;
+        /// <summary>Round 2's tremor in degrees x this x the holder's
+        /// shakiness = the new tremor at <see cref="RefFov"/>.</summary>
+        public const float ShakeGain = 1.1f;
+        /// <summary>The most the tremor may move the picture, as a fraction of
+        /// the field of view, either axis.</summary>
+        public const float MaxShakeFrame = 0.025f;
+
+        /// <summary>One bystander's hands.</summary>
+        public struct Hand
+        {
+            /// <summary>0 rock steady .. 1 round 2's shake at <see cref="RefFov"/> (before <see cref="ShakeGain"/>).</summary>
+            public float shake;
+            /// <summary>The noise's phase (their own rhythm).</summary>
+            public float seed;
+            /// <summary>The aim spring's damping: lower overshoots a pan further.</summary>
+            public float zeta;
+            /// <summary>How far off level they hold it, degrees (steady).</summary>
+            public float tilt;
+            /// <summary>The breathing sway, metres.</summary>
+            public float sway;
+            /// <summary>0 round 2 (degrees, all alike); 1 this round.</summary>
+            public bool steady;
+            public string Kind => !steady ? "round 2" : shake < 0.2f ? "rock steady" : shake < 0.55f ? "fairly steady" : "a little shaky";
+
+            /// <summary>Round 2's hands (its own seed is the component's).</summary>
+            public static Hand Today => new Hand { shake = 1f, zeta = 0.62f, sway = 0.025f, steady = false };
+        }
+
+        static uint Mix(uint h)
+        {
+            h ^= h >> 16; h *= 0x7feb352dU; h ^= h >> 15; h *= 0x846ca68bU; h ^= h >> 16;
+            return h;
+        }
+        static float U01(ref uint h) { h = Mix(h + 0x9e3779b9U); return (h & 0xffffff) / 16777216f; }
+
+        /// <summary>The bystander at a race point (<paramref name="point"/>, lens
+        /// <paramref name="lens"/>, standing at <paramref name="pos"/>): the same
+        /// hands every time that tape is played. 10% rock steady, 65% fairly
+        /// steady, 25% a little shakier.</summary>
+        public static Hand HolderOf(int point, int lens, Vector3 pos)
+        {
+            uint h = Mix((uint)(point * 92821 + lens * 6271 + 17));
+            h = Mix(h ^ (uint)Mathf.RoundToInt(pos.x * 2f) * 73856093U);
+            h = Mix(h ^ (uint)Mathf.RoundToInt(pos.z * 2f) * 19349663U);
+            float kind = U01(ref h), within = U01(ref h);
+            float shake = kind < 0.10f ? Mathf.Lerp(0.06f, 0.14f, within)
+                        : kind < 0.75f ? Mathf.Lerp(0.28f, 0.50f, within)
+                        : Mathf.Lerp(0.60f, 0.85f, within);
+            return new Hand
+            {
+                shake = shake,
+                seed = 1f + 99f * U01(ref h),
+                zeta = Mathf.Lerp(0.85f, 0.60f, shake / 0.85f),
+                tilt = (U01(ref h) - 0.5f) * 1.6f * shake,
+                sway = 0.025f * (0.3f + 0.8f * shake),
+                steady = true,
+            };
+        }
+
+        /// <summary>The breathing sway of the whole body at the hand's clock (+ its seed).</summary>
+        public static Vector3 Sway(float tc, Hand hand) =>
+            new Vector3(Mathf.Sin(tc * 0.9f), Mathf.Sin(tc * 1.3f + 1f) * 0.6f, Mathf.Cos(tc * 0.7f)) * hand.sway;
+
+        /// <summary>The tremor and drift on the aim, degrees, at the hand's
+        /// clock <paramref name="tt"/> through a lens of <paramref name="fov"/>
+        /// (vertical, degrees).</summary>
+        public static void Shake(float tt, float seed, Hand hand, float fov, out float yaw, out float pitch, out float roll)
+        {
+            float n1 = Mathf.PerlinNoise(tt * 2.1f, seed) - 0.5f, n2 = Mathf.PerlinNoise(seed, tt * 2.6f) - 0.5f;
+            float n3 = Mathf.PerlinNoise(tt * 7.5f, seed + 5f) - 0.5f, n4 = Mathf.PerlinNoise(seed + 9f, tt * 0.35f) - 0.5f;
+            yaw = n1 * 0.9f + n3 * 0.25f + n4 * 1.2f;
+            pitch = n2 * 0.8f + n3 * 0.2f;
+            roll = n4 * 4f + n1 * 1.2f;   // camcorders are rarely level
+            if (!hand.steady) return;
+            // a fraction of the frame: the same at every zoom tighter than RefFov
+            float g = ShakeGain * hand.shake * Mathf.Min(fov, RefFov) / RefFov;
+            float cap = MaxShakeFrame * fov;
+            yaw = Mathf.Clamp(yaw * g, -cap, cap);
+            pitch = Mathf.Clamp(pitch * g, -cap, cap);
+            // the horizon: a level-ish hold of their own, wandering less
+            roll = roll * (0.1f + 0.45f * hand.shake) + hand.tilt;
+        }
+
         RaceReplay replay;
         Camera cam;
         float baseNear = 0.25f, baseFov = 60f;
@@ -219,9 +333,12 @@ namespace PSXRacing
             handClock += dt;
 
             Vector3 target = car.transform.position + Vector3.up * 0.7f;
-            float tc = handClock + seed;
+            // THIS bystander's hands (fixed for them, the same on every play of the tape)
+            var hand = SteadyHands ? HolderOf(pi, li, lens.pos) : Hand.Today;
+            float hseed = SteadyHands ? hand.seed : seed;
+            float tc = handClock + hseed;
             // Breathing sway of the whole body, a few centimetres.
-            Vector3 eye = lens.pos + new Vector3(Mathf.Sin(tc * 0.9f), Mathf.Sin(tc * 1.3f + 1f) * 0.6f, Mathf.Cos(tc * 0.7f)) * 0.025f;
+            Vector3 eye = lens.pos + Sway(tc, hand);
             float dist = Vector3.Distance(eye, target);
             // Framing the car loosely, tighter when it is far.
             float frameM = lens.crouch ? 7.5f : 9.5f;
@@ -240,7 +357,8 @@ namespace PSXRacing
                 focusVel = 0f;
                 seeded = true;
             }
-            const float omega = 7.5f, zeta = 0.62f;
+            const float omega = AimOmega;
+            float zeta = hand.zeta;
             float dy = Mathf.DeltaAngle(yaw, wantYaw);
             float acc = omega * omega * dy - 2f * zeta * omega * yawVel;
             yawVel = Mathf.Clamp(yawVel + acc * dt, -MaxPanDegS, MaxPanDegS);
@@ -256,12 +374,7 @@ namespace PSXRacing
             fov = Mathf.Exp(lf);
 
             // ---- the hand: tremor and drift ----
-            float tt = handClock;
-            float n1 = Mathf.PerlinNoise(tt * 2.1f, seed) - 0.5f, n2 = Mathf.PerlinNoise(seed, tt * 2.6f) - 0.5f;
-            float n3 = Mathf.PerlinNoise(tt * 7.5f, seed + 5f) - 0.5f, n4 = Mathf.PerlinNoise(seed + 9f, tt * 0.35f) - 0.5f;
-            float shakeYaw = n1 * 0.9f + n3 * 0.25f + n4 * 1.2f;
-            float shakePitch = n2 * 0.8f + n3 * 0.2f;
-            float roll = n4 * 4f + n1 * 1.2f;   // camcorders are rarely level
+            Shake(handClock, hseed, hand, fov, out float shakeYaw, out float shakePitch, out float roll);
             cam.transform.position = eye;
             cam.transform.rotation = Quaternion.Euler(pitch + shakePitch, yaw + shakeYaw, roll);
             cam.fieldOfView = fov;

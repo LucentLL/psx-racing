@@ -40,14 +40,34 @@ namespace PSXRacing
     /// its pre-occlusion colour too: never a wrong colour, at worst a few
     /// pixels of a pole without occlusion.
     ///
+    /// THAT "AT WORST" WAS WRONG (the replayfx round, 2026-11-26; the owner,
+    /// over a night camcorder frame with a utility pole close to the lens:
+    /// "During replays I can see an illuminated silhouette of cars through
+    /// objects"). The bit marks every paint pixel DRAWN, and nothing clears it
+    /// when a pole, a trunk, a fence or a leaf card is drawn over the car
+    /// later: the car's whole silhouette on that object was handed back
+    /// without its occlusion, a lighter car-shaped patch. In the chase view
+    /// little stands between lens and car; a roadside camera stands behind
+    /// poles and trees. <see cref="Seen"/>: after every opaque and cutout the
+    /// cars' paint is drawn once more, no colour, depth-tested against the
+    /// final depth (PSX/CarPaint's "PSXCarSeen" pass), and marks
+    /// <see cref="SeenBit"/> only where its paint is the surface on screen;
+    /// the keep passes are gated by that bit (PSX/SpeedBlur pass 5).
+    ///
     /// Switch: PSX_CARDOTS=0 = the 28480caf picture (no mark, no passes).
+    /// PSX_CARSEEN=0 = the cardots picture (keep where the paint was drawn).
     /// </summary>
     public static class CarDots
     {
         /// <summary>The stencil bit a car's paint writes (DamageCabin uses 64).</summary>
         public const int Bit = 128;
+        /// <summary>The bit the "PSXCarSeen" pass writes: paint drawn AND nearest at the end of the opaques.</summary>
+        public const int SeenBit = 32;
 
         public static bool On = System.Environment.GetEnvironmentVariable("PSX_CARDOTS") != "0";
+
+        /// <summary>Keep only the paint that is SEEN (LAB "CARS: NO SHAPE THROUGH POLES"); false = the cardots marking.</summary>
+        public static bool Seen = System.Environment.GetEnvironmentVariable("PSX_CARSEEN") != "0";
 
         static readonly int RefId = Shader.PropertyToID("_PSXStRef");
         static readonly int WriteId = Shader.PropertyToID("_PSXStWrite");
@@ -146,7 +166,10 @@ namespace PSXRacing
         //  The two passes (SpeedBlurFeature enqueues them; PSX/SpeedBlur pass 4)
         // ------------------------------------------------------------------
         public const int ShaderPass = 4;
+        /// <summary>PSX/SpeedBlur's keep gated by <see cref="SeenBit"/> (<see cref="Seen"/>).</summary>
+        public const int ShaderPassSeen = 5;
         static KeepPass save, restore;
+        static SeenPass seen;
 
         /// <summary>For every base camera whose frame gets the occlusion: keep
         /// the marked pixels as they were drawn.</summary>
@@ -156,6 +179,15 @@ namespace PSXRacing
             save ??= new KeepPass(false) { renderPassEvent = RenderPassEvent.BeforeRenderingTransparents - 1, requiresIntermediateTexture = true };
             restore ??= new KeepPass(true) { renderPassEvent = RenderPassEvent.BeforeRenderingTransparents + 1, requiresIntermediateTexture = true };
             save.material = restore.material = material;
+            int pass = Seen ? ShaderPassSeen : ShaderPass;
+            save.pass = restore.pass = pass;
+            if (Seen)
+            {
+                // (same event as the copy-out, enqueued first: URP keeps the order of equal events)
+                seen ??= new SeenPass { renderPassEvent = RenderPassEvent.BeforeRenderingTransparents - 1, requiresIntermediateTexture = true };
+                renderer.EnqueuePass(seen);
+                SeenFrames++;
+            }
             renderer.EnqueuePass(save);
             renderer.EnqueuePass(restore);
             Frames++;
@@ -163,6 +195,45 @@ namespace PSXRacing
 
         /// <summary>Frames the passes were enqueued for (the tools' proof).</summary>
         public static int Frames;
+        /// <summary>Frames the seen-paint mark was enqueued for (the tools' proof).</summary>
+        public static int SeenFrames;
+
+        /// <summary>
+        /// The cars' paint once more, after every opaque and cutout: PSX/CarPaint's
+        /// "PSXCarSeen" pass (no colour, no depth write, depth-tested against the
+        /// final depth) writes <see cref="SeenBit"/> where the paint is on screen.
+        /// One draw per visible paint renderer, from the camera's own culling.
+        /// </summary>
+        class SeenPass : ScriptableRenderPass
+        {
+            static readonly ShaderTagId Tag = new ShaderTagId("PSXCarSeen");
+            class Data { public RendererListHandle list; }
+
+            public SeenPass() { profilingSampler = new ProfilingSampler("PSX Car Seen (mark)"); }
+
+            public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
+            {
+                var resources = frameData.Get<UniversalResourceData>();
+                if (resources.isActiveTargetBackBuffer) return;
+                var colour = resources.activeColorTexture;
+                var depth = resources.activeDepthTexture;
+                if (!colour.IsValid() || !depth.IsValid()) return;
+                var rendering = frameData.Get<UniversalRenderingData>();
+                var camera = frameData.Get<UniversalCameraData>();
+                var lights = frameData.Get<UniversalLightData>();
+                var draw = RenderingUtils.CreateDrawingSettings(Tag, rendering, camera, lights, SortingCriteria.CommonOpaque);
+                var filter = new FilteringSettings(RenderQueueRange.opaque);
+                using (var builder = renderGraph.AddRasterRenderPass<Data>("PSX Car Seen (mark)", out var data))
+                {
+                    data.list = renderGraph.CreateRendererList(new RendererListParams(rendering.cullResults, draw, filter));
+                    builder.UseRendererList(data.list);
+                    // (ColorMask 0: the colour is bound only so the pass shares the opaques' targets)
+                    builder.SetRenderAttachment(colour, 0, AccessFlags.ReadWrite);
+                    builder.SetRenderAttachmentDepth(depth, AccessFlags.ReadWrite);
+                    builder.SetRenderFunc(static (Data d, RasterGraphContext ctx) => ctx.cmd.DrawRendererList(d.list));
+                }
+            }
+        }
 
         class Kept : ContextItem
         {
@@ -173,11 +244,12 @@ namespace PSXRacing
         class KeepPass : ScriptableRenderPass
         {
             public Material material;
+            public int pass = ShaderPass;
             readonly bool back;
             static readonly int BlitTextureId = Shader.PropertyToID("_BlitTexture");
             static readonly int BlitScaleBiasId = Shader.PropertyToID("_BlitScaleBias");
             static readonly MaterialPropertyBlock Block = new MaterialPropertyBlock();
-            class Data { public TextureHandle source; public Material material; }
+            class Data { public TextureHandle source; public Material material; public int pass; }
 
             public KeepPass(bool back) { this.back = back; profilingSampler = new ProfilingSampler(back ? "PSX Car Keep (back)" : "PSX Car Keep (out)"); }
 
@@ -209,6 +281,7 @@ namespace PSXRacing
                 {
                     data.source = src;
                     data.material = material;
+                    data.pass = pass;
                     builder.UseTexture(src);
                     // (the copy's untouched pixels are never read back: the same stencil gates both)
                     builder.SetRenderAttachment(dst, 0, back ? AccessFlags.ReadWrite : AccessFlags.Write);
@@ -218,7 +291,7 @@ namespace PSXRacing
                         Block.Clear();
                         Block.SetTexture(BlitTextureId, d.source);
                         Block.SetVector(BlitScaleBiasId, new Vector4(1f, 1f, 0f, 0f));
-                        ctx.cmd.DrawProcedural(Matrix4x4.identity, d.material, ShaderPass, MeshTopology.Triangles, 3, 1, Block);
+                        ctx.cmd.DrawProcedural(Matrix4x4.identity, d.material, d.pass, MeshTopology.Triangles, 3, 1, Block);
                     });
                 }
             }

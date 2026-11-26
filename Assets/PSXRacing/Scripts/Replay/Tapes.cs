@@ -40,11 +40,17 @@ namespace PSXRacing
         /// off by default until its own check has played one).</summary>
         public static bool MontageEnabled
         {
+            get => MontageOn && Enabled;
+        }
+        /// <summary>The montage door's own switch (the LAB's TAPES: THE MONTAGE row).</summary>
+        public static bool MontageOn
+        {
             get
             {
                 if (montageOn < 0) montageOn = System.Environment.GetEnvironmentVariable("PSX_MONTAGE") == "1" ? 1 : 0;
-                return montageOn == 1 && Enabled;
+                return montageOn == 1;
             }
+            set => montageOn = value ? 1 : 0;
         }
         static int flexOn = -1;
         /// <summary>The flex score (PSX_TAPE_FLEX, default on): a tape's price
@@ -56,6 +62,7 @@ namespace PSXRacing
                 if (flexOn < 0) flexOn = System.Environment.GetEnvironmentVariable("PSX_TAPE_FLEX") == "0" ? 0 : 1;
                 return flexOn == 1;
             }
+            set => flexOn = value ? 1 : 0;
         }
 
         /// <summary>For tools: open or shut the montage door in this process.</summary>
@@ -68,6 +75,8 @@ namespace PSXRacing
                 if (enabled < 0) enabled = System.Environment.GetEnvironmentVariable("PSX_TAPES") == "0" ? 0 : 1;
                 return enabled == 1;
             }
+            // (the LAB's TAPES ON THE SHELF row; read where each door is drawn)
+            set => enabled = value ? 1 : 0;
         }
 
         public const string Magic = "PSXT";
