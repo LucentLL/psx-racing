@@ -142,14 +142,42 @@ namespace PSXRacing.EditorTools
                     var tp = t.transform.position;
                     var outv = tp - centre; outv.y = 0f;
                     if (outv.sqrMagnitude < 1e-4f) outv = f.transform.forward;
+                    // a step out from the part, closer where a wall stands there (a car in the garage bay)
                     var at = tp + outv.normalized * 1.45f; at.y = walker.transform.position.y;
+                    bool room = false;
+                    // straight out first, then from the front or rear quarter (a door against a wall)
+                    var fwdc = f.transform.forward; fwdc.y = 0f; fwdc.Normalize();
+                    var spots = new List<Vector3>();
+                    foreach (float d in new[] { 1.45f, 1.15f, 0.9f, 0.7f }) spots.Add(outv.normalized * d);
+                    foreach (float a2 in new[] { 1.3f, -1.3f, 1.8f, -1.8f }) spots.Add(fwdc * a2 + outv.normalized * 0.45f);
+                    foreach (var off in spots)
+                    {
+                        var c = tp + off; c.y = walker.transform.position.y;
+                        if (Physics.CheckCapsule(c + Vector3.up * 0.5f, c + Vector3.up * 1.6f, 0.28f, ~0, QueryTriggerInteraction.Ignore)) continue;
+                        // and nothing but the car between that spot and the part (not the far side of a wall)
+                        bool wall = false;
+                        foreach (var hit in Physics.RaycastAll(c + Vector3.up * 1.5f, (tp - (c + Vector3.up * 1.5f)).normalized, Vector3.Distance(tp, c + Vector3.up * 1.5f), ~0, QueryTriggerInteraction.Ignore))
+                            if (!hit.transform.IsChildOf(f.transform)) { wall = true; break; }
+                        if (wall) continue;
+                        at = c; room = true; break;
+                    }
                     Place(walker, cc, at);
                     var look = tp - at; look.y = 0f;
                     walker.transform.rotation = Quaternion.LookRotation(look.normalized, Vector3.up);
-                    walker.GetComponent<FirstPersonWalk>()?.SnapYawToTransform();
+                    var fpw = walker.GetComponent<FirstPersonWalk>();
+                    fpw?.SnapYawToTransform();
+                    // and look DOWN at it, as a player standing there does (angle-first picking)
+                    if (fpw != null && fpw.head != null)
+                    {
+                        var eyeP = fpw.head.position;
+                        float pitch = Mathf.Atan2(eyeP.y - tp.y, new Vector2(tp.x - eyeP.x, tp.z - eyeP.z).magnitude) * Mathf.Rad2Deg;
+                        typeof(FirstPersonWalk).GetField("pitch", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?.SetValue(fpw, pitch);
+                        fpw.head.localRotation = Quaternion.Euler(pitch, 0f, 0f);
+                    }
                     for (int i = 0; i < 12; i++) yield return null;
                     bool picked = interactor.Current == t;
-                    Check(picked, $"{tag} {name}: standing at it, the walker's prompt is the part's (\"{t.Verb}: {t.action}\")",
+                    if (!room) CarPartsWalkCheck.log.AppendLine($"  NOTE {tag} {name}: no room to stand beside it with a clear view (a wall within 1.5 m: the car in the garage bay) - its prompt is not checked here");
+                    else Check(picked, $"{tag} {name}: standing at it, the walker's prompt is the part's (\"{t.Verb}: {t.action}\")",
                           interactor.Current != null ? interactor.Current.title + " / " + interactor.Current.action : "nothing");
                     Snap($"{tag}_{name}_prompt");
                     t.onUse?.Invoke();

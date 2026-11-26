@@ -110,7 +110,7 @@ namespace PSXRacing.EditorTools
                 var row = LabSwitches.Find("carpartspreview");
                 var row1 = LabSwitches.Find("carparts");
                 Check(row != null && row.Present && !row.Default && row1 != null && row1.Present && row1.Default,
-                      "LAB rows: OPEN HOOD, TRUNK AND DOORS default ON; OPENING PARTS: STAND-IN PREVIEW default OFF");
+                      "LAB rows: OPEN HOOD, TRUNK AND DOORS default ON; OPENING: STAND-IN PREVIEW default OFF");
 
                 // ---- the walker's targets ------------------------------------
                 var feet = CarPartsFoot.Attach(shell, mf, def);

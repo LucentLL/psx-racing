@@ -107,6 +107,14 @@ namespace PSXRacing.EditorTools
             if (int.TryParse(LabPlayCheck.Env("PSX_LAB_PARTS", ""), out int partsMask) && partsMask != 0)
             {
                 var cb = car.GetComponent<CarBody>();
+                // parked: brought to a stop first (the rules refuse a moving car)
+                var rb = car.GetComponent<Rigidbody>();
+                for (float t1 = Time.realtimeSinceStartup; Time.realtimeSinceStartup - t1 < 15f && Mathf.Abs(car.speedKmh) >= 1f;)
+                {
+                    car.throttleInput = 0f; car.brakeInput = 1f; car.handbrakeInput = true;
+                    if (rb != null && !rb.isKinematic) { rb.linearVelocity = Vector3.zero; rb.angularVelocity = Vector3.zero; }
+                    yield return null;
+                }
                 bool got = CarParts.Request(cb, partsMask, true);
                 var cp = cb != null ? CarParts.Find(cb.bodyFilter) : null;
                 if (cp != null) cp.Snap();

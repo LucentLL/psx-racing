@@ -101,6 +101,18 @@ namespace PSXRacing.EditorTools
             return (eye, Quaternion.LookRotation(c + Vector3.up * 0.6f - eye));
         }
 
+        /// <summary>Batch, STAGE 3 (edit mode): the self-tests (carparts, the LAB),
+        /// the touch panel with OPEN at every aspect (DriveHudPreview with
+        /// PSX_DRIVEHUD_OPEN=1) and the WHEEL SETUP pages (DebugBenchPreview).</summary>
+        public static void RunStage3Edit()
+        {
+            LifeSimSelfTest.RunCarParts();
+            LifeSimSelfTest.RunLab();
+            System.Environment.SetEnvironmentVariable("PSX_DRIVEHUD_OPEN", "1");
+            try { DriveHudPreview.Capture(); } catch (System.Exception e) { Debug.LogException(e); }
+            try { DebugBenchPreview.CaptureControls(); } catch (System.Exception e) { Debug.LogException(e); }
+        }
+
         /// <summary>Batch: the shots, then the self-test (one editor start).</summary>
         public static void RunWithSelfTest()
         {

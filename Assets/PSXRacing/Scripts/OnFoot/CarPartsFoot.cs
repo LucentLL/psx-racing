@@ -131,6 +131,8 @@ namespace PSXRacing.OnFoot
                     Relabel();
                 };
             }
+            // the prompt on screen re-reads its words now
+            if (Application.isPlaying) foreach (var fs in Object.FindObjectsByType<FootScreen>()) fs.Invalidate();
         }
 
         void Update()

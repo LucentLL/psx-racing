@@ -17,7 +17,7 @@ namespace PSXRacing
     /// intact car, so the body swap is skipped for it.
     ///
     /// Drawn in a flat checker with STAND-IN written on it, and ONLY behind the
-    /// LAB row "OPENING PARTS: STAND-IN PREVIEW" (default OFF; env
+    /// LAB row "OPENING: STAND-IN PREVIEW" (default OFF; env
     /// PSX_PARTS_STANDIN=1) or a test's <see cref="Override"/>: it never appears
     /// in the owner's game by default.
     /// </summary>
@@ -31,7 +31,7 @@ namespace PSXRacing
 
         public static bool On => Override >= 0 ? Override == 1 : Preview;
 
-        /// <summary>LAB "carpartspreview" (OPENING PARTS: STAND-IN PREVIEW), default
+        /// <summary>LAB "carpartspreview" (OPENING: STAND-IN PREVIEW), default
         /// OFF; env PSX_PARTS_STANDIN=1. The only way to see the feature in an exe
         /// before a pilot car exists (coordinator, 2026-11-26: the owner cannot set
         /// environment variables).</summary>
@@ -160,7 +160,7 @@ namespace PSXRacing
                 float yBack = probe != null ? probe.TopAt(z0 + 0.06f, w * 0.6f) : d.cowlY;
                 var a = new Vector3(-w, yFront + Proud, z1);
                 var b = new Vector3(w, yBack + Proud, z0);
-                var mesh = Slab("STANDIN_Trunk", yaw, off, a, b, Axis.Y, true);
+                var mesh = Slab("STANDIN_Trunk", yaw, off, a, b, Axis.Y, false, false);
                 var pivot = new Vector3(0f, yFront + Proud, z1);
                 parts.Add(Part("Trunk", mesh, yaw, off, pivot, Vector3.right, 60f, new Vector3(0f, yBack, z0), Vector3.up));
                 string glass = probe != null ? $"; the mesh's own rear-glass base (first rise > 8 cm above the deck going forward) is at z {probe.GlassBase(z0, yBack, w * 0.6f):0.000}" : "";
@@ -245,7 +245,7 @@ namespace PSXRacing
         /// <paramref name="thin"/>: Y = a lid, sloped from corner a's height
         /// to b's; X = a door), in mesh space, with each big face mapped 0..1
         /// so the STAND-IN label spans it.</summary>
-        static Mesh Slab(string name, Quaternion yaw, Vector3 off, Vector3 a, Vector3 b, Axis thin, bool flipU)
+        static Mesh Slab(string name, Quaternion yaw, Vector3 off, Vector3 a, Vector3 b, Axis thin, bool flipU, bool flipV = false)
         {
             var corners = new Vector3[8];
             for (int i = 0; i < 8; i++)
@@ -283,6 +283,7 @@ namespace PSXRacing
                 for (int k = 0; k < 4; k++) v.Add(corners[f[k]]);
                 var uvs = new[] { new Vector2(0, 0), new Vector2(0, 1), new Vector2(1, 1), new Vector2(1, 0) };
                 if (flipU) for (int k = 0; k < 4; k++) uvs[k].x = 1f - uvs[k].x;
+                if (flipV) for (int k = 0; k < 4; k++) uvs[k].y = 1f - uvs[k].y;
                 uv.AddRange(uvs);
                 // wind outward whatever the corner order and the yaw did
                 var n = Vector3.Cross(v[i0 + 1] - v[i0], v[i0 + 2] - v[i0]);

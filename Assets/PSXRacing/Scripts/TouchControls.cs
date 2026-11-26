@@ -220,7 +220,7 @@ namespace PSXRacing
                 continueBtn.gameObject.SetActive(show);
         }
         /// <summary>The OPEN button's width and its gap to the ACTION slot.</summary>
-        public const float OpenW = 150f, OpenGap = 16f;
+        public const float OpenW = 170f, OpenGap = 16f;
 
         /// <summary>Show or hide OPEN (carparts), with the step it will take.</summary>
         public void SetOpen(bool show, string label = null)
