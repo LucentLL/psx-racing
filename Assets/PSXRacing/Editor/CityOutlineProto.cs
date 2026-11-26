@@ -285,6 +285,89 @@ namespace PSXRacing.EditorTools
             if (Application.isBatchMode) UnityEditor.EditorApplication.Exit(code);
         }
 
+
+        /// <summary>(round 5 item 4) THE REAL CLUSTERS: for each spot of the table, every junction fan cluster within its
+        /// radius (the generator's own clustering: the nodes that share a FanKey), its arms (edges with one end in the
+        /// cluster) sampled from the line model's borders out to 80 m, solved by the pure JunctionOutline. Writes
+        /// c7_outline2_{tag}.json (per spot, per cluster: nodes, corners, cuts, outline, refusal) and .txt.</summary>
+        public static void RunClusters()
+        {
+            var inv = CultureInfo.InvariantCulture;
+            string tag = System.Environment.GetEnvironmentVariable("PSX_C7_TAG") ?? "run";
+            string dir = Path.Combine(Directory.GetParent(Application.dataPath).FullName, "Screenshots", "c7");
+            Directory.CreateDirectory(dir);
+            var log = new StringBuilder($"C7 OUTLINE (real clusters, pure solver) {System.DateTime.Now:yyyy-MM-dd HH:mm} tag {tag}\n");
+            var json = new StringBuilder("{\n");
+            int code = 0;
+            try
+            {
+                var map = CityMap.Get();
+                var trims = CityMeshes.ComputeTrims(map);
+                var rows = CityIslandGate.ReadSpots(System.Environment.GetEnvironmentVariable("PSX_ISL_SPOTS"));
+                bool firstSpot = true;
+                foreach (var sp in rows)
+                {
+                    var keys = new Dictionary<int, List<int>>();
+                    for (int n = 0; n < map.nodes.Length; n++)
+                    {
+                        if (!trims.patch[n] || (map.nodes[n] - sp.p).magnitude > sp.r) continue;
+                        int k = CityMeshes.FanKey(trims, n);
+                        if (!keys.TryGetValue(k, out var l)) keys[k] = l = new List<int>();
+                        l.Add(n);
+                    }
+                    // a cluster's members may lie beyond the radius: take every node of the key
+                    foreach (var k in keys.Keys.ToList())
+                        for (int n = 0; n < map.nodes.Length; n++)
+                            if (trims.patch[n] && CityMeshes.FanKey(trims, n) == k && !keys[k].Contains(n)) keys[k].Add(n);
+                    if (!firstSpot) json.Append(",\n"); firstSpot = false;
+                    json.Append($"  \"{sp.id}\": [");
+                    bool firstC = true;
+                    foreach (var kv in keys)
+                    {
+                        var cluster = new HashSet<int>(kv.Value);
+                        var arms = new List<JunctionOutline.Arm>();
+                        foreach (int n in cluster)
+                            foreach (int ei in map.nodeEdges[n])
+                            {
+                                var e = map.edges[ei];
+                                if (e.a == e.b) continue;
+                                int other = e.a == n ? e.b : e.a;
+                                if (cluster.Contains(other)) continue;
+                                var arm = new JunctionOutline.Arm { id = ei, oneway = e.oneway, name = e.name ?? "", radius = e.link ? 15f : e.cls >= 3 ? 12f : e.cls >= 1 ? 9f : 6f };
+                                bool fwd = e.a == n;
+                                for (float d = 0f; d <= Mathf.Min(e.length, 80f) + 1e-3f; d += JunctionOutline.Step)
+                                {
+                                    float s = fwd ? d : e.length - d;
+                                    var t = e.TangentAt(s); if (!fwd) t = -t;
+                                    var left = new Vector2(-t.y, t.x);
+                                    LineModel.Extents(e, s, out float eM, out float eP);
+                                    var p = e.PointAt(s);
+                                    arm.C.Add(p); arm.L.Add(p + left * (fwd ? eP : eM)); arm.R.Add(p - left * (fwd ? eM : eP));
+                                }
+                                if (arm.C.Count >= 4) arms.Add(arm);
+                            }
+                        var r = JunctionOutline.Solve(arms);
+                        log.Append(string.Format(inv, "spot {0} cluster {1} ({2} nodes {3}): {4} arms; corners: {5}; {6}; outline {7} vertices, fill {8} triangles ({9} slivers); solve {10:0.0} ms, fill {11:0.0} ms; check: {12}\n",
+                            sp.id, kv.Key, cluster.Count, string.Join(" ", cluster.Select(x => "n" + x)), arms.Count, string.Join(", ", r.corners.Select(c => c.shape + (c.r > 0 ? $" r{c.r:0.0}" : ""))),
+                            r.refused == null ? "solved" : "REFUSED: " + r.refused, r.outline.Count, r.tris.Count / 3, r.slivers, r.solveMs, r.fillMs, JunctionOutlineTests.Check(r, 0.5f) ?? "PASS"));
+                        if (!firstC) json.Append(", "); firstC = false;
+                        json.Append($"{{\"key\": {kv.Key}, \"nodes\": [{string.Join(",", cluster)}], \"refused\": \"{(r.refused ?? "").Replace("\"", "'")}\", \"corners\": [");
+                        json.Append(string.Join(", ", r.corners.Select(c => string.Format(inv, "{{\"shape\": \"{0}\", \"r\": {1:0.00}, \"tA\": [{2:0.00}, {3:0.00}], \"tB\": [{4:0.00}, {5:0.00}]}}", c.shape, c.r, c.tA.x, c.tA.y, c.tB.x, c.tB.y))));
+                        json.Append("], \"outline\": [");
+                        json.Append(string.Join(", ", r.outline.Select(q => string.Format(inv, "[{0:0.00}, {1:0.00}]", q.x, q.y))));
+                        json.Append("]}");
+                    }
+                    json.Append("]");
+                }
+                json.Append("\n}\n");
+            }
+            catch (System.Exception ex) { log.Append("FAILED: " + ex + "\n"); code = 1; }
+            File.WriteAllText(Path.Combine(dir, $"c7_outline2_{tag}.json"), json.ToString());
+            File.WriteAllText(Path.Combine(dir, $"c7_outline2_{tag}.txt"), log.ToString());
+            Debug.Log(log.ToString());
+            if (Application.isBatchMode) UnityEditor.EditorApplication.Exit(code);
+        }
+
         static List<int> SplitNodes(string line)
         {
             // the csv's 6th column: "n4434 n4441 ..."
