@@ -49,6 +49,9 @@ namespace PSXRacing
         /// <summary>(roadevents) A race start gate's own change, put back alone: a pop at this many pixels (at 512x288).</summary>
         public const int MinGatePx = 4;
         bool gateNoted;
+        int segGateMaxPx; float segGateMaxD = -1f;
+
+        float GateStepDistance(Vector3 eye) => CulpritDistance(Cause.Gate, eye, out _);
         public const float CutJumpM = 20f, CutTurnDeg = 45f;
         public const int AfterCutFrames = 12;
 
@@ -148,6 +151,7 @@ namespace PSXRacing
         {
             seg = name; carT = car; measuring = true;
             segDistM = 0f; segSeconds = 0f; segFrames = 0; segPopFrames = 0; segCuts = 0;
+            segGateMaxPx = 0; segGateMaxD = -1f;
             haveEye = false; havePrev = false; framesSinceCut = 9999;
             for (int i = 0; i < evCount.Length; i++) { evCount[i] = 0; evAfterCut[i] = 0; evLight[i] = 0; lastPopFrame[i] = -100; pairs[i].Clear(); }
             stripEvery = stripEveryFrames; stripN = 0; afterCutSave = 0; cutIndex = 0;
@@ -177,6 +181,10 @@ namespace PSXRacing
                       .Append(km > 0.01f ? " (" + (evCount[i] / km).ToString("0.0", CultureInfo.InvariantCulture) + "/km)" : "")
                       .Append(evAfterCut[i] > 0 ? ", " + evAfterCut[i] + " within " + AfterCutFrames + " frames of a cut" : "")
                       .Append(", light ").Append(evLight[i].ToString("0", CultureInfo.InvariantCulture));
+            if (City.CityRaceStarts.Gates.Count > 0)
+                sb.Append("\n    race start gates' own change (put back alone): largest ").Append(segGateMaxPx).Append(" px")
+                  .Append(segGateMaxD >= 0f ? " at " + segGateMaxD.ToString("0", CultureInfo.InvariantCulture) + " m" : "")
+                  .Append(" (a pop at ").Append(Mathf.Max(1, MinGatePx * (W * H) / (512 * 288))).Append(" px, frame ").Append(W).Append("x").Append(H).Append(")");
             string line = sb.ToString();
             summary.AppendLine(line);
             Write("pops.csv", csv.ToString());
@@ -288,7 +296,9 @@ namespace PSXRacing
                 Render(cam, readB, ref pixB);
                 RestoreAll();
                 Diff(pixA, pixB, out int gpx, out double glight, out float gcx, out float gcy);
-                if (gpx >= Mathf.Max(1, MinGatePx * (W * H) / (512 * 288)))
+                int gateMin = Mathf.Max(1, MinGatePx * (W * H) / (512 * 288));
+                if (gpx > segGateMaxPx) { segGateMaxPx = gpx; segGateMaxD = GateStepDistance(eye); }
+                if (gpx >= gateMin)
                 {
                     if (pixB0 == null || pixB0.Length != pixB.Length) pixB0 = new byte[pixB.Length];
                     System.Buffer.BlockCopy(pixB, 0, pixB0, 0, pixB.Length);
