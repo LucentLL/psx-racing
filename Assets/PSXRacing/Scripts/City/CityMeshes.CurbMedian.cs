@@ -284,7 +284,7 @@ namespace PSXRacing.City
                     if (cmW[j] <= 0f) d = Mathf.Min(d, Mathf.Abs(sections[j].s - sk));
                     else if (cmK[j] != cmK[k]) dc = Mathf.Min(dc, 0.5f * Mathf.Abs(sections[j].s - sk));
                 }
-                cmH[k] = MedianRunsOn ? 1f : LineModel.Smooth(d / KerbEndRampM);   // (c7roads) full height to its end, closed by a face
+                cmH[k] = LineModel.Smooth(d / KerbEndRampM);   // (c7roads tried full height to a closed end: the roadside audit found a face in the body box's way; kept the ramp)
                 // the curb fades out where the median widens past CurbMedianMaxM
                 // (and in where it narrows): the change half way between
                 if (dc < float.MaxValue) cmC[k] = cmK[k] > 0.5f ? 0.5f + 0.5f * LineModel.Smooth(dc / KerbEndRampM) : 0.5f - 0.5f * LineModel.Smooth(dc / KerbEndRampM);
@@ -363,9 +363,12 @@ namespace PSXRacing.City
         //  between two runs of the same kind and twin is filled; a flat (wide,
         //  at grade) run shorter than MedianFlatRunMinM and any run shorter
         //  than MedianRunMinM is dropped; a flat median's top is grass end to
-        //  end (a nose is a curbed island's); and an island stands at its full
-        //  height to its last section, closed by its end face there - no 1.5 m
-        //  ramp down to the road. PSX_CITY_MEDIANRUNS=0: as before.
+        //  end (a nose is a curbed island's); a lattice cell between the two
+        //  carriageways is the median's grass (Walks.cs PavedRule); the ray fills
+        //  only where it found nothing (never across an opening or a crossing
+        //  street). The island's 1.5 m end ramp is kept (full height to a closed
+        //  end put a face in the body box's way: the roadside audit).
+        //  PSX_CITY_MEDIANRUNS=0: as before.
         // ------------------------------------------------------------------
         public static bool MedianRunsOn = System.Environment.GetEnvironmentVariable("PSX_CITY_MEDIANRUNS") != "0";
         const float MedianGapFillM = 8f, MedianFlatRunMinM = 20f, MedianRunMinM = 3f;
@@ -486,8 +489,8 @@ namespace PSXRacing.City
             }
             // a stop mid-run: the verge beside falls away under the flat end, so
             // its end is closed by a face down into it
-            if (cmW[i - 1] <= 0f || (MedianRunsOn && i - 1 == 0 && cmEndA)) CurbMedianCap(tb, o, cmProfA, -Flat2(eB - eA));
-            if (cmW[i] <= 0f || (MedianRunsOn && i == sections.Count - 1 && cmEndB)) CurbMedianCap(tb, o, cmProfB, Flat2(eB - eA));
+            if (cmW[i - 1] <= 0f) CurbMedianCap(tb, o, cmProfA, -Flat2(eB - eA));
+            if (cmW[i] <= 0f) CurbMedianCap(tb, o, cmProfB, Flat2(eB - eA));
             // a bed's plants, on the risen island only
             if (top == MedianTopBed && cmW[i - 1] > 0f && cmW[i] > 0f && hA > 0.99f && hB > 0.99f)
                 MedianPlantSpan(e, i, eA, eB, outA, outB, sA, sB, cmProfA, cmProfB, wA, wB);
