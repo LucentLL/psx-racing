@@ -135,8 +135,8 @@ namespace PSXRacing.City
         //  BayCrossFloorM) to its end node. The merge zone (CityMeshes.Merge) then cuts the link's ribbon to the
         //  nose at the turn point and widens the host there: no ribbon, verge or land of the link along the bay.
         // ------------------------------------------------------------------
-        public const float BayLenMaxM = 250f, BayCorridorM = 20f, BayShareMin = 0.6f, BayInsetM = 0.3f, BayCrossK = 1.6f, BayCrossFloorM = 15f;
-        public sealed class Bay { public int node, branch, host; public float wayLen, turnAt, gapEnd, inside; }
+        public const float BayMedianSeekM = 40f, BayLenMaxM = 250f, BayCorridorM = 20f, BayShareMin = 0.6f, BayInsetM = 0.3f, BayCrossK = 1.6f, BayCrossFloorM = 15f;
+        public sealed class Bay { public int node, branch, host; public float wayLen, turnAt, gapEnd, inside; public bool median; }
         public static readonly List<Bay> Bays = new List<Bay>();
         static readonly HashSet<int> bayEdges = new HashSet<int>();
         /// <summary>R0: is this link edge part of a bay laid along its host?</summary>
@@ -162,7 +162,25 @@ namespace PSXRacing.City
             if (WH.Count < 4) return;
             var gaps = new float[nB];
             GoreOverlap(wb, WH, sideB, sideH, 0f, 0f, 1f, ds, 0f, gaps);
-            int inside = 0; for (int i = 0; i < nB; i++) if (gaps[i] <= BayCorridorM) inside++;
+            // the corridor: a median bay (another carriageway of the host's name lies beyond it, away from the host,
+            // within BayMedianSeekM) may run anywhere in the median; an outer bay stays within one lane + 1 m
+            var mid = wb[nB / 2];
+            int awaySide = -sideB;   // away from the host, in the bay's away frame
+            bool median = false;
+            var segs = new HashSet<int>();
+            map.EdgeSegsInRect(mid.p - Vector2.one * BayMedianSeekM, mid.p + Vector2.one * BayMedianSeekM, segs);
+            foreach (int pk in segs)
+            {
+                var o = map.edges[pk >> 12];
+                if (o.link || o.name != H.name || o.index == H.index) continue;
+                int k = pk & 0xFFF; var a0 = o.pts[k]; var ab = o.pts[k + 1] - a0;
+                float tt = Mathf.Clamp01(Vector2.Dot(mid.p - a0, ab) / Mathf.Max(ab.sqrMagnitude, 1e-6f));
+                var q = a0 + ab * tt;
+                if ((q - mid.p).magnitude > BayMedianSeekM) continue;
+                if (Vector2.Dot(q - mid.p, mid.left) * awaySide > 2f) { median = true; break; }
+            }
+            float corridor = median ? BayCorridorM : RoadProfiles.LaneM + 1f;
+            int inside = 0; for (int i = 0; i < nB; i++) if (gaps[i] <= corridor) inside++;
             if (inside < BayShareMin * nB) return;
             // the turn point: the crossing run before the end node
             int iEnd = nB - 1; while (iEnd > 0 && gaps[iEnd] > 90f) iEnd--;
@@ -195,7 +213,7 @@ namespace PSXRacing.City
                 if (pi < 0) break;
                 E = map.edges[pi]; from = nf;
             }
-            Bays.Add(new Bay { node = n, branch = B.index, host = H.index, wayLen = wayLen, turnAt = turnAt, gapEnd = gEnd, inside = (float)inside / nB });
+            Bays.Add(new Bay { node = n, branch = B.index, host = H.index, wayLen = wayLen, turnAt = turnAt, gapEnd = gEnd, inside = (float)inside / nB, median = median });
         }
 
         static void BuildGoreSplits(CityMap map, System.Func<CityMap.Edge, int, int> partner, Dictionary<int, Split> splitAt)
