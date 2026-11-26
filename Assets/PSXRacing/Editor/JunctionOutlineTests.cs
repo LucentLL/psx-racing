@@ -41,7 +41,8 @@ namespace PSXRacing.EditorTools
             for (int i = 0; i < o.Count; i++)
             {
                 var b = o[i];
-                if (cutCorners.Contains(b)) continue;
+                bool atCut = false; foreach (var cc in cutCorners) if ((cc - b).sqrMagnitude < 1e-4f) { atCut = true; break; }
+                if (atCut) continue;
                 if (JunctionOutline.Kink(o[(i - 1 + o.Count) % o.Count], b, o[(i + 1) % o.Count])) return $"kink at {b}";
             }
             // covered exactly once: a jittered 0.25 m grid over the outline's box

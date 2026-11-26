@@ -114,6 +114,9 @@ namespace PSXRacing.City
             { c.shape = "through"; c.tA = A.L[0]; c.tB = B.R[0]; return c; }
             bool crosses = Cross(A.L, B.R, out int ia, out int ib, out Vector2 x);
             float gap0 = Vector2.Distance(A.L[0], B.R[Foot(B.R, A.L[0])]);
+            // an ARC first wherever the arms are not side by side: the offset borders meet in front of the node even where
+            // the raw borders cross behind it (an obtuse corner, unequal widths)
+            if (dAng >= 35f && TryArc(A, B, c)) return c;
             if (!crosses && gap0 >= NoseGapM)
             {
                 c.shape = "connector"; c.tA = A.L[0]; c.tB = B.R[0];
@@ -145,6 +148,13 @@ namespace PSXRacing.City
                 c.tA = A.L[A.L.Count - 1]; c.tB = B.R[B.R.Count - 1]; c.dA = (A.L.Count - 1) * Step; c.dB = (B.R.Count - 1) * Step;
                 return c;
             }
+            c.shape = "arc-did-not-fit"; c.note = "no fillet down to 0.12 x the class radius";
+            c.tA = x; c.tB = x; c.dA = Mathf.Max(0, ia) * Step; c.dB = Mathf.Max(0, ib) * Step;
+            return c;
+        }
+
+        static bool TryArc(Arm A, Arm B, Corner c)
+        {
             float R = A.radius > 0f && B.radius > 0f ? Mathf.Min(A.radius, B.radius) : Mathf.Max(A.radius, B.radius);
             for (int t = 0; t < 6; t++, R *= 0.7f)
             {
@@ -155,11 +165,9 @@ namespace PSXRacing.City
                 int fa = Foot(A.L, cc), fb = Foot(B.R, cc);
                 c.shape = "arc"; c.r = R; c.tA = A.L[fa]; c.tB = B.R[fb]; c.dA = fa * Step; c.dB = fb * Step;
                 Arc(cc, c.tA, c.tB, R, c.pts, false);
-                return c;
+                return true;
             }
-            c.shape = "arc-did-not-fit"; c.note = "no fillet down to 0.12 x the class radius";
-            c.tA = x; c.tB = x; c.dA = ia * Step; c.dB = ib * Step;
-            return c;
+            return false;
         }
 
         static void Hermite(Vector2 p0, Vector2 m0, Vector2 p1, Vector2 m1, List<Vector2> into)
