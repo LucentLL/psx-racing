@@ -146,7 +146,8 @@ namespace PSXRacing.City
         {
             if (bayEdges.Contains(B.index)) return;
             const float ds = 1f;
-            // the bay's own way along its walk
+            // the bay's own way along its walk (walked again to the longest bay)
+            WB = GoreWalk(map, partner, B, n, ds, BayLenMaxM + 5f);
             int nB = 0; while (nB < WB.Count && WB[nB].e.wayId == B.wayId) nB++;
             if (nB < 10) return;
             float wayLen = (nB - 1) * ds;
@@ -171,7 +172,9 @@ namespace PSXRacing.City
             if (turnAt < 10f) return;
             int iT = Mathf.Min(nB - 1, Mathf.RoundToInt(turnAt / ds));
             var want = new float[nB + 1];
-            for (int i = 0; i <= iT; i++) want[i] = gaps[i] > 90f ? 0f : Mathf.Max(0f, gaps[i] + BayInsetM);
+            // the gap is between the pavements; the zone reads lane edges: both shoulders and the inset inside
+            float inset = BayInsetM + B.shl + B.shr + H.shl + H.shr;
+            for (int i = 0; i <= iT; i++) want[i] = gaps[i] > 90f ? 0f : Mathf.Max(0f, gaps[i] + inset);
             // round the start (where the lanes leave the through lanes) over 4 m
             for (int i = 1; i <= iT; i++) want[i] = Mathf.Min(want[i], want[i - 1] + 2f * ds);
             for (int i = iT + 1; i < nB; i++) want[i] = want[iT] * (1f - Smooth((i - iT) * ds / Mathf.Max(1f, wayLen - iT * ds)));
