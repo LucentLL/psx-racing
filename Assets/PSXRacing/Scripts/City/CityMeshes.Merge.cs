@@ -108,8 +108,13 @@ namespace PSXRacing.City
         /// <summary>The first few branch ends each reason turned away (e/node).</summary>
         public static readonly Dictionary<string, string> ZoneRejectAt = new Dictionary<string, string>();
         static int rejectEdge, rejectNode;
+        /// <summary>Editor trace (c7roads): branch edges whose zone decisions are written to ZoneTrace.</summary>
+        public static HashSet<int> ZoneTraceEdges;
+        public static readonly System.Text.StringBuilder ZoneTrace = new System.Text.StringBuilder();
         static void ZoneReject(string why)
         {
+            if (ZoneTraceEdges != null && ZoneTraceEdges.Contains(rejectEdge)) ZoneTrace.Append($"zone e{rejectEdge}/n{rejectNode}: {why}
+");
             if (!countRejects) return;
             ZoneRejects.TryGetValue(why, out int n); ZoneRejects[why] = n + 1;
             if (n < 3) { ZoneRejectAt.TryGetValue(why, out var at); ZoneRejectAt[why] = (at == null ? "" : at + " ") + $"e{rejectEdge}/n{rejectNode}"; }
@@ -338,6 +343,7 @@ namespace PSXRacing.City
                 for (int end = 0; end < 2; end++)
                 {
                     int hostIdx = end == 0 ? t.branchA[ei] : t.branchB[ei];
+                    if (ZoneTraceEdges != null && ZoneTraceEdges.Contains(ei)) ZoneTrace.Append($"zone e{ei} end {end}: host e{hostIdx}{(hostIdx >= 0 ? $" tier {CityTier.Of(map.edges[hostIdx])} mitre {t.mitre[end == 0 ? map.edges[ei].a : map.edges[ei].b]}" : " (not a branch)")}\n");
                     if (hostIdx < 0) continue;
                     var L = map.edges[ei];
                     if (L.a == L.b) continue;
