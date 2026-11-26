@@ -11290,8 +11290,11 @@ namespace PSXRacing.City
                 float yA = BackArc(A, dA - L), yB = BackArc(B, dB - L);
                 float a0 = Mathf.Atan2(TA.y - C.y, TA.x - C.x), a1 = Mathf.Atan2(TB.y - C.y, TB.x - C.x);
                 float sweep = Mathf.DeltaAngle(a0 * Mathf.Rad2Deg, a1 * Mathf.Rad2Deg) * Mathf.Deg2Rad;
-                float step = 2f * Mathf.Acos(Mathf.Clamp01(1f - CurbSagM / rEff));
-                int pieces = Mathf.Clamp(Mathf.CeilToInt(Mathf.Abs(sweep) / Mathf.Max(step, 1e-3f)), 1, CurbMaxPieces);
+                float step = 2f * Mathf.Acos(Mathf.Clamp01(1f - (SmoothCurbOn ? SmoothCurbSagM : CurbSagM) / rEff));
+                // (c7roads round 4, owner 11-26 "everything angular"): at most 1 cm off the true arc, and from a 6 m radius
+                // up at most 6 degrees of turn at any joint
+                if (SmoothCurbOn && rEff >= 6f) step = Mathf.Min(step, SmoothCurbMaxTurnDeg * Mathf.Deg2Rad);
+                int pieces = Mathf.Clamp(Mathf.CeilToInt(Mathf.Abs(sweep) / Mathf.Max(step, 1e-3f)), 1, SmoothCurbOn ? SmoothCurbMaxPieces : CurbMaxPieces);
                 Add(TA, yA, A.edge, A.lateSide, false, true, true);
                 for (int k = 1; k < pieces; k++)
                 {

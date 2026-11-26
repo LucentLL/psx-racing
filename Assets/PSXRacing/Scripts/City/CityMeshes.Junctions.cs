@@ -72,6 +72,12 @@ namespace PSXRacing.City
         /// <summary>An arc's largest sagitta between its pieces, and its most pieces.</summary>
         const float CurbSagM = 0.06f;
         const int CurbMaxPieces = 10;
+        /// <summary>c7roads round 4 (owner 11-26: "Why is everything angular when the real roads have smooth curves only?"):
+        /// a curb return within 1 cm of its true arc and, from a 6 m radius up, at most 6 degrees of turn at a joint
+        /// (was 6 cm and at most 10 pieces: a 15 m corner showed 2.4 m facets). PSX_CITY_SMOOTHCURB=0: as before.</summary>
+        public static bool SmoothCurbOn = System.Environment.GetEnvironmentVariable("PSX_CITY_SMOOTHCURB") != "0";
+        public const float SmoothCurbSagM = 0.01f, SmoothCurbMaxTurnDeg = 6f;
+        public const int SmoothCurbMaxPieces = 96;
         /// <summary>Below this the corner stays square (the edge lines' meeting point).</summary>
         const float CurbMinR = 0.5f;
         /// <summary>The longest tangent a curb return takes along an arm: at

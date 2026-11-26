@@ -270,6 +270,12 @@ namespace PSXRacing
             });
             Register(new LabRow
             {
+                id = "smoothcurb", group = LabGroup.World, name = "SMOOTH CURB RETURNS", when = LabWhen.BuiltIn,
+                look = "Built into the city tiles: a junction's curb returns follow their arc within 1 cm (at most 6 degrees a joint), no visible facets. A city bake.",
+                env = new[] { "PSX_CITY_SMOOTHCURB" }, requires = "CityMeshes.SmoothCurbOn",
+            });
+            Register(new LabRow
+            {
                 id = "goresplit", group = LabGroup.World, name = "SPLITS SHARE ONE EDGE", when = LabWhen.BuiltIn,
                 look = "Opt-in (PSX_CITY_GORESPLIT=1), built into the city tiles: two roads leaving a node on the same side no longer overlap. Off by default: worse than the base on the line gate. A city bake.",
                 env = new[] { "PSX_CITY_GORESPLIT" }, requires = "LineModel.GoreSplitOn",
