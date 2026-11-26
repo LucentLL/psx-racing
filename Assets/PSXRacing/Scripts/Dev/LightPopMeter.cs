@@ -49,9 +49,9 @@ namespace PSXRacing
         public const float CutJumpM = 20f, CutTurnDeg = 45f;
         public const int AfterCutFrames = 12;
 
-        public enum Cause { Street = 0, Point, Field, Head, Halo, Lens, Beam, Cones, Mixed, Noise, Count }
+        public enum Cause { Street = 0, Point, Field, Head, Halo, Lens, Beam, Cones, Gate, Mixed, Noise, Count }
         static readonly string[] CauseName = { "street lamp table", "tail lamp table", "lamp field", "headlight table",
-                                               "lamp halos", "car lenses", "car beam cones", "lamp cones", "mixed", "NOISE (no light changed)" };
+                                               "lamp halos", "car lenses", "car beam cones", "lamp cones", "race start gates", "mixed", "NOISE (no light changed)" };
         /// <summary>A lamp's or car's weight moved less than this: no evidence.</summary>
         const float MinWeightStep = 0.05f;
 
@@ -92,6 +92,11 @@ namespace PSXRacing
         readonly Dictionary<Renderer, Cause> rendCause = new Dictionary<Renderer, Cause>();
         readonly List<Renderer> lightRends = new List<Renderer>();
         readonly List<(Renderer r, bool was)> undo = new List<(Renderer, bool)>();
+        // (roadevents) the race start gates (City/CityRaceStarts): each gate root's switch and its light, as the
+        // frame before had them - a gate that switches on is drawn in both renders unless it is put back too
+        readonly List<(bool on, float k)> prevGate = new List<(bool, float)>(), curGate = new List<(bool, float)>(), saveGate = new List<(bool, float)>();
+        readonly List<Renderer> gateRends = new List<Renderer>();
+        bool heldGates;
 
         RenderTexture rt, rtShown;
         Material shownMat;
@@ -233,7 +238,7 @@ namespace PSXRacing
             // B: the frame before's lights, at this pose
             if (diffable)
             {
-                ApplyPrev(true, true, true, true, true);
+                ApplyPrev(true, true, true, true, true, true);
                 Render(cam, readB, ref pixB);
                 RestoreAll();
             }
@@ -256,13 +261,14 @@ namespace PSXRacing
                     // cones' arrays, a light renderer that came or went); a
                     // frame with none is the renderer's own noise, kept apart
                     bool eS = StreetMoved(), eF = prevFieldTex != curFieldTex || prevFieldST != curFieldST || prevFarTex != curFarTex || prevFarST != curFarST,
-                         eH = HeadMoved(), eR = !curOn.SetEquals(prevOn), eC = ConesMoved();
-                    Cause best = (eS || eF || eH || eR || eC) ? Cause.Mixed : Cause.Noise; int bestPx = 0;
+                         eH = HeadMoved(), eR = !curOn.SetEquals(prevOn), eC = ConesMoved(), eG = GatesMoved();
+                    Cause best = (eS || eF || eH || eR || eC || eG) ? Cause.Mixed : Cause.Noise; int bestPx = 0;
                     if (eS) TryCause(cam, Cause.Street, ref best, ref bestPx);
                     if (eF) TryCause(cam, Cause.Field, ref best, ref bestPx);
                     if (eH) TryCause(cam, Cause.Head, ref best, ref bestPx);
                     if (eR) TryCause(cam, Cause.Halo, ref best, ref bestPx);
                     if (eC) TryCause(cam, Cause.Cones, ref best, ref bestPx);
+                    if (eG) TryCause(cam, Cause.Gate, ref best, ref bestPx);
                     if (best == Cause.Street && PointDominates()) best = Cause.Point;
                     if (best == Cause.Halo) best = RendererCause();
                     Note(best, px, light, cx, cy, eye);
@@ -280,7 +286,7 @@ namespace PSXRacing
 
         void TryCause(Camera cam, Cause c, ref Cause best, ref int bestPx)
         {
-            ApplyPrev(c == Cause.Street, c == Cause.Field, c == Cause.Head, c == Cause.Halo, c == Cause.Cones);
+            ApplyPrev(c == Cause.Street, c == Cause.Field, c == Cause.Head, c == Cause.Halo, c == Cause.Cones, c == Cause.Gate);
             Render(cam, readB, ref pixB);
             RestoreAll();
             Diff(pixA, pixB, out int px, out _, out _, out _);
@@ -310,6 +316,14 @@ namespace PSXRacing
             if (curConeOn != prevConeOn) return true;
             for (int i = 0; i < curConeA.Length; i++)
                 if ((curConeA[i] - prevConeA[i]).sqrMagnitude > 1e-8f || (curConeB[i] - prevConeB[i]).sqrMagnitude > 1e-10f) return true;
+            return false;
+        }
+
+        bool GatesMoved()
+        {
+            if (curGate.Count != prevGate.Count) return true;
+            for (int i = 0; i < curGate.Count; i++)
+                if (curGate[i].on != prevGate[i].on || Mathf.Abs(curGate[i].k - prevGate[i].k) > 1e-4f) return true;
             return false;
         }
 
@@ -395,6 +409,21 @@ namespace PSXRacing
             }
             if (c == Cause.Field) { detail = "field " + prevFieldState + " -> " + curFieldState; return -1f; }
             if (c == Cause.Cones) { detail = "cone arrays"; return -1f; }
+            if (c == Cause.Gate)
+            {
+                float bd = -1f, bestStep = -1f;
+                for (int i = 0; i < curGate.Count && i < prevGate.Count && i < City.CityRaceStarts.Gates.Count; i++)
+                {
+                    float a = prevGate[i].on ? prevGate[i].k : 0f, b = curGate[i].on ? curGate[i].k : 0f;
+                    if (Mathf.Abs(b - a) <= bestStep) continue;
+                    bestStep = Mathf.Abs(b - a);
+                    var g = City.CityRaceStarts.Gates[i];
+                    bd = Vector2.Distance(new Vector2(eye.x, eye.z), g.plan);
+                    detail = "gate " + g.name + " on " + prevGate[i].on + "->" + curGate[i].on + " light " +
+                             prevGate[i].k.ToString("0.000", CultureInfo.InvariantCulture) + "->" + curGate[i].k.ToString("0.000", CultureInfo.InvariantCulture);
+                }
+                return bd;
+            }
             // a renderer that came or went
             foreach (var r in curOn)
                 if (!prevOn.Contains(r) && r != null) { detail = "came: " + r.name; return Vector3.Distance(r.bounds.center, eye); }
@@ -431,7 +460,17 @@ namespace PSXRacing
                 }
             }
             if (rendCause.Count > 20000) rendCause.Clear();
+            // the gates' renderers, beside the others (put back through their roots and lights, not one by one)
+            gateRends.Clear();
+            for (int i = 0; i < City.CityRaceStarts.Looks.Count; i++)
+            {
+                var rs = City.CityRaceStarts.MeterRenderers(i);
+                if (rs != null) gateRends.AddRange(rs);
+            }
         }
+
+        /// <summary>The gates' renderers seen this frame (a count for the report).</summary>
+        public int GateRenderers => gateRends.Count;
 
         static bool On(Renderer r) => r != null && r.enabled && r.gameObject.activeInHierarchy;
 
@@ -460,6 +499,9 @@ namespace PSXRacing
             }
             curOn.Clear();
             foreach (var r in lightRends) if (On(r)) curOn.Add(r);
+            curGate.Clear();
+            for (int i = 0; i < City.CityRaceStarts.Gates.Count; i++)
+                curGate.Add(City.CityRaceStarts.MeterRead(i, out bool on, out float k) ? (on, k) : (false, 0f));
         }
 
         void Swap()
@@ -472,6 +514,7 @@ namespace PSXRacing
             System.Array.Copy(curConeB, prevConeB, curConeB.Length);
             prevConeOn = curConeOn;
             var tmp = prevOn; prevOn = curOn; curOn = tmp;
+            prevGate.Clear(); prevGate.AddRange(curGate);
         }
 
         // the state put back for a B render
@@ -479,7 +522,7 @@ namespace PSXRacing
         Texture saveFieldTex; Vector4 saveFieldST;
         Vector4[] saveConeA, saveConeB; bool saveConeOn;
 
-        void ApplyPrev(bool street, bool field, bool head, bool rends, bool cones)
+        void ApplyPrev(bool street, bool field, bool head, bool rends, bool cones, bool gates)
         {
             var eye = Camera.main.transform.position;
             // the lamp table: re-emitted at last frame's weights (or today's,
@@ -510,6 +553,18 @@ namespace PSXRacing
                     heldCones = true;
                 }
             }
+            if (gates && prevGate.Count == City.CityRaceStarts.Gates.Count)
+            {
+                // each gate's root switch AND its light as the frame before had them
+                saveGate.Clear();
+                for (int i = 0; i < prevGate.Count; i++)
+                {
+                    City.CityRaceStarts.MeterRead(i, out bool on, out float k);
+                    saveGate.Add((on, k));
+                    City.CityRaceStarts.MeterWrite(i, prevGate[i].on, prevGate[i].k);
+                }
+                heldGates = true;
+            }
             undo.Clear();
             if (rends)
                 foreach (var r in lightRends)
@@ -539,6 +594,11 @@ namespace PSXRacing
             }
             foreach (var (r, was) in undo) if (r != null) r.enabled = was;
             undo.Clear();
+            if (heldGates)
+            {
+                for (int i = 0; i < saveGate.Count; i++) City.CityRaceStarts.MeterWrite(i, saveGate[i].on, saveGate[i].k);
+                heldGates = false;
+            }
         }
 
         // ------------------------------------------------------------------
