@@ -132,6 +132,23 @@ namespace PSXRacing.EditorTools
                 }
             }
             bool crosses = Cross(A.L, B.R, out int ia, out int ib, out Vector2 x);
+            float gap0 = Vector2.Distance(A.L[0], B.R[Foot(B.R, A.L[0])]);
+            if (!crosses && gap0 >= NoseGapM)
+            {
+                // CONNECTOR: the borders start apart and never cross (arms of different nodes of one cluster): a
+                // tangent-continuous Hermite curve from A's left border start (heading in) to B's right border start
+                // (heading out), sampled to the same 1 cm / 6 degree rule
+                c.shape = "connector"; c.tA = A.L[0]; c.tB = B.R[0]; c.dA = 0f; c.dB = 0f;
+                var tIn = -(A.C[Mathf.Min(4, A.C.Count - 1)] - A.C[0]).normalized; var tOut = (B.C[Mathf.Min(4, B.C.Count - 1)] - B.C[0]).normalized;
+                float k = Vector2.Distance(c.tA, c.tB);
+                int n0 = Mathf.Clamp(Mathf.CeilToInt(k / 0.5f), 4, 400);
+                for (int q = 0; q <= n0; q++)
+                {
+                    float t = q / (float)n0, t2 = t * t, t3 = t2 * t;
+                    c.pts.Add((2 * t3 - 3 * t2 + 1) * c.tA + (t3 - 2 * t2 + t) * k * tIn + (-2 * t3 + 3 * t2) * c.tB + (t3 - t2) * k * tOut);
+                }
+                return c;
+            }
             if (dAng < SideBySideDeg || !crosses)
             {
                 // NOSE: out along both until the gap reaches NoseGapM
