@@ -383,6 +383,7 @@ namespace PSXRacing
             public float knockWindowAt; public int knocks;
             public float lastRacerAt = -100f;
             public float fitNext, fitLane;
+            public string lastContactPath; public Vector3 lastContactPt;   // (cityai round 5) what it hit, where
         }
 
         /// <summary>Called by RaceManager.Start once the path is final (a
@@ -1511,6 +1512,32 @@ namespace PSXRacing
         /// (for TrafficPlayCheck).</summary>
         public readonly int[] TempersSeen = new int[4];
 
+        /// <summary>(cityai round 5) a wreck on something that is not a car: the object's path, the contact point, the
+        /// strip's lane offsets there, and the city road nearest the contact (its OSM way, width, ramp / bridge).</summary>
+        string WhatItHit(Car c, string by)
+        {
+            if (by == null || by.StartsWith("Traffic_") || by.Contains(" AI") || by.Contains("Player") || c.lastContactPath == null) return "";
+            var pt = c.lastContactPt;
+            Vector3 o = path.GetPoint(path.Wrap(Mathf.RoundToInt(Wrap(c.s) / path.spacing)));
+            Vector3 tg = path.GetTangent(path.Wrap(Mathf.RoundToInt(Wrap(c.s) / path.spacing)));
+            Vector3 rt = Vector3.Cross(Vector3.up, tg).normalized;
+            float latPt = Vector3.Dot(pt - o, rt);
+            var lanes = new System.Text.StringBuilder();
+            foreach (float l in lanesFwd) lanes.Append(l.ToString("+0.0;-0.0")).Append(' ');
+            lanes.Append("| back ");
+            foreach (float l in lanesBack) lanes.Append(l.ToString("+0.0;-0.0")).Append(' ');
+            string road = "";
+            var map = City.CityMap.Get();
+            if (map != null && map.NearestRoadPoint(new Vector2(pt.x, pt.z), 40f, false, out int ei, out float es, out float ed) && ei >= 0)
+            {
+                var e = map.edges[ei];
+                road = $" | nearest road '{e.name}' way {e.wayId} cls {e.cls}{(e.link ? " ramp" : "")}{(e.bridge ? " bridge" : "")} width {e.width:0.0} m, contact {ed:0.0} m from its line";
+            }
+            string pave = "";
+            if (paveR != null) { int i = Mathf.RoundToInt(Wrap(c.s) / path.spacing); i = path.HasEnds ? Mathf.Clamp(i, 0, paveR.Length - 1) : ((i % paveR.Length) + paveR.Length) % paveR.Length; pave = $" pavement R {paveR[i]:0.0} L {paveL[i]:0.0}"; }
+            return $" | object {c.lastContactPath} at ({pt.x:0.0},{pt.y:0.0},{pt.z:0.0}), {latPt:+0.0;-0.0} m off the strip's line | strip lanes {lanes}{pave}{road}";
+        }
+
         internal void Wreck(GameObject go, string by = null)
         {
             var c = live.Find(x => x.go == go);
@@ -1528,16 +1555,23 @@ namespace PSXRacing
             var wp = c.go.transform.position;
             WreckLog.Add((c.dir > 0 ? "with" : "oncoming") + " hit by " + (by ?? "?") +
                          $" | at ({wp.x:0.0},{wp.z:0.0}) s {c.s:0} lane {c.lat:+0.0;-0.0} now {c.latNow:+0.0;-0.0} road half {path.roadWidth * 0.5f:0.0} v {c.speed:0.0}" +
-                         (Time.time - c.lastRacerAt < 5f ? $" | racer touched {Time.time - c.lastRacerAt:0.0} s before" : " | no racer within 5 s"));
+                         (Time.time - c.lastRacerAt < 5f ? $" | racer touched {Time.time - c.lastRacerAt:0.0} s before" : " | no racer within 5 s") +
+                         WhatItHit(c, by));
             c.rb.useGravity = true;
         }
 
-        internal void NoteContact(GameObject go, string what)
+        internal void NoteContact(GameObject go, string what, Transform obj = null, Vector3 at = default)
         {
             var c = live.Find(x => x.go == go);
             if (c != null)
             {
                 c.lastContact = what;
+                if (obj != null)
+                {
+                    string p = obj.name; var t = obj.parent;
+                    for (int k = 0; k < 4 && t != null; k++, t = t.parent) p = t.name + "/" + p;
+                    c.lastContactPath = p; c.lastContactPt = at;
+                }
                 if (what != null && (what.Contains(" AI") || what.Contains("Player"))) c.lastRacerAt = Time.time;
             }
         }
@@ -1664,7 +1698,8 @@ namespace PSXRacing
             // is decided by the velocity it left behind (TrafficSystem.Drive).
             if (col.gameObject.layer == 8) return;
             TrafficSystem.Instance?.NoteContact(gameObject,
-                col.gameObject.name + " (" + LayerMask.LayerToName(col.gameObject.layer) + ")");
+                col.gameObject.name + " (" + LayerMask.LayerToName(col.gameObject.layer) + ")",
+                col.collider != null ? col.collider.transform : col.transform, col.contactCount > 0 ? col.GetContact(0).point : col.transform.position);
         }
     }
 }
