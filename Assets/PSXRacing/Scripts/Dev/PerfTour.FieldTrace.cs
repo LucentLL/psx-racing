@@ -39,6 +39,7 @@ namespace PSXRacing
             if (!FieldTraceOn || path == null) return;
             ftb = new StringBuilder(1 << 20);
             ftb.Append("t,id,kind,x,z,heading,speed,steer,thr,brk,rev,why\n");
+            TrafficSystem.WreckTrace = true; if (TrafficSystem.Instance != null) TrafficSystem.Instance.WreckSpots.Clear();
             ftNext = 0f; ftT0 = Time.time; ftIds.Clear(); ftMarkI = 0; ftRaceT = 0f; ftWreckNotes.Length = 0; ftWrecks = TrafficSystem.Instance != null ? TrafficSystem.Instance.WreckLog.Count : 0;
             TurnMapDump.Turns(path, ftTurns, ftDeg);
             Post(id + "_turns.csv", TurnMapDump.TurnsCsv(ftTurns, ftDeg));
@@ -186,6 +187,7 @@ namespace PSXRacing
             IslandEnd(id);
             Post(id + "_field.csv", ftb.ToString());
             var tsw = TrafficSystem.Instance;
+            if (tsw != null && tsw.WreckSpots.Count > 0) Post(id + "_spots.txt", string.Join("", tsw.WreckSpots));
             if (tsw != null) Post(id + "_wrecks.txt", ftWreckNotes.ToString() + "soft knocks (round 3: stopped, then drove on): " + tsw.SoftKnockLog.Count + (tsw.SoftKnockLog.Count > 0 ? "\n  " + string.Join("\n  ", tsw.SoftKnockLog) : ""));
             Say("FIELD TRACE " + id + ": " + (ftb.Length / 1024) + " KB");
             ftb = null;

@@ -384,6 +384,7 @@ namespace PSXRacing
             public float lastRacerAt = -100f;
             public float fitNext, fitLane;
             public string lastContactPath; public Vector3 lastContactPt;   // (cityai round 5) what it hit, where
+            public Vector3[] trail; public int trailN; public float trailNext;  // (cityai round 5) last 3 s, WreckTrace only
         }
 
         /// <summary>Called by RaceManager.Start once the path is final (a
@@ -496,6 +497,24 @@ namespace PSXRacing
         float[] paveR, paveL;
         public static bool LanesFitOn = System.Environment.GetEnvironmentVariable("PSX_TRAFFIC_LANES_FIT") != "0";
         const float LaneFitAirM = 0.35f;
+        /// <summary>(cityai round 5) PSX_TRAFFIC_GAP_STANDING: a lane change or a move out round a stopped racer needs the
+        /// strip it moves across clear of every other traffic car, standing ones included, by where each car physically is.
+        /// Off = round 4.</summary>
+        public static bool GapCountsStandingOn = System.Environment.GetEnvironmentVariable("PSX_TRAFFIC_GAP_STANDING") != "0";
+        bool SideClear(Car c, float fromLat, float toLat, float back, float ahead)
+        {
+            float lo = Mathf.Min(fromLat, toLat) - c.halfW - 0.3f, hi = Mathf.Max(fromLat, toLat) + c.halfW + 0.3f;
+            foreach (var o in live)
+            {
+                if (o == c) continue;
+                float ds = Delta(c.s, o.s) * c.dir;
+                if (ds < back || ds > ahead) continue;
+                if (o.latNow + o.halfW < lo || o.latNow - o.halfW > hi) continue;
+                return false;
+            }
+            return true;
+        }
+
         void MapPavement(TrackCatalog.TrackDef def)
         {
             paveR = paveL = null;
@@ -1056,6 +1075,11 @@ namespace PSXRacing
 
         void Drive(Car c, float dt)
         {
+            if (WreckTrace && !c.wrecked && Time.time >= c.trailNext)
+            {
+                if (c.trail == null) c.trail = new Vector3[30];
+                c.trail[c.trailN++ % 30] = c.rb.position; c.trailNext = Time.time + 0.1f;
+            }
             if (c.wrecked) { SpinWheels(c, Vector3.Dot(c.rb.linearVelocity, c.go.transform.forward), dt); return; }
 
             // WAS IT HIT? Nothing but a contact changes this body's velocity
@@ -1129,7 +1153,10 @@ namespace PSXRacing
                     bool clear = true;
                     foreach (var o in live)
                     {
-                        if (o == c || o.dir != c.dir || Mathf.Abs(o.lat - fit) > 1.5f) continue;
+                        // (round 5) a car standing in the target lane counts wherever its lane says it is: by where it IS too,
+                        // whatever its direction once stopped (Tryon s 720-743: lane changes into standing cars)
+                        bool inLane = Mathf.Abs(o.lat - fit) <= 1.5f || (GapCountsStandingOn && Mathf.Abs(o.latNow - fit) <= 1.5f);
+                        if (o == c || (o.dir != c.dir && !(GapCountsStandingOn && o.speed < 1f && Mathf.Abs(o.latNow - fit) <= 1.5f)) || !inLane) continue;
                         float gapS = Delta(c.s, o.s) * c.dir;
                         if (gapS > -10f - Mathf.Max(0f, o.speed - c.speed) * 1.5f && gapS < 12f + Mathf.Max(0f, c.speed - o.speed) * 1.5f) { clear = false; break; }
                     }
@@ -1195,7 +1222,8 @@ namespace PSXRacing
                 // Only outward, only as far as the verge, and only with the
                 // road to make the move in before the racer is reached.
                 if (side * leaderRacerLat < side * c.latNow + 0.5f && side * edge <= outer &&
-                    gap > Mathf.Max(across, 0f) / MaxCrabTan + 1f)
+                    gap > Mathf.Max(across, 0f) / MaxCrabTan + 1f &&
+                    (!GapCountsStandingOn || SideClear(c, c.latNow, edge, -6f, gap + 4.5f + EdgePastM)))
                 {
                     // Held out there until it is past the racer: once it is
                     // over far enough the racer is not "ahead" any more, and
@@ -1538,6 +1566,55 @@ namespace PSXRacing
             return $" | object {c.lastContactPath} at ({pt.x:0.0},{pt.y:0.0},{pt.z:0.0}), {latPt:+0.0;-0.0} m off the strip's line | strip lanes {lanes}{pave}{road}";
         }
 
+        /// <summary>(cityai round 5) the dev tour's trace turns this on: each traffic car keeps its last 3 s, and a wreck on
+        /// something not a car writes a SPOT block (the car's trail, the strip's lane lines and pavement 40 m either side,
+        /// every solid within 25 m with its bounds) for the top-down plan.</summary>
+        public static bool WreckTrace;
+        public readonly List<string> WreckSpots = new List<string>();
+        void SpotBlock(Car c, string by)
+        {
+            var sb = new System.Text.StringBuilder();
+            var pt = c.lastContactPt;
+            sb.Append($"SPOT t {Time.time:0.0} s {c.s:0} by {by} | {c.lastContactPath} | contact {pt.x:0.00} {pt.z:0.00} | lane {c.lat:0.00} now {c.latNow:0.00} halfW {c.halfW:0.00} dir {c.dir}\n");
+            sb.Append("trail");
+            if (c.trail != null) for (int k = Mathf.Max(0, c.trailN - 30); k < c.trailN; k++) { var p = c.trail[k % 30]; sb.Append($" {p.x:0.00},{p.z:0.00}"); }
+            sb.Append("\nlanes");
+            foreach (float l in lanesFwd) sb.Append($" {l:0.00}");
+            foreach (float l in lanesBack) sb.Append($" {l:0.00}");
+            sb.Append($"\nroadhalf {path.roadWidth * 0.5f:0.00}\n");
+            for (float d = -40f; d <= 40f; d += 2f)
+            {
+                int i = path.Wrap(Mathf.RoundToInt(Wrap(c.s + d) / path.spacing));
+                var o = path.GetPoint(i); var tg = path.GetTangent(i);
+                float pr = paveR != null ? paveR[Mathf.Clamp(i, 0, paveR.Length - 1)] : float.NaN, pl = paveL != null ? paveL[Mathf.Clamp(i, 0, paveL.Length - 1)] : float.NaN;
+                sb.Append($"strip {o.x:0.00} {o.z:0.00} {tg.x:0.000} {tg.z:0.000} {pr:0.00} {pl:0.00}\n");
+            }
+            foreach (var k in Physics.OverlapSphere(pt, 25f, ~0, QueryTriggerInteraction.Ignore))
+            {
+                if (k.attachedRigidbody != null && !k.attachedRigidbody.isKinematic) continue;   // cars
+                string p = k.name; var t = k.transform.parent;
+                for (int q = 0; q < 4 && t != null; q++, t = t.parent) p = t.name + "/" + p;
+                var b = k.bounds;
+                string shape = "";
+                if (k is BoxCollider bc)
+                {
+                    var tr = bc.transform; var h = bc.size * 0.5f;
+                    Vector3 c0 = tr.TransformPoint(bc.center + new Vector3(-h.x, 0, -h.z)), c1 = tr.TransformPoint(bc.center + new Vector3(h.x, 0, -h.z)),
+                            c2 = tr.TransformPoint(bc.center + new Vector3(h.x, 0, h.z)), c3 = tr.TransformPoint(bc.center + new Vector3(-h.x, 0, h.z));
+                    shape = $" box {c0.x:0.00},{c0.z:0.00} {c1.x:0.00},{c1.z:0.00} {c2.x:0.00},{c2.z:0.00} {c3.x:0.00},{c3.z:0.00}";
+                }
+                else if (k is MeshCollider mc && mc.sharedMesh != null && mc.sharedMesh.vertexCount < 4000)
+                {
+                    // the mesh's vertices within 12 m of the contact, in plan (the barrier line itself)
+                    var vs = mc.sharedMesh.vertices; var tr = mc.transform; int n = 0;
+                    shape = " verts";
+                    for (int v = 0; v < vs.Length && n < 300; v++) { var w = tr.TransformPoint(vs[v]); if ((w - pt).sqrMagnitude < 144f) { shape += $" {w.x:0.00},{w.z:0.00}"; n++; } }
+                }
+                sb.Append($"solid {p} layer {LayerMask.LayerToName(k.gameObject.layer)} {k.GetType().Name} bounds {b.min.x:0.0} {b.min.z:0.0} {b.max.x:0.0} {b.max.z:0.0} y {b.min.y:0.0}..{b.max.y:0.0}{shape}\n");
+            }
+            WreckSpots.Add(sb.ToString());
+        }
+
         internal void Wreck(GameObject go, string by = null)
         {
             var c = live.Find(x => x.go == go);
@@ -1557,6 +1634,8 @@ namespace PSXRacing
                          $" | at ({wp.x:0.0},{wp.z:0.0}) s {c.s:0} lane {c.lat:+0.0;-0.0} now {c.latNow:+0.0;-0.0} road half {path.roadWidth * 0.5f:0.0} v {c.speed:0.0}" +
                          (Time.time - c.lastRacerAt < 5f ? $" | racer touched {Time.time - c.lastRacerAt:0.0} s before" : " | no racer within 5 s") +
                          WhatItHit(c, by));
+            if (WreckTrace && by != null && !by.StartsWith("Traffic_") && !by.Contains(" AI") && !by.Contains("Player") && c.lastContactPath != null && Time.time - c.lastRacerAt >= 5f && WreckSpots.Count < 40)
+                SpotBlock(c, by);
             c.rb.useGravity = true;
         }
 
