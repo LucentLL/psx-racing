@@ -291,6 +291,8 @@ namespace PSXRacing.City
             }
             // the median dress: each section's top (concrete, a planted bed, grass)
             PrepareMedianDress(map, e, n);
+            // (c7roads round 4, A2) beside a turn bay the island stands full height to its rounded nose (no ramp)
+            if (cmBayRun && BayMedianOn) for (int k = 0; k < n; k++) if (cmW[k] > 0f && cmC[k] >= 0.99f) cmH[k] = 1f;
         }
 
         /// <summary>The splits round: a split nose the axis-frame profile shapes
