@@ -246,6 +246,9 @@ namespace PSXRacing.EditorTools
             var def = TrackCatalog.At(RaceHandoff.TrackIndex);
             if (def == null || car == null) { LightPopCheck.Line("FAIL no venue / car"); yield break; }
             TrackCatalog.EnsureStage(def);
+            // (stage4) PSX_BF_SOLIDSET=old on a PSX_BANKSOLID_AB=1 scene: the old slab stands (for the wire shots)
+            if (System.Environment.GetEnvironmentVariable("PSX_BF_SOLIDSET") == "old")
+                LightPopCheck.Line("solid set " + BankFitProbe.ApplySolidSet());
             // (tunnel2) a venue with no tunnel: absolute metres only ("a<m>"), against a span at 0
             var spans = def.tunnels != null && def.tunnels.Length > 0 ? def.tunnels : new[] { Vector2.zero };
             var pts = def.stagePts;
@@ -286,6 +289,17 @@ namespace PSXRacing.EditorTools
                         string seg = "tunnel" + no + "_" + (back ? "r" : "") + offRaw.Trim().TrimStart('r').Replace("-", "m").Replace("@", "x") + "_" + view.ToString().ToLowerInvariant();
                         LightLookShotRunner.Queue(System.IO.Path.Combine(LightPopMeter.OutDir, "shots"), seg); yield return null;
                         LightPopCheck.Line("shot " + seg + " at " + pos.ToString("F0") + " (path m " + m.ToString("0") + "); tunnel lamps " + TunnelLamps.Count + ", forests queued " + LightLookShots.ForestsQueued + (LightLookShots.ShotForest ? "" : " (PSX_SHOT_FOREST=0)"));
+                        if (BankWireOverlay.Wanted)
+                        {
+                            // (stage4) the same view with the cut solids drawn as a wire over it
+                            while (LightLookShotRunner.Busy) yield return null;
+                            var ov = BankWireOverlay.Build(pos, 70f);
+                            car.ResetTo(pos, rot, seated: true); yield return null;
+                            LightLookShotRunner.Queue(System.IO.Path.Combine(LightPopMeter.OutDir, "shots"), seg + "_wire"); yield return null;
+                            while (LightLookShotRunner.Busy) yield return null;
+                            Destroy(ov);
+                            LightPopCheck.Line("shot " + seg + "_wire (cut solids as a wire)");
+                        }
                     }
                 }
                 if (++no >= 2) break;

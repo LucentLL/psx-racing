@@ -27,6 +27,35 @@ namespace PSXRacing.EditorTools
     {
         const int ProbeLayer = 31;
         public const float Over = 0.15f, Under = -0.01f;
+        /// <summary>(stage4) the round's target line: drawn cut rock more than 5 cm in front of its solid.</summary>
+        public const float Under5 = -0.05f;
+        /// <summary>(stage4) a POCKET: the solid's surface stands this much deeper than BOTH sides of it within
+        /// PocketHalfM along the road (a slot narrower than a car), or than the surface up to PocketUpM over it (an
+        /// undercut a nose goes under), between 0.2 and 1.0 m over the edge.</summary>
+        public const float PocketDepth = 0.25f, PocketHalfM = 0.9f, PocketUpM = 0.4f;
+
+        /// <summary>(stage4) PSX_BF_SOLIDSET on a scene built with PSX_BANKSOLID_AB=1: "old" measures the 77f4abf8 slab
+        /// (the inactive BankSolidOld holders on, the band solids and their partial face colliders off), "new" or unset
+        /// the scene as it ships. Edit mode, nothing saved.</summary>
+        public static string ApplySolidSet()
+        {
+            string set = (System.Environment.GetEnvironmentVariable("PSX_BF_SOLIDSET") ?? "new").Trim().ToLowerInvariant();
+            if (set != "old") return "new";
+            int on = 0, off = 0;
+            foreach (var t in Object.FindObjectsByType<Transform>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+                if (t.name == "BankSolidOld" && !t.gameObject.activeSelf) { t.gameObject.SetActive(true); on++; }
+            foreach (var mc in Object.FindObjectsByType<MeshCollider>(FindObjectsSortMode.None))
+            {
+                if (mc == null || mc.sharedMesh == null) continue;
+                bool inOld = false;
+                for (var t = mc.transform; t != null; t = t.parent) if (t.name == "BankSolidOld") { inOld = true; break; }
+                if (inOld) continue;
+                string mn = mc.sharedMesh.name;
+                if (mn.Contains("CollBand") || mn.Contains("BankLipColl")) { mc.enabled = false; off++; }
+            }
+            Physics.SyncTransforms();
+            return on == 0 ? "old (NO BankSolidOld in this scene: not built with PSX_BANKSOLID_AB=1)" : $"old ({on} holders on, {off} new colliders off)";
+        }
 
         public static void Run()
         {
@@ -179,6 +208,195 @@ namespace PSXRacing.EditorTools
             File.WriteAllBytes(Path.Combine(outDir, fn), tex.EncodeToPNG());
             Object.DestroyImmediate(camGo); rt.Release();
             return $"{id} wp {wp} {(sd > 0 ? "R" : "L")}: the car stops with its centre {touch:0.00} m out from the centreline, on {hitName}; nose to the drawn surface ahead:{gaps} -> {fn}";
+        }
+
+        /// <summary>(stage4) THE DRAWN ROCK, AS NUMBERS: per PSX_BF_VENUES scene, a hash of every drawn mesh directly
+        /// under Track/Banks (the relief, the rock tops, the crest lips: vertices to 1 mm, triangles, uvs) and of each
+        /// MeshForest's instance table (every plant, stone and outcrop: place, turn, scale, model). Two builds whose drawn
+        /// rock is the same give the same "banks" hash. PSXRacing_drawnhash.txt.</summary>
+        public static void DrawnHash()
+        {
+            var sb = new StringBuilder();
+            string ids = System.Environment.GetEnvironmentVariable("PSX_BF_VENUES") ?? "LittleSwitzerland";
+            foreach (var raw in ids.Split(','))
+            {
+                string id = raw.Trim(); if (id.Length == 0) continue;
+                string scenePath = "Assets/PSXRacing/Scenes/" + id + ".unity";
+                if (!File.Exists(scenePath)) { sb.AppendLine(id + ": no scene"); continue; }
+                EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Single);
+                ulong H(ulong h, long v) { unchecked { h ^= (ulong)v; h *= 1099511628211UL; } return h; }
+                ulong banks = 14695981039346656037UL; int meshes = 0, verts = 0, tris = 0;
+                var list = new List<MeshFilter>(Object.FindObjectsByType<MeshFilter>(FindObjectsSortMode.None));
+                list.RemoveAll(mf => mf == null || mf.sharedMesh == null || mf.GetComponent<MeshRenderer>() == null || mf.transform.parent == null || mf.transform.parent.name != "Banks");
+                list.Sort((a, b) => string.CompareOrdinal(a.name + a.sharedMesh.name, b.name + b.sharedMesh.name));
+                foreach (var mf in list)
+                {
+                    var m = mf.sharedMesh;
+                    var v = m.vertices; var t = m.triangles; var uv = m.uv;
+                    foreach (var p in v) { banks = H(banks, Mathf.RoundToInt(p.x * 1000f)); banks = H(banks, Mathf.RoundToInt(p.y * 1000f)); banks = H(banks, Mathf.RoundToInt(p.z * 1000f)); }
+                    foreach (int i in t) banks = H(banks, i);
+                    foreach (var u in uv) { banks = H(banks, Mathf.RoundToInt(u.x * 10000f)); banks = H(banks, Mathf.RoundToInt(u.y * 10000f)); }
+                    meshes++; verts += v.Length; tris += t.Length / 3;
+                }
+                ulong forest = 14695981039346656037UL; int inst = 0;
+                foreach (var mfo in Object.FindObjectsByType<MeshForest>(FindObjectsSortMode.None))
+                {
+                    if (mfo.inst == null) continue;
+                    for (int i = 0; i < mfo.inst.Length; i++)
+                    {
+                        var q = mfo.inst[i];
+                        forest = H(forest, Mathf.RoundToInt(q.x * 1000f)); forest = H(forest, Mathf.RoundToInt(q.y * 1000f));
+                        forest = H(forest, Mathf.RoundToInt(q.z * 1000f)); forest = H(forest, Mathf.RoundToInt(q.w * 100f));
+                        if (mfo.instScaleVar != null && i < mfo.instScaleVar.Length) { forest = H(forest, Mathf.RoundToInt(mfo.instScaleVar[i].x * 1000f)); forest = H(forest, (long)mfo.instScaleVar[i].y); }
+                        inst++;
+                    }
+                }
+                sb.AppendLine($"{id}: banks (drawn relief, rock tops, crest lips) {meshes} meshes {verts} verts {tris} tris hash {banks:x16}; MeshForest {inst} instances hash {forest:x16}");
+            }
+            File.WriteAllText(Path.Combine(Path.GetDirectoryName(Application.dataPath), "PSXRacing_drawnhash.txt"), sb.ToString());
+            if (Application.isBatchMode) EditorApplication.Exit(0);
+        }
+
+        /// <summary>(stage4) The obstacle audit (GHOST BARRIERS and the rest) on each PSX_BF_VENUES scene as it stands,
+        /// without a build: PSXRacing_obstacles.txt.</summary>
+        public static void Obstacles()
+        {
+            var sb = new StringBuilder();
+            string ids = System.Environment.GetEnvironmentVariable("PSX_BF_VENUES") ?? "";
+            try
+            {
+                foreach (var raw in ids.Split(','))
+                {
+                    string id = raw.Trim(); if (id.Length == 0) continue;
+                    TrackCatalog.TrackDef def = null;
+                    foreach (var d in TrackCatalog.Scened) if (d.id == id) def = d;
+                    if (def == null) { sb.AppendLine("no venue " + id); continue; }
+                    sb.AppendLine("=== " + id);
+                    sb.AppendLine(TrackObstacleAudit.AuditForLab(def, "Assets/PSXRacing/Scenes/" + id + ".unity"));
+                    File.WriteAllText(Path.Combine(Path.GetDirectoryName(Application.dataPath), "PSXRacing_obstacles.txt"), sb.ToString());
+                }
+            }
+            catch (System.Exception ex) { sb.AppendLine("THREW " + ex); }
+            File.WriteAllText(Path.Combine(Path.GetDirectoryName(Application.dataPath), "PSXRacing_obstacles.txt"), sb.ToString());
+            if (Application.isBatchMode) EditorApplication.Exit(0);
+        }
+
+        /// <summary>(stage4, B) THE BOULDERS NEAR THE ROAD: per PSX_BF_VENUES scene, every solid "Boulder" (a convex hull
+        /// under Track/Banks/Boulders) within PSX_BF_BOULDER_E m (default 8) of a tarmac edge: is the stone it stands for
+        /// drawn (a MeshForest instance within 5 cm), and along level rays from the road at 0.2-1.4 m, how far the hull
+        /// stands in front of the drawn stone (the worst). Lists the ones over 0.15 m, the undrawn, and every one within
+        /// 10 waypoints of PSX_BF_WP. PSXRacing_boulders.txt.</summary>
+        public static void Boulders()
+        {
+            var sb = new StringBuilder();
+            string ids = System.Environment.GetEnvironmentVariable("PSX_BF_VENUES");
+            if (string.IsNullOrEmpty(ids)) ids = "ChimneyRock";
+            float maxE = 8f;
+            float.TryParse(System.Environment.GetEnvironmentVariable("PSX_BF_BOULDER_E") ?? "8", System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out maxE);
+            int wpAt = -1;
+            int.TryParse(System.Environment.GetEnvironmentVariable("PSX_BF_WP") ?? "-1", out wpAt);
+            try
+            {
+                foreach (var raw in ids.Split(','))
+                {
+                    string id = raw.Trim(); if (id.Length == 0) continue;
+                    string scenePath = "Assets/PSXRacing/Scenes/" + id + ".unity";
+                    if (!File.Exists(scenePath)) { sb.AppendLine(id + ": no scene"); continue; }
+                    EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Single);
+                    var path = Object.FindFirstObjectByType<TrackPath>();
+                    float half = path.roadWidth * 0.5f;
+                    var temp = new List<GameObject>();
+                    var instAt = new List<(Vector3 p, string mesh)>();
+                    foreach (var mfo in Object.FindObjectsByType<MeshForest>(FindObjectsSortMode.None))
+                    {
+                        if (mfo.inst == null || mfo.variants == null || mfo.instScaleVar == null) continue;
+                        var l2w = mfo.transform.localToWorldMatrix;
+                        for (int i = 0; i < mfo.inst.Length && i < mfo.instScaleVar.Length; i++)
+                        {
+                            int v = (int)mfo.instScaleVar[i].y;
+                            if (v < 0 || v >= mfo.variants.Length) continue;
+                            var vr = mfo.variants[v];
+                            var m0 = vr != null && vr.lods != null && vr.lods.Length > 0 ? vr.lods[0] : null;
+                            if (m0 == null) continue;
+                            string nm = m0.name.ToLowerInvariant();
+                            if (!(nm.Contains("stone") || nm.Contains("rock") || nm.Contains("boulder"))) continue;
+                            Vector3 lp = new Vector3(mfo.inst[i].x, mfo.inst[i].y, mfo.inst[i].z);
+                            Vector3 wpos = l2w.MultiplyPoint3x4(lp);
+                            int ni = path.NearestIndex(wpos);
+                            Vector3 r0 = Vector3.Cross(Vector3.up, path.GetTangent(ni)).normalized;
+                            if (Mathf.Abs(Vector3.Dot(wpos - path.GetPoint(ni), r0)) - half > maxE + 4f) continue;
+                            instAt.Add((wpos, m0.name));
+                            float sc = mfo.instScaleVar[i].x;
+                            var tl = mfo.instTilt != null && i < mfo.instTilt.Length ? mfo.instTilt[i] : Vector2.zero;
+                            var go = new GameObject("BFB") { layer = ProbeLayer, hideFlags = HideFlags.DontSave };
+                            go.transform.SetParent(mfo.transform, false);
+                            go.transform.localPosition = lp;
+                            go.transform.localRotation = Quaternion.Euler(tl.x, 0f, tl.y) * Quaternion.Euler(0f, mfo.inst[i].w, 0f);
+                            go.transform.localScale = new Vector3(sc, sc, sc);
+                            var hull = new GameObject("BFB") { layer = ProbeLayer, hideFlags = HideFlags.DontSave };
+                            hull.transform.SetParent(go.transform, false);
+                            hull.transform.localPosition = vr.pre.GetColumn(3);
+                            hull.transform.localRotation = vr.pre.rotation;
+                            hull.transform.localScale = vr.pre.lossyScale;
+                            hull.AddComponent<MeshCollider>().sharedMesh = m0;
+                            temp.Add(go);
+                        }
+                    }
+                    Physics.SyncTransforms();
+                    int n = 0, over = 0, undrawn = 0;
+                    bool hb = Physics.queriesHitBackfaces;
+                    Physics.queriesHitBackfaces = false;
+                    try
+                    {
+                        foreach (var t in Object.FindObjectsByType<Transform>(FindObjectsSortMode.None))
+                        {
+                            if (t.name != "Boulder" || t.parent == null || t.parent.name != "Boulders") continue;
+                            var col = t.GetComponentInChildren<Collider>();
+                            if (col == null) continue;
+                            Vector3 c0 = col.bounds.center;
+                            int wi = path.NearestIndex(c0);
+                            Vector3 p = path.GetPoint(wi), tan = path.GetTangent(wi); tan.y = 0f; tan.Normalize();
+                            Vector3 r = Vector3.Cross(Vector3.up, tan).normalized;
+                            float lat = Vector3.Dot(c0 - p, r);
+                            float sd = Mathf.Sign(lat);
+                            if (Mathf.Abs(lat) - half - col.bounds.extents.magnitude > maxE) continue;
+                            n++;
+                            bool drawn = false; string dm = "-";
+                            foreach (var ia in instAt) if ((ia.p - t.position).sqrMagnitude < 0.0025f) { drawn = true; dm = ia.mesh; break; }
+                            if (!drawn) undrawn++;
+                            float worst = 0f, worstH = 0f; int hits = 0;
+                            Vector3 dir = r * sd;
+                            Vector3 foot = c0 - dir * Vector3.Dot(c0 - p, dir);
+                            for (float h = 0.2f; h <= 1.41f; h += 0.2f)
+                                for (float s = -0.6f; s <= 0.61f; s += 0.3f)
+                                {
+                                    Vector3 o = foot + tan * s + dir * (half - 1f);
+                                    o.y = p.y + h;
+                                    var ray = new Ray(o, dir);
+                                    if (!col.Raycast(ray, out RaycastHit ch, 30f)) continue;
+                                    hits++;
+                                    float dd = Physics.Raycast(ray, out RaycastHit dh2, ch.distance + 4f, 1 << ProbeLayer) ? dh2.distance : ch.distance + 4f;
+                                    if (dd - ch.distance > worst) { worst = dd - ch.distance; worstH = h; }
+                                }
+                            bool bad = worst > 0.15f;
+                            if (bad) over++;
+                            if (bad || !drawn || (wpAt >= 0 && Mathf.Abs(wi - wpAt) <= 10))
+                                sb.AppendLine($"  {id} boulder wp {wi} {(sd > 0 ? "R" : "L")} {Mathf.Abs(lat) - half:0.0} m past the edge, at {t.position.x:0.0},{t.position.y:0.0},{t.position.z:0.0}: " +
+                                              $"drawn {(drawn ? dm : "NO - no MeshForest stone within 5 cm")}; hull in front of the drawn stone by up to {worst:0.00} m (at {worstH:0.0} m, {hits} rays meet the hull)");
+                        }
+                    }
+                    finally
+                    {
+                        Physics.queriesHitBackfaces = hb;
+                        foreach (var g in temp) Object.DestroyImmediate(g);
+                    }
+                    sb.AppendLine($"{id}: {n} boulders within {maxE:0} m of the edge; not drawn {undrawn}; hull > 0.15 m in front of its drawn stone {over}; stones drawn near the road {instAt.Count}");
+                }
+            }
+            catch (System.Exception ex) { sb.AppendLine("THREW " + ex); }
+            File.WriteAllText(Path.Combine(Path.GetDirectoryName(Application.dataPath), "PSXRacing_boulders.txt"), sb.ToString());
+            Debug.Log("[BF] " + sb);
+            if (Application.isBatchMode) EditorApplication.Exit(0);
         }
 
         /// <summary>The textures the game samples, as imported (size, filter), read back through the GPU into PNGs
@@ -342,6 +560,20 @@ namespace PSXRacing.EditorTools
 
         struct Spot { public int wp; public float gap, h; public string coll; public Vector3 at; }
 
+        static string Owner(Collider c, Dictionary<Collider, string> owner) =>
+            c != null && owner.TryGetValue(c, out string o) ? o : (c != null ? c.name : "-");
+
+        /// <summary>A name without its numbers and venue: "BankLip12 [StageBankLip12]" -> "BankLip".</summary>
+        static string Kind(string n)
+        {
+            if (string.IsNullOrEmpty(n)) return "-";
+            int b = n.IndexOf(' '); if (b > 0) n = n.Substring(0, b);
+            int u = n.IndexOf('_'); if (u > 0 && u < n.Length - 1 && !char.IsDigit(n[u + 1])) n = n.Substring(u + 1);
+            var o = new StringBuilder();
+            foreach (char ch in n) if (!char.IsDigit(ch) && ch != '_') o.Append(ch);
+            return o.Length == 0 ? n : o.ToString();
+        }
+
         public static string One(string id)
         {
             var sb = new StringBuilder();
@@ -350,6 +582,7 @@ namespace PSXRacing.EditorTools
             EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Single);
             var path = Object.FindFirstObjectByType<TrackPath>();
             if (path == null || path.Count == 0) return "bankfit " + id + ": no TrackPath";
+            string solidSet = ApplySolidSet();
 
             // the cut solids
             var solids = new List<MeshCollider>();
@@ -393,6 +626,62 @@ namespace PSXRacing.EditorTools
                 temp.Add(go);
                 tempOwner[c] = mf.name + " [" + mf.sharedMesh.name + "]";
             }
+            // (stage4) THE ROCK MESHFOREST DRAWS: the outcrops (Meadow cliffs) and talus stones PlaceCliffs sets into
+            // the cuts have no MeshFilter in the scene - they are instances in MeshForest's table, drawn at run time.
+            // Drawn rock all the same: each one near a cut solid as a temporary collider ("BF_BankCliff",
+            // "BF_BankStone"), as MeshForest places it (LocalOf). A boulder with its own solid is left out.
+            int rockInst = 0;
+            {
+                var boulderAt = new List<Vector3>();
+                foreach (var t in Object.FindObjectsByType<Transform>(FindObjectsSortMode.None))
+                    if (t.name == "Boulder" && t.parent != null && t.parent.name == "Boulders") boulderAt.Add(t.position);
+                var nearAll = new Bounds(all.center, all.size + Vector3.one * 6f);
+                foreach (var mfo in Object.FindObjectsByType<MeshForest>(FindObjectsSortMode.None))
+                {
+                    if (mfo.inst == null || mfo.variants == null || mfo.instScaleVar == null) continue;
+                    var kindOf = new string[mfo.variants.Length];
+                    for (int v = 0; v < mfo.variants.Length; v++)
+                    {
+                        var vv = mfo.variants[v];
+                        var m0 = vv != null && vv.lods != null && vv.lods.Length > 0 ? vv.lods[0] : null;
+                        string nm = m0 != null ? m0.name.ToLowerInvariant() : "";
+                        kindOf[v] = nm.Contains("cliff") ? "Cliff" : (nm.Contains("stone") || nm.Contains("rock") || nm.Contains("boulder")) ? "Stone" : null;
+                    }
+                    var l2w = mfo.transform.localToWorldMatrix;
+                    for (int i = 0; i < mfo.inst.Length && i < mfo.instScaleVar.Length; i++)
+                    {
+                        int v = (int)mfo.instScaleVar[i].y;
+                        if (v < 0 || v >= kindOf.Length || kindOf[v] == null) continue;
+                        Vector3 lp = new Vector3(mfo.inst[i].x, mfo.inst[i].y, mfo.inst[i].z);
+                        Vector3 wp = l2w.MultiplyPoint3x4(lp);
+                        if (!nearAll.Contains(wp)) continue;
+                        bool nearS = false;
+                        foreach (var s in solids) if (new Bounds(s.bounds.center, s.bounds.size + Vector3.one * 4f).Contains(wp)) { nearS = true; break; }
+                        if (!nearS) continue;
+                        bool isBoulder = false;
+                        foreach (var b in boulderAt) if ((b - wp).sqrMagnitude < 0.09f) { isBoulder = true; break; }
+                        if (isBoulder) continue;
+                        var vr = mfo.variants[v];
+                        float sc = mfo.instScaleVar[i].x;
+                        var tl = mfo.instTilt != null && i < mfo.instTilt.Length ? mfo.instTilt[i] : Vector2.zero;
+                        var go = new GameObject("BF_Bank" + kindOf[v]) { layer = ProbeLayer, hideFlags = HideFlags.DontSave };
+                        go.transform.SetParent(mfo.transform, false);
+                        go.transform.localPosition = lp;
+                        go.transform.localRotation = Quaternion.Euler(tl.x, 0f, tl.y) * Quaternion.Euler(0f, mfo.inst[i].w, 0f);
+                        go.transform.localScale = new Vector3(sc, sc, sc);
+                        var hull = new GameObject("BF_Bank" + kindOf[v]) { layer = ProbeLayer, hideFlags = HideFlags.DontSave };
+                        hull.transform.SetParent(go.transform, false);
+                        hull.transform.localPosition = vr.pre.GetColumn(3);
+                        hull.transform.localRotation = vr.pre.rotation;
+                        hull.transform.localScale = vr.pre.lossyScale;
+                        var hc = hull.AddComponent<MeshCollider>();
+                        hc.sharedMesh = vr.lods[0];
+                        temp.Add(go);
+                        tempOwner[hc] = "Bank" + kindOf[v] + " [" + vr.lods[0].name + "]";
+                        rockInst++;
+                    }
+                }
+            }
             Physics.SyncTransforms();
             bool hitBack = Physics.queriesHitBackfaces;
             Physics.queriesHitBackfaces = false;
@@ -400,6 +689,13 @@ namespace PSXRacing.EditorTools
             float half = path.roadWidth * 0.5f;
             int n = path.Count, chords = path.HasEnds ? n - 1 : n;
             int spots = 0, spotsOver = 0, spotsUnder = 0, samples = 0, sOver = 0, sUnder = 0, sUnderOther = 0;
+            int spotsUnder5 = 0, sUnder5 = 0, pocketsAlong = 0, pocketsUnder = 0;
+            var under5By = new Dictionary<string, int>();
+            var under5List = new List<Spot>();
+            // (stage4) the solid's distance along every ray, per side, in walk order: the pocket test
+            var dcRows = new List<float[]>[2] { new List<float[]>(), new List<float[]>() };
+            var dnRows = new List<string[]>[2] { new List<string[]>(), new List<string[]>() };
+            var pocketBy = new Dictionary<string, int>();
             float worst = 0f, worstNeg = 0f;
             var bandOver = new int[3]; var bandN = new int[3]; var hist = new int[5]; int histTop = 0;
             var worstList = new List<Spot>();
@@ -432,8 +728,11 @@ namespace PSXRacing.EditorTools
                                 edgeY += Mathf.Lerp(b0, b1, t) * half;
                             }
                             Vector3 o0 = p + dir * (half - 1.0f);
-                            bool spot = false, spotOver = false, spotUnder = false;
-                            float spotWorst = 0f, spotNeg = 0f, hW = 0f, hN = 0f; string cW = null;
+                            bool spot = false, spotOver = false, spotUnder = false, spotUnder5 = false;
+                            float spotWorst = 0f, spotNeg = 0f, hW = 0f, hN = 0f; string cW = null, dN = null, sN = null;
+                            var dcRow = new float[15];
+                            var dnRow = new string[15];
+                            for (int z = 0; z < 15; z++) dcRow[z] = float.NaN;
                             for (int hi = 0; hi <= 14; hi++)
                             {
                                 float h = 0.2f + hi * 0.1f;
@@ -446,6 +745,8 @@ namespace PSXRacing.EditorTools
                                     { dc = rh.distance; hitS = s; }
                                 }
                                 if (hitS == null) continue;
+                                dcRow[hi] = dc;
+                                dnRow[hi] = hitS.sharedMesh.name;
                                 bool hitD = Physics.Raycast(ray, out RaycastHit dh, dc + 3f, mask); float dd = hitD ? dh.distance : dc + 3f;
                                 bool rockHit = hitD && dh.collider.name.StartsWith("BF_Bank");
                                 float gap = dd - dc;
@@ -454,10 +755,20 @@ namespace PSXRacing.EditorTools
                                 bandN[band]++;
                                 if (gap > Over) { hist[gap < 0.25f ? 0 : gap < 0.5f ? 1 : gap < 1f ? 2 : gap < 2.99f ? 3 : 4]++; if (hitS.name.StartsWith("BankTop")) histTop++; sOver++; bandOver[band]++; spotOver = true; if (gap > spotWorst) { spotWorst = gap; hW = h; cW = hitS.sharedMesh.name; } }
                                 if (gap < Under && !rockHit) sUnderOther++;
-                                if (gap < Under && rockHit) { sUnder++; spotUnder = true; if (gap < spotNeg) { spotNeg = gap; hN = h; } }
+                                if (gap < Under && rockHit) { sUnder++; spotUnder = true; if (gap < spotNeg) { spotNeg = gap; hN = h; dN = Owner(dh.collider, tempOwner); sN = hitS.sharedMesh.name; } }
+                                if (gap < Under5 && rockHit) { sUnder5++; spotUnder5 = true; }
                             }
+                            dcRows[sd > 0 ? 1 : 0].Add(spot ? dcRow : null);
+                            dnRows[sd > 0 ? 1 : 0].Add(dnRow);
                             if (!spot) continue;
                             spots++;
+                            if (spotUnder5)
+                            {
+                                spotsUnder5++;
+                                string key = Kind(dN) + " vs " + Kind(sN);
+                                under5By.TryGetValue(key, out int u5); under5By[key] = u5 + 1;
+                                under5List.Add(new Spot { wp = i, gap = spotNeg, h = hN, at = p, coll = dN + " | solid " + sN });
+                            }
                             if (spotOver)
                             {
                                 spotsOver++;
@@ -482,12 +793,61 @@ namespace PSXRacing.EditorTools
             }
             worstList.Sort((x, y) => y.gap.CompareTo(x.gap));
             negList.Sort((x, y) => x.gap.CompareTo(y.gap));
+            under5List.Sort((x, y) => x.gap.CompareTo(y.gap));
+            // POCKETS in the solid a car meets (0.2-1.0 m over the edge): along = deeper than the solid on BOTH sides
+            // within PocketHalfM; under = deeper than the solid up to PocketUpM over it (an overhang)
+            int half5 = Mathf.RoundToInt(PocketHalfM / 0.5f), upN = Mathf.RoundToInt(PocketUpM / 0.1f);
+            for (int sdI = 0; sdI < 2; sdI++)
+            {
+                var rows = dcRows[sdI];
+                for (int r = 0; r < rows.Count; r++)
+                {
+                    var row = rows[r]; if (row == null) continue;
+                    bool along = false, under = false;
+                    string pn = null;
+                    for (int hi = 0; hi <= 8; hi++)
+                    {
+                        float d0 = row[hi]; if (float.IsNaN(d0)) continue;
+                        float lo = float.NaN, hiS = float.NaN;
+                        for (int o = 1; o <= half5; o++)
+                        {
+                            if (r - o >= 0 && rows[r - o] != null && !float.IsNaN(rows[r - o][hi])) lo = float.IsNaN(lo) ? rows[r - o][hi] : Mathf.Min(lo, rows[r - o][hi]);
+                            if (r + o < rows.Count && rows[r + o] != null && !float.IsNaN(rows[r + o][hi])) hiS = float.IsNaN(hiS) ? rows[r + o][hi] : Mathf.Min(hiS, rows[r + o][hi]);
+                        }
+                        if (!float.IsNaN(lo) && !float.IsNaN(hiS) && d0 - lo > PocketDepth && d0 - hiS > PocketDepth) { along = true; pn = pn ?? "along " + Kind(dnRows[sdI][r][hi]); }
+                        for (int o = 1; o <= upN && hi + o < 15; o++)
+                            if (!float.IsNaN(row[hi + o]) && d0 - row[hi + o] > PocketDepth) { under = true; pn = pn ?? "under " + Kind(dnRows[sdI][r][hi]) + " / over it " + Kind(dnRows[sdI][r][hi + o]); }
+                    }
+                    if (pn != null) { pocketBy.TryGetValue(pn, out int pc); pocketBy[pn] = pc + 1; }
+                    if (along) pocketsAlong++;
+                    if (under) pocketsUnder++;
+                }
+            }
             sb.AppendLine($"bankfit {id}: {spots} spots (0.5 m, a side) where a level ray 0.2-1.6 m over the edge meets a cut solid; " +
                           $"held off > {Over:0.00} m: {spotsOver} ({100f * spotsOver / Mathf.Max(1, spots):0.0}%), worst {worst:0.00} m; " +
                           $"cut rock drawn in front of the solid (< {Under:0.00} m): {spotsUnder}, worst {worstNeg:0.00} m; other drawn things in front (rails, walls, plants): {sUnderOther} samples");
+            sb.AppendLine($"  [stage4] solid set: {solidSet}; drawn cut rock in front of the solid by > 0.05 m: {spotsUnder5} spots ({100f * spotsUnder5 / Mathf.Max(1, spots):0.00}%), {sUnder5} samples; " +
+                          $"pockets (0.2-1.0 m): along {pocketsAlong} spots ({100f * pocketsAlong / Mathf.Max(1, spots):0.00}%), under an overhang {pocketsUnder} ({100f * pocketsUnder / Mathf.Max(1, spots):0.00}%)");
+            {
+                var ul = new List<KeyValuePair<string, int>>(under5By);
+                ul.Sort((x, y) => y.Value.CompareTo(x.Value));
+                var pl = new List<KeyValuePair<string, int>>(pocketBy);
+                pl.Sort((x, y) => y.Value.CompareTo(x.Value));
+                var pb = new StringBuilder("  [stage4] pockets by solid (deeper one / the one over it):");
+                for (int k = 0; k < pl.Count && k < 8; k++) pb.Append($" {pl[k].Key} {pl[k].Value};");
+                sb.AppendLine(pb.ToString());
+                var u5 = new StringBuilder("  [stage4] > 0.05 m in front, by drawn vs solid:");
+                for (int k = 0; k < ul.Count && k < 10; k++) u5.Append($" {ul[k].Key} {ul[k].Value};");
+                sb.AppendLine(u5.ToString());
+                for (int k = 0; k < under5List.Count && k < 12; k++)
+                {
+                    var s5 = under5List[k];
+                    sb.AppendLine($"    in front {s5.gap:0.00} m at {s5.h:0.0} m  wp {s5.wp}  {s5.coll}  at {s5.at.x:0.0},{s5.at.y:0.0},{s5.at.z:0.0}");
+                }
+            }
             sb.AppendLine($"  samples {samples}: over {sOver}, under {sUnder}; over by band 0.2-0.6 {bandOver[0]}/{bandN[0]}, 0.7-1.1 {bandOver[1]}/{bandN[1]}, 1.2-1.6 {bandOver[2]}/{bandN[2]}");
             sb.AppendLine($"  over samples by gap: 0.15-0.25 {hist[0]}, 0.25-0.5 {hist[1]}, 0.5-1 {hist[2]}, 1-3 {hist[3]}, nothing drawn within 3 m {hist[4]}; on the rock top's face collider {histTop}");
-            sb.AppendLine($"  cut solids (BankColl): {cutN} MeshColliders, {cutTris} triangles; with the rock tops' colliders {solids.Count} / {solidTris}; cooked in {cookMs:0} ms (editor); drawn meshes asked: {temp.Count}");
+            sb.AppendLine($"  cut solids (BankColl): {cutN} MeshColliders, {cutTris} triangles; with the rock tops' colliders {solids.Count} / {solidTris}; cooked in {cookMs:0} ms (editor); drawn meshes asked: {temp.Count} (of them outcrops and talus stones drawn by MeshForest: {rockInst})");
             var cl = new List<KeyValuePair<string, int>>(byColl);
             cl.Sort((x, y) => y.Value.CompareTo(x.Value));
             var line = new StringBuilder("  held-off spots by solid:");

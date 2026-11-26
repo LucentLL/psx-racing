@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using UnityEditor;
@@ -7063,6 +7063,7 @@ namespace PSXRacing.EditorTools
             root.transform.SetParent(parent, false);
 
             int runs = 0, banked = 0;
+            bandSolids = bandTris = bandRockPulls = lipCollTris = bandFailed = bandCliffSolids = bandStatN = bandStatRock = bandStatOpen = bandStatShape = 0; bandMs = 0;
             int solids0 = wallSolidCount;
             float solidM0 = wallSolidM;
             foreach (var run in rsBankRuns)
@@ -7076,6 +7077,10 @@ namespace PSXRacing.EditorTools
             Log($"Stage cut banks: {runs} runs closing {banked * Spacing:0} m of uphill shoulder, " +
                 "each with a solid rock top over its released hillside; " +
                 $"{wallSolidCount - solids0} rock-face solid(s), {wallSolidM - solidM0:0} m of collider face.");
+            Log($"Cut band solids (PSX_BANKSOLID={(BankSolid && !BankFit ? "on" : "off")}{(BankSolidAB ? ", AB: old slabs kept inactive" : "")}): " +
+                $"{bandSolids} solid(s) from the drawn relief, {bandTris} tris, " +
+                $"built in {bandMs:0} ms, {bandFailed} FAILED (an old slab stands there), {bandCliffSolids} outcrops and talus stones in reach solid as themselves; crest lip within reach solid: {lipCollTris} tris; face vertices 0-1.6 m {bandStatN}, moved out > 0.15 m by: rock {bandStatRock}, pockets {bandStatOpen}, slope/overhang {bandStatShape}.");
+            bandSolids = bandTris = bandRockPulls = lipCollTris = bandFailed = bandCliffSolids = bandStatN = bandStatRock = bandStatOpen = bandStatShape = 0; bandMs = 0;
         }
 
         /// <summary>Is <paramref name="p"/> still this station's own hillside —
@@ -7296,6 +7301,20 @@ namespace PSXRacing.EditorTools
                     Station(b1, 0f, 0f, true, false, true);
             }
             int R = st.Count;
+            // (stage4, PSX_BANKSOLID) the solid of the relief's band is built from the drawn rock (BuildBandSolids);
+            // the old slab and the rock top's face collider stand only where no relief is drawn
+            bool bandSolid = BankSolid && !BankFit && PCContent && RockReliefOn && !grassy;
+            // (PSX_BANKSOLID) Lake Lure's grass banks draw no relief: their solid is the drawn face itself (the rock
+            // top's face collider, every chord), not a vertical slab standing in front of the battered face
+            bool grassFace = BankSolid && !BankFit && PCContent && grassy;
+            bool bandAB = (bandSolid || grassFace) && BankSolidAB;
+            GameObject oldSolids = null;
+            if (bandAB)
+            {
+                oldSolids = new GameObject("BankSolidOld");
+                oldSolids.transform.SetParent(parent, false);
+            }
+            var oTris = bandAB ? new List<int>() : null;
 
             // The face: toe (a skirt under the ditch's backslope), the top of
             // the vertical plinth, the battered crest — all three ON the crest
@@ -7390,8 +7409,17 @@ namespace PSXRacing.EditorTools
                     cVerts.Add(toe[k]); cVerts.Add(plinthTop[k]); cVerts.Add(crest[k]);
                     if (k > 0)
                     {
-                        QuadFacingSkipFlat(cVerts, cTris, c - 3, c - 2, c + 1, c, -outw);
-                        QuadFacingSkipFlat(cVerts, cTris, c - 2, c - 1, c + 2, c + 1, -outw);
+                        // (PSX_BANKSOLID) not over a relief chord: its band solid is the drawn rock there
+                        if (!bandSolid || !(facedAt[k - 1] && facedAt[k]))
+                        {
+                            QuadFacingSkipFlat(cVerts, cTris, c - 3, c - 2, c + 1, c, -outw);
+                            QuadFacingSkipFlat(cVerts, cTris, c - 2, c - 1, c + 2, c + 1, -outw);
+                        }
+                        if (bandAB)
+                        {
+                            QuadFacingSkipFlat(cVerts, oTris, c - 3, c - 2, c + 1, c, -outw);
+                            QuadFacingSkipFlat(cVerts, oTris, c - 2, c - 1, c + 2, c + 1, -outw);
+                        }
                     }
                 }
 
@@ -7480,7 +7508,10 @@ namespace PSXRacing.EditorTools
                             QuadFacingSkipFlat(cVerts, cTris, c - 4 + j, c - 4 + j + 1, c + j + 1, c + j, -outwAt[k]);
                 }
             }
-            for (int k = 1; k < R; )
+            // (PSX_BANKSOLID) no slab where the band solid stands (none at all with the relief drawn); with
+            // PSX_BANKSOLID_AB=1 the old slabs are built as well, into the cut's inactive BankSolidOld
+            Transform slabParent = bandSolid || grassFace ? (oldSolids != null ? oldSolids.transform : null) : parent;
+            for (int k = 1; slabParent != null && k < R; )
             {
                 if (!BankChord(k)) { k++; continue; }
                 int k0 = k - 1, k1 = k;
@@ -7508,7 +7539,7 @@ namespace PSXRacing.EditorTools
                     faceTop.Add(new Vector3(face.x, Y(i) + (BankFit ? Mathf.Min(ch, BankPlinth) : ch), face.z));
                     outward.Add(rsRight[i] * side);
                 }
-                BuildWallSolid("BankColl", parent, faceBottom, faceTop, outward, StageWallCollThick,
+                BuildWallSolid("BankColl", slabParent, faceBottom, faceTop, outward, StageWallCollThick,
                                false, phys, "CollBank" + no + "_" + sub);
                 // (BankFit) over the plinth the face leans back at the batter: a second slab on it, plinth to the
                 // band's top (or the face's), over the runs of rings with that much face
@@ -7550,20 +7581,49 @@ namespace PSXRacing.EditorTools
                 sub++;
                 k = k1 + 1;
             }
+            if (oldSolids != null)
+            {
+                // the old face collider (every chord), for the probe's old set; then the old set put away
+                if (oTris.Count > 0)
+                {
+                    var om = new Mesh
+                    {
+                        indexFormat = UnityEngine.Rendering.IndexFormat.UInt32,
+                        vertices = cVerts.ToArray(), triangles = oTris.ToArray(),
+                    };
+                    SaveMesh(om, "BankTopCollOld" + no);
+                    var og = new GameObject("BankTopOld" + no);
+                    og.transform.SetParent(oldSolids.transform, false);
+                    var ocl = og.AddComponent<MeshCollider>();
+                    ocl.sharedMesh = om;
+                    ocl.sharedMaterial = SlidePhys();
+                    og.isStatic = true;
+                }
+                oldSolids.SetActive(false);
+            }
 
             // PC: the Meadow pack's cliffs along the faced stations (PSXRacingBuilder.Cliffs)
             // The drawn face stays where it is. (Stepping it 1 m back into the
             // hill behind the cliffs opened see-through slits against its own
             // rock top, the cut's ends and the walls beside it - owner
             // 2026-11-09: "transparent gaps between rockfaces and wall edges".)
+            int rock0 = cliffPlaces.Count;
             if (PCContent && !grassy)
                 PlaceCliffs(pts, st, hh, facedAt, outwAt, distAt, R, no * 13 + s, crest);
+            int rock1 = cliffPlaces.Count;
             // PC: the faced chords as fractured rock (the collider above stays the smooth hull)
             if (PCContent && RockReliefOn && !grassy)
             {
                 ReliefFace(verts, uvs, tris, toe, plinthTop, crest, facedAt, distAt, chordT0, chordT1, outwAt, R, no * 7 + s,
                            BankFit ? colD : null);
-                BuildCrestLip(parent, topMat, no, crest, outwAt, facedAt, distAt, R, no * 7 + s);
+                float[] edgeAt = null;
+                if (bandSolid)
+                {
+                    BuildBandSolids(parent, phys, no, toe, plinthTop, crest, facedAt, distAt, outwAt, R, no * 7 + s, rock0, rock1);
+                    edgeAt = new float[R];
+                    for (int k = 0; k < R; k++) edgeAt[k] = Y(st[k]);
+                }
+                BuildCrestLip(parent, topMat, no, crest, outwAt, facedAt, distAt, R, no * 7 + s, edgeAt);
             }
             var mesh = new Mesh
             {
