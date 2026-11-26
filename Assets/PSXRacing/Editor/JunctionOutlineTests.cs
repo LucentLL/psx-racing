@@ -317,6 +317,75 @@ namespace PSXRacing.EditorTools
             Assert.IsTrue(r.corners.FindAll(c => c.shape == "connector" && c.note.StartsWith("via link")).Count == 2, "U-turn bays: both noses via the crossings: " + Shapes(r));
         }
 
+        // ---------------- REAL junctions (fixtures written by CityOutlineProto.RunCity) ----------------
+        /// <summary>A fixture: the plain solver inputs of one real cluster (arms, links), about its first node.</summary>
+        public static bool LoadFixture(string path, out string kind, out List<JunctionOutline.Arm> arms, out List<JunctionOutline.Link> links)
+        {
+            kind = ""; arms = new List<JunctionOutline.Arm>(); links = new List<JunctionOutline.Link>();
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            JunctionOutline.Arm arm = null; JunctionOutline.Link link = null;
+            List<Vector2> Pts(string l)
+            {
+                var o = new List<Vector2>();
+                foreach (var t in l.Substring(2).Split(new[] { ' ' }, System.StringSplitOptions.RemoveEmptyEntries)) { var xy = t.Split(','); o.Add(new Vector2(float.Parse(xy[0], inv), float.Parse(xy[1], inv))); }
+                return o;
+            }
+            foreach (var line in System.IO.File.ReadAllLines(path))
+            {
+                if (line.StartsWith("kind ")) kind = line.Substring(5);
+                else if (line.StartsWith("arm "))
+                {
+                    var t = line.Split(new[] { ' ' }, 5);
+                    arm = new JunctionOutline.Arm { id = int.Parse(t[1]), oneway = t[2] == "1", radius = float.Parse(t[3], inv), name = t.Length > 4 ? t[4] : "", Y = new List<float>() };
+                    arms.Add(arm); link = null;
+                }
+                else if (line.StartsWith("link ")) { link = new JunctionOutline.Link { id = int.Parse(line.Substring(5)) }; links.Add(link); arm = null; }
+                else if (line.StartsWith("L ")) { if (arm != null) arm.L = Pts(line); else if (link != null) link.L = Pts(line); }
+                else if (line.StartsWith("R ")) { if (arm != null) arm.R = Pts(line); else if (link != null) link.R = Pts(line); }
+                else if (line.StartsWith("C ") && arm != null) arm.C = Pts(line);
+                else if (line.StartsWith("Y ") && arm != null) foreach (var t in line.Substring(2).Split(new[] { ' ' }, System.StringSplitOptions.RemoveEmptyEntries)) arm.Y.Add(float.Parse(t, inv));
+            }
+            return arms.Count > 0;
+        }
+        public static string FixtureDir => System.IO.Path.Combine(Application.dataPath, "PSXRacing", "Editor", "JunctionFixtures");
+        /// <summary>Every real fixture through MergeBays and the solver, each checked like the synthetic kinds. These are the
+        /// tests that matter now: the real junctions at his spots and one of each other kind from the gallery.</summary>
+        [Test] public void RealJunctions()
+        {
+            if (!System.IO.Directory.Exists(FixtureDir)) Assert.Fail("no fixtures at " + FixtureDir);
+            int fail = 0, n = 0; var first = "";
+            foreach (var f in System.IO.Directory.GetFiles(FixtureDir, "*.txt"))
+            {
+                n++;
+                if (!LoadFixture(f, out string kind, out var arms, out var links)) { fail++; continue; }
+                var merges = JunctionOutline.MergeBays(arms, links);
+                var r = JunctionOutline.Solve(arms, null, links);
+                string why = Check(r, 0.5f);
+                string name = System.IO.Path.GetFileNameWithoutExtension(f);
+                Note(r, $"real {name} ({kind.Split('|')[0].Trim()}; {arms.Count} arms, {links.Count} links{(merges.Count > 0 ? ", " + merges.Count + " bays merged" : "")})", why);
+                if (why != null) { fail++; if (first.Length == 0) first = name + ": " + why; }
+            }
+            Assert.AreEqual(0, fail, $"{fail} of {n} real junctions fail; first {first}");
+        }
+
+        [Test] public void PaintedGoreToTheStopLine()
+        {
+            // spot 81's shape (g05): a 3-lane link comes south to a T with a boulevard 35 m on; its right lane leaves as a slip
+            // on a large curve, separated by PAINT (the two branches drawn overlapping), the kerbed island only where the
+            // slip meets the boulevard (it merges 15 degrees into the boulevard's westbound side). One junction: the split node and the T, the straight branch a link between them.
+            // Expect: no nose at the split (painted), the island is the kerb return between the slip and the boulevard.
+            float hApp = Half(3), hB = Half(2), hS = Half(1) - Sh;
+            var approach = JunctionOutline.StraightArm(0, Vector2.zero, Dir(90), hApp, hApp, oneway: true, name: "Link");
+            var slip = JunctionOutline.ArmAlong(1, JunctionOutline.CurveThenStraight(new Vector2(-2.2f, 0f), Dir(-95), new Vector2(-24f, -22f), Dir(-165), 50f), hS, hS, radius: 15f, oneway: true, name: "Slip");
+            var east = JunctionOutline.StraightArm(2, new Vector2(0f, -35f), Dir(0), Half(4), Half(4), name: "Blvd");
+            var west = JunctionOutline.StraightArm(3, new Vector2(0f, -35f), Dir(180), Half(4), Half(4), name: "Blvd");
+            var link = JunctionOutline.StraightLink(9, new Vector2(1.8f, 0f), new Vector2(1.8f, -35f), hB);
+            var r = JunctionOutline.Solve(new List<JunctionOutline.Arm> { approach, slip, east, west }, null, new List<JunctionOutline.Link> { link });
+            Assert0(r, "painted gore to the stop line (spot 81's shape)");
+            // no raised nose at the split (within 20 m of it); the slip's merge into the boulevard may have its island
+            Assert.IsTrue(!r.corners.Exists(c => c.shape == "nose" && c.tA.magnitude < 20f), "81: a nose at the split where the photo has paint: " + Shapes(r));
+        }
+
         // ---------------- the fill with holes ----------------
         static List<Vector2> Circle(Vector2 c, float r, int n = 24) { var l = new List<Vector2>(); for (int k = 0; k < n; k++) { float a = k * Mathf.PI * 2f / n; l.Add(c + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * r); } return l; }
         static List<Vector2> Rect(float x0, float y0, float x1, float y1) => new List<Vector2> { new Vector2(x0, y0), new Vector2(x1, y0), new Vector2(x1, y1), new Vector2(x0, y1) };

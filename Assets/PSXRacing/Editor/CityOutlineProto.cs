@@ -288,8 +288,8 @@ namespace PSXRacing.EditorTools
 
         /// <summary>(round 5 item 6) THE MEDIAN-OPENING CLUSTER RULE: two fan clusters become one junction when a node of
         /// each is the FAR NODE of a crossover (a one-way link arriving from the other carriageway of the same road, which
-        /// runs the other way) and the two crossovers share ONE opening: their crossings meet (cross, or pass within 3 m)
-        /// near the two nodes. Bounded so it cannot swallow two openings 100 m apart: the two nodes lie within the
+        /// runs the other way) and the two crossovers share ONE opening: their PAVED crossings (the line model's border
+        /// polygons) intersect or lie within a lane width (3.66 m) of each other near the two nodes. Bounded so it cannot swallow two openings 100 m apart: the two nodes lie within the
         /// opening's own length along the road (twice the carriageways' spacing, at most OpeningMaxM), and NO THROUGH ARM
         /// between them: no other road leaves either carriageway at a node lying between the two along the road. Returns
         /// a line per decision; merges the key lists in place.</summary>
@@ -332,16 +332,10 @@ namespace PSXRacing.EditorTools
                     float along = Mathf.Abs(Vector2.Dot(pb - pa, u)), across = Mathf.Abs(Vector2.Dot(pb - pa, w));
                     float open = Mathf.Min(OpeningMaxM, 2f * across);
                     if (along > open) { log.Add($"n{A.n} / n{B.n}: not joined, {along:0.0} m apart along the road (the opening's length {open:0.0} m)"); continue; }
-                    // their crossings meet near the two nodes
-                    float best = float.MaxValue;
-                    var mid = 0.5f * (pa + pb); float reach = (pb - pa).magnitude + 10f;
-                    for (int x = 0; x + 1 < ea.pts.Length; x++)
-                        for (int y = 0; y + 1 < eb.pts.Length; y++)
-                        {
-                            if ((ea.pts[x] - mid).magnitude > reach || (eb.pts[y] - mid).magnitude > reach) continue;
-                            best = Mathf.Min(best, SegDist(ea.pts[x], ea.pts[x + 1], eb.pts[y], eb.pts[y + 1]));
-                        }
-                    if (best > 3f) { log.Add($"n{A.n} / n{B.n}: not joined, their crossings come no closer than {best:0.0} m (not one opening)"); continue; }
+                    // ONE OPENING: the paved gap in the median each crossing uses (its border polygon, the line model's, where
+                    // it lies between the two carriageways' lines) overlaps the other's ALONG THE ROAD, or comes within a lane
+                    float best = AlongGap(LinkPoly(ea, pa, pb), LinkPoly(eb, pa, pb), pa, u, w, Vector2.Dot(pb - pa, w));
+                    if (best > LaneM) { log.Add($"n{A.n} / n{B.n}: not joined, their paved gaps in the median lie {best:0.0} m apart along the road (over a lane, {LaneM} m: two openings)"); continue; }
                     // no through arm between: no other road at a node of either carriageway lying between them along the road
                     string between = null;
                     float sb = Vector2.Dot(pb - pa, u);
@@ -357,9 +351,83 @@ namespace PSXRacing.EditorTools
                     if (between != null) { log.Add($"n{A.n} / n{B.n}: not joined, a through arm between them at {between}"); continue; }
                     foreach (int n in keys[kb]) { keys[ka].Add(n); keyOf[n] = ka; }
                     keys.Remove(kb);
-                    log.Add($"n{A.n} / n{B.n}: JOINED (one median opening: {along:0.0} m along, {across:0.0} m across, crossings {best:0.0} m apart; e{A.e} / e{B.e})");
+                    log.Add($"n{A.n} / n{B.n}: JOINED (one median opening: {along:0.0} m along, {across:0.0} m across, paved crossings {best:0.0} m apart; e{A.e} / e{B.e})");
                 }
             return log;
+        }
+        public const float LaneM = 3.66f, PaintedReachM = 40f;
+        /// <summary>(round 5, 81) THE PAINTED-GORE RULE: a split (one way in, two out) whose two branches are drawn
+        /// OVERLAPPING at the split (5 m out their centres are closer than their half widths less 0.5 m: one paved
+        /// approach, the gore painted) joins the junction one branch reaches within PaintedReachM: the gore is paint to
+        /// that junction's stop line, and the kerbed island is that junction's corner between the other branch and the
+        /// road it meets.</summary>
+        public static List<string> JoinPaintedSplits(CityMap map, Dictionary<int, List<int>> keys)
+        {
+            var log = new List<string>();
+            var keyOf = new Dictionary<int, int>();
+            foreach (var kv in keys) foreach (int n in kv.Value) keyOf[n] = kv.Key;
+            foreach (var k in keys.Keys.ToList())
+            {
+                if (!keys.TryGetValue(k, out var nodes) || nodes.Count != 1) continue;
+                int n = nodes[0];
+                var outs = new List<CityMap.Edge>(); int ins = 0, other = 0;
+                foreach (int ei in map.nodeEdges[n]) { var e = map.edges[ei]; if (e.a == e.b) continue; if (!e.oneway) other++; else if (e.a == n) outs.Add(e); else ins++; }
+                if (other > 0 || ins != 1 || outs.Count != 2) continue;
+                float at = Mathf.Min(5f, Mathf.Min(outs[0].length, outs[1].length) * 0.5f);
+                LineModel.Extents(outs[0], at, out float m0, out float p0); LineModel.Extents(outs[1], at, out float m1, out float p1);
+                float gap = (outs[0].PointAt(at) - outs[1].PointAt(at)).magnitude;
+                float halves = 0.5f * (m0 + p0) + 0.5f * (m1 + p1);
+                if (gap >= halves - 0.5f) continue;
+                foreach (var b in outs)
+                {
+                    if (b.length > PaintedReachM || !keyOf.TryGetValue(b.b, out int kb) || kb == k) continue;
+                    foreach (int x in keys[k]) { keys[kb].Add(x); keyOf[x] = kb; }
+                    keys.Remove(k);
+                    log.Add($"n{n}: painted split JOINED to the junction e{b.index} reaches {b.length:0.0} m on (branches overlap {halves - gap:0.0} m at {at:0.0} m)");
+                    break;
+                }
+            }
+            return log;
+        }
+        /// <summary>A link's paved polygon from the line model's borders, the part within reach of the two nodes.</summary>
+        static List<Vector2> LinkPoly(CityMap.Edge e, Vector2 pa, Vector2 pb)
+        {
+            var mid = 0.5f * (pa + pb); float reach = (pb - pa).magnitude + 15f;
+            var L = new List<Vector2>(); var R = new List<Vector2>();
+            for (float d = 0f; d <= e.length + 1e-3f; d += 1f)
+            {
+                var p = e.PointAt(d); if ((p - mid).magnitude > reach) continue;
+                var t = e.TangentAt(d); var left = new Vector2(-t.y, t.x);
+                LineModel.Extents(e, d, out float eM, out float eP);
+                L.Add(p + left * eP); R.Add(p - left * eM);
+            }
+            R.Reverse(); L.AddRange(R);
+            return L;
+        }
+        /// <summary>Along the road (u), the gap between the stretches two polygons cover inside the median band (across, w,
+        /// strictly between 0 and acrossB: the two nodes' carriageway lines); 0 where they overlap.</summary>
+        static float AlongGap(List<Vector2> P, List<Vector2> Q, Vector2 o, Vector2 u, Vector2 w, float acrossB)
+        {
+            float lo = Mathf.Min(0f, acrossB), hi = Mathf.Max(0f, acrossB), m = 0.25f * (hi - lo);
+            bool Range(List<Vector2> X, out float a, out float b)
+            {
+                a = float.MaxValue; b = float.MinValue;
+                foreach (var q in X) { float c = Vector2.Dot(q - o, w); if (c < lo + m || c > hi - m) continue; float t = Vector2.Dot(q - o, u); a = Mathf.Min(a, t); b = Mathf.Max(b, t); }
+                return a <= b;
+            }
+            if (!Range(P, out float p0, out float p1) || !Range(Q, out float q0, out float q1)) return float.MaxValue;
+            return Mathf.Max(0f, Mathf.Max(p0, q0) - Mathf.Min(p1, q1));
+        }
+        /// <summary>The gap between two polygons' outlines (0 where they touch or one holds a point of the other).</summary>
+        static float PolyGap(List<Vector2> P, List<Vector2> Q)
+        {
+            if (P.Count < 3 || Q.Count < 3) return float.MaxValue;
+            if (JunctionOutline.InPoly(P, Q[0]) || JunctionOutline.InPoly(Q, P[0])) return 0f;
+            float best = float.MaxValue;
+            for (int i = 0; i < P.Count; i++)
+                for (int j = 0; j < Q.Count; j++)
+                    best = Mathf.Min(best, SegDist(P[i], P[(i + 1) % P.Count], Q[j], Q[(j + 1) % Q.Count]));
+            return best;
         }
         static float SegDist(Vector2 a, Vector2 b, Vector2 c, Vector2 d)
         {
@@ -375,9 +443,13 @@ namespace PSXRacing.EditorTools
 
         /// <summary>A cluster's plain solver inputs: its arms (edges with one end in it, 80 m of the line model's borders,
         /// centre and profile heights) and its links (edges with both ends in it).</summary>
-        public static void BuildCluster(CityMap map, HashSet<int> cluster, out List<JunctionOutline.Arm> arms, out List<JunctionOutline.Link> links)
+        public static void BuildCluster(CityMap map, HashSet<int> cluster, out List<JunctionOutline.Arm> arms, out List<JunctionOutline.Link> links) => BuildCluster(map, cluster, out arms, out links, out _);
+        /// <summary>... in the cluster's own frame (about its first node: float metres a few thousand from the map's origin
+        /// lose half a millimetre, enough to make a near-touching outline cross itself, as 81's did).</summary>
+        public static void BuildCluster(CityMap map, HashSet<int> cluster, out List<JunctionOutline.Arm> arms, out List<JunctionOutline.Link> links, out Vector2 origin)
         {
             arms = new List<JunctionOutline.Arm>(); links = new List<JunctionOutline.Link>();
+            origin = map.nodes[cluster.First()]; var o0 = origin;
             var seenE = new HashSet<int>();
             foreach (int n in cluster)
                 foreach (int ei in map.nodeEdges[n])
@@ -393,7 +465,7 @@ namespace PSXRacing.EditorTools
                         {
                             var t = e.TangentAt(d); var left = new Vector2(-t.y, t.x);
                             LineModel.Extents(e, d, out float eM, out float eP);
-                            var p = e.PointAt(d);
+                            var p = e.PointAt(d) - o0;
                             lk.L.Add(p + left * eP); lk.R.Add(p - left * eM);
                         }
                         if (lk.L.Count >= 2) links.Add(lk);
@@ -407,7 +479,7 @@ namespace PSXRacing.EditorTools
                         var t = e.TangentAt(s); if (!fwd) t = -t;
                         var left = new Vector2(-t.y, t.x);
                         LineModel.Extents(e, s, out float eM, out float eP);
-                        var p = e.PointAt(s);
+                        var p = e.PointAt(s) - o0;
                         arm.C.Add(p); arm.L.Add(p + left * (fwd ? eP : eM)); arm.R.Add(p - left * (fwd ? eM : eP)); arm.Y.Add(e.YAt(s));
                     }
                     if (arm.C.Count >= 4) arms.Add(arm);
@@ -464,8 +536,16 @@ namespace PSXRacing.EditorTools
                     if (!keys.TryGetValue(k, out var l)) keys[k] = l = new List<int>();
                     l.Add(n);
                 }
+                // a split or merge the generator draws without a fan (no patch: SPLT, gores) is a junction of the outline too
+                for (int n = 0; n < map.nodes.Length; n++)
+                {
+                    if (trims.patch[n]) continue;
+                    int deg = 0; foreach (int ei in map.nodeEdges[n]) if (map.edges[ei].a != map.edges[ei].b) deg++;
+                    if (deg >= 3) keys[-1 - n] = new List<int> { n };
+                }
                 var sw = System.Diagnostics.Stopwatch.StartNew();
                 var joins = JoinOpenings(map, keys);
+                joins.AddRange(JoinPaintedSplits(map, keys));
                 double joinMs = sw.Elapsed.TotalMilliseconds;
                 int joined = joins.Count(x => x.Contains("JOINED"));
                 string[] order = { "median opening", "split of one road", "skew crossing", "ramp / link fork", "slip lane", "crossing corner", "T corner", "bend" };
@@ -484,7 +564,7 @@ namespace PSXRacing.EditorTools
                     }
                     if (cluster.Count > 1) kind += " [" + cluster.Count + " nodes]";
                     var t0 = sw.Elapsed.TotalMilliseconds;
-                    BuildCluster(map, cluster, out var arms, out var links);
+                    BuildCluster(map, cluster, out var arms, out var links, out var origin);
                     if (arms.Count < 3 && links.Count == 0) continue;   // a bend or dead end: no junction outline
                     var rawArms = arms.ConvertAll(x => new JunctionOutline.Arm { id = x.id, oneway = x.oneway, radius = x.radius, name = x.name, L = new List<Vector2>(x.L), R = new List<Vector2>(x.R), C = new List<Vector2>(x.C), Y = new List<float>(x.Y) });
                     var rawLinks = links.ConvertAll(x => new JunctionOutline.Link { id = x.id, L = new List<Vector2>(x.L), R = new List<Vector2>(x.R) });
@@ -508,7 +588,7 @@ namespace PSXRacing.EditorTools
                     tsv.Append($"{kv.Key}\t{string.Join(" ", cluster)}\t{kind}\t{res}\t{(detail ?? "").Replace('\t', ' ')}\t{arms.Count}\t{links.Count}\t{ms.ToString("0.0", inv)}\n");
                     foreach (int n in cluster)
                         if (want.TryGetValue(n, out string fname))
-                            File.WriteAllText(Path.Combine(dir, "fixtures", fname + ".txt"), FixtureText(fname, kind + " | " + res + ": " + (detail ?? ""), map.nodes[n], rawArms, rawLinks));
+                            File.WriteAllText(Path.Combine(dir, "fixtures", fname + ".txt"), FixtureText(fname, kind + " | " + res + ": " + (detail ?? ""), Vector2.zero, rawArms, rawLinks).Replace("origin 0.00 0.00", "origin " + origin.x.ToString("0.00", inv) + " " + origin.y.ToString("0.00", inv)));
                 }
                 int[] tot = new int[4]; foreach (var c4 in tally.Values) for (int i = 0; i < 4; i++) tot[i] += c4[i];
                 log.Append($"{tot.Sum()} junction clusters (3+ arms or a link) solved in {sw.Elapsed.TotalSeconds:0.0} s ({joinMs / 1000.0:0.0} s the opening rule, {joined} openings joined): " +

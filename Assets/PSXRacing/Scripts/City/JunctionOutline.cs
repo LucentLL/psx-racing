@@ -194,12 +194,23 @@ namespace PSXRacing.City
             // across the arm at the farther of its corners' tangent stations (at least MinRowM out).
             res.rowR = new Vector2[n]; res.rowL = new Vector2[n]; res.sR = new float[n]; res.sL = new float[n];
             res.yR = new float[n]; res.yL = new float[n]; res.grade = new float[n]; res.cut = new float[n];
+            // ABREAST corners first: their one cut line, square across the left arm where both arms run side by side and
+            // beyond the two arms' other corners
+            for (int i = 0; i < n; i++)
+            {
+                var c = res.corners[i]; if (c.shape != "abreast") continue;
+                var a = A[i]; var b = A[(i + 1) % n];
+                float s0 = Mathf.Max(c.sA, Mathf.Max(MinRowM, res.corners[(i - 1 + n) % n].sB));
+                var bl = res.corners[(i + 1) % n];   // b's left corner: its station on b, carried across to a
+                if (bl.sA > 0f) { int kb = Mathf.Min(b.C.Count - 1, Mathf.CeilToInt(bl.sA / Step) + 2); Project(a.C, b.C[kb], out _, out float sa2); s0 = Mathf.Max(s0, sa2 + Step); }
+                if (!AbreastLine(a, b, s0, c)) { c.shape = "abreast-not-found"; res.refused ??= $"corner {c.a}/{c.b}: abreast arms with no cut line across both"; }
+            }
             var noseRow = new bool[n];
             for (int pass = 0; pass < 2; pass++)
             for (int i = 0; i < n; i++)
             {
                 var a = A[i]; var left = res.corners[i]; var right = res.corners[(i - 1 + n) % n];
-                bool nl = left.shape == "nose", nr = right.shape == "nose";
+                bool nl = left.shape == "nose" || left.shape == "abreast", nr = right.shape == "nose" || right.shape == "abreast";
                 if ((nl || nr) != (pass == 0)) continue;   // the noses' rows first: a taper beside one ends before it
                 if (nl || nr)
                 {
@@ -313,6 +324,10 @@ namespace PSXRacing.City
             c.deg = dAng;
             if (dHead >= ThroughDeg && (A.name == B.name || A.oneway || B.oneway)) { Through(A, B, c); return c; }
             float gap0 = Gap0(A, B);
+            // ABREAST: two arms from different nodes of a cluster running side by side with their borders touching or
+            // overlapping (one paved surface, e.g. two carriageways drawn wider than their median): no corner between
+            // them, both rows on one cut line (built in Solve), the two borders meeting there
+            if (dHead < SideBySideDeg && Abreast(A, B, out float sAb)) { c.shape = "abreast"; c.sA = sAb; return c; }
             if (dHead < SideBySideDeg && gap0 < NoseGapM)
             {
                 if (Fillet(A.L, B.R, NoseR, c)) { c.shape = "nose"; c.lineP = c.tA; c.lineD = (c.tB - c.tA).normalized; return c; }
@@ -321,8 +336,8 @@ namespace PSXRacing.City
             }
             // a cluster's link (a crossover, a U-turn lane's crossing) between the two borders: the median's nose rounds
             // off against it, before any arc straight across the median
-            if (gap0 >= NoseGapM && links != null && links.Count > 0 && !Cross(A.L, B.R, out _, out _, out _) && ViaLink(A, B, links, c)) return c;
-            if (dAng >= SideBySideDeg && TryArc(A, B, c)) return c;
+            if (gap0 >= NoseGapM && links != null && links.Count > 0 && ViaLink(A, B, links, c)) return c;
+            if (TryArc(A, B, c)) return c;   // any angle: an acute corner (a crossover leaving at 30 degrees) is a kerb return too
             if (gap0 >= NoseGapM && !Cross(A.L, B.R, out _, out _, out _))
             {
                 c.shape = "connector"; c.tA = A.L[0]; c.tB = B.R[0];
@@ -334,6 +349,48 @@ namespace PSXRacing.City
             c.shape = "arc-did-not-fit"; c.note = "no fillet down to 0.12 x the class radius and no nose";
             c.tA = A.L[0]; c.tB = B.R[0];
             return c;
+        }
+
+        /// <summary>Side by side with touching or overlapping borders: from within 30 m out along A, for 20 m, B's right
+        /// border stays within 0.3 m of A's left border or on A's side of it. Returns where that run starts on A.</summary>
+        static bool Abreast(Arm A, Arm B, out float s0)
+        {
+            s0 = 0f;
+            if ((A.C[0] - B.C[0]).magnitude < 1f) return false;   // one node: a nose or a split, not abreast
+            int run = Mathf.RoundToInt(20f / Step);
+            for (int k = 0; k * Step <= 30f && k < A.L.Count; k++)
+            {
+                int ok = 0;
+                for (int q = k; q < A.L.Count && q < k + run; q++)
+                {
+                    Project(B.R, A.L[q], out var f, out float st);
+                    if (st <= 0f || st >= (B.R.Count - 1) * Step) break;
+                    var t = Tangent(A.L, q); var left = new Vector2(-t.y, t.x);
+                    if (Vector2.Dot(f - A.L[q], left) > 0.3f) break;
+                    ok++;
+                }
+                if (ok >= run) { s0 = k * Step; return true; }
+            }
+            return false;
+        }
+        /// <summary>The abreast corner's cut line: square across A at station s0 (or the first beyond it that crosses B's
+        /// two borders); tA on A's left border, tB on B's right; where they overlap, one shared point between.</summary>
+        static bool AbreastLine(Arm A, Arm B, float s0, Corner c)
+        {
+            for (int k = Mathf.CeilToInt(s0 / Step); k < A.C.Count; k++)
+            {
+                var t = Tangent(A.C, k); var nrm = new Vector2(-t.y, t.x);
+                if (!LineCross(A.L, A.C[k], nrm, A.L[k], out var pa, out float sa)) continue;
+                if (!LineCross(B.R, A.C[k], nrm, A.L[k], out var pb, out float sb)) continue;
+                if (!LineCross(B.L, A.C[k], nrm, A.L[k], out _, out _)) continue;
+                if (sb < MinRowM) continue;
+                c.lineP = A.C[k]; c.lineD = nrm;
+                if (Vector2.Dot(pb - pa, nrm) < 0f) { var m = 0.5f * (pa + pb); pa = m; pb = m; }
+                c.tA = pa; c.tB = pb; c.sA = sa; c.sB = sb;
+                c.pts.Clear(); c.pts.Add(pa); if ((pb - pa).sqrMagnitude > 1e-6f) c.pts.Add(pb);
+                return true;
+            }
+            return false;
         }
 
         static float Gap0(Arm A, Arm B)
@@ -490,8 +547,10 @@ namespace PSXRacing.City
             if (r >= 6f) step = Mathf.Min(step, MaxTurnDeg * Mathf.Deg2Rad);
             step *= 0.95f;
             int n = Mathf.Max(1, Mathf.CeilToInt(Mathf.Abs(sweep) / Mathf.Max(step, 1e-3f)));
+            // the feet on curved borders sit a little off the circle: the radius blends from one foot's to the other's
+            float r0 = (from - c).magnitude, r1 = (to - c).magnitude;
             into.Add(from);
-            for (int k = 1; k < n; k++) { float a = a0 + sweep * k / n; into.Add(c + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * r); }
+            for (int k = 1; k < n; k++) { float f = k / (float)n, a = a0 + sweep * f; into.Add(c + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * Mathf.Lerp(r0, r1, f)); }
             into.Add(to);
         }
 
