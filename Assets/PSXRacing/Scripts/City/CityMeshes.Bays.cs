@@ -139,5 +139,34 @@ namespace PSXRacing.City
                                     hdg = Mathf.Repeat(Mathf.Atan2(tH.x, tH.y) * Mathf.Rad2Deg, 360f) });
             BayStopLines++;
         }
+
+        // ---- (round 4, rule 6) the kink probe's read of a junction's drawn outline ----
+        /// <summary>The plan ring of the fan (cluster) node n draws, with each corner's flags: the perimeter to the next
+        /// corner is a mouth (no free edge), the corner is a curb return's point. Editor probe only. Returns the
+        /// cluster key (-1: no fan).</summary>
+        public static int FanRingCorners(CityMap map, Trims trims, int n, List<(Vector2 p, bool mouthNext, bool arc, int edge)> into)
+        {
+            into.Clear();
+            if (trims == null || !trims.patch[n]) return -1;
+            int k = FanKey(trims, n);
+            var list = new List<FanCorner>(32);
+            var log = CurbLog; CurbLog = null; furnRingBuild = true;
+            try { FanCorners(map, trims, k, Vector3.zero, list); }
+            catch (System.Exception) { list.Clear(); }
+            finally { CurbLog = log; furnRingBuild = false; }
+            foreach (var c in list) into.Add((new Vector2(c.pos.x, c.pos.z), c.mouthNext, c.arc, c.edge));
+            ClearSectionCaches(); fanPolys.Clear();
+            return k;
+        }
+        /// <summary>A ribbon's drawn outline in plan (left and right sides; false: none). Editor probe only.</summary>
+        public static bool RibbonOutline(CityMap map, Trims trims, int ei, out Vector2[] left, out Vector2[] right)
+        {
+            left = right = null;
+            var ol = OutlineOf(map, trims, ei);
+            if (ol == null || ol.L == null || ol.L.Length < 2) return false;
+            left = new Vector2[ol.L.Length]; right = new Vector2[ol.R.Length];
+            for (int i = 0; i < ol.L.Length; i++) { left[i] = new Vector2(ol.L[i].x, ol.L[i].z); right[i] = new Vector2(ol.R[i].x, ol.R[i].z); }
+            return true;
+        }
     }
 }
