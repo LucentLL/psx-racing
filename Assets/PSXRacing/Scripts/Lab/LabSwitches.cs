@@ -250,6 +250,18 @@ namespace PSXRacing
                 look = "Built into the city tiles: a median is one run (no fragments or concrete slabs). A city bake.",
                 env = new[] { "PSX_CITY_MEDIANRUNS" }, requires = "CityMeshes.MedianRunsOn",
             });
+            Register(new LabRow
+            {
+                id = "baylanes", group = LabGroup.World, name = "TURN BAYS AS LANES", when = LabWhen.BuiltIn,
+                look = "Built into the city tiles: a turn bay the map draws as its own road is a lane of its host (the host widens, the bay's own road starts where it turns across). A city bake.",
+                env = new[] { "PSX_CITY_BAYLANES" }, requires = "CityMeshes.BayLanesOn",
+            });
+            Register(new LabRow
+            {
+                id = "goresplit", group = LabGroup.World, name = "SPLITS SHARE ONE EDGE", when = LabWhen.BuiltIn,
+                look = "Built into the city tiles: two roads leaving a node on the same side no longer overlap; their lanes share one edge to where they part. A city bake.",
+                env = new[] { "PSX_CITY_GORESPLIT" }, requires = "LineModel.GoreSplitOn",
+            });
             // stage round 3 (merged 11-25): build-time switches of the stage scenes; they show once its play-time code is in
             Register(new LabRow
             {

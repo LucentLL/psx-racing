@@ -42,7 +42,7 @@ namespace PSXRacing.City
             public bool both, ok; public string note = "";
         }
         public static readonly List<GoreSplit> GoreSplits = new List<GoreSplit>();
-        public static int GorePairs, GoreOverlapBefore, GoreOverlapAfter, GoreSkippedDeck;
+        public static int GorePairs, GoreOverlapBefore, GoreOverlapAfter, GoreSkippedDeck, GoreZoneLeft;
         public static float GoreBuildMs;
         static readonly Dictionary<long, GoreSplit> goreAt = new Dictionary<long, GoreSplit>();
         static long GoreKey(int node, int edge) => ((long)node << 32) | (uint)edge;
@@ -94,7 +94,7 @@ namespace PSXRacing.City
                 var q = a.p + a.left * (sideX * (inX + margin) - sideX * shx);
                 // nearest Y station (moving window)
                 float best = (Y[j].p - q).sqrMagnitude;
-                int lo = Mathf.Max(0, j - 12), hi = Mathf.Min(Y.Count - 1, j + 40);
+                int lo = Mathf.Max(0, j - 4), hi = Mathf.Min(Y.Count - 1, j + (i == 0 ? 30 : 6));
                 for (int k = lo; k <= hi; k++) { float dd = (Y[k].p - q).sqrMagnitude; if (dd < best) { best = dd; j = k; } }
                 if (j == Y.Count - 1 && i > 0) { if (gapOut != null) for (int r = i; r < X.Count; r++) gapOut[r] = 99f; break; }
                 var b = Y[j]; float dy = j * ds;
@@ -127,9 +127,9 @@ namespace PSXRacing.City
         {
             var clock = System.Diagnostics.Stopwatch.StartNew();
             GoreSplits.Clear(); goreAt.Clear();
-            GorePairs = 0; GoreOverlapBefore = 0; GoreOverlapAfter = 0; GoreSkippedDeck = 0;
+            GorePairs = 0; GoreOverlapBefore = 0; GoreOverlapAfter = 0; GoreSkippedDeck = 0; GoreZoneLeft = 0;
             if (!GoreSplitOn || map.nodeEdges == null) { GoreBuildMs = 0f; return; }
-            const float ds = 0.5f;
+            const float ds = 1f;
             var add = new List<Ease>[map.edges.Length];
             var moved = new HashSet<int>();
             for (int n = 0; n < map.nodes.Length; n++)
@@ -169,13 +169,20 @@ namespace PSXRacing.City
                             if (pu == Y.index) moveY = false; else if (pu == X.index) moveX = false;
                         }
                         if (!moveX && !moveY) moveX = moveY = true;
+                        // a one-way link branching off a tier-1 through host within the merge zones' 35 degrees is the
+                        // zones' (CityMeshes.Merge: the host's aux lane to the nose, the ramp cut there; R0's bays)
+                        if (CityMeshes.MergeZonesOn && ang <= 35f && moveX != moveY)
+                        {
+                            var B = moveX ? X : Y; var H = moveX ? Y : X;
+                            if (B.link && B.oneway && CityTier.Of(H) == CityTier.T1) { GoreZoneLeft++; continue; }
+                        }
                         if (moved.Contains(X.index) && moveY) moveX = false;      // an arm already moved at this node keeps its shift
                         if (moved.Contains(Y.index) && moveX) moveY = false;
                         if (!moveX && !moveY) { GoreOverlapAfter++; continue; }
                         // the overlap at the node, laterally (the shift that makes the two share one boundary there)
                         var gaps = new float[WX.Count];
                         GoreOverlap(WX, WY, sideX, sideY, 0f, 0f, 1f, ds, 0f, gaps);
-                        float need0 = Mathf.Max(0f, -gaps[0]) + 0.02f;
+                        float need0 = Mathf.Max(0f, -gaps[0]) / Mathf.Max(0.5f, Mathf.Cos(ang * Mathf.Deg2Rad)) + 0.05f;
                         float fx = moveX && moveY ? 0.5f : moveX ? 1f : 0f;
                         float sX0 = fx * need0, sY0 = (1f - fx) * need0;
                         // the shortest length that clears it: the drawn lanes run on along the shared boundary

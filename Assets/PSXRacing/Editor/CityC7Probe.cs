@@ -139,7 +139,7 @@ namespace PSXRacing.EditorTools
                 var globals = Object.FindAnyObjectByType<PSXGlobals>();
                 var path = Object.FindAnyObjectByType<TrackPath>();
                 log.Append($"tile cache {(CityTileCache.Enabled ? "ON" : "off")}\n");
-                log.Append($"GORESPLIT {(LineModel.GoreSplitOn ? 1 : 0)}: arm pairs within {LineModel.GoreMaxDeg:0} deg {LineModel.GorePairs}, overlapping before {LineModel.GoreOverlapBefore}, still overlapping {LineModel.GoreOverlapAfter}, decks skipped {LineModel.GoreSkippedDeck}, {LineModel.GoreBuildMs:0} ms\n");
+                log.Append($"GORESPLIT {(LineModel.GoreSplitOn ? 1 : 0)}: arm pairs within {LineModel.GoreMaxDeg:0} deg {LineModel.GorePairs}, overlapping before {LineModel.GoreOverlapBefore}, still overlapping {LineModel.GoreOverlapAfter}, decks skipped {LineModel.GoreSkippedDeck}, left to the merge zones {LineModel.GoreZoneLeft}, {LineModel.GoreBuildMs:0} ms; BAYLANES {(CityMeshes.BayLanesOn ? 1 : 0)}: zones {CityMeshes.Zones.Count}, of them bays {CityMeshes.Zones.Count(zz => zz.bay)}\n");
                 foreach (var c in rows)
                 {
                     string id = c[0];
@@ -182,6 +182,9 @@ namespace PSXRacing.EditorTools
                         if ((map.nodes[g.node] - p2).magnitude < 70f)
                             log.Append(string.Format(inv, "  GORE n{0} e{1} / e{2}: {3:0} deg, overlap at node {4:0.00} m (worst {5:0.00}), shift e{1} {6:0.00} e{2} {7:0.00} over {8:0} m, shared to {9:0.0} m, nose at {10:0.0} m, left {11:0.00} {12}{13}\n",
                                 g.node, g.x, g.y, g.angle, g.overlap0, g.overlapMax, g.shiftX, g.shiftY, g.len, g.dShared, g.dNose, g.after, g.ok ? "ok" : "NOT CLEARED ", g.note));
+                    foreach (var zz in CityMeshes.Zones)
+                        if ((map.nodes[zz.node] - p2).magnitude < 150f)
+                            log.Append(string.Format(inv, "  ZONE e{0} n{1} host e{2} style {3} k {4} D {5:0.0} wN {6:0.00} theta {7:0.0} {8}{9}\n", zz.branch, zz.node, zz.host, zz.style, zz.k, zz.D, zz.wN, zz.theta, zz.merge ? "merge" : "diverge", zz.bay ? " BAY" : ""));
                     bool doInv = views.Contains("inv");
                     if (doInv) { recs.Clear(); spotsXZ = new[] { p2 }; CityMeshes.ProvHook = Hook; }
                     CityMeshes.IslandDebugAt = p2; CityMeshes.IslandDebug.Clear();
