@@ -115,6 +115,7 @@ namespace PSXRacing.EditorTools
                     CityMode.Instance.world.EnsureRing(pts[bi], 1);
                     car.ResetTo(pts[bi], rot, seated: true);
                     standSet = true; standPos = pts[bi]; standRot = rot;
+                    var pin = car.GetComponent<PlayerCarInput>(); if (pin != null) { pin.inputEnabled = false; pin.enabled = false; }
                     Debug.Log("[LabPlayCheck] stood " + Vector2.Distance(new Vector2(pts[bi].x, pts[bi].z), gp).ToString("0") + " m short of gate " + CityRaceStarts.Gates[gi].name);
                 }
                 else Debug.Log("[LabPlayCheck] no road into gate " + gi);
@@ -125,7 +126,7 @@ namespace PSXRacing.EditorTools
                 car.throttleInput = 0f; car.brakeInput = 1f;
                 // (roadevents) held on the stand while the tiles under it are built (a car set down before its
                 // road exists falls through and is recovered elsewhere)
-                if (standSet && Time.realtimeSinceStartup - t0 < 12f) car.ResetTo(standPos, standRot, seated: true);
+                if (standSet) car.ResetTo(standPos, standRot, seated: true);
                 yield return null;
             }
             if (standSet)
