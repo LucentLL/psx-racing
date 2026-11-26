@@ -355,6 +355,52 @@ job.ps1 / gate.ps1 now refuse an unknown commit and drop their code snapshot whe
 - NOT DONE: 81 and 77 (not started this round); the aerial side-by-sides (no aerial source here but the owner's 84);
   R3; the opening as one surface at 80 (two crossing ribbons); 80's right-turn ONLY.
 
+## Round 5, stage 0 (11-26 afternoon): the measured start of the junction outline
+Base: the round 4 head. Every run edit-mode batch (0 play runs). Scratch under 1 GB.
+- a. SPOT TABLE: tools/city/spots/junction_spots.csv (77-81: position, heading, edges / nodes, kind, the owner's date and
+  words, radius 45 m, the limits RAISED / SEETHRU / OVERLAY / HOLES / LAYERS / STEP / KINK = 0), known.csv (the known
+  failures with reason and since-date), runner tools/city-spots.ps1 (builds only those tiles in a given project, one
+  PASS / FAIL line per spot, the head where it last passed in last_pass.csv). The engine is the island gate's new spot mode
+  (PSX_ISL_SPOTS) with three new classes, HOLES / LAYERS / STEP, measured along the ribbons (the fan plate is not in the
+  gate's raster: inside the junctions the outline stage judges), and KINK from CityKinkProbe.KinksNear.
+- b. SCORECARD: CityKinkProbe gains TJUNC (a junction mouth's corners not the ribbon's own end vertices, 2 mm) by kind and
+  writes every fan's kind and position; the island gate's HOLES / LAYERS / STEP run on the ten race routes beside RAISED /
+  SEETHRU / OVERLAY / LINEUNDER; the city audit's fall holes and the seam gates are the existing gates (not re-run here).
+- d. THE 1,938 FACETED RETURNS (crossing 989 + T 949, SMOOTHCURB on): 1,715 were the probe counting pieces sampled AT the
+  rule's own limit (1.0x cm sagitta, 6.0x deg) as over it (float noise; the probe now allows 2 % / 0.1 deg). 223 remain:
+  125 mid-arc a little over 1 cm, 48 over 6 deg near r 6 m, 50 at the arc's ends where the 0.1 m straight kept before each
+  arc meets it. The arc maths is sound for the outline to reuse.
+- e. Docs/ROAD_OUTLINE_READERS.md: 67 runtime readers of the trims / fans (control trim / outline / generator), 58 editor
+  tools, every export-keyed fix (graphHash, node / edge lists, positions).
+- g. Docs/ROAD_RULES.md: the owner's road rules in one file, "one owner per surface" among them.
+- h. PROTOTYPE: Editor/CityOutlineProto.cs (edit mode, no mesh): arms from the line model's borders, four corner shapes
+  (arc by the StreetGen construction on the real curved borders, 2.4 m nose with one shared cut, straight through, a
+  tangent connector between arms of one cluster that start apart), shared cut rows, the outline as JSON; solve 1-4 ms a
+  junction, ear-clip fill 0.1-21 ms. It does NOT yet give right outlines at the spots: the cluster must come from the
+  junction clustering (my spot table's node lists join nodes that are not one junction), arms of a cluster must be cut at
+  the cluster's own boundary, and the fill needs the hole-capable triangulation (not written).
+- c. GALLERY: 55 junctions (owner spots 77-81, Five Points, every keyed node, Little Rock Rd, a seeded draw of 4 per kind
+  over 9 kinds), EDITOR plan frames north up 40 m tall at 1920x1080, lat / lon and the aerial bbox of each
+  (scratchpad\c7roads\gallery_list.csv, gallery_r5\*.jpg). The aerials are NOT fetched: a download needs the user's own
+  approval (the request list is ready).
+- f. PER-KIND TESTS: NOT written. The map can only be built from the exported binary (CityMap.Parse); synthetic snippets
+  need either a CityMap builder in code (nodes, edges, profiles, elevation stations, the segment grid) or a small OSM
+  fixture through the exporter. Sized at 2-4 days; the independent coverage check (every 0.25 m sample of the road covered
+  once, no step over 1 cm) already exists in the island gate's HOLES / LAYERS / STEP and can be pointed at them.
+- BASELINE NUMBERS (base = every round 1-4 switch off; r4 = the defaults; r4+S = SMOOTHCURB=1):
+  - kink probe by kind (places | corners with no return | return facets | TJUNC mouths), base -> r4:
+    T corner 2357 | 602 -> 602 | 28,300 -> 28,300 (r4+S 150) | 134 -> 134; crossing 1358 | 93 -> 93 | 32,276 -> 32,277
+    (r4+S 73) | 241 -> 242; slip / link end 361 | 376 -> 370 | 1,429 -> 1,436 (12) | 229 -> 273; split 214 | 222 -> 222 |
+    1,232 (17) | 106 -> 106; link fork / merge 55 -> 54 | 43 -> 42 | 314 (0) | 55 -> 53; skew 60 -> 59 | 14 -> 14 | 531 (1) |
+    46 -> 46; bend / dead end 108 | 59 | 2,311 -> 2,311 (2,263) | 0; median opening (new fans) 0 -> 126 | 139 | 87 (3) |
+    115. Zones' ribbon-outline kinks: diverge 7,323 -> 5,286, merge 5,152 -> 5,129, bays (96) 520.
+    TJUNC city-wide 811 -> 969 of ~17,000 mouths.
+  - island gate, ten routes, base -> r4: RAISED 5735 -> 5711, SEETHRU 215 -> 218, OVERLAY 841 -> 828, LINEUNDER 60 -> 43,
+    HOLES 2003 -> 2019, LAYERS 1104 -> 1115, STEP 366 -> 313 (HOLES / LAYERS / STEP not yet checked place by place).
+  - spot table (tools/city-spots.ps1 engine), all FAIL: 77 RAISED 5 SEETHRU 1 LINEUNDER 4 HOLES 10 LAYERS 5 STEP 9 KINK 50;
+    78 RAISED 5 LINEUNDER 4 LAYERS 7 STEP 11 KINK 51; 79 RAISED 3 LINEUNDER 1 LAYERS 6 KINK 7; 80 RAISED 4 LAYERS 1 STEP 2
+    KINK 5; 81 HOLES 3 LAYERS 8 STEP 13 KINK 52.
+
 # TEST RUNS ARE SILENT (coordinator, 11-25; mountain-nm 8a5737c0)
 
 Owner 2026-11-25: "please mute all testing. I constantly hear the game without ever seeing it". Measured at 18:02: two hidden batch editors (RacePlayCheck in PSXPerf and PSXCity) were at full-scale peak on his speakers. Batch mode hides the window, not the sound.
