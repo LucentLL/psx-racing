@@ -534,8 +534,8 @@ namespace PSXRacing.City
         /// The road leading into gate <paramref name="gi"/>, about
         /// <paramref name="lengthM"/> metres of it, far end first, ending at
         /// the line: from the gate's own street backwards, at each node the
-        /// street that carries on straightest (within 40 degrees; a one-way
-        /// only the way it is driven), a quarter of the road right of the
+        /// street that carries on straightest (a turn of up to 100 degrees
+        /// where nothing goes straight on; a one-way only the way it is driven), a quarter of the road right of the
         /// centre line on a two-way. A point every 2 m at the road's solved
         /// height. Shorter when the street ends.
         /// </summary>
@@ -581,7 +581,8 @@ namespace PSXRacing.City
                 if (ns >= 0f && ns <= edge.length) { s = ns; walked += Step; continue; }
                 // the node at this end: the street that carries on straightest
                 int node = dir < 0 ? edge.a : edge.b;
-                int bestE = -1, bestDir = 0; float bestDot = Mathf.Cos(40f * Mathf.Deg2Rad);
+                // straightest first; with none within 40 degrees, a turn (up to 100) rather than a dead end
+                int bestE = -1, bestDir = 0; float bestDot = Mathf.Cos(100f * Mathf.Deg2Rad);
                 if (map.nodeEdges != null && node >= 0 && node < map.nodeEdges.Length && map.nodeEdges[node] != null)
                     foreach (int ci in map.nodeEdges[node])
                     {
