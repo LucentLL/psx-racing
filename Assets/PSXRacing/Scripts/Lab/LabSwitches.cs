@@ -259,6 +259,12 @@ namespace PSXRacing
             });
             Register(new LabRow
             {
+                id = "banksolid", group = LabGroup.World, name = "ROCK CUTS: SOLID IS ROCK", when = LabWhen.BuiltIn,
+                look = "Built into the stage scenes: the rock cuts look as in PC71, and a car now stops on the rock blocks it sees, not on a flat wall in front of them; the soil at a cut's low end is solid too. OLD = the flat wall. A scene build.",
+                env = new[] { "PSX_BANKSOLID" }, requires = "TunnelHeadlights.EaseHandBack",
+            });
+            Register(new LabRow
+            {
                 id = "timberuv", group = LabGroup.World, name = "TIMBER RAIL UNSTRETCHED", when = LabWhen.BuiltIn,
                 look = "Built into the stage scenes: the timber rail's boards and posts with square texels. A scene build.",
                 env = new[] { "PSX_TIMBERUV" }, requires = "TunnelHeadlights.EaseHandBack",

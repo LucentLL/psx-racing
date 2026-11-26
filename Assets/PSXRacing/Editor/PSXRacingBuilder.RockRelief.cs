@@ -160,74 +160,13 @@ namespace PSXRacing.EditorTools
             for (int k = 1; k < R; k++)
             {
                 if (!faced[k - 1] || !faced[k]) continue;
-                float lenA = Vector3.Distance(toe[k - 1], plinthTop[k - 1]) + Vector3.Distance(plinthTop[k - 1], crest[k - 1]);
-                float lenB = Vector3.Distance(toe[k], plinthTop[k]) + Vector3.Distance(plinthTop[k], crest[k]);
-                Vector3 step = toe[k] - toe[k - 1]; step.y = 0f;
-                int na = Mathf.Max(1, Mathf.CeilToInt(step.magnitude / ReliefAlong));
+                float toeMid = (toe[k - 1].y + toe[k].y) * 0.5f;
+                var rc = ReliefChordCols(k, toe, plinthTop, crest, faced, distAt, outw, R, seed, colD, out Vector3 facing);
+                int na = rc.Count - 1;
                 var cols = new List<Vector3[]>(na + 1);
                 var cuvs = new List<Vector2[]>(na + 1);
                 var cdps = new List<float[]>(na + 1);
-                float toeMid = (toe[k - 1].y + toe[k].y) * 0.5f;
-                Vector3 inward = Vector3.zero, facing = Vector3.zero;
-                // a station where the relief ENDS (a flat chord beyond it) is
-                // met at depth 0, so the two meet edge to edge
-                float wA = k - 2 >= 0 && faced[k - 2] ? 1f : 0f;
-                float wB = k + 1 < R && faced[k + 1] ? 1f : 0f;
-                for (int ia = 0; ia <= na; ia++)
-                {
-                    float t = ia / (float)na;
-                    float endW = Mathf.SmoothStep(0f, 1f, Mathf.Lerp(wA, wB, t));
-                    inward = Vector3.Lerp(outw[k - 1], outw[k], t); inward.y = 0f; inward.Normalize();
-                    facing -= inward;
-                    float a = Mathf.Lerp(distAt[k - 1], distAt[k], t);
-                    float toeY = Mathf.Lerp(toe[k - 1].y, toe[k].y, t);
-                    float lenAt = Mathf.Lerp(lenA, lenB, t);
-                    int nu = Mathf.Clamp(Mathf.CeilToInt(lenAt / ReliefUp), 2, 48);
-                    var col = new Vector3[nu + 1];
-                    var cuv = new Vector2[nu + 1];
-                    var cdp = new float[nu + 1];
-                    for (int iu = 0; iu <= nu; iu++)
-                    {
-                        float u = iu / (float)nu;
-                        var p = Vector3.Lerp(ReliefProfile(toe[k - 1], plinthTop[k - 1], crest[k - 1], u),
-                                             ReliefProfile(toe[k], plinthTop[k], crest[k], u), t);
-                        // meets the rock top at the crest over its last 0.7 m
-                        float taper = Mathf.SmoothStep(0f, 1f, (1f - u) * lenAt / 0.7f);
-                        float dpt = ReliefDepth(a, p.y, seed) * taper * endW;
-                        // THE CONTACT BAND (a car's height over the road, toe at
-                        // road - 0.5): the drawn rock within a hand's breadth of
-                        // the solid, and never in front of it
-                        float hy = p.y - (toeY + 0.5f);
-                        // (where the full relief starts wanders 0.4-2.5 m along
-                        // the cut: one level shelf the length of it read as a
-                        // course of masonry). Inside the band the SAME field,
-                        // scaled down - the same blocks, tilts and cracks, so no
-                        // seam - recessed at most ReliefBandIn behind the
-                        // smooth face and proud of it at most ReliefContactM.
-                        float bandH = 0.4f + RNoise(a / 4.5f, 0.71f, seed + 9) * 2.1f;
-                        float inBand = Mathf.Clamp(dpt * 0.32f, -ReliefContactM, ReliefBandIn);
-                        if (colD != null)
-                        {
-                            // (stage3, BankFit) THE BAND IS WHERE THE SOLID IS: up to BankFitBandH the
-                            // rock stands on the cut's solid - its bays (the solid steps back with
-                            // them, BankFitDepth) and at most BankFitRelief of block relief behind
-                            // that, never in front; the full relief starts over it.
-                            bandH = BankFitBandH + RNoise(a / 4.5f, 0.71f, seed + 9) * 0.9f;
-                            float raw = ReliefDepth(a, p.y, seed);
-                            float bay = RNoise(a / 15f, 0.37f, seed + 5) * 0.9f;
-                            float small = Mathf.Clamp((raw - bay) * 0.25f, 0f, BankFitRelief) * endW;
-                            inBand = (Mathf.Lerp(colD[k - 1], colD[k], t) + small) * taper;
-                        }
-                        float band = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(bandH, bandH + 0.4f + RNoise(a / 3f, 0.3f, seed + 13) * 0.8f, hy));
-                        dpt = Mathf.Lerp(inBand, dpt, band);
-                        p += inward * dpt;
-                        col[iu] = p;
-                        cdp[iu] = dpt;
-                        cuv[iu] = new Vector2(a / 4.5f, (p.y - toeY) / 4.5f);
-                    }
-                    cols.Add(col); cuvs.Add(cuv); cdps.Add(cdp);
-                }
-                facing.Normalize();
+                foreach (var c0 in rc) { cols.Add(c0.p); cuvs.Add(c0.uv); cdps.Add(c0.d); }
                 // FACETED: every triangle its own corners, so the normals
                 // SaveMesh computes are the facet's own - the block edges stay
                 // edges instead of being smoothed round. A zip up each pair of
@@ -267,6 +206,92 @@ namespace PSXRacing.EditorTools
             reliefTris += (tris.Count - t0) / 3;
         }
 
+        /// <summary>(stage4) One relief column: the drawn vertices up the face (<see cref="p"/>), their uvs and how
+        /// far each was pushed into the hill (<see cref="d"/>), the same vertices on the smooth face before the push
+        /// (<see cref="smooth"/>), the push direction (into the hill), the distance along the cut and the toe's height.</summary>
+        sealed class ReliefCol
+        {
+            public Vector3[] p, smooth; public Vector2[] uv; public float[] d;
+            public Vector3 inward; public float a, toeY;
+        }
+
+        /// <summary>The relief's columns over the faced chord ending at station <paramref name="k"/>, exactly as
+        /// ReliefFace draws them (it draws these): shared by the drawn face and the cut's band solid (PSX_BANKSOLID),
+        /// so the solid is built from the very vertices the player sees.</summary>
+        static List<ReliefCol> ReliefChordCols(int k, Vector3[] toe, Vector3[] plinthTop, Vector3[] crest, bool[] faced,
+                                               float[] distAt, Vector3[] outw, int R, int seed, float[] colD, out Vector3 facing)
+        {
+            float lenA = Vector3.Distance(toe[k - 1], plinthTop[k - 1]) + Vector3.Distance(plinthTop[k - 1], crest[k - 1]);
+            float lenB = Vector3.Distance(toe[k], plinthTop[k]) + Vector3.Distance(plinthTop[k], crest[k]);
+            Vector3 step = toe[k] - toe[k - 1]; step.y = 0f;
+            int na = Mathf.Max(1, Mathf.CeilToInt(step.magnitude / ReliefAlong));
+            var outCols = new List<ReliefCol>(na + 1);
+            Vector3 inward = Vector3.zero;
+            facing = Vector3.zero;
+            // a station where the relief ENDS (a flat chord beyond it) is
+            // met at depth 0, so the two meet edge to edge
+            float wA = k - 2 >= 0 && faced[k - 2] ? 1f : 0f;
+            float wB = k + 1 < R && faced[k + 1] ? 1f : 0f;
+            for (int ia = 0; ia <= na; ia++)
+            {
+                float t = ia / (float)na;
+                float endW = Mathf.SmoothStep(0f, 1f, Mathf.Lerp(wA, wB, t));
+                inward = Vector3.Lerp(outw[k - 1], outw[k], t); inward.y = 0f; inward.Normalize();
+                facing -= inward;
+                float a = Mathf.Lerp(distAt[k - 1], distAt[k], t);
+                float toeY = Mathf.Lerp(toe[k - 1].y, toe[k].y, t);
+                float lenAt = Mathf.Lerp(lenA, lenB, t);
+                int nu = Mathf.Clamp(Mathf.CeilToInt(lenAt / ReliefUp), 2, 48);
+                var col = new Vector3[nu + 1];
+                var cuv = new Vector2[nu + 1];
+                var cdp = new float[nu + 1];
+                var csm = new Vector3[nu + 1];
+                for (int iu = 0; iu <= nu; iu++)
+                {
+                    float u = iu / (float)nu;
+                    var p = Vector3.Lerp(ReliefProfile(toe[k - 1], plinthTop[k - 1], crest[k - 1], u),
+                                         ReliefProfile(toe[k], plinthTop[k], crest[k], u), t);
+                    // meets the rock top at the crest over its last 0.7 m
+                    float taper = Mathf.SmoothStep(0f, 1f, (1f - u) * lenAt / 0.7f);
+                    float dpt = ReliefDepth(a, p.y, seed) * taper * endW;
+                    // THE CONTACT BAND (a car's height over the road, toe at
+                    // road - 0.5): the drawn rock within a hand's breadth of
+                    // the solid, and never in front of it
+                    float hy = p.y - (toeY + 0.5f);
+                    // (where the full relief starts wanders 0.4-2.5 m along
+                    // the cut: one level shelf the length of it read as a
+                    // course of masonry). Inside the band the SAME field,
+                    // scaled down - the same blocks, tilts and cracks, so no
+                    // seam - recessed at most ReliefBandIn behind the
+                    // smooth face and proud of it at most ReliefContactM.
+                    float bandH = 0.4f + RNoise(a / 4.5f, 0.71f, seed + 9) * 2.1f;
+                    float inBand = Mathf.Clamp(dpt * 0.32f, -ReliefContactM, ReliefBandIn);
+                    if (colD != null)
+                    {
+                        // (stage3, BankFit) THE BAND IS WHERE THE SOLID IS: up to BankFitBandH the
+                        // rock stands on the cut's solid - its bays (the solid steps back with
+                        // them, BankFitDepth) and at most BankFitRelief of block relief behind
+                        // that, never in front; the full relief starts over it.
+                        bandH = BankFitBandH + RNoise(a / 4.5f, 0.71f, seed + 9) * 0.9f;
+                        float raw = ReliefDepth(a, p.y, seed);
+                        float bay = RNoise(a / 15f, 0.37f, seed + 5) * 0.9f;
+                        float small = Mathf.Clamp((raw - bay) * 0.25f, 0f, BankFitRelief) * endW;
+                        inBand = (Mathf.Lerp(colD[k - 1], colD[k], t) + small) * taper;
+                    }
+                    float band = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(bandH, bandH + 0.4f + RNoise(a / 3f, 0.3f, seed + 13) * 0.8f, hy));
+                    dpt = Mathf.Lerp(inBand, dpt, band);
+                    csm[iu] = p;
+                    p += inward * dpt;
+                    col[iu] = p;
+                    cdp[iu] = dpt;
+                    cuv[iu] = new Vector2(a / 4.5f, (p.y - toeY) / 4.5f);
+                }
+                outCols.Add(new ReliefCol { p = col, uv = cuv, d = cdp, smooth = csm, inward = inward, a = a, toeY = toeY });
+            }
+            facing.Normalize();
+            return outCols;
+        }
+
         /// <summary>THE CREST LIP (owner's photographs: soil, leaf litter and
         /// plants spilling over the top of every cut, never a clean edge): a
         /// ribbon of the hillside's own ground over each faced stretch's crest -
@@ -276,9 +301,12 @@ namespace PSXRacing.EditorTools
         /// top's collider is unchanged). Plant spots on its top and nose go
         /// through PlantClear like every ledge.</summary>
         static void BuildCrestLip(Transform parent, Material topMat, int no, Vector3[] crest, Vector3[] outw,
-                                  bool[] faced, float[] distAt, int R, int seed)
+                                  bool[] faced, float[] distAt, int R, int seed, float[] edgeAt = null)
         {
             var v = new List<Vector3>(); var uv = new List<Vector2>(); var tr = new List<int>();
+            // (stage4, PSX_BANKSOLID: edgeAt = each station's tarmac edge height) the lip's quads within LipReachH
+            // of the edge, as its collider
+            var ctr = edgeAt != null ? new List<int>() : null;
             float g = Mathf.Max(theme.groundTile, 0.01f);
             const int P = 5;
             for (int k = 1; k < R; k++)
@@ -333,6 +361,12 @@ namespace PSXRacing.EditorTools
                         int t0 = tr.Count;
                         QuadFacingSkipFlat(v, tr, a0, a1, b1, b0, Vector3.up * 0.6f - I.normalized);
                         lipTris += (tr.Count - t0) / 3;
+                        if (ctr != null)
+                        {
+                            float edge = Mathf.Lerp(edgeAt[k - 1], edgeAt[k], (ia + 0.5f) / na);
+                            float lo = Mathf.Min(Mathf.Min(v[a0].y, v[a1].y), Mathf.Min(v[b0].y, v[b1].y));
+                            if (lo < edge + LipReachH) for (int q2 = t0; q2 < tr.Count; q2++) ctr.Add(tr[q2]);
+                        }
                     }
             }
             if (tr.Count == 0) return;
@@ -347,6 +381,21 @@ namespace PSXRacing.EditorTools
             go.AddComponent<MeshFilter>().sharedMesh = mesh;
             go.AddComponent<MeshRenderer>().sharedMaterial = topMat;
             go.isStatic = true;
+            if (ctr != null && ctr.Count > 0)
+            {
+                // the soil a car can reach, solid: its own triangles (uncompressed, so exactly where they are drawn
+                // to 16-bit precision), off the Solid layer - a mound the wheels ride onto
+                var cm = new Mesh
+                {
+                    indexFormat = UnityEngine.Rendering.IndexFormat.UInt32,
+                    vertices = v.ToArray(), triangles = ctr.ToArray(),
+                };
+                SaveMesh(cm, "BankLipColl" + no);
+                var lc = go.AddComponent<MeshCollider>();
+                lc.sharedMesh = cm;
+                lc.sharedMaterial = SlidePhys();
+                lipCollTris += ctr.Count / 3;
+            }
         }
 
         // ------------------------------------------------------------------
@@ -646,7 +695,10 @@ namespace PSXRacing.EditorTools
                     hull.transform.localScale = vr.pre.lossyScale;
                     var mc = hull.AddComponent<MeshCollider>();
                     mc.sharedMesh = vr.lods[0];
-                    mc.convex = true;
+                    // (stage4, PSX_BANKSOLID) the stone ITSELF, not its convex hull: the forest stone models are
+                    // clusters of stones, and a hull spans the gaps between them - Chimney Rock's ghost barrier at
+                    // wp 704, solid 1.9 m in front of the stone that is drawn. Static, one cooked mesh per model.
+                    mc.convex = !(BankSolid && !BankFit);
                     mc.sharedMaterial = GetOrCreatePhysMat("WallPhys", 0.05f, 0.05f);
                     hull.layer = SolidLayer;
                     go.isStatic = hull.isStatic = true;

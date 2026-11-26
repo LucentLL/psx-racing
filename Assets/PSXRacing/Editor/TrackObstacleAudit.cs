@@ -2987,6 +2987,81 @@ namespace PSXRacing.EditorTools
                             }
                     }
                 }
+                if (DrawnForestRock) AddForestRock(interest);
+            }
+
+            /// <summary>(stage4, PSX_GHOST_FORESTROCK, default on; =0 the audit as it was) THE STONE MESHFOREST DRAWS
+            /// is drawn: a boulder, a talus stone or an outcrop (Meadow cliff) is an instance in a MeshForest's table,
+            /// with no MeshFilter in the scene, so a boulder's solid hull (Track/Banks/Boulders/Boulder, built from
+            /// that very stone) read as "solid where nothing is drawn" - Chimney Rock's ghost at wp 704. Every rock
+            /// instance in the corridor goes in as its own LOD0 triangles, placed as MeshForest places it.</summary>
+            public static bool DrawnForestRock = System.Environment.GetEnvironmentVariable("PSX_GHOST_FORESTROCK") != "0";
+            public int ForestRock;
+
+            void AddForestRock(HashSet<long> interest)
+            {
+                var cache = new Dictionary<Mesh, (Vector3[] v, int[] t)>();
+                foreach (var mfo in Object.FindObjectsByType<MeshForest>(FindObjectsSortMode.None))
+                {
+                    if (mfo == null || mfo.inst == null || mfo.variants == null || mfo.instScaleVar == null || !mfo.isActiveAndEnabled) continue;
+                    var l2w = mfo.transform.localToWorldMatrix;
+                    for (int i = 0; i < mfo.inst.Length && i < mfo.instScaleVar.Length; i++)
+                    {
+                        int vi = (int)mfo.instScaleVar[i].y;
+                        if (vi < 0 || vi >= mfo.variants.Length) continue;
+                        var vr = mfo.variants[vi];
+                        var m0 = vr != null && vr.lods != null && vr.lods.Length > 0 ? vr.lods[0] : null;
+                        if (m0 == null) continue;
+                        string nm = m0.name.ToLowerInvariant();
+                        if (!(nm.Contains("stone") || nm.Contains("rock") || nm.Contains("boulder") || nm.Contains("cliff"))) continue;
+                        // (a stone under 0.4 m is ground litter: nothing stands against it)
+                        if (vr.height * mfo.instScaleVar[i].x < 0.4f) continue;
+                        Vector3 lp = new Vector3(mfo.inst[i].x, mfo.inst[i].y, mfo.inst[i].z);
+                        Vector3 wp = l2w.MultiplyPoint3x4(lp);
+                        if (!interest.Contains(K(C(wp.x), C(wp.z)))) continue;
+                        if (!cache.TryGetValue(m0, out var md))
+                        {
+                            using (var data = Mesh.AcquireReadOnlyMeshData(m0))
+                            {
+                                var d = data[0];
+                                var pos = new Unity.Collections.NativeArray<Vector3>(d.vertexCount, Unity.Collections.Allocator.Temp);
+                                d.GetVertices(pos);
+                                var vv = pos.ToArray(); pos.Dispose();
+                                var tl = new List<int>();
+                                for (int sm = 0; sm < d.subMeshCount; sm++)
+                                {
+                                    var idx = new Unity.Collections.NativeArray<int>(d.GetSubMesh(sm).indexCount, Unity.Collections.Allocator.Temp);
+                                    d.GetIndices(idx, sm);
+                                    tl.AddRange(idx.ToArray()); idx.Dispose();
+                                }
+                                md = (vv, tl.ToArray());
+                            }
+                            cache[m0] = md;
+                        }
+                        float sc = mfo.instScaleVar[i].x;
+                        var tilt = mfo.instTilt != null && i < mfo.instTilt.Length ? mfo.instTilt[i] : Vector2.zero;
+                        var m = l2w * Matrix4x4.TRS(lp, Quaternion.Euler(tilt.x, 0f, tilt.y) * Quaternion.Euler(0f, mfo.inst[i].w, 0f), new Vector3(sc, sc, sc)) * vr.pre;
+                        int me = names.Count;
+                        names.Add("MeshForest/" + m0.name);
+                        ForestRock++;
+                        var t = md.t;
+                        for (int q = 0; q + 2 < t.Length; q += 3)
+                        {
+                            Vector3 a = m.MultiplyPoint3x4(md.v[t[q]]), b = m.MultiplyPoint3x4(md.v[t[q + 1]]), c = m.MultiplyPoint3x4(md.v[t[q + 2]]);
+                            int x0 = C(Mathf.Min(a.x, Mathf.Min(b.x, c.x))), x1 = C(Mathf.Max(a.x, Mathf.Max(b.x, c.x)));
+                            int z0 = C(Mathf.Min(a.z, Mathf.Min(b.z, c.z))), z1 = C(Mathf.Max(a.z, Mathf.Max(b.z, c.z)));
+                            int id = va.Count;
+                            va.Add(a); vb.Add(b); vc.Add(c); owner.Add(me);
+                            for (int x = x0; x <= x1; x++)
+                                for (int z = z0; z <= z1; z++)
+                                {
+                                    long k = K(x, z);
+                                    if (!grid.TryGetValue(k, out var bucket)) grid[k] = bucket = new List<int>();
+                                    bucket.Add(id);
+                                }
+                        }
+                    }
+                }
             }
 
             /// <summary>Metres along <paramref name="dir"/> to the first drawn
