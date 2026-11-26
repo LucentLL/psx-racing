@@ -37,6 +37,10 @@ namespace PSXRacing.EditorTools
         /// (no rail collider with a hill a few metres behind it), the hill's first row hard against the face and a
         /// floor under the verge at each mouth. PSX_TUNNEL3B=0 = round 2 (b1bd5967).</summary>
         public static bool Tunnel3B = System.Environment.GetEnvironmentVariable("PSX_TUNNEL3B") != "0";
+        /// <summary>(stage3) The portal wall's end slab drawn both ways (BUILD TIME; PSX_PORTALEND=0 = 77f4abf8).</summary>
+        /// <summary>(stage3) The portal's arris strip from the soffit to the stones' faces (BUILD TIME; PSX_PORTALARRIS=0 = 77f4abf8).</summary>
+        public static bool PortalArris = System.Environment.GetEnvironmentVariable("PSX_PORTALARRIS") != "0";
+        public static bool PortalEndBoth = System.Environment.GetEnvironmentVariable("PSX_PORTALEND") != "0";
 
         /// <summary>The voussoir ring's radial depth (mean), the wall past the ring each side, the top over the
         /// ring's crown, the end step.</summary>
@@ -232,6 +236,21 @@ namespace PSXRacing.EditorTools
                 foreach (var p in new[] { sv[b], sv[b + 1], sv[b + 2], sv[b + 3] }) suv.Add(new Vector2(p.x + p.z, p.y) / 1.9f);
                 Vector2 mid = (i0 + i1) * 0.5f;
                 QuadFacing(sv, st, b, b + 1, b + 2, b + 3, -(right * mid.x + Vector3.up * (mid.y - T2SpringY)));
+                // (stage3, PSX_PORTALARRIS) THE ARRIS: from the soffit's front edge out to the stones' bevelled
+                // faces, so a ray from inside the bore grazing the arch's intrados cannot slip between the soffit
+                // and the stone in front of the face (the gap probe's 1-5 px of sky at each mouth's crown)
+                if (PortalArris)
+                {
+                    int b2 = sv.Count;
+                    Vector2 o0 = Pt(a0s[q], R + 0.07f), o1 = Pt(a0s[q + 1], R + 0.07f);
+                    sv.Add(P(i0.x, i0.y, 0.05f)); sv.Add(P(i1.x, i1.y, 0.05f)); sv.Add(P(o1.x, o1.y, 0.14f)); sv.Add(P(o0.x, o0.y, 0.14f));
+                    for (int k = 0; k < 4; k++) sc.Add(cs);
+                    foreach (var p in new[] { sv[b2], sv[b2 + 1], sv[b2 + 2], sv[b2 + 3] }) suv.Add(new Vector2(p.x + p.z, p.y) / 1.9f);
+                    QuadFacing(sv, st, b2, b2 + 1, b2 + 2, b2 + 3, -(right * mid.x + Vector3.up * (mid.y - T2SpringY)) * 0.3f + face);
+                    // and from inside the bore: a ray grazing out along the lining meets its back
+                    { int b3 = sv.Count; for (int k = 0; k < 4; k++) { sv.Add(sv[b2 + k]); sc.Add(cs); suv.Add(suv[b2 + k]); }
+                      QuadFacing(sv, st, b3, b3 + 1, b3 + 2, b3 + 3, (right * mid.x + Vector3.up * (mid.y - T2SpringY)) * 0.3f - face); }
+                }
             }
             // the ring's outer edge at height y on one side (the extrados of the stone that spans it)
             float ExtX(float y, float s)
@@ -317,6 +336,17 @@ namespace PSXRacing.EditorTools
                         for (int m = 0; m < 4; m++) sc.Add(cs);
                         foreach (var p in new[] { sv[b], sv[b + 1], sv[b + 2], sv[b + 3] }) suv.Add(new Vector2(p.x + p.z, p.y) / 1.9f);
                         QuadFacing(sv, st, b, b + 1, b + 2, b + 3, -right * s);
+                        if (PortalArris)
+                        {
+                            int b2 = sv.Count;
+                            float xo = s * (R + 0.07f);
+                            sv.Add(P(xr, levels[k], 0.05f)); sv.Add(P(xr, levels[k + 1], 0.05f)); sv.Add(P(xo, levels[k + 1], 0.14f)); sv.Add(P(xo, levels[k], 0.14f));
+                            for (int m = 0; m < 4; m++) sc.Add(cs);
+                            foreach (var p in new[] { sv[b2], sv[b2 + 1], sv[b2 + 2], sv[b2 + 3] }) suv.Add(new Vector2(p.x + p.z, p.y) / 1.9f);
+                            QuadFacing(sv, st, b2, b2 + 1, b2 + 2, b2 + 3, -right * s * 0.3f + face);
+                            { int b3 = sv.Count; for (int m = 0; m < 4; m++) { sv.Add(sv[b2 + m]); sc.Add(cs); suv.Add(suv[b2 + m]); }
+                              QuadFacing(sv, st, b3, b3 + 1, b3 + 2, b3 + 3, right * s * 0.3f - face); }
+                        }
                         xa = R + qw + j * 0.5f; xb = xa;
                     }
                     else
@@ -372,6 +402,11 @@ namespace PSXRacing.EditorTools
                 Slab(P(s * stepX, stepTop, 0.08f), P(s * wallX, stepTop, 0.08f), P(s * wallX, stepTop, Back), P(s * stepX, stepTop, Back), Vector3.up, 0.9f);
                 Slab(P(s * stepX, stepTop, 0.08f), P(s * stepX, top, 0.08f), P(s * stepX, top, Back), P(s * stepX, stepTop, Back), right * s, 0.5f);
                 Slab(P(s * wallX, T3Bottom, 0.08f), P(s * wallX, stepTop, 0.08f), P(s * wallX, stepTop, Back), P(s * wallX, T3Bottom, Back), right * s, 0.2f);
+                // (stage3, PSX_PORTALEND) the wall's END seen from the road side: a ray grazing the face past the last
+                // stone's bevelled corner met the end slab from inside the masonry - a back face, not drawn (the gap
+                // probe's 85 px at portal A, forward chase, right lane). The end is masonry both ways.
+                if (PortalEndBoth)
+                    Slab(P(s * wallX, T3Bottom, 0.08f), P(s * wallX, stepTop, 0.08f), P(s * wallX, stepTop, Back), P(s * wallX, T3Bottom, Back), -right * s, 0.2f);
             }
             // (2b) THE WALL'S BACK: the masonry was an open shell 1.25 m deep; with the hill no longer heaped beside its
             // ends, a ray past an end looked into it and out through the stones' backs. Closed at the slab's back

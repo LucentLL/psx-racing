@@ -1002,6 +1002,12 @@ function Invoke-UnityJob {
     # The build target, always named (see Get-PSXBuildTarget), and printed so
     # a tool's own output says which import its frames were drawn with.
     $UnityArgs = Add-PSXBuildTarget $UnityArgs
+    # (owner 2026-11-25: "please mute all testing. I constantly hear the game without ever seeing it") every editor job is
+    # silent, watched or hidden: MasterOut (Scripts/AudioFader.cs) holds the listener at zero in batch mode and on -psx-mute.
+    # PSX_TEST_SOUND=1 is for a run the owner asked to HEAR.
+    if (@($UnityArgs | Where-Object { $_ -ieq '-psx-mute' -or $_ -ieq '-psx-sound' }).Count -eq 0) {
+        $UnityArgs = @($UnityArgs) + @($(if ($env:PSX_TEST_SOUND -eq '1') { '-psx-sound' } else { '-psx-mute' }))
+    }
     for ($i = 0; $i -lt $UnityArgs.Count - 1; $i++) {
         if ($UnityArgs[$i] -ieq '-buildTarget') { Write-Host "UNITY TARGET: $($UnityArgs[$i + 1])"; break }
     }

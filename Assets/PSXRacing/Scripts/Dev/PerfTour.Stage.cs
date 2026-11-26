@@ -617,6 +617,29 @@ namespace PSXRacing
                 sum1.AppendLine($"drawn: batches avg {(rn > 0 ? bSum / rn : 0):0} max {bMax}; set-pass avg {(rn > 0 ? sSum / rn : 0):0}; triangles avg {(rn > 0 ? tSum / rn / 1e6 : 0):0.00} M max {tMax / 1e6:0.00} M");
                 sum1.AppendLine($"gc collections {gcN}");
                 sum1.Append(ExtraSummary(n));
+                // (PC71) the rivals' route plans of this run, measured in the exe: what a plan costs, and how many junction
+                // turns were laid on an arc (RacingTurns). Read and cleared here so each stage of a tour gets its own.
+                {
+                    var bl = new System.Collections.Generic.List<float>(AIRoutePlanner.BuildMsLog); bl.Sort();
+                    float BQ(float q) => bl.Count > 0 ? bl[Mathf.Clamp(Mathf.RoundToInt(q * (bl.Count - 1)), 0, bl.Count - 1)] : 0f;
+                    if (bl.Count > 0)
+                        sum1.AppendLine($"rival plans {bl.Count}: build ms p50 {BQ(0.5f):0.00} p99 {BQ(0.99f):0.00} worst {BQ(1f):0.00}; racing turns {(RacingTurns.On ? "on" : "off")}: laid {RacingTurns.Laid} of {RacingTurns.Tried} tried, no fit {RacingTurns.NoFit}" +
+                                        (RacingTurns.Laid > 0 ? $", tightest {RacingTurns.MinLaidR:0.0} m" : ""));
+                    // how far the rivals got in this run: the same seed with AI RACING TURNS off and on is the exe's own A/B
+                    var rvRace = CheckpointRace.Active;
+                    if (rvRace != null)
+                    {
+                        int rvN = 0, rvGates = 0; float rvMin = float.PositiveInfinity, rvMax = 0f, rvSum = 0f;
+                        foreach (var cp in rvRace.All)
+                        {
+                            if (cp.isPlayer) continue;
+                            rvN++; rvGates += cp.passedTotal; rvSum += cp.odometer;
+                            rvMin = Mathf.Min(rvMin, cp.odometer); rvMax = Mathf.Max(rvMax, cp.odometer);
+                        }
+                        if (rvN > 0) sum1.AppendLine($"rivals {rvN}: driven m min {rvMin:0} mean {rvSum / rvN:0} max {rvMax:0}; gates passed {rvGates} in all");
+                    }
+                    AIRoutePlanner.BuildMsLog.Clear(); RacingTurns.ResetStats();
+                }
                 // the mesh forest's own share (PerfClock slots) and what it put on the GPU
                 // (its own count: Unity's triangle counter does not see an indirect draw's instances)
                 double fCull = 0, fDraw = 0, fOther = 0, fRefl = 0, oCpu = 0, oGpu = 0;

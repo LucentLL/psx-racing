@@ -432,6 +432,7 @@ namespace PSXRacing.EditorTools
             }
             if (rm.Checkpoints != null) CheckpointRaceWatch.Begin(rm, car);
             LaneUseWatch.Begin(rm);   // cpfix 11-17: passes in the oncoming lane, near misses, the line back
+            if (rm.Checkpoints != null && CheckpointTurnTrace.On) CheckpointTurnTrace.Begin(rm);   // cityai 11-25: junction turns traced (PSX_TT_OUT)
 
             // PSX_RACE_MISTAKE=0.3: hand every rival a driver error at that
             // fraction of the race (AIDriver.PlanMistake), to see what one does.
@@ -554,6 +555,7 @@ namespace PSXRacing.EditorTools
             // cameras off there is nothing to adapt to.
             CheckpointRaceWatch.End(toFinish);
             LaneUseWatch.End();
+            CheckpointTurnTrace.End();
             if (headless) RacePlayCheck.Note("THE EYE (C10): not traced (no graphics device; cameras off)");
             else ReportEye();
             float raced = Time.time - t0;
@@ -1103,6 +1105,7 @@ namespace PSXRacing.EditorTools
             aiStats?.Tick();
             if (rm == null || rm.path == null || t0 <= 0f) return;
             LaneUseWatch.Step(Time.fixedDeltaTime);
+            CheckpointTurnTrace.Step();
             if (Time.fixedTime - lastPassSample >= 0.1f) SamplePasses();
             if (Time.fixedTime - lastTrail < 0.25f) return;
             lastTrail = Time.fixedTime;
@@ -1129,6 +1132,9 @@ namespace PSXRacing.EditorTools
                                          PassNote(ai) +
                                          // pedals, gear, and what the give-way asked for
                                          $" th {c.throttleInput:0.00} br {c.brakeInput:0.00} g {c.currentGear}" +
+                                         // (stage3) the speed the planner allowed here
+                                         $" tg {Mathf.Min(ai.DebugTarget * 3.6f, 999f):0}" +
+                                         $" bend {Mathf.Min(ai.DebugBendSpeed * 3.6f, 999f):0}@{ai.DebugBendAt:0}m wp{ai.DebugBendWp} r{(ai.DebugBendK > 1e-5f ? 1f / ai.DebugBendK : 9999f):0} e{ai.DebugBendBank:+0.00;-0.00} wp{i}" +
                                          (ai.DebugLift > 0f || ai.DebugTrafficBrake > 0f
                                              ? $" give {ai.DebugLift:0.00}/{ai.DebugTrafficBrake:0.00}" : "") : "");
                 if (!trail.TryGetValue(c.name, out var q)) trail[c.name] = q = new Queue<string>();

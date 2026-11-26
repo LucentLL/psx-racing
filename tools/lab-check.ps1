@@ -38,6 +38,9 @@ foreach ($r in $runs) {
     $log = Join-Path $Out ($r.tag + "_player.log")
     $p = Start-Process -FilePath $Exe -PassThru -ArgumentList @("-batchmode", "-perftour", ('"' + $r.q + '"'), "-perfout", ('"' + $Out + '"'), "-logFile", ('"' + $log + '"'))
     if (-not $p.WaitForExit($MaxMinutes * 60 * 1000)) { Write-Host ("TIMEOUT " + $r.tag + " (left running: pid " + $p.Id + ")"); $fail++; continue }
+    # (owner 2026-11-25: "please mute all testing. I constantly hear the game without ever seeing it") a hidden run must be
+    # silent. The build says so in its log (MasterOut, mountain-nm 8a5737c0); an older exe is not to be run as a test.
+    if (-not ((Test-Path $log) -and (Select-String -LiteralPath $log -Pattern "\[MasterOut\] test run: the sound is muted" -Quiet))) { Write-Host ("NOT SILENT " + $r.tag + ": this build did not mute its test run"); $fail++ }
     $txt = Get-ChildItem $Out -Filter ($r.tag + "_*_lab.txt") | Select-Object -First 1
     if (-not $txt) { Write-Host ("NO REPORT " + $r.tag + " - see " + $log); $fail++; continue }
     Write-Host ("=== " + $txt.Name)

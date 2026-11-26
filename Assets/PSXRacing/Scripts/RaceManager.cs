@@ -568,7 +568,10 @@ namespace PSXRacing
             if (ai != null) ai.Retire();
             RetiredCount++;
             LastRetired = car;
-            Debug.Log("[Race] " + car.name + " retired after a serious crash");
+            // where, and whether it was the race's planned incident: an exe test run can tell a planned retirement
+            // from a car that ran off by itself (stage round 3, the Little Switzerland crash spots)
+            int wpAt = path != null && path.Count > 0 ? path.NearestIndex(car.transform.position) : -1;
+            Debug.Log("[Race] " + car.name + " retired after a serious crash at wp " + wpAt + (ai != null && ai.MistakeRecent ? " (its planned mistake)" : " (not planned)"));
         }
 
         /// <summary>R1a part 2 (DamageRules): the player's car cannot go on. A

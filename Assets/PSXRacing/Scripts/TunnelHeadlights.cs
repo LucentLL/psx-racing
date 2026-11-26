@@ -65,6 +65,10 @@ namespace PSXRacing
             return best < BoreLatM + 4f;
         }
 
+        /// <summary>(stage3) Hand the lights back before the lens strength (PLAY TIME; PSX_EASEHANDBACK=0 = 77f4abf8).</summary>
+        public static bool EaseHandBack = System.Environment.GetEnvironmentVariable("PSX_EASEHANDBACK") != "0";
+        bool restorePending;
+
         void LateUpdate()
         {
             if (ExposureAdapt.ForceTunnel) return;   // NEW GAME's tunnel drives the lights itself
@@ -76,6 +80,7 @@ namespace PSXRacing
                 Holding = InBore = false;
                 return;
             }
+            if (restorePending && !applied) { restorePending = false; CarLights.SetLampEase(1f); }
             var rm = RaceManager.Instance;
             Transform car = rm != null && rm.playerCar != null ? rm.playerCar.transform
                           : ChaseCamera.Active != null ? ChaseCamera.Active.target : null;
@@ -101,8 +106,11 @@ namespace PSXRacing
                 if (!want && lampK <= 0f)
                 {
                     applied = false;
-                    CarLights.SetLampEase(1f);
-                    CarLights.SetAll(TimeOfDay.At(TimeOfDay.Current).lightsOn);
+                    // (stage3, EaseHandBack) the lights handed back to the hour FIRST, the lenses' strength restored
+                    // the frame after, when they are out: restored in the same frame, the frame's last lens stood at
+                    // full strength for the switch (the pop meter's "went: Headlight")
+                    if (EaseHandBack) { CarLights.SetAll(TimeOfDay.At(TimeOfDay.Current).lightsOn); restorePending = !CarLights.AllOn; if (!restorePending) CarLights.SetLampEase(1f); }
+                    else { CarLights.SetLampEase(1f); CarLights.SetAll(TimeOfDay.At(TimeOfDay.Current).lightsOn); }
                 }
             }
             Holding = applied;

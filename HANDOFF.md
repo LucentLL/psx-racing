@@ -215,6 +215,96 @@ At 78 the pale concrete slabs on North Tryon's grass median are gone (one grass 
 nothing changes by default: the junction islands as closed solids (his "one paved surface with raised parts") exist behind
 PSX_CITY_ISLANDSOLID=1 and fix the wedge at 80 and the layers at 77 / 79 in the pictures, but they fail the line gate, so
 they are not switched on. 81's curb nose in the turn lane is not fixed in any state.
+# TEST RUNS ARE SILENT (coordinator, 11-25; mountain-nm 8a5737c0)
+
+Owner 2026-11-25: "please mute all testing. I constantly hear the game without ever seeing it". Measured at 18:02: two hidden batch editors (RacePlayCheck in PSXPerf and PSXCity) were at full-scale peak on his speakers. Batch mode hides the window, not the sound.
+
+- `MasterOut` (Scripts/AudioFader.cs) is the only writer of `AudioListener.volume`. Game code and checks set and read `MasterOut.Level`. In a test run (batch mode, or `-psx-mute` on a windowed run) the level stays what the game set and the listener is held at zero. The mix still runs, so frame times stay comparable. `-psx-sound` is for a run the owner asked to hear.
+- A muted run logs `[MasterOut] test run: the sound is muted`. `tools/lab-check.ps1` fails a run without that line (NOT SILENT). The coordinator's smoke also measures each tour's audio session peak; it must be 0.0000.
+- Never run an exe built before 8a5737c0 as a test. Never mute a game exe in the Windows volume mixer: Windows keeps that setting per exe path, so it would silence the owner's own game.
+# HANDOFF - STAGE3: the tunnel's see-through, cut solids on the drawn rock, the timber rail unstretched, Little Switzerland's crash spots, the lens meter (agent "stage3", 11-25; branch `stage3` from mountain-nm 77f4abf8 + 8a5737c0 picked; NOT pushed, NOT merged)
+
+## Switches (public static bool fields; =0 is 77f4abf8)
+BUILD TIME (list as BUILT IN on the LAB page):
+- PSX_BANKFIT (PSXRacingBuilder.BankFit, Stage.cs): below 2.1 m over the edge the cut's drawn rock keeps to its solid (bays shared by both, at most 9 cm of block relief behind the solid, never in front); the solid steps into the bays and leans with the face over the 1.4 m plinth (a second slab, CollBankU*); the rock top's face collider on the same surface. Every stage with cuts. The full relief starts at 2.1-3.0 m (was 0.4-2.5 m): the lowest 2 m of every cut is flatter.
+- PSX_TIMBERUV (PSXRacingBuilder.TimberUV, Stage.cs): timber boards, their end pieces and every rail post with square texels at the steel rail's 64 texels/m; a board = one 4 m station of grain inside one plank of the sheet (a new plank each station = the butt joints).
+- PSX_PORTALEND (Tunnel3.cs PortalEndBoth): the portal wall's end slab drawn both ways (the 85 px seam).
+- PSX_PORTALARRIS (Tunnel3.cs PortalArris): a strip from the arch soffit and the quoin returns out to the stones' faces, both sides.
+- PSX_TUNNELEXACT (PSXRacingBuilder.TunnelMeshExact, PSXRacingBuilder.cs CompressibleMesh): a stage's tunnel meshes, and the near ground chunks within 360 m of a tunnel, saved unquantised. THE MAIN CAUSE of the see-through: 16-bit mesh compression is applied at save, so the bore, lining, masonry, hill and ground no longer met once the scene was LOADED; the lab's in-session probe never saw it.
+PLAY TIME:
+- PSX_AI_PLANCAP (AIDriver.PlanAeroCap, one field): the speed planner counts downforce only to 27 m/s (AIGrip's calibration range) and bank credit to 4 %.
+- PSX_BRAKELAMPHOLD (CarLights.BrakeLampHold): brake lamps with hysteresis (on > 0.15, off < 0.05) and 0.3 s least on-time.
+- PSX_EASEHANDBACK (TunnelHeadlights.EaseHandBack): the bore hands the lights back to the hour before restoring the lens strength (next frame).
+TOOLS: PSX_GHOST_HIDDENDRAWN (TrackObstacleAudit: a height hidden from the road by drawn masonry counts as drawn); Tunnel2Probe PSX_T2_EXACTMOUTHS, PSX_T2_EXTRA (+116 off-grid cameras), PSX_T2_KEEP; new Editor/BankFitProbe.cs (Run = solid-vs-drawn gap, Shots = nose against the cut, RailShots, DumpTex, Curv); race trail prints the planner's target and bend.
+
+## Results (PSXPerf, editor, hidden; scenes built from this code; numbers are EDITOR)
+- Gap probe on the LOADED LittleSwitzerland scene, 560 cameras (444 grid + 116 off it): switches off 156 cams / 4153 px -> 3 cams / 7 px (grid: 1 cam, 5 px of sky at the far mouth's crown from the cockpit at the entry; off-grid: 2 cams, 1 px each). The 85 px wall-end seam: gone. The two reverse crown slivers: gone.
+- Ghost barriers (self-test): LS 12 -> 0, ChimneyRock 8 -> 1 (Boulder collider at wp 704, not a cut), LakeLure 15 -> 1 (CollGuard19 at the stage end, wp 2964). The 3 "tall over nothing" at the portal planes were the audit: every height there is hidden behind drawn masonry.
+- Solid in front of the drawn rock by > 0.15 m, 0.2-1.6 m over the edge (BankFitProbe, spots every 0.5 m a side): LS 94.5 % -> 12.4 %, CR 84.0 % -> 7.2 %, LL 69.0 % -> 13.5 %; what is left is 0.15-0.25 m in the 1.2-1.6 m band (LS 1832 of 57667 samples there; 0.2-1.1 m: 20 of 121680) and, on Lake Lure, its grass banks low down; nothing drawn within 3 m: 13 / 7 / 108 samples. Nose shots: the car stops 16-43 cm short of the rock (base) -> 5-14 cm.
+- Collider cost: BankColl LS 27 -> 50 meshes, 12.5k -> 22.5k tris (with the rock tops 89/56.5k -> 112/68.8k), cook 17 -> 25 ms per stage in the editor; CR 23 -> 39 (4.7k -> 6.4k), LL 42 -> 89 (11.3k -> 19.7k). Load time not measured in an exe.
+- Timber rail (LS): boards 99.9 % > 1.5:1 (worst 2.1) -> 0 % (worst 1.2); posts 30.4 % (1.5) -> 0 % (1.0); density 181 / 209 -> 64 texels/m = the steel rail's 64. Textures unchanged (mapping only): tile proofs from the imported 256 px sheets in scratchpad\stage3\tiles: boards repeat along V (the rail's grain), U is never wrapped on a board (one plank a station); posts repeat both ways.
+- Races (4 cars, hidden, after the final scenes, 5 seeds a direction): LS fwd 0 retirements at wp 366 (base: 1 in every seed-0 run; switch off on the same scenes: back at 366); LS rev 0 at wp 1685. Every other retirement but three follows the race's PLANNED incident (RaceManager.PlanIncident, a "MISTAKE" line: LS fwd wp 347-349 x4, rev wp 130 x4, CR 8, LL 8). Unplanned: LS fwd seed 0 wp 1055 (just out of the tunnel), LL fwd seed 0 wp 937, LL rev seed 0 wp 1026 - cars drifting wide on near-straights at 140-160 km/h with little steer; with PLANCAP=0 the same scenes give unplanned ones elsewhere (LS 1135, LL 1653). Not fixed. AI a little slower: rivals' LS mean ~289 -> 291-304 s.
+- City start check (editor race-play-check, TryonSprintRev, 8 cars, rain, day 20): every grid car on its road through the countdown; "the race goes live" FAILS in this sandbox with the switch ON and OFF alike (the city course never reaches 20 % in 60 s).
+- Pop meter, Noon, AI driving through the bore: fwd chase 40 pops (39 car lenses: the autopilot's brake lamps flickering at the 0.15 pedal point, every 1-3 frames) -> 1 (the eased headlight's first frame, 90 px); rev chase 2 -> 3 car lenses (real brake applications); cockpit 0 / 0 both ways. The forward run reports every time now (per-venue log, pops.csv kept); why round 2b's forward runs wrote nothing I could not reproduce.
+- LifeSimSelfTest on the same final scenes, 77f4abf8 code (+ the mute pick) vs this branch: 91 FAIL lines each, the same set. Stage lab LS FAIL lines 11 / 11; tunnel stretch FAIL (5 rock meshes at the triplanar ceiling) unchanged.
+
+## The next PC build
+1. Merge `stage3`. Shared edits: PSXRacingBuilder.cs (CompressibleMesh, NearTunnelChunk), Stage.cs (BankFit in BuildOneStageBank, kit UVs, posts), RockRelief.cs (ReliefFace colD), Tunnel3.cs (end slab, arris), AIDriver.cs (PlanAeroCap, debug props), CarLights.cs (BrakeLampHold), TunnelHeadlights.cs, TrackObstacleAudit.cs, Tunnel2Probe.cs, RacePlayCheck.cs (trail), new BankFitProbe.cs(+meta).
+2. A FULL stage scene pass (every stage: cuts and rail posts change; tunnel stages also their mesh compression). Circuits and the city: no output change (stage-only paths); no city re-bake.
+3. Re-measure frame cost and scene load in the exe (not done: no player built).
+
+# HANDOFF - CITYAI: rivals take junction turns on an arc, not a 90 degree pivot; the race distance holds in a slip lane (agent "cityai", 11-25; branch `city-ai-turns` from mountain-nm e472b9da + 8a5737c0 (mute); NOT pushed, NOT merged)
+
+Owner, CltC7, PC68: "AI can't even turn on this track, they make 90 deg turns. Very unnatural to see." All runs are EDITOR runs in
+PSXCity (hidden batch, 8-car field, the play check's autopilot as the player). Scratch: `scratchpad\cityai\` (sheet, runs\, tables).
+
+## What was wrong
+1. `Scripts/Checkpoints/RoutedPath.cs` (header, "PSX_CP_FILLET_R = 0 ... the racing-radius fillet (M7) is not built yet"): a rival's
+   routed road ran the lanes' centre of one road to the node and the next road's from it, a corner, its curvature smeared over 5
+   waypoints. Measured on CltC7 (3 laps, MEDIUM): through the 118 deg Univ City -> N Tryon turn the rivals' tightest driven radius
+   was 4.4 m (median; 0.8 m min), apex 16.5 km/h, 8 stops and 13 pivots (yaw > 0.5 rad/s under 4 m/s) in 21 passes, 90 % of the
+   heading change inside 14 m of travel; the field jammed there for 2 minutes in the first run (stops, back-ups, traffic hits).
+   The same shape at every 80-120 deg city junction (C1, C2, H7: r_min median 5.4-6.2 m, apex 22-34 km/h).
+2. `Scripts/AIDriver.cs` UpdateMistake: a planned mistake was kept out of junctions only by where the CAR was, not the corner it
+   was braking for: the 180SX's mistake began 200 m short of C7's N Tryon / W T Harris turn and arrived at 158 km/h (retired).
+3. `Scripts/Checkpoints/CheckpointRace.cs` RemainingToGate (graph locate, the player): the locate picks ONE line; in the right lane
+   of Univ City Blvd 80 m before gate 2 the channelised right turn's line (edge 13224) is 3.6 m away, so the ruler read 1,219 m
+   instead of 64 m (reproduced by the self-test's new lane walk, exactly the owner's edges). Same class on 9 of 10 files.
+
+## What changed (all ON by default; old paths kept)
+- NEW `Scripts/Checkpoints/RacingTurns.cs` + RoutedPath: every join of 30 deg+ laid on the LARGEST circular arc tangent to the two
+  lanes' lines that keeps 1.4 m (never under 1.15 m) off the fan kerbs of the node and every node within 60 m (islands, noses),
+  inside each arm's pavement past its trim, checked on the arc AND on the car's own-lane line; its tangent at most the trim + 6 m
+  (30 m cap); curvature written as 1/r, not smoothed; edge/s back-map through the cornered line's arc. Switch `RacingTurns.On`,
+  PSX_CP_TURNS, LAB row **AI RACING TURNS** (Traffic tab, NEXT LOAD: the next race; mid-race at each rival's next re-plan).
+- AIRoutePlanner: a re-plan within 30 m past a node keeps the road it came by, so the new path lays the same arc.
+- AIDriver: no planned mistake whose corner is in a junction zone (with RacingTurns.On).
+- NEW `Scripts/Checkpoints/RulerHold.cs`: every edge whose pavement holds the car is read; the lowest reading wins when it beats
+  the locate's by 25 m+. `CheckpointRace.RulerHoldOn`, PSX_CP_RULER_HOLD, LAB row **RACE DISTANCE: LANE HOLD** (at once).
+- Harness: NEW `Editor/CheckpointTurnTrace.cs` (PSX_TT_OUT: 20 Hz trace of every car, hits, the map round each turn, plan + chase
+  frames), hooked in RacePlayCheck; CheckpointSelfTest lane walk (every lane of every route, with/without the hold).
+
+## Proof
+Sheet: `scratchpad\cityai\cityai_sheet.png` (C7 T0/T1/T2 plan before|after with all traces, chase frames through T0 before|after;
+editor frames, noon; the white boxes on T1/T2 are building roofs in the top-down frame).
+CltC7 3 laps MEDIUM (a1 off | b2 on): T0 r_min med 4.4 -> 13.9 m, apex 16.5 -> 45.4 km/h, stops 8 -> 0, pivots 13 -> 4;
+T1 5.5 -> 18.9 m, 19 -> 54 km/h, pivots 6 -> 0; T2 (46 deg) unchanged 19 m / 50 km/h; race 597 -> 460 s; back-ups 21 -> 1.
+Matrix (1 lap, before dA | after dC/dD/dE): see the hand-back table. Head-ons 0 in every race both arms. On-road start checks OK in all.
+aipass matrix (after): 1 head-on (TryonSprint MEDIUM s0, 180SX at 6 km/h in the start pack, a traffic car into it at 16 km/h);
+the SAME race with turns off also has 1 (36 m/s). Tryon has no junction turn of 30 deg+.
+Plan cost per plan (editor, debug Mono; C7 / C1 / H7): p50 0.60/0.59/0.98 -> 2.24/1.79/1.56 ms, p99 1.1/4.6/9.8 -> 5.3/7.8/5.5 ms.
+
+## Not done / not verified
+- No PC exe; no watched run; no night run of the matrix; no seed variety beyond 0/1; the player's own (human) line not driven.
+- Lane walk still FAILs on h6, i485west, independence, tryon, uptown (2-17 steps each: a car 6-10 m LEFT of the route's line on
+  a wide road / a ramp line, outside the route edge's drawn pavement + 0.5 m).
+- Routing never uses a channelised slip lane for a right turn (the router picks the node); the arc goes through the box.
+- X1 finish run-out: finishers coast into a building at up to 43 m/s at (-1403, 5529) in both arms (not junction, not touched).
+- Kerb strike metric is indirect (wheel-height spread / off-road wheel bits); collisions with kerb/island colliders: 0 both arms.
+
+## At merge
+Code only (Scripts/Checkpoints, AIDriver, Lab row, Editor harness, RacePlayCheck hook). No bake input, no scene pass, no re-bake.
+New metas: RacingTurns.cs.meta, RulerHold.cs.meta, CheckpointTurnTrace.cs.meta (committed).
 
 # HANDOFF - NIGHT5: NIGHT 4 keeps the lane paint and the paving joints, no light past medians and corners, the LAB row back from OFF, two tool faults (agent "night5", 11-25; branch `city-night5` from cdf3fc87; NOT pushed, NOT merged)
 

@@ -6079,6 +6079,7 @@ namespace PSXRacing.EditorTools
                 {
                     var into = RunTris(part.mat);
                     float bump = part.boards ? (Mathf.Max(0, rings[k - 1].station >= 0 ? rings[k - 1].station : StationBefore(k - 1)) % 4) * 0.25f : 0f;
+                    if (part.boards && TimberUV) bump += TimberPlankIn;
                     Prism(verts, uvs, into, part, k - 1, k, along, bump, (kk, yb) => PAt(kk, yb, part.fromDeck, Vector3.zero));
                 }
             }
@@ -6125,7 +6126,8 @@ namespace PSXRacing.EditorTools
                                 a[j] = PAt(k, part.prof[j], part.fromDeck, Vector3.zero);
                                 b[j] = a[j] + dir;
                             }
-                            Skin(verts, uvs, into, part, a, b, along[k], along[k] + (endIx == 0 ? -1f : 1f) * WallSolidEndReachM, 0f);
+                            Skin(verts, uvs, into, part, a, b, along[k], along[k] + (endIx == 0 ? -1f : 1f) * WallSolidEndReachM,
+                                 part.boards && TimberUV ? TimberPlankIn : 0f);
                             CapPrism(verts, uvs, into, part, kk => PAt(k, kk, part.fromDeck, dir), dir);
                         }
                         continue;
@@ -6196,8 +6198,25 @@ namespace PSXRacing.EditorTools
                 // is about 40), a metre of grain per sheet height, and each
                 // post from a different strip so no two match.
                 float col = (posts % 6) / 6f;
-                for (int q = v0; q < pu.Count; q++)
-                    pu[q] = new Vector2(col + pu[q].x / 6f, pu[q].y * h);
+                if (TimberUV)
+                {
+                    // (PSX_TIMBERUV) square texels at the steel rail's density: each side a strip of the sheet
+                    // postW across and h up, the top its own square; each post from a different strip
+                    var ptx = pm != null ? pm.mainTexture : AssetDatabase.LoadAssetAtPath<Texture2D>(GuardrailPostTexPath);
+                    float tw = ptx != null ? ptx.width : 256f, th = ptx != null ? ptx.height : 256f;
+                    float su = postW * KitTexelsPerM / tw, sv = KitTexelsPerM / th;
+                    float v0f = ((posts * 7) % 5) / 5f;
+                    for (int q = v0; q < v0 + 16 && q < pu.Count; q++)
+                        pu[q] = new Vector2(col + pu[q].x * su, v0f + pu[q].y * h * sv);
+                    if (pu.Count >= v0 + 20)
+                    {
+                        pu[v0 + 16] = new Vector2(col, v0f); pu[v0 + 17] = new Vector2(col, v0f + su * tw / th);
+                        pu[v0 + 18] = new Vector2(col + su, v0f + su * tw / th); pu[v0 + 19] = new Vector2(col + su, v0f);
+                    }
+                }
+                else
+                    for (int q = v0; q < pu.Count; q++)
+                        pu[q] = new Vector2(col + pu[q].x / 6f, pu[q].y * h);
                 posts++;
             }
             bool Allowed(int k, RailKit kit) => kit == RailKit.BridgeRail
@@ -6248,6 +6267,21 @@ namespace PSXRacing.EditorTools
         /// ghost audit's 0.6 and 0.8 m samples, as the W-beam's does.</summary>
         const float TimberRailTop = -0.03f, TimberRailH = 0.25f, TimberRailDepth = 0.15f,
                     TimberSteelT = 0.012f, TimberPostW = 0.25f;
+        /// <summary>
+        /// (stage3, 2026-11-25) THE TIMBER RAIL WITHOUT STRETCH. Its boards were mapped a plank (a quarter of the
+        /// sheet) round the 0.8 m section and two metres of grain along: 2:1 texels on 99.9 % of their area; the
+        /// posts a sixth of their sheet across and a metre of grain up it (1.5:1 on 30 %). With this on, boards,
+        /// their end pieces and every rail post take SQUARE texels at the steel rail's density (KitTexelsPerM: the
+        /// W-beam and the timber's steel backing both run 256 texels over a 4 m station): a board is one station of
+        /// grain along, its whole section inside one plank of the sheet (a different plank each station: the butt
+        /// joints), a post a strip of its grain sheet. PSX_TIMBERUV=0 = 77f4abf8. Stages only.
+        /// </summary>
+        public static bool TimberUV = System.Environment.GetEnvironmentVariable("PSX_TIMBERUV") != "0";
+        /// <summary>Texels a metre on the stages' rail kits with TimberUV (the steel rail's).</summary>
+        const float KitTexelsPerM = 64f;
+        /// <summary>A board's section starts this far into its plank (the sheet's plank seams stand at about
+        /// 0, 0.26, 0.51 and 0.76 across it; a 0.8 m section at KitTexelsPerM is 0.2 of the sheet).</summary>
+        const float TimberPlankIn = 0.035f;
         /// <summary>Chimney Rock's rustic post-and-rail: two round log rails
         /// (hexagonal, 0.22 m across, a park road's log rail) whose centres
         /// stand 0.15 m over and 0.25 m under the wall line's top - about 0.88
@@ -6403,6 +6437,14 @@ namespace PSXRacing.EditorTools
                                             mat = kitGalv, fromDeck = true, alongScale = 4f, perimScale = 1f });
                     break;
             }
+            // (stage3, PSX_TIMBERUV) the boards square at the steel rail's density, inside one plank
+            if (TimberUV)
+                foreach (var pt in parts)
+                {
+                    if (!pt.boards || pt.mat == null || pt.mat.mainTexture == null) continue;
+                    pt.alongScale = pt.mat.mainTexture.height / KitTexelsPerM;
+                    pt.perimScale = pt.mat.mainTexture.width / KitTexelsPerM;
+                }
             // (tunnel2b, PSX_ROADSIDEUV2) square texels round each part (the boards keep their own plank rows)
             if (RoadsideUV2)
                 foreach (var pt in parts)
@@ -6465,7 +6507,7 @@ namespace PSXRacing.EditorTools
             for (int j = 0; j < m; j++)
             {
                 verts.Add(at(part.prof[j]));
-                uvs.Add(new Vector2(part.prof[j].y / part.perimScale, part.prof[j].x / part.perimScale));
+                uvs.Add(new Vector2(part.prof[j].y / part.perimScale + (part.boards && TimberUV ? TimberPlankIn : 0f), part.prof[j].x / part.perimScale));
             }
             for (int j = 1; j + 1 < m; j++)
             {
@@ -6948,6 +6990,32 @@ namespace PSXRacing.EditorTools
         /// old floor was a 0.15 m box on every run end — 3 cm over the tarmac,
         /// passable outward and a ledge coming back.</summary>
         const float BankCollMinH = 0.5f;
+
+        /// <summary>
+        /// (stage3, 2026-11-25) THE CUT'S SOLID FOLLOWS THE ROCK THAT IS DRAWN. The self-test's ghost barriers
+        /// "held off by 0.55-0.60 m of air" at every stage's cuts: the PC relief (ReliefFace) recessed the drawn rock
+        /// up to 0.35 m behind the smooth face in the band a car touches, and the full relief (to 2.4 m deep)
+        /// started anywhere from 0.4 m up, while the solid stood flat and vertical 0.05 m in front of the smooth
+        /// face, and on up past the plinth where the face leans back. With this on, below BankFitBandH the drawn
+        /// rock is the solid's surface plus at most BankFitRelief of block relief (never in front of it), the solid
+        /// steps back into the bays with it (BankFitDepth, linear station to station as the relief's columns are),
+        /// and the solid leans with the face above the plinth (a second slab, plinth to band top). The rock top's
+        /// face collider takes the same depth. On every stage with cuts (circuits and the city build no stage banks).
+        /// PSX_BANKFIT=0 = 77f4abf8.
+        /// </summary>
+        public static bool BankFit = System.Environment.GetEnvironmentVariable("PSX_BANKFIT") != "0";
+        /// <summary>The top of the band (over the tarmac edge) where the drawn rock keeps to the solid.</summary>
+        const float BankFitBandH = 2.1f;
+        /// <summary>The most the drawn rock stands behind the solid's surface in the band (blocks, cracks).</summary>
+        const float BankFitRelief = 0.09f;
+        /// <summary>The solid's face this far in front of the drawn rock's nearest surface.</summary>
+        const float BankFitSeat = 0.03f;
+        /// <summary>The solid follows the bays only where the face (this station and both neighbours) is at least
+        /// this tall: lower, the relief's taper at the crest reaches into the band.</summary>
+        const float BankFitMinH = 2.9f;
+        /// <summary>How far the solid (and the drawn band) steps back into a bay at <paramref name="a"/> along the
+        /// cut: the relief's own bay term, scaled as the old band scaled it.</summary>
+        static float BankFitDepth(float a, int seed) => Mathf.Clamp(RNoise(a / 15f, 0.37f, seed + 5) * 0.9f * 0.32f, 0f, 0.29f);
         /// <summary>Where the rock top is sampled, metres past the face's toe.
         /// The last is where it has come down onto the released lattice
         /// (BankPinM + BankReleaseM + BankTopTailM).</summary>
@@ -7314,12 +7382,15 @@ namespace PSXRacing.EditorTools
                 }
                 chordT1[k] = tris.Count;
 
-                int c = cVerts.Count;
-                cVerts.Add(toe[k]); cVerts.Add(plinthTop[k]); cVerts.Add(crest[k]);
-                if (k > 0)
+                if (!BankFit)
                 {
-                    QuadFacingSkipFlat(cVerts, cTris, c - 3, c - 2, c + 1, c, -outw);
-                    QuadFacingSkipFlat(cVerts, cTris, c - 2, c - 1, c + 2, c + 1, -outw);
+                    int c = cVerts.Count;
+                    cVerts.Add(toe[k]); cVerts.Add(plinthTop[k]); cVerts.Add(crest[k]);
+                    if (k > 0)
+                    {
+                        QuadFacingSkipFlat(cVerts, cTris, c - 3, c - 2, c + 1, c, -outw);
+                        QuadFacingSkipFlat(cVerts, cTris, c - 2, c - 1, c + 2, c + 1, -outw);
+                    }
                 }
 
                 // The rock top over this station — the forest's too, except
@@ -7383,6 +7454,30 @@ namespace PSXRacing.EditorTools
                 !graded[k] && !graded[k - 1] && Mathf.Min(hh[k - 1], hh[k]) >= BankCollMinH;
             float seatE = half + CutToeE - 0.05f;
             int sub = 0;
+            // (BankFit) the depth the solid and the drawn band step back at each station, and the rock top's
+            // face collider on that surface (toe, plinth, band top, crest)
+            bool reliefDrawn = PCContent && RockReliefOn && !grassy;
+            var colD = new float[R];
+            if (BankFit)
+            {
+                if (reliefDrawn)
+                    for (int k = 1; k + 1 < R; k++)
+                        if (facedAt[k - 1] && facedAt[k] && facedAt[k + 1] &&
+                            Mathf.Min(hh[k - 1], Mathf.Min(hh[k], hh[k + 1])) >= BankFitMinH)
+                            colD[k] = BankFitDepth(distAt[k], no * 7 + s);
+                for (int k = 0; k < R; k++)
+                {
+                    Vector3 o = outwAt[k] * colD[k];
+                    float hk = crest[k].y - plinthTop[k].y;
+                    float bandUp = Mathf.Max(0f, Mathf.Min(crest[k].y, Y(st[k]) + BankFitBandH) - plinthTop[k].y);
+                    Vector3 mid = hk > 1e-4f ? Vector3.Lerp(plinthTop[k], crest[k], bandUp / hk) : crest[k];
+                    int c = cVerts.Count;
+                    cVerts.Add(toe[k] + o); cVerts.Add(plinthTop[k] + o); cVerts.Add(mid + o); cVerts.Add(crest[k]);
+                    if (k > 0)
+                        for (int j = 0; j < 3; j++)
+                            QuadFacingSkipFlat(cVerts, cTris, c - 4 + j, c - 4 + j + 1, c + j + 1, c + j, -outwAt[k]);
+                }
+            }
             for (int k = 1; k < R; )
             {
                 if (!BankChord(k)) { k++; continue; }
@@ -7406,12 +7501,51 @@ namespace PSXRacing.EditorTools
                         bottom = Mathf.Min(bottom, (Y(st[r + 1]) + Y(i)) * 0.5f);
                         ch = Mathf.Min(ch, hh[r + 1]);
                     }
+                    if (BankFit) face = pts[i] + rsRight[i] * (side * (half + CutToeE + colD[r] - BankFitSeat));
                     faceBottom.Add(new Vector3(face.x, bottom - 0.6f, face.z));
-                    faceTop.Add(new Vector3(face.x, Y(i) + ch, face.z));
+                    faceTop.Add(new Vector3(face.x, Y(i) + (BankFit ? Mathf.Min(ch, BankPlinth) : ch), face.z));
                     outward.Add(rsRight[i] * side);
                 }
                 BuildWallSolid("BankColl", parent, faceBottom, faceTop, outward, StageWallCollThick,
-                               false, phys, "CollBank" + no + "_" + sub++);
+                               false, phys, "CollBank" + no + "_" + sub);
+                // (BankFit) over the plinth the face leans back at the batter: a second slab on it, plinth to the
+                // band's top (or the face's), over the runs of rings with that much face
+                if (BankFit)
+                {
+                    int u = 0;
+                    float ChAt(int r)
+                    {
+                        float c2 = hh[r];
+                        if (r > k0) c2 = Mathf.Min(c2, hh[r - 1]);
+                        if (r < k1) c2 = Mathf.Min(c2, hh[r + 1]);
+                        return c2;
+                    }
+                    for (int r0 = k0; r0 <= k1; )
+                    {
+                        if (ChAt(r0) < BankPlinth + 0.2f) { r0++; continue; }
+                        int r1 = r0;
+                        while (r1 + 1 <= k1 && ChAt(r1 + 1) >= BankPlinth + 0.2f) r1++;
+                        if (r1 > r0)
+                        {
+                            var ub = new List<Vector3>(); var ut = new List<Vector3>(); var uo = new List<Vector3>();
+                            for (int r = r0; r <= r1; r++)
+                            {
+                                int i = st[r];
+                                Vector3 o = rsRight[i] * side;
+                                Vector3 f0 = pts[i] + o * (half + CutToeE + colD[r] - BankFitSeat);
+                                float yT = Mathf.Min(ChAt(r), BankFitBandH);
+                                ub.Add(new Vector3(f0.x, Y(i) + BankPlinth, f0.z));
+                                Vector3 f1 = f0 + o * ((yT - BankPlinth) * BankBatter);
+                                ut.Add(new Vector3(f1.x, Y(i) + yT, f1.z));
+                                uo.Add(o);
+                            }
+                            BuildWallSolid("BankColl", parent, ub, ut, uo, StageWallCollThick,
+                                           false, phys, "CollBankU" + no + "_" + sub + "_" + u++);
+                        }
+                        r0 = r1 + 1;
+                    }
+                }
+                sub++;
                 k = k1 + 1;
             }
 
@@ -7425,7 +7559,8 @@ namespace PSXRacing.EditorTools
             // PC: the faced chords as fractured rock (the collider above stays the smooth hull)
             if (PCContent && RockReliefOn && !grassy)
             {
-                ReliefFace(verts, uvs, tris, toe, plinthTop, crest, facedAt, distAt, chordT0, chordT1, outwAt, R, no * 7 + s);
+                ReliefFace(verts, uvs, tris, toe, plinthTop, crest, facedAt, distAt, chordT0, chordT1, outwAt, R, no * 7 + s,
+                           BankFit ? colD : null);
                 BuildCrestLip(parent, topMat, no, crest, outwAt, facedAt, distAt, R, no * 7 + s);
             }
             var mesh = new Mesh
