@@ -1601,10 +1601,17 @@ namespace PSXRacing.City
         public static Trims ComputeTrims(CityMap map)
         {
             mitreFanEdge = null;
-            MitreFanCount = 0; MitreFanAt.Clear(); MitreFanUnclipped = 0;
+            MitreFanCount = 0; MitreFanAt.Clear(); MitreFanUnclipped = 0; CrossoverFans = 0;
             var t = ComputeTrimsCore(map, null);
-            if (!MitreFanOn || !ClustersOn) return t;
+            // c7roads round 4, A1 (PSX_CITY_BAYLANES): a median crossover's far node is a junction fan, so the turn
+            // across lies in one paved surface with the far carriageway (it was mitred: the link's ribbon lay over
+            // the carriageway's lanes, spot 80's OVERLAY)
+            var bayFar = BayLanesOn ? CrossoverFarNodes(map, t) : null;
+            if ((!MitreFanOn || !ClustersOn) && (bayFar == null || bayFar.Count == 0)) return t;
             var force = new bool[map.nodes.Length];
+            if (bayFar != null) foreach (int f in bayFar) force[f] = true;
+            CrossoverFans = bayFar != null ? bayFar.Count : 0;
+            if (!MitreFanOn || !ClustersOn) return ComputeTrimsCore(map, force);
             var pairEdge = new bool[map.edges.Length];
             var buried = new HashSet<int>();
             var ringScratch = new List<FanCorner>(32);
@@ -1652,7 +1659,7 @@ namespace PSXRacing.City
                     break;
                 }
             }
-            if (MitreFanCount == 0) return t;
+            if (MitreFanCount == 0 && CrossoverFans == 0) return t;
             mitreFanEdge = pairEdge;
             return ComputeTrimsCore(map, force);
         }
