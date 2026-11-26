@@ -471,8 +471,9 @@ namespace PSXRacing.EditorTools
                     $"(mesh facets {worstMeshStep * 100f:0.000} % per 0.5 m), interior spacing {r.steinerM:0.00} m";
             if (worstMesh > 0.01f) return $"the mesh stands {worstMesh * 100f:0.00} cm off the surface";
             if (worst > 0.01f) return $"interior point {r.fillVerts[worstV]} stands {worst * 100f:0.00} cm off its neighbours' plane";
-            // SMOOTH = no jump in grade: halving the step must (nearly) halve the change; a kink keeps its size
-            if (step25 > 0.6f * step50 + 2e-4f) return $"the grade jumps: {step50 * 100f:0.000} % per 0.5 m but {step25 * 100f:0.000} % per 0.25 m";
+            // SMOOTH = no jump in grade: halving the step must cut the change to 3/4 or less (a smooth surface halves it,
+            // 0.50 to 0.70 measured; a kink keeps its size, 1.0)
+            if (step25 > 0.75f * step50 + 2e-4f) return $"the grade jumps: {step50 * 100f:0.000} % per 0.5 m but {step25 * 100f:0.000} % per 0.25 m";
             if (step50 > GradeStep) return $"the grade changes {step50 * 100f:0.000} % in 0.5 m";
             return null;
         }
@@ -544,9 +545,19 @@ namespace PSXRacing.EditorTools
                 JunctionOutline.StraightArm(1, Vector2.zero, Dir(180), Half(2), Half(2), name: "Main"),
                 JunctionOutline.StraightArm(2, Vector2.zero, Dir(90), Half(1), Half(1), name: "Side", y0: 3f) };
             var r = JunctionOutline.Solve(arms);
-            bool ok = r.refused != null && r.refused.Contains("rises");
-            Note(r, "height: a 3 m rise, refused", ok ? null : "not refused");
-            Assert.IsTrue(ok, "a 3 m rise was not refused: " + r.refused);
+            bool ok = r.refused != null && (r.refused.Contains("off one plane") || r.refused.Contains("slope"));
+            Note(r, "height: a side road standing 3 m proud, refused (" + r.refused + ")", ok ? null : "not refused");
+            Assert.IsTrue(ok, "a side road 3 m proud was not refused: " + r.refused);
+        }
+
+        [Test] public void HeightSteadySlopeAllowed()
+        {
+            // a T on a steady 8 % slope rises over 2.5 m across its rows but is one plane: solved (the old limit refused it)
+            var arms = new List<JunctionOutline.Arm> {
+                JunctionOutline.StraightArm(0, Vector2.zero, Dir(0), Half(2), Half(2), name: "Main", grade: 0.08f),
+                JunctionOutline.StraightArm(1, Vector2.zero, Dir(180), Half(2), Half(2), name: "Main", grade: -0.08f),
+                JunctionOutline.StraightArm(2, Vector2.zero, Dir(90), Half(1), Half(1), radius: 15f, name: "Side") };
+            AssertHeight(JunctionOutline.Solve(arms), "height: T on a steady 8 % slope (rows rise over 2.5 m, no warp)");
         }
 
         [Test] public void Sweep()

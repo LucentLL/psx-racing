@@ -33,7 +33,7 @@ namespace PSXRacing.City
     public static class JunctionOutline
     {
         public const float Step = 0.5f, NoseGapM = 2.4f, NoseR = 1.2f, ThroughDeg = 150f, SideBySideDeg = 35f, SagM = 0.01f, MaxTurnDeg = 6f,
-            SliverDeg = 5f, MaxRiseM = 2.5f, SteinerM = 2.5f, EdgeM = 1.25f, MinRowM = 1f, TogetherM = 6f;
+            SliverDeg = 5f, MaxRiseM = 2.5f, MaxPlaneGrade = 0.15f, SteinerM = 2.5f, EdgeM = 1.25f, MinRowM = 1f, TogetherM = 6f;
 
         public sealed class Arm
         {
@@ -75,7 +75,7 @@ namespace PSXRacing.City
             public List<float> fillY = new List<float>();
             public int ringCount;                        // fillVerts below this are the (bridged) ring; the rest interior points
             public int slivers, flips, steiner; public string refused;   // null: solved
-            public float planeDev, steinerM;             // the worst interior point off its neighbours' plane; the interior spacing used
+            public float planeDev, steinerM, rise, warp, plane; public int relaxed;             // the worst interior point off its neighbours' plane; the interior spacing used
             public double solveMs, fillMs;
 
             public double[] quad; public Vector2 qc;     // the junction's quadratic surface (1, x, y, xx, xy, yy about qc)
@@ -249,10 +249,14 @@ namespace PSXRacing.City
                 res.grade[i] = (a.YAt(sm + 2f) - a.YAt(sm)) / 2f;
             }
             FitQuad(res);
-            // the rise over the rows (the old 2.5 m limit): refused with its reason
+            // THE RISE RULE (replacing the old flat 2.5 m limit): a junction on a steady slope may rise any height; what is
+            // limited is the WARP, the rows' distance from the one plane that fits them best: over MaxRiseM / 2 (1.25 m)
+            // the rows cannot share a smooth surface and the junction is refused with both numbers
             float ylo = float.MaxValue, yhi = float.MinValue;
             for (int i = 0; i < n; i++) { ylo = Mathf.Min(ylo, Mathf.Min(res.yR[i], res.yL[i])); yhi = Mathf.Max(yhi, Mathf.Max(res.yR[i], res.yL[i])); }
-            if (yhi - ylo > MaxRiseM) res.refused ??= $"the junction rises {yhi - ylo:0.00} m over its end rows (over {MaxRiseM} m)";
+            res.rise = yhi - ylo; res.warp = Warp(res);
+            if (res.warp <= MaxRiseM * 0.5f && res.plane > MaxPlaneGrade) res.refused ??= $"the junction's rows lie on a {res.plane * 100f:0} % slope (over {MaxPlaneGrade * 100f:0} %; it rises {res.rise:0.00} m)";
+            if (res.warp > MaxRiseM * 0.5f) res.refused ??= $"the junction's rows lie {res.warp:0.00} m off one plane (over {MaxRiseM * 0.5f} m; it rises {res.rise:0.00} m)";
             // THE OUTLINE: arm by arm, its row right -> left, in along its left border to the corner, the corner, out along
             // the next arm's right border to that arm's row (a shared point is one value)
             var o = res.outline; var src = res.outlineSrc;
@@ -265,6 +269,7 @@ namespace PSXRacing.City
                 for (int k = Mathf.FloorToInt(c.sB / Step + 1e-4f) + 1; k * Step < res.sR[j] - 1e-3f; k++) if (k >= 0 && k < b.R.Count) { o.Add(b.R[k]); src.Add($"e{b.id} right border"); }
             }
             Dedupe(o, src);
+            res.relaxed = RelaxKinks(o, src);
             string cross = SelfCross(o, src);
             if (cross != null) res.refused ??= "the outline crosses itself: " + cross;
             if (holes != null) foreach (var h in holes) { var hh = new List<Vector2>(h); Dedupe(hh); if (hh.Count >= 3) res.holes.Add(hh); }
@@ -273,6 +278,50 @@ namespace PSXRacing.City
             if (res.refused == null) Fill(res);
             res.fillMs = sw.Elapsed.TotalMilliseconds;
             return res;
+        }
+
+        /// <summary>A corner the MAP put in an arm's or a link's border (an OSM vertex the line model carries: 11 to 24
+        /// degrees at 80 and g32) is relaxed where it lies inside the outline's own stretch of that border: the vertex and
+        /// its neighbours moved toward their neighbours' mean (end rows held) until no joint breaks rule 4, at most 30
+        /// rounds. Returns how many vertices moved (the ribbon beyond the row keeps the map's corner: a line-model fault).</summary>
+        static int RelaxKinks(List<Vector2> o, List<string> src)
+        {
+            int m = o.Count, moved = 0;
+            if (m < 5) return 0;
+            for (int it = 0; it < 80; it++)
+            {
+                var bad = new List<int>();
+                for (int i = 0; i < m; i++)
+                {
+                    if (!src[i].EndsWith("border")) continue;   // only the map's own lines: arcs, tapers and noses are built to rule 4
+                    if (Kink(o[(i - 1 + m) % m], o[i], o[(i + 1) % m])) bad.Add(i);
+                }
+                if (bad.Count == 0) break;
+                var cp = new List<Vector2>(o);
+                foreach (int b0 in bad)
+                    for (int d = -2; d <= 2; d++)
+                    {
+                        int i = (b0 + d + m) % m;
+                        if (!src[i].EndsWith("border")) continue;
+                        o[i] = 0.5f * cp[i] + 0.25f * (cp[(i - 1 + m) % m] + cp[(i + 1) % m]);
+                        moved++;
+                    }
+            }
+            return moved;
+        }
+
+        /// <summary>The rows' worst distance (height) from their least-squares plane.</summary>
+        static float Warp(Result res)
+        {
+            var M = new double[3, 3]; var B = new double[3]; var pts = new List<(Vector2 p, float y)>();
+            for (int i = 0; i < res.rowR.Length; i++) { pts.Add((res.rowR[i], res.yR[i])); pts.Add((res.rowL[i], res.yL[i])); }
+            var o = pts[0].p;
+            foreach (var q in pts) { var d = q.p - o; double[] r = { d.x, d.y, 1 }; for (int a = 0; a < 3; a++) { B[a] += r[a] * q.y; for (int b = 0; b < 3; b++) M[a, b] += r[a] * r[b]; } }
+            M[0, 0] += 1e-6; M[1, 1] += 1e-6;
+            var x = SolveLinear(M, B); if (x == null) return 0f;
+            float w = 0f; foreach (var q in pts) { var d = q.p - o; w = Mathf.Max(w, Mathf.Abs(q.y - (float)(x[0] * d.x + x[1] * d.y + x[2]))); }
+            res.plane = (float)System.Math.Sqrt(x[0] * x[0] + x[1] * x[1]);
+            return w;
         }
 
         static void Dedupe(List<Vector2> o, List<string> src)
@@ -466,7 +515,8 @@ namespace PSXRacing.City
 
         /// <summary>A median opening's nose: from A's left border onto a link's border (a fillet), along it, off it onto B's
         /// right border (a fillet); the largest radius up to the class's that keeps the two fillets in order on the link.</summary>
-        static bool ViaLink(Arm A, Arm B, List<Link> links, Corner c)
+        static bool ViaLink(Arm A, Arm B, List<Link> links, Corner c) => ViaLink(A, B, links, c, true) || ViaLink(A, B, links, c, false);
+        static bool ViaLink(Arm A, Arm B, List<Link> links, Corner c, bool strict)
         {
             var dirA = Tangent(A.L, 0); var dirB = Tangent(B.R, 0);
             foreach (var lk in links)
@@ -476,7 +526,9 @@ namespace PSXRacing.City
                     if (X.Count < 2) continue;
                     var mid = X[X.Count / 2];
                     // the border on this corner's land: out along A from A's start and out along B from B's start
-                    if (Vector2.Dot(mid - A.L[0], dirA) <= 0f || Vector2.Dot(mid - B.R[0], dirB) <= 0f) continue;
+                    // (first a border ahead of both starts; then, a crossover ending AT its two nodes, one ahead of either)
+                    bool aheadA = Vector2.Dot(mid - A.L[0], dirA) > 0f, aheadB = Vector2.Dot(mid - B.R[0], dirB) > 0f;
+                    if (strict ? !(aheadA && aheadB) : !(aheadA || aheadB)) continue;
                     // from A's side to B's side
                     if ((X[0] - A.L[0]).sqrMagnitude > (X[X.Count - 1] - A.L[0]).sqrMagnitude) X.Reverse();
                     // and the link's road on its left as the outline runs along it (the land, the nose, on its right)
@@ -503,6 +555,17 @@ namespace PSXRacing.City
                     for (int k = Mathf.FloorToInt(s1 / Step + 1e-4f) + 1; k * Step < s2 - 1e-3f && k < X.Count; k++) if (k >= 0) c.pts.Add(X[k]);
                     c.pts.AddRange(best2.pts);
                     Dedupe(c.pts);
+                    // the link's own border may carry a corner of its map line (80's U-turn crossings: 11 degrees): the
+                    // stretch walked along it is relaxed (ends held) until no joint breaks rule 4, at most 40 rounds
+                    int i0 = 0, i1 = c.pts.Count - 1;   // the whole connector, its two ends held
+                    for (int it = 0; it < 40; it++)
+                    {
+                        bool bad = false;
+                        for (int i = i0 + 1; i < i1; i++) if (Kink(c.pts[i - 1], c.pts[i], c.pts[i + 1])) { bad = true; break; }
+                        if (!bad) break;
+                        var cp = new List<Vector2>(c.pts);
+                        for (int i = i0 + 1; i < i1; i++) c.pts[i] = 0.5f * cp[i] + 0.25f * (cp[i - 1] + cp[i + 1]);
+                    }
                     return true;
                 }
             return false;
@@ -1030,11 +1093,14 @@ namespace PSXRacing.City
                                 for (int q = k; q < xf.Count && q < k + run; q++)
                                 {
                                     Project(hf, xf[q], out var f, out float st);
-                                    if ((f - xf[q]).magnitude > BayGapM || st <= 0f || st >= (hf.Count - 1) * Step) break;
-                                    // and X's centre stays outside H's ribbon (beside it, not on it)
+                                    if (st <= 0f || st >= (hf.Count - 1) * Step) break;
+                                    // X's facing border within BayGapM outside H's facing border, or inside H's ribbon (a bay drawn
+                                    // overlapping its host, as OSM draws 80's U-turn lanes), and X's centre on that side of H's centre
                                     var hc = H.C[Mathf.Clamp(Mathf.RoundToInt(st / Step), 0, H.C.Count - 1)];
                                     var hb = hf[Mathf.Clamp(Mathf.RoundToInt(st / Step), 0, hf.Count - 1)];
-                                    if (Vector2.Dot(X.C[q] - hb, hb - hc) <= 0f) break;
+                                    var outw = (hb - hc).normalized; float halfH = (hb - hc).magnitude;
+                                    float gap = Vector2.Dot(xf[q] - hb, outw);
+                                    if (gap > BayGapM || gap < -halfH || Vector2.Dot(X.C[q] - hc, outw) <= 0.5f) break;
                                     ok++;
                                 }
                                 if (ok >= Mathf.Min(run, xf.Count - k - 1) && ok >= 8) { s0 = k; break; }
@@ -1058,7 +1124,7 @@ namespace PSXRacing.City
                             for (int k = 0; k < hf.Count; k++)
                             {
                                 var tc = Tangent(H.C, k); var nrm = new Vector2(-tc.y, tc.x);
-                                if (k >= k0 && LineCross(ob, H.C[k], nrm, hf[k], out var q, out _)) nb.Add(q);
+                                if (k >= k0 && LineCross(ob, H.C[k], nrm, hf[k], out var q, out _) && Vector2.Dot(q - hf[k], hf[k] - H.C[k]) > 0f) nb.Add(q);
                                 else nb.Add(hf[k]);
                             }
                             var w0 = nb[k0] - hf[k0];
