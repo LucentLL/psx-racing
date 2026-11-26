@@ -259,6 +259,26 @@ Owner 2026-11-25: "please mute all testing. I constantly hear the game without e
 - A muted run logs `[MasterOut] test run: the sound is muted`. `tools/lab-check.ps1` fails a run without that line (NOT SILENT). The coordinator's smoke also measures each tour's audio session peak; it must be 0.0000.
 - Never run an exe built before 8a5737c0 as a test. Never mute a game exe in the Windows volume mixer: Windows keeps that setting per exe path, so it would silence the owner's own game.
 
+# HANDOFF - CITYAI ROUND 4: head-ons (the pack files in), traffic wrecks on static objects, one knock per contact, turn searches sliced after the green (agent "cityai", 11-26; branch `city-ai-turns`, head b7b5c97c; NOT pushed, NOT merged)
+
+New switches (default on, LAB rows in the Traffic group, 0 = round-3 behaviour): PSX_AI_PACK_FILEIN (RIVALS FILE IN, NO SQUEEZE),
+PSX_TRAFFIC_LANES_FIT (TRAFFIC KEEPS TO PAVEMENT, next load), PSX_CP_TURNS_WARMALL + PSX_CP_TURNS_DEFER (RIVAL TURNS LAID AHEAD, next load).
+
+- Item 1 head-ons: a rival squeezed by a rival alongside drifts off its held target over the line. Fix: with an oncoming car really
+  within the guard and the car moving over 4 m/s, a body edge within 0.25 m of the line lifts and brakes (0.5 with a racer on its right,
+  else 0.25) until back in lane. RacePlayCheck TryonSprint MEDIUM seeds 0-5 (before b7b5c97c): head-ons 0, oncoming-stream hits 0 in
+  all six; seed 2 OFF: 0 head-ons, 4 near misses vs ON 0. Tours (12+ runs, Tryon + Rev): contacts 0 both arms; rivals' mean distance at
+  120 s race time OFF 2341 m / ON 2360 m. b7b5c97c: the first version also fired on the pass window's short-sight limit (no car coming)
+  and stopped five rivals 20 s on H6 seed 0; fixed, re-check H6 seed 0 = 2 rival stands (16 s) instead of 6 (84 s).
+- Item 2 traffic wrecks: the strip gives every lane a +-5.5 m outer lane where the real road is narrower (ramps, merges). Lane fit maps
+  pavement per waypoint, changes lane only into a clear gap, slows where no lane fits. H6 MEDIUM went from ~14 static wrecks per run to
+  3-4; target 0 NOT met: H6 s 955-973, 1356-1368, 1440 (Barriers, road half 9.0 m, lane fits by the map: a barrier inside the strip,
+  cause not proven), I485 s 982/3113, Independence s 2515 (Ground after a lane change), Tryon RacePlayCheck s 756 (Barriers) / 930, 3994 (Ground).
+- Knock counter: one contact = one knock (no count while the hold runs).
+- Turn searches after the green: deferred and sliced (0.35 ms budget). Items 3-4 measurements NOT done.
+- Item 5 by reading: player damage unchanged (soft knock changes only the traffic car); traffic sees a standing player (player is in
+  the field list); free roam uses CityTraffic, the four switches do nothing there (they do apply in deliveries).
+
 # HANDOFF - CITYAI ROUND 3: the traffic side (soft knocks, wrecks passed, standing cars seen, lanes round corners), finishers clear the lane, turns laid at load, the islands check (agent "cityai", 11-26; branch `city-ai-turns`, merge commit c658ffcb = mountain-nm 0141cd50; NOT pushed, NOT merged)
 
 All runs: hidden EDITOR in PSXCity, muted (every log has `[MasterOut] test run: the sound is muted`). Tables: scratchpad\cityai\r3_table.md; sheet cityai_round3_sheet.png.
