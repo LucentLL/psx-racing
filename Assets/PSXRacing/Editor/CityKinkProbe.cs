@@ -44,6 +44,22 @@ namespace PSXRacing.EditorTools
             return sag > SagMaxM || (r >= RBigM && turnDeg > TurnMaxDeg);
         }
 
+        /// <summary>The scorecard's kind of a junction fan (its node's arms).</summary>
+        static string KindOf(CityMap map, int n, HashSet<int> crossFar, HashSet<int> splitNodes)
+        {
+            var ne = map.nodeEdges[n];
+            int links = 0, deg = 0;
+            foreach (int i in ne) { var e = map.edges[i]; if (e.a == e.b) continue; deg++; if (e.link && e.cls < 5) links++; }
+            if (crossFar.Contains(n)) return "median opening (crossover's far node)";
+            if (splitNodes.Contains(n)) return "split of one road (SPLT)";
+            if (CityMeshes.CrossingNodeFlags != null && n < CityMeshes.CrossingNodeFlags.Length && CityMeshes.CrossingNodeFlags[n]) return "skew crossing";
+            if (links >= 2) return "ramp / link fork or merge";
+            if (links == 1) return "slip lane / link end";
+            if (deg >= 4) return "crossing corner (4+ arms)";
+            if (deg == 3) return "T corner";
+            return "bend / dead end (2 arms or fewer)";
+        }
+
         static string NearSpot(Vector2 p) { foreach (var s in Spots) if ((s.p - p).magnitude < SpotR) return s.id; return null; }
 
         public static void Run()
@@ -72,6 +88,12 @@ namespace PSXRacing.EditorTools
                     tsv.Append(string.Format(inv, "{0}\t{1}\t{2:0.00}\t{3:0.00}\t{4:0.0}\t{5}\t{6}\n", sp, cls, p.x, p.y, deg, node, edge));
                 }
                 var ring = new List<(Vector2 p, bool mouthNext, bool arc, int edge)>(64);
+                var crossFar = new HashSet<int>(CityMeshes.CrossoverFanNodes);
+                var splitNodes = new HashSet<int>();
+                if (map.splt != null) foreach (var sp in map.splt) splitNodes.Add(sp.node);
+                var kindN = new SortedDictionary<string, int>();
+                var kindK = new SortedDictionary<string, int>();
+                var kindFacet = new SortedDictionary<string, int>();
                 var seen = new HashSet<int>();
                 int rings = 0, verts = 0;
                 for (int n = 0; n < map.nodes.Length; n++)
@@ -81,6 +103,8 @@ namespace PSXRacing.EditorTools
                     if (key < 0 || !seen.Add(key) || ring.Count < 3) continue;
                     rings++;
                     int m = ring.Count;
+                    string kind = KindOf(map, n, crossFar, splitNodes);
+                    kindN.TryGetValue(kind, out int kn0); kindN[kind] = kn0 + 1;
                     for (int i = 0; i < m; i++)
                     {
                         var prev = ring[(i - 1 + m) % m]; var cur = ring[i]; var next = ring[(i + 1) % m];
@@ -89,6 +113,8 @@ namespace PSXRacing.EditorTools
                         verts++;
                         if (!Kink(prev.p, cur.p, next.p, out float deg)) continue;
                         Count(cur.arc ? "fan: return facet" : "fan: corner, no return", NearSpot(cur.p), cur.p, deg, n, cur.edge);
+                        var kd = cur.arc ? kindFacet : kindK;
+                        kd.TryGetValue(kind, out int kk0); kd[kind] = kk0 + 1;
                     }
                 }
                 log.Append($"fan rings {rings}, free vertices {verts}\n");
@@ -112,6 +138,32 @@ namespace PSXRacing.EditorTools
                             }
                     }
                 }
+                // the merge zones (a bay at its host, a ramp leaving or joining): their host's and branch's outlines near the node
+                var zN = new SortedDictionary<string, int>(); var zK = new SortedDictionary<string, int>();
+                foreach (var z in CityMeshes.Zones)
+                {
+                    string kind = z.bay ? "turn bay at its host (zone)" : z.merge ? "ramp / link merge (zone)" : "ramp / link diverge (zone)";
+                    zN.TryGetValue(kind, out int zn0); zN[kind] = zn0 + 1;
+                    var np = map.nodes[z.node];
+                    foreach (int ei in new[] { z.host, z.branch })
+                    {
+                        Vector2[] L, R;
+                        try { if (!CityMeshes.RibbonOutline(map, trims, ei, out L, out R)) continue; }
+                        catch (System.Exception) { continue; }
+                        foreach (var side in new[] { L, R })
+                            for (int i = 1; i + 1 < side.Length; i++)
+                            {
+                                if ((side[i] - np).magnitude > SpotR + z.D) continue;
+                                if (!Kink(side[i - 1], side[i], side[i + 1], out float deg)) continue;
+                                zK.TryGetValue(kind, out int zk0); zK[kind] = zk0 + 1;
+                                var sp2 = NearSpot(side[i]);
+                                if (sp2 != null) tsv.Append(string.Format(inv, "{0}\t{1}\t{2:0.00}\t{3:0.00}\t{4:0.0}\t{5}\t{6}\n", sp2, kind, side[i].x, side[i].y, deg, z.node, ei));
+                            }
+                    }
+                }
+                log.Append("SCORECARD (kind | places | kinks at a corner with no return | facet kinks on a return):\n");
+                foreach (var kv in kindN) log.Append($"  {kv.Key} | {kv.Value} | {(kindK.TryGetValue(kv.Key, out int a1) ? a1 : 0)} | {(kindFacet.TryGetValue(kv.Key, out int a2) ? a2 : 0)}\n");
+                foreach (var kv in zN) log.Append($"  {kv.Key} | {kv.Value} | ribbon-outline kinks within {SpotR:0} m + D of the node: {(zK.TryGetValue(kv.Key, out int a3) ? a3 : 0)}\n");
                 log.Append($"ribbons read near the spots {ribs} (failed {ribFail})\n");
                 log.Append("CITY-WIDE (fan rings; ribbons only near the spots):\n");
                 foreach (var kv in city) log.Append($"  {kv.Key}: {kv.Value}\n");
