@@ -8371,3 +8371,14 @@ launch old 109/585, uniform 102/395, routes 0/0/0; census = g5r6; route p99 1.12
   2.5 m rise replaced by a warp (1.25 m off the rows' plane) and slope (15 %) rule; real clusters solved in their own
   frame (absolute float metres made 81 cross itself by half a millimetre).
 - Stage 1 (mesh) still not started.
+
+## Round 5, proof on the photos (11-26 evening): outlines over the aerials; rulings needed before stage 1
+- Every gallery junction that comes out as a cluster solved and drawn over its NC OneMap crop (scratch only: aerB\, one page
+  per kind; photo_table_r5.csv a line each). Findings that need rulings before mesh: 80 (g04) north nose ~7 m short and a
+  raised concrete channel strip inside the opening (not in the map); 81 (g05) a U nose ~8 m short of the raised tip where
+  the photo has a PAINTED median, west edge 3-5 m outside the kerb (line-model width); kerb-return radii by class
+  (6 / 9 / 12 m) sit 2-5 m inside the photo's 12-20 m arterial corners; plain median crossovers are not joined (one
+  carriageway only, noses missing); map side roads absent in the photo (g10, g12, g13, g21, g50, g51).
+- 77: the slip-island rule joins e13224's ends (121 slips joined city-wide), the NE island is found; still refused at the
+  SW acute corner (abreast arms, no cut line before the next node). Islands reaching past the outline are now dropped.
+- Stage 1 not started (held on the rulings above).

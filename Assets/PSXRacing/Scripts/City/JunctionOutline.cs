@@ -75,7 +75,7 @@ namespace PSXRacing.City
             public List<float> fillY = new List<float>();
             public int ringCount;                        // fillVerts below this are the (bridged) ring; the rest interior points
             public int slivers, flips, steiner; public string refused;   // null: solved
-            public float planeDev, steinerM, rise, warp, plane; public int relaxed;             // the worst interior point off its neighbours' plane; the interior spacing used
+            public float planeDev, steinerM, rise, warp, plane; public int relaxed, droppedHoles;             // the worst interior point off its neighbours' plane; the interior spacing used
             public double solveMs, fillMs;
 
             public double[] quad; public Vector2 qc;     // the junction's quadratic surface (1, x, y, xx, xy, yy about qc)
@@ -272,7 +272,8 @@ namespace PSXRacing.City
             res.relaxed = RelaxKinks(o, src);
             string cross = SelfCross(o, src);
             if (cross != null) res.refused ??= "the outline crosses itself: " + cross;
-            if (holes != null) foreach (var h in holes) { var hh = new List<Vector2>(h); Dedupe(hh); if (hh.Count >= 3) res.holes.Add(hh); }
+            // an island counts only if it lies wholly inside the outline (one reaching past it is the land beside the junction)
+            if (holes != null) foreach (var h in holes) { var hh = new List<Vector2>(h); Dedupe(hh); if (hh.Count < 3) continue; bool inside = true; foreach (var q in hh) if (!InPoly(o, q)) { inside = false; break; } if (inside && SelfCross(hh) == null) res.holes.Add(hh); else res.droppedHoles++; }
             res.solveMs = sw.Elapsed.TotalMilliseconds;
             sw.Restart();
             if (res.refused == null) Fill(res);
