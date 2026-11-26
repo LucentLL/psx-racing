@@ -856,6 +856,13 @@ namespace PSXRacing
         /// <summary>For the harness: the speed planned this tick, the
         /// driver's shares and whether it drifts.</summary>
         public float DebugTarget { get; private set; }
+        /// <summary>For the harness (stage3): the slowest bend the planner saw ahead, how far, its curvature, the
+        /// bank it counted and its waypoint.</summary>
+        public float DebugBendSpeed { get; private set; }
+        public float DebugBendAt { get; private set; }
+        public float DebugBendK { get; private set; }
+        public float DebugBendBank { get; private set; }
+        public int DebugBendWp { get; private set; }
         public float LimitShare => limitShare;
         public float BrakeShare => brakeShare;
         public bool Drifter => drifter;
@@ -1010,6 +1017,7 @@ namespace PSXRacing
                 }
                 float vc = k < 1e-4f ? float.PositiveInfinity
                          : Mathf.Min(AIGrip.CornerSpeed(car, k, limitShare, 0f, bankIn), AIGrip.YawSpeed(kYaw, yawShare));
+                if (PlanAeroCap && k >= 1e-4f) vc = Mathf.Min(vc, CappedCornerSpeed(k, bankIn));
                 if (!float.IsInfinity(vc)) vc = Mathf.Max(vc, MinCornerMps);
                 // A CREST is a corner in the vertical: over it at speed the
                 // car goes light, and a city route's brow launched racers at
@@ -1017,7 +1025,7 @@ namespace PSXRacing
                 float ky = -(path.GetPoint(wi + 2).y - 2f * path.GetPoint(wi).y + path.GetPoint(wi - 2).y) / (4f * path.spacing * path.spacing);
                 if (ky > 1e-4f) vc = Mathf.Min(vc, Mathf.Max(Mathf.Sqrt(CrestG * 9.81f / ky), MinCornerMps * 3f));
                 vcBuf[j] = vc;
-                if (vc < bendSpeed) { bendSpeed = vc; bendAtM = Mathf.Max(0f, d); }
+                if (vc < bendSpeed) { bendSpeed = vc; bendAtM = Mathf.Max(0f, d); DebugBendK = k; DebugBendBank = bankIn; DebugBendWp = wi; }
             }
             float va = vcBuf[n];
             for (int j = n - 1; j >= 1; j--)
@@ -1031,6 +1039,26 @@ namespace PSXRacing
             return atCar;
         }
         float[] vcBuf = new float[0], kBuf = new float[0];
+        /// <summary>
+        /// (stage3, 2026-11-25) THE PLANNER'S GRIP NO FASTER THAN IT WAS MEASURED. AIGrip's lateral calibration
+        /// was taken up to 27 m/s; past it the plan went on adding downforce at v squared, and on Little Switzerland
+        /// reversed it planned the 150 m sweeper at wp 1674 for 222 km/h - 2.6 g with the bank - where the cars,
+        /// steering for it, ran wide at 215 into the trees (wp 1685); forward it planned wp 368 (56 m, 6 % bank) at
+        /// 113 km/h, 1.8 g, and the Supra ran wide off the tarmac into the wall at wp 366. With this on, the plan
+        /// counts the downforce of PlanAeroMaxMps at most and the full calibration share, and the bank's credit no
+        /// more than PlanBankMax. Every car, the player's autopilot too: the speed the profile allows, not the grip.
+        /// One field (PSX_AI_PLANCAP=0 = 77f4abf8).
+        /// </summary>
+        public static bool PlanAeroCap = System.Environment.GetEnvironmentVariable("PSX_AI_PLANCAP") != "0";
+        public const float PlanAeroMaxMps = 27f, PlanBankMax = 0.04f;
+        float CappedCornerSpeed(float k, float bank)
+        {
+            float muG = AIGrip.NominalMu(car) * limitShare * AIGrip.LateralCalHigh * (1f + AIGrip.AeroFrac(car, PlanAeroMaxMps));
+            float e = Mathf.Clamp(bank, -0.15f, PlanBankMax);
+            float den = 1f - muG * e;
+            if (den <= 0.05f) return float.PositiveInfinity;
+            return Mathf.Sqrt(Mathf.Max(9.81f * (muG + e) / den, 0.1f) / Mathf.Max(k, 1e-5f));
+        }
         /// <summary>The planner reads the road's bank (PlanSpeed). PSX_AI_BANK=0
         /// plans every bend as if flat, to measure what the bank is worth.</summary>
         static readonly bool BankAware = System.Environment.GetEnvironmentVariable("PSX_AI_BANK") != "0";
@@ -1057,7 +1085,7 @@ namespace PSXRacing
             if (float.IsInfinity(vNext)) return vNext;
             float latUse = 0f;
             if (k > 1e-4f)
-                latUse = Mathf.Clamp01(Mathf.Max(vNext * vNext * k / (9.81f * Mathf.Max(AIGrip.LateralG(car, vNext) * limitShare, 0.2f)),
+                latUse = Mathf.Clamp01(Mathf.Max(vNext * vNext * k / (9.81f * Mathf.Max(AIGrip.LateralG(car, PlanAeroCap ? Mathf.Min(vNext, PlanAeroMaxMps) : vNext) * limitShare, 0.2f)),
                                                  vNext * k / (AIGrip.YawRateMax * yawShareNow)));
             float avail = decel * Mathf.Max(MinBrakeInTurn, Mathf.Sqrt(1f - latUse * latUse));
             return Mathf.Sqrt(vNext * vNext + 2f * avail * ds);
@@ -1248,6 +1276,7 @@ namespace PSXRacing
             var rmNow = RaceManager.Instance;
             float playerVmax = rmNow != null && rmNow.playerCar != null ? rmNow.playerCar.BuildTopSpeedMps : 0f;
             float planned = PlanSpeed(speed, out bool zone, out float planDecel, out float bendSpeed, out float bendAtM);
+            DebugBendSpeed = bendSpeed; DebugBendAt = bendAtM;
             float freeSpeed = Mathf.Min(Mathf.Min(planned, TargetSpeedCap(skill, playerVmax)), speedCapMps);
             float targetSpeed = Mathf.Min(freeSpeed, TrafficCap());
             lastFreeSpeed = freeSpeed;

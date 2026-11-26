@@ -328,6 +328,10 @@ namespace PSXRacing
         Mesh fittedMesh;
         Vector3 fitCenter, fitSize;
         bool braking;
+        float brakeOnAt = -10f;
+        /// <summary>(stage3) The brake-lamp switch with hysteresis and a least on-time (PLAY TIME; PSX_BRAKELAMPHOLD=0 = 77f4abf8).</summary>
+        public static bool BrakeLampHold = System.Environment.GetEnvironmentVariable("PSX_BRAKELAMPHOLD") != "0";
+        const float BrakeHoldS = 0.3f;
         // The StreetLights handle of this car's tail lamp, -1 until the first
         // update registers it. NonSerialized so a domain reload resets it to
         // -1 (the field initialiser) along with the registry it indexes -
@@ -730,6 +734,14 @@ namespace PSXRacing
 
             bool nowBraking = BrakeOverride >= 0f ? BrakeOverride > 0.15f
                             : !dark && (externalBrake || car != null && (car.brakeInput > 0.15f || car.handbrakeInput));
+            // (stage3, BrakeLampHold) a pedal hovering at the switch's point lit and put out the brake lamps every frame
+            // or two (the autopilot's trail braking: 30 lens on/offs in 10 s, the pop meter's "car lenses"); a lit
+            // brake lamp stays lit until the pedal is well off (under 0.05) and for BrakeHoldS at least
+            if (BrakeLampHold && BrakeOverride < 0f)
+            {
+                if (nowBraking) brakeOnAt = Time.time;
+                else if (braking && !dark && car != null && (car.brakeInput > 0.05f || Time.time - brakeOnAt < BrakeHoldS)) nowBraking = true;
+            }
             if (nowBraking != braking)
             {
                 braking = nowBraking;
