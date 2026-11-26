@@ -53,6 +53,7 @@ namespace PSXRacing
         /// 0.22 coast alone). LAB row FINISHERS BRAKE FOR ROAD.</summary>
         /// <summary>(cityai round 2) Standing behind a car in a city junction's zone, wait: no back-up unless pinned
         /// (PSX_AI_JUNCTION_WAIT=0: as before). LAB row RIVALS WAIT IN JUNCTIONS.</summary>
+        float junctionStand;
         public static bool JunctionWaitOn = System.Environment.GetEnvironmentVariable("PSX_AI_JUNCTION_WAIT") != "0";
         public static bool FinishRunOutOn = System.Environment.GetEnvironmentVariable("PSX_AI_FINISH_RUNOUT") != "0";
         /// <summary>A retired car's brake: out of the race, it stops.</summary>
@@ -962,6 +963,9 @@ namespace PSXRacing
                 if (Mathf.Abs(l) > half + MyHalfW + 0.6f) continue;
                 Vector3 v = rb.linearVelocity; v.y = 0f;
                 float along = Mathf.Max(0f, Vector3.Dot(v, fwd));
+                // a car standing (a wreck, a queue) is the pass logic's: held behind it, the field queued 20 s at C1's
+                // 44 deg turn behind a knocked taxi (round 2, first try)
+                if (v.magnitude < 1.5f) continue;
                 float room = Mathf.Max(0f, f - 5f);
                 cap = Mathf.Min(cap, along + Mathf.Sqrt(2f * dec * room));
             }
@@ -2744,7 +2748,9 @@ namespace PSXRacing
             // IN A JUNCTION, WAIT (cityai round 2; CltC7 University City -> N Tryon, editor tour seed 0: the Civic stood
             // behind traffic turning across the box and reversed 10 m, three times in 15 s, to and fro across the
             // junction): the car in the way is crossing and will clear, so only a car pinned against something backs up
-            if (JunctionWaitOn && InJunctionZone) backStand = 0f;
+            // ...for a while: a car stood 4 s behind something that is not clearing backs up as before
+            junctionStand = JunctionWaitOn && InJunctionZone && standing ? junctionStand + dt : 0f;
+            if (JunctionWaitOn && InJunctionZone && junctionStand < 4f) backStand = 0f;
             backPinned = standing && responder != null && responder.InSolidContact && ObstacleAhead() ? backPinned + dt : 0f;
             if ((backStand > BackUpAfterS || backPinned > BackUpPinnedS) && backTries < BackUpTries && BehindClear(BackUpBehindM))
             {

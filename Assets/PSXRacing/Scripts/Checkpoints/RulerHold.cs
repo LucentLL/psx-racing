@@ -38,7 +38,13 @@ namespace PSXRacing
                 if (ei == cur.edge || !seen.Add(ei)) continue;
                 var e = map.edges[ei];
                 if (!R.Project(ei, pos, 0f, 0f, out float s, out float d)) continue;
-                if (d > e.HalfMax + PaveM || Mathf.Abs(pos.y - e.YAt(s)) > 4f) continue;
+                // the pavement on the car's side of the line (a taper, an added lane or a merge zone reaches past HalfMax:
+                // the lane walk's last misreads on H6, I-485 West, Independence, Tryon and Uptown stood 8.5-10.6 m off
+                // a line whose HalfMax is 4.3-7.8 m, on its drawn pavement)
+                Vector2 tE = e.TangentAt(s), oE = e.PointAt(s);
+                float latE = Vector2.Dot(p - oE, new Vector2(tE.y, -tE.x));
+                float reach = Mathf.Max(e.HalfMax, e.PaveEdgeM(s, latE >= 0f ? 1 : -1));
+                if (d > reach + PaveM || Mathf.Abs(pos.y - e.YAt(s)) > 4f) continue;
                 var l = cur; l.edge = ei; l.s = s; l.dist = d; l.at = pos; l.valid = true; l.offGraph = false;
                 l.dir = R.DirOf(ei, s, vel, nose);
                 int dd = l.dir;
