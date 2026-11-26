@@ -46,6 +46,9 @@ namespace PSXRacing
         public const float MinRel = 0.10f;       // of the brighter of the two
         public const int MinPx = 40;             // at 512x288 (0.027% of the frame)
         public const int PairsPerCause = 3;
+        /// <summary>(roadevents) A race start gate's own change, put back alone: a pop at this many pixels (at 512x288).</summary>
+        public const int MinGatePx = 4;
+        bool gateNoted;
         public const float CutJumpM = 20f, CutTurnDeg = 45f;
         public const int AfterCutFrames = 12;
 
@@ -272,8 +275,27 @@ namespace PSXRacing
                     if (best == Cause.Street && PointDominates()) best = Cause.Point;
                     if (best == Cause.Halo) best = RendererCause();
                     Note(best, px, light, cx, cy, eye);
+                    gateNoted = best == Cause.Gate;
                 }
             }
+            // (roadevents) A GATE IS SMALL: at 450 m a race start gate is a few dozen pixels of the 512x288 frame,
+            // under MinPx, so the whole-frame test never sees one switch on. Whenever a gate's switch or light moved,
+            // the gates alone are put back and their own change is held to MinGatePx (scaled as MinPx is), with the
+            // same MinDelta and MinRel: a fade's step of a frame (well under 10%) is never one, a switch is.
+            if (diffable && !gateNoted && GatesMoved())
+            {
+                ApplyPrev(false, false, false, false, false, true);
+                Render(cam, readB, ref pixB);
+                RestoreAll();
+                Diff(pixA, pixB, out int gpx, out double glight, out float gcx, out float gcy);
+                if (gpx >= Mathf.Max(1, MinGatePx * (W * H) / (512 * 288)))
+                {
+                    if (pixB0 == null || pixB0.Length != pixB.Length) pixB0 = new byte[pixB.Length];
+                    System.Buffer.BlockCopy(pixB, 0, pixB0, 0, pixB.Length);
+                    Note(Cause.Gate, gpx, glight, gcx, gcy, eye);
+                }
+            }
+            gateNoted = false;
             if (stripEvery > 0 && segFrames % stripEvery == 0) SaveFrame(pixA, "strip_" + (stripN++).ToString("000"));
             // PSX_LIGHTPOP_VIDEO=1: every frame, for a clip (tools: ffmpeg at 30 fps)
             if (Video) SaveFrame(pixA, "v_" + segFrames.ToString("00000"), true);
