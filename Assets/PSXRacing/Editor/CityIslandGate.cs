@@ -107,6 +107,7 @@ namespace PSXRacing.EditorTools
                     var placeSets = new HashSet<long>[4];
                     for (int c = 0; c < 4; c++) placeSets[c] = new HashSet<long>();
                     var placeHits = new Dictionary<(int, long), int>();
+                    var placeKind = new Dictionary<long, int>();
                     // the rays need the tiles round each sample standing (colliders)
                     int si = 0;
                     var live = new Dictionary<long, TileHits>();
@@ -161,6 +162,7 @@ namespace PSXRacing.EditorTools
                                 long pk = Key(Mathf.FloorToInt(h.x / PlaceM), Mathf.FloorToInt(h.z / PlaceM));
                                 placeSets[c].Add(pk);
                                 placeHits.TryGetValue((c, pk), out int n); placeHits[(c, pk)] = n + 1;
+                                if (c == 0) { placeKind.TryGetValue(pk, out int kb); placeKind[pk] = kb | (1 << (int)h.y); }
                             }
                     }
                     log.Append(string.Format(inv, "route {0}: {1} lane samples, {2} tiles | RAISED {3} SEETHRU {4} OVERLAY {5} LINEUNDER {6}\n",
@@ -171,7 +173,9 @@ namespace PSXRacing.EditorTools
                         foreach (long pk in placeSets[c])
                         {
                             int px = (int)(pk >> 32), pz = (int)(pk & 0xffffffff);
-                            tsv.Append(string.Format(inv, "{0}\t{1}\t{2:0}\t{3:0}\t{4}\n", rid, ClassNames[c], (px + 0.5f) * PlaceM, (pz + 0.5f) * PlaceM, placeHits[(c, pk)]));
+                            placeKind.TryGetValue(pk, out int kbits);
+                            tsv.Append(string.Format(inv, "{0}\t{1}\t{2:0}\t{3:0}\t{4}\t{5}\n", rid, ClassNames[c], (px + 0.5f) * PlaceM, (pz + 0.5f) * PlaceM, placeHits[(c, pk)],
+                                c == 0 ? ((kbits & 2) != 0 ? "pave" : "") + ((kbits & 4) != 0 ? "+lane" : "") + ((kbits & 8) != 0 ? "+turnpath" : "") : ""));
                         }
                     }
                 }
@@ -430,7 +434,7 @@ namespace PSXRacing.EditorTools
                     if (w.x < o.x || w.z < o.z || w.x >= o.x + CityMeshes.TileSize || w.z >= o.z + CityMeshes.TileSize) continue;
                     if (paint[k] && rise < 2.5f) th.hits[3].Add(w);
                     if (!inside || rise > 2.5f) continue;   // a deck or a building over the road is not this
-                    th.hits[rise > 0.05f ? 0 : 2].Add(w);
+                    th.hits[rise > 0.05f ? 0 : 2].Add(new Vector3(w.x, 1f, w.z));
                 }
             // the lanes' driven bands of the corridor's roads
             foreach (int ei in corridor)
@@ -454,7 +458,7 @@ namespace PSXRacing.EditorTools
                         if (float.IsNegativeInfinity(high[k])) continue;
                         float baseY = float.IsNaN(pave[k]) ? yLane : pave[k];
                         float rise = high[k] - baseY;
-                        if (rise > 0.05f && rise < 2.5f) th.hits[0].Add(new Vector3(q.x, baseY, q.y));
+                        if (rise > 0.05f && rise < 2.5f) th.hits[0].Add(new Vector3(q.x, 2f, q.y));
                     }
                 }
             }
@@ -513,7 +517,7 @@ namespace PSXRacing.EditorTools
                                 if (float.IsNegativeInfinity(high[k])) continue;
                                 float baseY = float.IsNaN(pave[k]) ? yL : pave[k];
                                 float rise = high[k] - baseY;
-                                if (rise > 0.05f && rise < 2.5f) th.hits[0].Add(new Vector3(qq.x, baseY, qq.y));
+                                if (rise > 0.05f && rise < 2.5f) th.hits[0].Add(new Vector3(qq.x, 3f, qq.y));
                             }
                         }
                     }

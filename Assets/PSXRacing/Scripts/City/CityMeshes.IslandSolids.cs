@@ -113,7 +113,7 @@ namespace PSXRacing.City
             {
                 isY = new float[NN]; isSlot = new short[NN]; isDist = new int[NN]; isDist2 = new int[NN]; isBand = new bool[NN]; isBandEdge = new int[NN]; isBandUp = new bool[NN]; isBandM = new bool[NN]; isBandY = new float[NN]; isKnife = new bool[NN]; isNearJ = new bool[NN]; isNearY = new float[NN]; isComp = new int[NN]; isFlag = new byte[NN];
             }
-            isGone.Clear();
+            isGone.Clear(); isPending.Clear();
             for (int k = 0; k < NN; k++) { isY[k] = float.NaN; isSlot[k] = -1; isComp[k] = -1; isFlag[k] = 0; isDist[k] = int.MaxValue; isBand[k] = false; isBandEdge[k] = -1; isBandUp[k] = false; isBandM[k] = false; isKnife[k] = false; isNearJ[k] = false; }
             // ---- the drawn pavement ----------------------------------------------------------------
             bool any = false;
@@ -242,6 +242,7 @@ namespace PSXRacing.City
             IslandMs[4] += sw.Elapsed.TotalMilliseconds; sw.Restart();
             if (isTipsPending) { isTipsPending = false; foreach (var bk in IslandSheetBuckets()) IsDropCells(bk); }
             IsDropOrphans();
+            IsFlushPaved(tm.origin);
             IslandMs[5] += sw.Elapsed.TotalMilliseconds;
         }
         /// <summary>Milliseconds by part, summed over builds: raster, overlays, bands+knives+marks, distances,
@@ -820,12 +821,38 @@ namespace PSXRacing.City
         static void IsPaveCell(int k, Vector3 o)
         {
             if (!IsPaveable(k)) return;
-            int i = k % IsN, j = k / IsN;
-            float x0 = i * IsCell - IsMargin, z0 = j * IsCell - IsMargin, e = 0.12f;
-            float y = isNearY[k] - 0.004f;
-            var bk = IsFillBucket(k);   // the surface of the pavement it was nearest
-            Vector3 a = new Vector3(x0 - e, y, z0 - e), b = new Vector3(x0 + IsCell + e, y, z0 - e), c = new Vector3(x0 + IsCell + e, y, z0 + IsCell + e), d = new Vector3(x0 - e, y, z0 + IsCell + e);
-            bk.Up(a, b, c, d, FanUV(a, o), FanUV(b, o), FanUV(c, o), FanUV(d, o));
+            isPending.Add(k);   // emitted in row runs at the pass's end (IsFlushPaved: one quad a run, not a cell)
+        }
+        static readonly List<int> isPending = new List<int>(4096);
+
+        /// <summary>The paved cells as row runs: consecutive cells of a row with one surface and heights within
+        /// 4 cm make one quad (its two ends at their own heights); at most 24 cells (12 m) a run.</summary>
+        static void IsFlushPaved(Vector3 o)
+        {
+            if (isPending.Count == 0) return;
+            isPending.Sort();
+            const float e = 0.12f;
+            int n = isPending.Count, r0 = 0;
+            while (r0 < n)
+            {
+                int k0 = isPending[r0];
+                var bk = IsFillBucket(k0);
+                int r1 = r0;
+                while (r1 + 1 < n && r1 - r0 < 23)
+                {
+                    int ka = isPending[r1], kb = isPending[r1 + 1];
+                    if (kb != ka + 1 || kb / IsN != k0 / IsN || IsFillBucket(kb) != bk || Mathf.Abs(isNearY[kb] - isNearY[k0]) > 0.04f) break;
+                    r1++;
+                }
+                int k1 = isPending[r1];
+                int i0 = k0 % IsN, i1 = k1 % IsN, j = k0 / IsN;
+                float xa = i0 * IsCell - IsMargin - e, xb = (i1 + 1) * IsCell - IsMargin + e, z0 = j * IsCell - IsMargin - e, z1 = (j + 1) * IsCell - IsMargin + e;
+                float ya = isNearY[k0] - 0.004f, yb = isNearY[k1] - 0.004f;
+                Vector3 a = new Vector3(xa, ya, z0), b = new Vector3(xb, yb, z0), c = new Vector3(xb, yb, z1), d = new Vector3(xa, ya, z1);
+                bk.Up(a, b, c, d, FanUV(a, o), FanUV(b, o), FanUV(c, o), FanUV(d, o));
+                r0 = r1 + 1;
+            }
+            isPending.Clear();
         }
 
         static Vector2 FanUV(Vector3 p, Vector3 o) => new Vector2((p.x + o.x) / 12f, (p.z + o.z) / 12f);
