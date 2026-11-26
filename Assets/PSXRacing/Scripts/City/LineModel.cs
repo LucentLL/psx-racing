@@ -2449,6 +2449,8 @@ namespace PSXRacing.City
         /// positions), for the builder's sections (every taper end is a
         /// section, and a taper is sectioned densely enough that the eased edge
         /// is faceted within 2 cm).</summary>
+        /// <summary>The eased edges' facet limit: 2 cm, or rule 4's 1 cm under PSX_CITY_SMOOTHCURB (c7roads round 4).</summary>
+        static float TaperSagM => CityMeshes.SmoothCurbOn ? CityMeshes.SmoothCurbSagM : 0.02f;
         public static void TaperSamples(CityMap.Edge e, float sMin, float sMax, List<float> into)
         {
             var ez = e.lmEase;
@@ -2464,7 +2466,7 @@ namespace PSXRacing.City
                 // sagitta of the eased edge: max curvature 6 dw / L^2, chord c
                 // gives c^2 k / 8 <= 2 cm
                 float k = 6f * (z.relay ? z.span : Mathf.Abs(z.dw)) / (z.len * z.len);
-                float step = k > 1e-6f ? Mathf.Sqrt(8f * 0.02f / k) : z.len;
+                float step = k > 1e-6f ? Mathf.Sqrt(8f * TaperSagM / k) : z.len;
                 int n = Mathf.Max(1, Mathf.CeilToInt(z.len / Mathf.Max(0.5f, step)));
                 for (int i = 1; i < n; i++)
                 {
@@ -2493,7 +2495,7 @@ namespace PSXRacing.City
             if (z.auxLs > 1e-3f)
             {
                 float k = 6f * Mathf.Abs(z.auxWN - z.auxW) / (z.auxLs * z.auxLs);
-                float step = k > 1e-6f ? Mathf.Sqrt(8f * 0.02f / k) : z.auxLs;
+                float step = k > 1e-6f ? Mathf.Sqrt(8f * TaperSagM / k) : z.auxLs;
                 int n = Mathf.Max(1, Mathf.CeilToInt(z.auxLs / Mathf.Max(0.5f, step)));
                 for (int i = 0; i <= n; i++) At(z.auxD - z.auxLs * i / n);
             }
@@ -2501,7 +2503,7 @@ namespace PSXRacing.City
             if (z.auxLt > 1e-3f)
             {
                 float k = 6f * Mathf.Abs(z.auxW) / (z.auxLt * z.auxLt);
-                float step = k > 1e-6f ? Mathf.Sqrt(8f * 0.02f / k) : z.auxLt;
+                float step = k > 1e-6f ? Mathf.Sqrt(8f * TaperSagM / k) : z.auxLt;
                 int n = Mathf.Max(1, Mathf.CeilToInt(z.auxLt / Mathf.Max(0.5f, step)));
                 for (int i = 1; i <= n; i++) At(z.auxXF - z.auxLt * i / n);
             }
