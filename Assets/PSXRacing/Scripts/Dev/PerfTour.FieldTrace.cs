@@ -39,6 +39,7 @@ namespace PSXRacing
             if (!FieldTraceOn || path == null) return;
             ftb = new StringBuilder(1 << 20);
             ftb.Append("t,id,kind,x,z,heading,speed,steer,thr,brk,rev,why\n");
+            TrafficSystem.WreckTrace = true; if (TrafficSystem.Instance != null) TrafficSystem.Instance.WreckSpots.Clear();
             ftNext = 0f; ftT0 = Time.time; ftIds.Clear(); ftMarkI = 0; ftRaceT = 0f; ftWreckNotes.Length = 0; ftWrecks = TrafficSystem.Instance != null ? TrafficSystem.Instance.WreckLog.Count : 0;
             TurnMapDump.Turns(path, ftTurns, ftDeg);
             Post(id + "_turns.csv", TurnMapDump.TurnsCsv(ftTurns, ftDeg));
@@ -46,6 +47,7 @@ namespace PSXRacing
             Post(id + "_edges.csv", edges);
             Post(id + "_kerbs.csv", kerbs);
             IslandCheck(id, path);
+            CorridorBegin(path);
             Say("FIELD TRACE " + id + ": " + ftTurns.Count + " junction turns of 30 deg or more on the course line");
         }
 
@@ -81,6 +83,52 @@ namespace PSXRacing
             isDone = new bool[isPts.Count];
         }
 
+        // (cityai round 5) THE DRIVABLE CORRIDOR: every 4 m of the strip, once the tour car is within 70 m (colliders stream
+        // in near the cars), a ray left and right at bumper height (0.45 m) to the first solid that is not a car, out to 12 m.
+        // Written as _strip.csv with the strip's half width, the mapped pavement and the nearest city road.
+        TrackPath coPath; bool[] coDone; StringBuilder coSb; readonly RaycastHit[] coHits = new RaycastHit[8];
+        void CorridorBegin(TrackPath path)
+        {
+            coPath = path; coSb = new StringBuilder("s,x,z,half,paveR,paveL,solidR,nameR,solidL,nameL,road,way,cls,lanes,width,link,bridge,oneway\n");
+            coDone = path != null ? new bool[path.Count] : null;
+        }
+        float CoRay(Vector3 from, Vector3 dir, out string name)
+        {
+            name = "";
+            int n = Physics.RaycastNonAlloc(from, dir, coHits, 12f, ~0, QueryTriggerInteraction.Ignore);
+            float bd = float.MaxValue;
+            for (int h = 0; h < n; h++)
+            {
+                var k = coHits[h].collider;
+                if (k == null || (k.attachedRigidbody != null && !k.attachedRigidbody.isKinematic)) continue;
+                if (coHits[h].distance < bd) { bd = coHits[h].distance; var t = k.transform; name = t.name; if (t.parent != null) name = t.parent.name + "/" + name; }
+            }
+            return bd == float.MaxValue ? float.NaN : bd;
+        }
+        void CorridorStep()
+        {
+            if (coDone == null || car == null || coPath == null) return;
+            var cp = car.transform.position; var ts = TrafficSystem.Instance;
+            int step = Mathf.Max(1, Mathf.RoundToInt(4f / Mathf.Max(0.5f, coPath.spacing)));
+            for (int i = 0; i < coPath.Count; i += step)
+            {
+                if (coDone[i]) continue;
+                var o = coPath.GetPoint(i);
+                if ((o - cp).sqrMagnitude > 70f * 70f) continue;
+                coDone[i] = true;
+                var tg = coPath.GetTangent(i); tg.y = 0f; tg.Normalize();
+                var rt = Vector3.Cross(Vector3.up, tg);
+                var from = o + Vector3.up * 0.45f;
+                float r = CoRay(from, rt, out string nr), l = CoRay(from, -rt, out string nl);
+                float sArc = i * coPath.spacing;
+                string road = ",,,,,,,";
+                var map = PSXRacing.City.CityMap.Get();
+                if (map != null && map.NearestRoadPoint(new Vector2(o.x, o.z), 30f, false, out int ei, out _, out _) && ei >= 0)
+                { var e = map.edges[ei]; road = $"{(e.name ?? "").Replace(',', ' ')},{e.wayId},{e.cls},{e.lanes},{e.width:0.0},{(e.link ? 1 : 0)},{(e.bridge ? 1 : 0)},{(e.oneway ? 1 : 0)}"; }
+                coSb.Append($"{sArc:0},{o.x:0.0},{o.z:0.0},{(ts != null ? ts.RoadHalf : 0f):0.0},{(ts != null ? ts.PaveAt(sArc, true) : float.NaN):0.0},{(ts != null ? ts.PaveAt(sArc, false) : float.NaN):0.0},{r:0.0},{nr.Replace(',', ' ')},{l:0.0},{nl.Replace(',', ' ')},{road}\n");
+            }
+        }
+
         void IslandStep()
         {
             if (!isOn || isDone == null || car == null) return;
@@ -126,10 +174,26 @@ namespace PSXRacing
             isOn = false;
         }
 
+        /// <summary>(cityai round 5) the reason column: the AI's own give-way reason, else, for a car on the throttle that is
+        /// not moving (under 2 m/s), what it is pressed against ("blocked by X") or "no way, no reason" when nothing touches it.</summary>
+        static string WhyNow(CarController c, AIDriver ai)
+        {
+            string w = ai != null ? ai.DebugGiveWhy : "";
+            if (!string.IsNullOrEmpty(w) || ai == null) return w ?? "";
+            if (c.throttleInput > 0.5f && Mathf.Abs(c.forwardSpeed) < 2f)
+            {
+                var cr = c.GetComponent<CollisionResponder>();
+                if (cr != null && Time.time - cr.LastContactTime < 0.5f) return "blocked by " + cr.LastContactName;
+                return "no way, no reason";
+            }
+            return "";
+        }
+
         void FieldSample()
         {
             if (ftb == null) return;
             IslandStep();
+            CorridorStep();
             float t = Time.time - ftT0;
             // (round 4, PC76) the rivals' distance at fixed RACE-time marks (a loaded machine loses race time in a run)
             ftRaceT = t;
@@ -152,7 +216,7 @@ namespace PSXRacing
                     var ai = c.GetComponent<AIDriver>();
                     string kind = c == rm.playerCar ? "player" : "rival";
                     Row(t, c.name, kind, c.transform.position, c.transform.forward, Mathf.Abs(c.forwardSpeed),
-                        c.steerInput, c.throttleInput, c.brakeInput, ai != null && ai.DebugBackingUp, ai != null ? ai.DebugGiveWhy : "");
+                        c.steerInput, c.throttleInput, c.brakeInput, ai != null && ai.DebugBackingUp, WhyNow(c, ai));
                 }
             var ts = TrafficSystem.Instance;
             if (ts != null && ts.WreckLog.Count > ftWrecks) { for (int w = ftWrecks; w < ts.WreckLog.Count; w++) ftWreckNotes.Append(t.ToString("0.0", FtCI)).Append(" s: ").Append(ts.WreckLog[w]).Append('\n'); ftWrecks = ts.WreckLog.Count; }
@@ -184,8 +248,10 @@ namespace PSXRacing
         {
             if (ftb == null) return;
             IslandEnd(id);
+            if (coSb != null) Post(id + "_strip.csv", coSb.ToString()); coDone = null;
             Post(id + "_field.csv", ftb.ToString());
             var tsw = TrafficSystem.Instance;
+            if (tsw != null && tsw.WreckSpots.Count > 0) Post(id + "_spots.txt", string.Join("", tsw.WreckSpots));
             if (tsw != null) Post(id + "_wrecks.txt", ftWreckNotes.ToString() + "soft knocks (round 3: stopped, then drove on): " + tsw.SoftKnockLog.Count + (tsw.SoftKnockLog.Count > 0 ? "\n  " + string.Join("\n  ", tsw.SoftKnockLog) : ""));
             Say("FIELD TRACE " + id + ": " + (ftb.Length / 1024) + " KB");
             ftb = null;

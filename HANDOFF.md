@@ -363,6 +363,18 @@ Owner 2026-11-25: "please mute all testing. I constantly hear the game without e
 - A muted run logs `[MasterOut] test run: the sound is muted`. `tools/lab-check.ps1` fails a run without that line (NOT SILENT). The coordinator's smoke also measures each tour's audio session peak; it must be 0.0000.
 - Never run an exe built before 8a5737c0 as a test. Never mute a game exe in the Windows volume mixer: Windows keeps that setting per exe path, so it would silence the owner's own game.
 
+# HANDOFF - CITYAI ROUND 5: the Tryon jam (S Tryon over I-277: four strip lanes, three on the bridge), stale lane looks, near misses measured as body gaps, cost meters (agent "cityai", 11-26; branch `city-ai-turns` from mountain-nm 41761e41, head below; NOT pushed, NOT merged)
+
+New switches (default on, LAB rows, Traffic group; 0 = round 4): PSX_TRAFFIC_GAP_STANDING (TRAFFIC SEES STOPPED CARS BESIDE IT), PSX_TRAFFIC_LANE_DROP (TRAFFIC MERGES BEFORE A LANE ENDS).
+Bug fix, no switch: a spawned / recycled traffic car starts with its own lane as its lane look (it kept its last life's and steered for that lane seconds after spawning).
+
+- Tryon s 746-910 is South Tryon Street on its bridge over I-277 (OSM ways 34764115 / 1183425772, bridge, 3 lanes, 11.6 m). The bridge parapet (CityWorld/Tile_-12_15|16/Barriers) stands 5.4-5.6 m either side of the strip's line; the strip lays lanes at +-1.8 and +-5.5 with a 7.8 m half width, so the outer lanes run through the parapet. "Ground" at s 759 / 933 is Tile_-12_16/Ground beside the parapet end.
+- Tryon MEDIUM seeds 0-5 (editor, old | defaults): static-object wrecks with no racer touch 26 | 1 (s 911, oncoming, a car still crossing from -5.5 when the parapet began); traffic-on-traffic over 3 m/s with no racer touch 5 | 0. Rivals' mean distance at 90 s: 1394 | 1474 m (+5.7 %, six seeds); at 120 s on the three seeds that reached it in both arms: 2289 | 2314 m (+1.1 %).
+- Race-play re-verify: only seed 0 of TryonSprint and TryonSprintRev ran (Rev seed 0 raced 1100 s and used the matrix's time). TryonSprint 0: 0 head-ons, 0 oncoming-stream hits, smallest gap 0.60 m. Rev 0: 1 head-on (player autopilot, slow), FD touched an oncoming sedan (gap -0.01 m at 13 m/s closing) that the hit counters did not log.
+- Near misses: the old figure was the side offset minus 1.9 m on the first tick within 4.5 m along (seed 4's -0.82 m was nose to nose); now the smallest collider-to-collider gap over each meeting, touches counted whatever the impulse.
+- H6 LIGHT six seeds: defaults 4.2 % behind old code at 120 s, in every seed and already at 60 s; rival stands are fewer (0 vs 11). Not explained. C7 LIGHT +23.5 %.
+- Cost: lane fit's own share 0.002-0.004 ms a step; the step mean rises with more cars alive (fewer wrecks); traffic steps over 2 ms: 153 of 169 the main thread ran under half of (the machine took it), 16 really ran 2-7 ms in Drive with 1-7 cars, no GC, no lane looks (cause not isolated). Plans over 1 ms: the road build (RoutedPath), 1.0-1.8 ms.
+
 # HANDOFF - CITYAI ROUND 4: head-ons (the pack files in), traffic wrecks on static objects, one knock per contact, turn searches sliced after the green (agent "cityai", 11-26; branch `city-ai-turns`, head b7b5c97c; NOT pushed, NOT merged)
 
 New switches (default on, LAB rows in the Traffic group, 0 = round-3 behaviour): PSX_AI_PACK_FILEIN (RIVALS FILE IN, NO SQUEEZE),

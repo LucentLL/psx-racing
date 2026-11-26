@@ -198,6 +198,27 @@ namespace PSXRacing
         public static bool LaneCornersOn = System.Environment.GetEnvironmentVariable("PSX_TRAFFIC_LANE_CORNERS") != "0";
         /// <summary>The traffic's own update, ms a physics step (the harness: mean, p99 over the run).</summary>
         public static readonly List<float> StepMs = new List<float>(65536);
+        // (cityai round 5) the lane fit's own share of each step (ms), and how many cars looked a step at most
+        public static readonly List<float> FitMs = new List<float>(65536);
+        public static int FitLooksMax;
+        // (cityai round 5) the step's parts, ms summed: measure field, recycle, spawn, drive; steps; live cars summed
+        public static readonly double[] PartMs = new double[4]; public static long PartN, LiveSum;
+        public static readonly List<string> SlowSteps = new List<string>(); static int lastGc;   // steps over 2 ms
+        // the main thread's own CPU cycles (QueryThreadCycleTime), turned into ms by the cycles a ms of the ordinary steps
+        // took: a slow step the thread did not spend running was taken from it by the machine (other processes), not
+        // spent in the traffic code. Dev tour only (WreckTrace).
+        static double cycSum, cycMs, cycPerMs;
+#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")] static extern System.IntPtr GetCurrentThread();
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")] static extern bool QueryThreadCycleTime(System.IntPtr h, out ulong cycles);
+        internal static ulong ThreadCycles() { return QueryThreadCycleTime(GetCurrentThread(), out ulong c) ? c : 0; }
+#else
+        internal static ulong ThreadCycles() => 0;
+#endif
+        /// <summary>Thread cycles to ms by the ordinary traffic steps' own rate (-1 before any is measured).</summary>
+        internal static double CyclesToMs(ulong c) => cycPerMs > 0 ? c / cycPerMs : -1;
+        static readonly System.Diagnostics.Stopwatch fitSw = new System.Diagnostics.Stopwatch();
+        static int fitLooksStep;
         /// <summary>Gap between the collision box and the road, driving.</summary>
         const float RideClear = 0.22f;
         /// <summary>...and once it is a wreck.</summary>
@@ -377,7 +398,9 @@ namespace PSXRacing
             public float knockHoldUntil;
             public float knockWindowAt; public int knocks;
             public float lastRacerAt = -100f;
-            public float fitNext, fitLane;
+            public float fitNext, fitLane, fitRoomM = float.PositiveInfinity;
+            public string lastContactPath; public Vector3 lastContactPt;   // (cityai round 5) what it hit, where
+            public Vector3[] trail; public int trailN; public float trailNext;  // (cityai round 5) last 3 s, WreckTrace only
         }
 
         /// <summary>Called by RaceManager.Start once the path is final (a
@@ -488,8 +511,33 @@ namespace PSXRacing
         /// direction that does, and slows to a crawl where none does. Null elsewhere (stages): no change.
         /// </summary>
         float[] paveR, paveL;
+        /// <summary>(cityai round 5) the mapped pavement either side of the strip's line at s (NaN: no map).</summary>
+        public float PaveAt(float s, bool right) { if (paveR == null) return float.NaN; int i = Mathf.RoundToInt(Wrap(s) / path.spacing); i = path.HasEnds ? Mathf.Clamp(i, 0, paveR.Length - 1) : ((i % paveR.Length) + paveR.Length) % paveR.Length; return right ? paveR[i] : paveL[i]; }
+        public float RoadHalf => path != null ? path.roadWidth * 0.5f : 0f;
+        public System.Collections.Generic.IReadOnlyList<float> LanesFwd => lanesFwd; public System.Collections.Generic.IReadOnlyList<float> LanesBack => lanesBack;
         public static bool LanesFitOn = System.Environment.GetEnvironmentVariable("PSX_TRAFFIC_LANES_FIT") != "0";
         const float LaneFitAirM = 0.35f;
+        /// <summary>(cityai round 5) PSX_TRAFFIC_GAP_STANDING: a lane change or a move out round a stopped racer needs the
+        /// strip it moves across clear of every other traffic car, standing ones included, by where each car physically is.
+        /// Off = round 4.</summary>
+        /// <summary>(cityai round 5) PSX_TRAFFIC_LANE_DROP: the lane look reaches 70 m+ (merge before a narrowing), a car
+        /// with no gap stops short of where its lane ends, and none is born in a lane that ends within 70 m. Off = round 4.</summary>
+        public static bool LaneDropOn = System.Environment.GetEnvironmentVariable("PSX_TRAFFIC_LANE_DROP") != "0";
+        public static bool GapCountsStandingOn = System.Environment.GetEnvironmentVariable("PSX_TRAFFIC_GAP_STANDING") != "0";
+        bool SideClear(Car c, float fromLat, float toLat, float back, float ahead)
+        {
+            float lo = Mathf.Min(fromLat, toLat) - c.halfW - 0.3f, hi = Mathf.Max(fromLat, toLat) + c.halfW + 0.3f;
+            foreach (var o in live)
+            {
+                if (o == c) continue;
+                float ds = Delta(c.s, o.s) * c.dir;
+                if (ds < back || ds > ahead) continue;
+                if (o.latNow + o.halfW < lo || o.latNow - o.halfW > hi) continue;
+                return false;
+            }
+            return true;
+        }
+
         void MapPavement(TrackCatalog.TrackDef def)
         {
             paveR = paveL = null;
@@ -548,14 +596,21 @@ namespace PSXRacing
         /// the pavement all the way (NaN: none does).</summary>
         float FittingLane(Car c)
         {
-            float look = Mathf.Max(30f, c.speed * 2.5f + 10f);
-            bool Fits(float lat) { for (float d = 0f; d <= look; d += path.spacing) if (!LaneFits(c.s + c.dir * d, lat, c.halfW)) return false; return true; }
-            if (Fits(c.lat)) return c.lat;
+            // (round 5) THE LANE DROP: the strip lays four lanes where a bridge carries three (S Tryon over I-277, s 746-910:
+            // parapets 5.4-5.6 m either side of the line, the outer lanes need 6.75 m). The look reaches far enough to merge
+            // before the taper (it looked 30-45 m and merged in the taper, into standing cars), and the distance the own
+            // lane still fits is kept, to stop short of the drop when the merge has no gap.
+            float look = LaneDropOn ? Mathf.Max(70f, c.speed * 4f + 20f) : Mathf.Max(30f, c.speed * 2.5f + 10f);
+            c.fitRoomM = float.PositiveInfinity;
+            float FitsFor(float lat) { for (float d = 0f; d <= look; d += path.spacing) if (!LaneFits(c.s + c.dir * d, lat, c.halfW)) return d; return float.PositiveInfinity; }
+            float own = FitsFor(c.lat);
+            if (float.IsPositiveInfinity(own)) return c.lat;
+            c.fitRoomM = own;
             var lanes = c.dir > 0 ? lanesFwd : lanesBack;
             float best = float.NaN, bestD = float.MaxValue;
             foreach (float l in lanes)
             {
-                if (Mathf.Abs(l - c.lat) < 0.05f || !Fits(l)) continue;
+                if (Mathf.Abs(l - c.lat) < 0.05f || !float.IsPositiveInfinity(FitsFor(l))) continue;
                 float d = Mathf.Abs(l - c.lat);
                 if (d < bestD) { bestD = d; best = l; }
             }
@@ -810,18 +865,32 @@ namespace PSXRacing
             }
 
             var swStep = System.Diagnostics.Stopwatch.StartNew();
+            fitSw.Reset(); fitLooksStep = 0;
+            ulong cyc0 = WreckTrace ? ThreadCycles() : 0;
             float ps = PlayerS();
+            double p0 = swStep.Elapsed.TotalMilliseconds;
             MeasureField();
+            double p1 = swStep.Elapsed.TotalMilliseconds;
             Recycle(ps);
+            double p2 = swStep.Elapsed.TotalMilliseconds;
             SpawnAtEdge(ps);
+            double p3 = swStep.Elapsed.TotalMilliseconds;
             float dt = Time.fixedDeltaTime;
             foreach (var c in live) Drive(c, dt);
+            double p4 = swStep.Elapsed.TotalMilliseconds;
+            int gcNow = System.GC.CollectionCount(0);
+            if (p4 > 2.0 && SlowSteps.Count < 40)
+                SlowSteps.Add($"{Time.time:0.0} s: {p4:0.00} ms (this thread ran {(WreckTrace && cycPerMs > 0 ? (ThreadCycles() - cyc0) / cycPerMs : -1):0.00} ms of it) - field {p1 - p0:0.00} recycle {p2 - p1:0.00} spawn {p3 - p2:0.00} drive {p4 - p3:0.00} (lane fit {fitSw.Elapsed.TotalMilliseconds:0.00}), {live.Count} cars, {fitLooksStep} lane looks, gc {(gcNow != lastGc ? "YES" : "no")}, frame {Time.frameCount}");
+            lastGc = gcNow;
+            if (WreckTrace && p4 < 1.0 && p4 > 0.05) { ulong dc = ThreadCycles() - cyc0; cycSum += dc; cycMs += p4; cycPerMs = cycSum / cycMs; }
+            PartMs[0] += p1 - p0; PartMs[1] += p2 - p1; PartMs[2] += p3 - p2; PartMs[3] += p4 - p3; PartN++; LiveSum += live.Count;
             Obstacles.Clear();
             ObstacleHalfW.Clear();
             ObstacleDir.Clear();
             ObstacleS.Clear();
             foreach (var c in live) { Obstacles.Add(c.rb); ObstacleHalfW.Add(c.halfW); ObstacleDir.Add(c.dir); ObstacleS.Add(c.s); }
-            if (StepMs.Count < 200000) StepMs.Add((float)swStep.Elapsed.TotalMilliseconds);
+            if (StepMs.Count < 200000) { StepMs.Add((float)swStep.Elapsed.TotalMilliseconds); if (paveR != null) FitMs.Add((float)fitSw.Elapsed.TotalMilliseconds); }
+            if (fitLooksStep > FitLooksMax) FitLooksMax = fitLooksStep;
         }
 
         void MeasureField()
@@ -939,6 +1008,8 @@ namespace PSXRacing
             if (dir < 0 && OneWayAt(s)) return false;
             // (round 4) never born in a lane the pavement does not hold there (a ramp's narrow end)
             if (!LaneFits(s, lat, 1.0f)) return false;
+            // (round 5) nor in one that ends within 70 m ahead (it was born in the outer lane short of the bridge and had to merge)
+            if (LaneDropOn) for (float d = 0f; d <= 70f; d += path.spacing) if (!LaneFits(s + dir * d, lat, 1.0f)) return false;
             // Never on top of anything: another traffic car in the lane, or a
             // racer (they use the whole road).
             foreach (var c in live)
@@ -970,7 +1041,8 @@ namespace PSXRacing
             if (free == null) return false;
             free.active = true; free.wrecked = false; free.hasCommand = false; free.lastContact = null;
             free.box.center = free.rideCenter; free.box.size = free.rideSize;
-            free.dir = dir; free.lat = lat; free.latNow = lat; free.latVel = 0f; free.s = s; free.hint = -1;
+            free.dir = dir; free.lat = lat; free.latNow = lat; free.fitNext = 0f; free.fitLane = lat;   // (round 5) a recycled car kept its last life's lane look: it steered for that lane 2 s after spawning (PC77 Tryon s 727)
+            free.latVel = 0f; free.s = s; free.hint = -1;
             free.haveYaw = false; free.steer = 0f; free.edgeLat = float.NaN;
             free.temper = RollTemper();
             TempersSeen[(int)free.temper]++;
@@ -1048,6 +1120,11 @@ namespace PSXRacing
 
         void Drive(Car c, float dt)
         {
+            if (WreckTrace && !c.wrecked && Time.time >= c.trailNext)
+            {
+                if (c.trail == null) c.trail = new Vector3[30];
+                c.trail[c.trailN++ % 30] = c.rb.position; c.trailNext = Time.time + 0.1f;
+            }
             if (c.wrecked) { SpinWheels(c, Vector3.Dot(c.rb.linearVelocity, c.go.transform.forward), dt); return; }
 
             // WAS IT HIT? Nothing but a contact changes this body's velocity
@@ -1109,8 +1186,11 @@ namespace PSXRacing
             // (round 4) its lane on the pavement ahead: another lane of its direction, or a crawl where none fits
             if (paveR != null)
             {
+                fitSw.Start();
                 // looked at twice a second (the look is ~20 lane tests); a lane change only into a clear gap
-                if (Time.time >= c.fitNext) { c.fitNext = Time.time + 0.5f; c.fitLane = FittingLane(c); }
+                // each car's look on its own phase of the half second (not every car in one step)
+                if (c.fitNext <= 0f) { c.fitNext = Time.time + ((c.GetHashCode() & 31) / 64f); c.fitLane = c.lat; }
+                if (Time.time >= c.fitNext) { c.fitNext = Time.time + 0.5f; c.fitLane = FittingLane(c); fitLooksStep++; }
                 float fit = c.fitLane;
                 if (float.IsNaN(fit)) v = Mathf.Min(v, 4f);
                 else if (Mathf.Abs(fit - c.lat) > 0.05f)
@@ -1118,13 +1198,26 @@ namespace PSXRacing
                     bool clear = true;
                     foreach (var o in live)
                     {
-                        if (o == c || o.dir != c.dir || Mathf.Abs(o.lat - fit) > 1.5f) continue;
+                        // (round 5) a car standing in the target lane counts wherever its lane says it is: by where it IS too,
+                        // whatever its direction once stopped (Tryon s 720-743: lane changes into standing cars)
+                        bool inLane = Mathf.Abs(o.lat - fit) <= 1.5f || (GapCountsStandingOn && Mathf.Abs(o.latNow - fit) <= 1.5f);
+                        if (o == c || (o.dir != c.dir && !(GapCountsStandingOn && o.speed < 1f && Mathf.Abs(o.latNow - fit) <= 1.5f)) || !inLane) continue;
                         float gapS = Delta(c.s, o.s) * c.dir;
                         if (gapS > -10f - Mathf.Max(0f, o.speed - c.speed) * 1.5f && gapS < 12f + Mathf.Max(0f, c.speed - o.speed) * 1.5f) { clear = false; break; }
                     }
-                    if (clear) { c.lat = fit; c.edgeLat = float.NaN; }
-                    else v = Mathf.Min(v, Mathf.Max(4f, c.speed - 3f));   // ease off and merge behind it
+                    if (clear) { c.lat = fit; c.edgeLat = float.NaN; c.fitRoomM = float.PositiveInfinity; }
+                    else
+                    {
+                        v = Mathf.Min(v, Mathf.Max(4f, c.speed - 3f));   // ease off and merge behind it
+                        // (round 5) and never past where its own lane ends: a stop 6 m short, waiting for the gap
+                        if (LaneDropOn && !float.IsPositiveInfinity(c.fitRoomM))
+                        {
+                            float left = c.fitRoomM - (Time.time - (c.fitNext - 0.5f)) * c.speed - 6f;
+                            v = Mathf.Min(v, Mathf.Sqrt(2f * 3f * Mathf.Max(0f, left)));
+                        }
+                    }
                 }
+                fitSw.Stop();
             }
             // A RACER COMING, and what this driver does about it (Temper).
             float latTarget = c.lat;
@@ -1183,7 +1276,8 @@ namespace PSXRacing
                 // Only outward, only as far as the verge, and only with the
                 // road to make the move in before the racer is reached.
                 if (side * leaderRacerLat < side * c.latNow + 0.5f && side * edge <= outer &&
-                    gap > Mathf.Max(across, 0f) / MaxCrabTan + 1f)
+                    gap > Mathf.Max(across, 0f) / MaxCrabTan + 1f &&
+                    (!GapCountsStandingOn || SideClear(c, c.latNow, edge, -6f, gap + 4.5f + EdgePastM)))
                 {
                     // Held out there until it is past the racer: once it is
                     // over far enough the racer is not "ahead" any more, and
@@ -1500,6 +1594,81 @@ namespace PSXRacing
         /// (for TrafficPlayCheck).</summary>
         public readonly int[] TempersSeen = new int[4];
 
+        /// <summary>(cityai round 5) a wreck on something that is not a car: the object's path, the contact point, the
+        /// strip's lane offsets there, and the city road nearest the contact (its OSM way, width, ramp / bridge).</summary>
+        string WhatItHit(Car c, string by)
+        {
+            if (by == null || by.StartsWith("Traffic_") || by.Contains(" AI") || by.Contains("Player") || c.lastContactPath == null) return "";
+            var pt = c.lastContactPt;
+            Vector3 o = path.GetPoint(path.Wrap(Mathf.RoundToInt(Wrap(c.s) / path.spacing)));
+            Vector3 tg = path.GetTangent(path.Wrap(Mathf.RoundToInt(Wrap(c.s) / path.spacing)));
+            Vector3 rt = Vector3.Cross(Vector3.up, tg).normalized;
+            float latPt = Vector3.Dot(pt - o, rt);
+            var lanes = new System.Text.StringBuilder();
+            foreach (float l in lanesFwd) lanes.Append(l.ToString("+0.0;-0.0")).Append(' ');
+            lanes.Append("| back ");
+            foreach (float l in lanesBack) lanes.Append(l.ToString("+0.0;-0.0")).Append(' ');
+            string road = "";
+            var map = City.CityMap.Get();
+            if (map != null && map.NearestRoadPoint(new Vector2(pt.x, pt.z), 40f, false, out int ei, out float es, out float ed) && ei >= 0)
+            {
+                var e = map.edges[ei];
+                road = $" | nearest road '{e.name}' way {e.wayId} cls {e.cls}{(e.link ? " ramp" : "")}{(e.bridge ? " bridge" : "")} width {e.width:0.0} m, contact {ed:0.0} m from its line";
+            }
+            string pave = "";
+            if (paveR != null) { int i = Mathf.RoundToInt(Wrap(c.s) / path.spacing); i = path.HasEnds ? Mathf.Clamp(i, 0, paveR.Length - 1) : ((i % paveR.Length) + paveR.Length) % paveR.Length; pave = $" pavement R {paveR[i]:0.0} L {paveL[i]:0.0}"; }
+            return $" | object {c.lastContactPath} at ({pt.x:0.0},{pt.y:0.0},{pt.z:0.0}), {latPt:+0.0;-0.0} m off the strip's line | strip lanes {lanes}{pave}{road}";
+        }
+
+        /// <summary>(cityai round 5) the dev tour's trace turns this on: each traffic car keeps its last 3 s, and a wreck on
+        /// something not a car writes a SPOT block (the car's trail, the strip's lane lines and pavement 40 m either side,
+        /// every solid within 25 m with its bounds) for the top-down plan.</summary>
+        public static bool WreckTrace;
+        public readonly List<string> WreckSpots = new List<string>();
+        void SpotBlock(Car c, string by)
+        {
+            var sb = new System.Text.StringBuilder();
+            var pt = c.lastContactPt;
+            sb.Append($"SPOT t {Time.time:0.0} s {c.s:0} by {by} | {c.lastContactPath} | contact {pt.x:0.00} {pt.z:0.00} | lane {c.lat:0.00} now {c.latNow:0.00} halfW {c.halfW:0.00} dir {c.dir}\n");
+            sb.Append("trail");
+            if (c.trail != null) for (int k = Mathf.Max(0, c.trailN - 30); k < c.trailN; k++) { var p = c.trail[k % 30]; sb.Append($" {p.x:0.00},{p.z:0.00}"); }
+            sb.Append("\nlanes");
+            foreach (float l in lanesFwd) sb.Append($" {l:0.00}");
+            foreach (float l in lanesBack) sb.Append($" {l:0.00}");
+            sb.Append($"\nroadhalf {path.roadWidth * 0.5f:0.00}\n");
+            for (float d = -40f; d <= 40f; d += 2f)
+            {
+                int i = path.Wrap(Mathf.RoundToInt(Wrap(c.s + d) / path.spacing));
+                var o = path.GetPoint(i); var tg = path.GetTangent(i);
+                float pr = paveR != null ? paveR[Mathf.Clamp(i, 0, paveR.Length - 1)] : float.NaN, pl = paveL != null ? paveL[Mathf.Clamp(i, 0, paveL.Length - 1)] : float.NaN;
+                sb.Append($"strip {o.x:0.00} {o.z:0.00} {tg.x:0.000} {tg.z:0.000} {pr:0.00} {pl:0.00}\n");
+            }
+            foreach (var k in Physics.OverlapSphere(pt, 25f, ~0, QueryTriggerInteraction.Ignore))
+            {
+                if (k.attachedRigidbody != null && !k.attachedRigidbody.isKinematic) continue;   // cars
+                string p = k.name; var t = k.transform.parent;
+                for (int q = 0; q < 4 && t != null; q++, t = t.parent) p = t.name + "/" + p;
+                var b = k.bounds;
+                string shape = "";
+                if (k is BoxCollider bc)
+                {
+                    var tr = bc.transform; var h = bc.size * 0.5f;
+                    Vector3 c0 = tr.TransformPoint(bc.center + new Vector3(-h.x, 0, -h.z)), c1 = tr.TransformPoint(bc.center + new Vector3(h.x, 0, -h.z)),
+                            c2 = tr.TransformPoint(bc.center + new Vector3(h.x, 0, h.z)), c3 = tr.TransformPoint(bc.center + new Vector3(-h.x, 0, h.z));
+                    shape = $" box {c0.x:0.00},{c0.z:0.00} {c1.x:0.00},{c1.z:0.00} {c2.x:0.00},{c2.z:0.00} {c3.x:0.00},{c3.z:0.00}";
+                }
+                else if (k is MeshCollider mc && mc.sharedMesh != null && mc.sharedMesh.vertexCount < 4000)
+                {
+                    // the mesh's vertices within 12 m of the contact, in plan (the barrier line itself)
+                    var vs = mc.sharedMesh.vertices; var tr = mc.transform; int n = 0;
+                    shape = " verts";
+                    for (int v = 0; v < vs.Length && n < 300; v++) { var w = tr.TransformPoint(vs[v]); if ((w - pt).sqrMagnitude < 144f) { shape += $" {w.x:0.00},{w.z:0.00}"; n++; } }
+                }
+                sb.Append($"solid {p} layer {LayerMask.LayerToName(k.gameObject.layer)} {k.GetType().Name} bounds {b.min.x:0.0} {b.min.z:0.0} {b.max.x:0.0} {b.max.z:0.0} y {b.min.y:0.0}..{b.max.y:0.0}{shape}\n");
+            }
+            WreckSpots.Add(sb.ToString());
+        }
+
         internal void Wreck(GameObject go, string by = null)
         {
             var c = live.Find(x => x.go == go);
@@ -1517,16 +1686,25 @@ namespace PSXRacing
             var wp = c.go.transform.position;
             WreckLog.Add((c.dir > 0 ? "with" : "oncoming") + " hit by " + (by ?? "?") +
                          $" | at ({wp.x:0.0},{wp.z:0.0}) s {c.s:0} lane {c.lat:+0.0;-0.0} now {c.latNow:+0.0;-0.0} road half {path.roadWidth * 0.5f:0.0} v {c.speed:0.0}" +
-                         (Time.time - c.lastRacerAt < 5f ? $" | racer touched {Time.time - c.lastRacerAt:0.0} s before" : " | no racer within 5 s"));
+                         (Time.time - c.lastRacerAt < 5f ? $" | racer touched {Time.time - c.lastRacerAt:0.0} s before" : " | no racer within 5 s") +
+                         WhatItHit(c, by));
+            if (WreckTrace && by != null && !by.StartsWith("Traffic_") && !by.Contains(" AI") && !by.Contains("Player") && c.lastContactPath != null && Time.time - c.lastRacerAt >= 5f && WreckSpots.Count < 40)
+                SpotBlock(c, by);
             c.rb.useGravity = true;
         }
 
-        internal void NoteContact(GameObject go, string what)
+        internal void NoteContact(GameObject go, string what, Transform obj = null, Vector3 at = default)
         {
             var c = live.Find(x => x.go == go);
             if (c != null)
             {
                 c.lastContact = what;
+                if (obj != null)
+                {
+                    string p = obj.name; var t = obj.parent;
+                    for (int k = 0; k < 4 && t != null; k++, t = t.parent) p = t.name + "/" + p;
+                    c.lastContactPath = p; c.lastContactPt = at;
+                }
                 if (what != null && (what.Contains(" AI") || what.Contains("Player"))) c.lastRacerAt = Time.time;
             }
         }
@@ -1653,7 +1831,8 @@ namespace PSXRacing
             // is decided by the velocity it left behind (TrafficSystem.Drive).
             if (col.gameObject.layer == 8) return;
             TrafficSystem.Instance?.NoteContact(gameObject,
-                col.gameObject.name + " (" + LayerMask.LayerToName(col.gameObject.layer) + ")");
+                col.gameObject.name + " (" + LayerMask.LayerToName(col.gameObject.layer) + ")",
+                col.collider != null ? col.collider.transform : col.transform, col.contactCount > 0 ? col.GetContact(0).point : col.transform.position);
         }
     }
 }

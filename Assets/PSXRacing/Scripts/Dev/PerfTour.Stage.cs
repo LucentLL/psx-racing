@@ -521,7 +521,7 @@ namespace PSXRacing
                 recording = true;
                 FieldBegin(id, path);   // (cityai) &trace=1: every car, 10 Hz
                 // (cityai round 2) the plan cost counted from the green: the plans laid while the countdown is held are load
-                AIRoutePlanner.BuildMsLog.Clear(); RacingTurns.ResetStats(); TrafficSystem.StepMs.Clear(); CheckpointRace.SliceMs.Clear();
+                AIRoutePlanner.BuildMsLog.Clear(); RacingTurns.ResetStats(); TrafficSystem.StepMs.Clear(); CheckpointRace.SliceMs.Clear(); TrafficSystem.FitMs.Clear(); TrafficSystem.FitLooksMax = 0; AIDriver.FileInLooks = 0; AIDriver.FileInBand = 0; AIDriver.FileInMs = 0; System.Array.Clear(TrafficSystem.PartMs, 0, 4); TrafficSystem.PartN = 0; TrafficSystem.LiveSum = 0; TrafficSystem.SlowSteps.Clear(); AIRoutePlanner.SlowPlans.Clear();
                 Say("STAGE " + id + " from " + (i0 * path.spacing).ToString("0") + " m, up in " + loadS.ToString("0.0") + " s");
 
                 float dist = 0f; var last = car.transform.position;
@@ -572,7 +572,9 @@ namespace PSXRacing
                     // only once the car has been on the lap itself (it fired on the first frame)
                     if (ai.PathIndex < path.Count - 14) onLap = true;
                     if (onLap && ai.PathIndex >= path.Count - 14) { end = "road end"; break; }
-                    if (n >= Cap) { end = "frame cap"; break; }
+                    // (cityai round 5) in batch mode the run ends on its seconds: an editor that ran unthrottled (1030 fps, h6fix_2)
+                    // hit the cap at 70 s of a 150 s tour
+                    if (n >= Cap && !Application.isBatchMode) { end = "frame cap"; break; }
                 }
                 recording = false;
                 PerfClock.FrameDone = null;
@@ -656,6 +658,21 @@ namespace PSXRacing
                         double tsum = 0; foreach (var x in tl) tsum += x;
                         sum1.AppendLine($"traffic step ms ({tl.Count} steps): mean {tsum / tl.Count:0.000} p50 {tl[tl.Count / 2]:0.000} p99 {tl[Mathf.Min(tl.Count - 1, (int)(tl.Count * 0.99f))]:0.000} max {tl[tl.Count - 1]:0.000}; " +
                                         $"soft knocks {(TrafficSystem.Instance != null ? TrafficSystem.Instance.SoftKnockLog.Count : 0)}, wrecks {(TrafficSystem.Instance != null ? TrafficSystem.Instance.WreckLog.Count : 0)}");
+                    }
+                    {
+                        // (cityai round 5) the lane fit's own share of the step, and the rivals' file-in
+                        var fl = new System.Collections.Generic.List<float>(TrafficSystem.FitMs); fl.Sort();
+                        if (fl.Count > 0) { double fs = 0; foreach (var x in fl) fs += x;
+                            sum1.AppendLine($"lane fit ms a step ({fl.Count} steps): mean {fs / fl.Count:0.0000} p99 {fl[Mathf.Min(fl.Count - 1, (int)(fl.Count * 0.99f))]:0.0000} max {fl[fl.Count - 1]:0.0000}; most cars looking in one step {TrafficSystem.FitLooksMax}"); }
+                        else sum1.AppendLine("lane fit ms a step: off (no pavement map)");
+                        long lk = AIDriver.FileInLooks;
+                        sum1.AppendLine($"rivals file-in: {lk} rival ticks looked, {AIDriver.FileInBand} inside the band (the allCars loop ran), {AIDriver.FileInMs:0.00} ms in all, {(lk > 0 ? AIDriver.FileInMs * 1000.0 / lk : 0):0.00} us a look");
+                        { long pn = System.Math.Max(1L, TrafficSystem.PartN); var pm = TrafficSystem.PartMs;
+                          sum1.AppendLine($"traffic step parts ms a step: field {pm[0] / pn:0.0000} recycle {pm[1] / pn:0.0000} spawn {pm[2] / pn:0.0000} drive {pm[3] / pn:0.0000}; live cars mean {(double)TrafficSystem.LiveSum / pn:0.0}");
+                          System.Array.Clear(pm, 0, 4); TrafficSystem.PartN = 0; TrafficSystem.LiveSum = 0; }
+                        sum1.AppendLine($"traffic steps over 2 ms: {TrafficSystem.SlowSteps.Count}" + (TrafficSystem.SlowSteps.Count > 0 ? "\n  " + string.Join("\n  ", TrafficSystem.SlowSteps) : "")); TrafficSystem.SlowSteps.Clear();
+                        sum1.AppendLine($"rival plans over 1 ms: {AIRoutePlanner.SlowPlans.Count}" + (AIRoutePlanner.SlowPlans.Count > 0 ? "\n  " + string.Join("\n  ", AIRoutePlanner.SlowPlans) : "")); AIRoutePlanner.SlowPlans.Clear();
+                        TrafficSystem.FitMs.Clear(); TrafficSystem.FitLooksMax = 0; AIDriver.FileInLooks = 0; AIDriver.FileInBand = 0; AIDriver.FileInMs = 0;
                     }
                     TrafficSystem.StepMs.Clear();
                     AIRoutePlanner.BuildMsLog.Clear(); RacingTurns.ResetStats();

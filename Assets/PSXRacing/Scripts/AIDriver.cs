@@ -62,6 +62,9 @@ namespace PSXRacing
         /// <summary>For the harness: filing in this tick.</summary>
         public bool FilingIn { get; private set; }
         const float FileInMinMps = 4f;
+        // (cityai round 5) cost: rival ticks the file-in looked (guard on, moving), ticks inside the band (the allCars loop), ms in all
+        public static long FileInLooks, FileInBand; public static double FileInMs;
+        static readonly System.Diagnostics.Stopwatch fileInSw = new System.Diagnostics.Stopwatch();
         public static bool JunctionWaitOn = System.Environment.GetEnvironmentVariable("PSX_AI_JUNCTION_WAIT") != "0";
         /// <summary>
         /// (cityai round 3) A FINISHER CLEARS THE LANE: past the flag it drives on at <see cref="FinishCruiseMps"/> in its
@@ -2110,6 +2113,7 @@ namespace PSXRacing
             // crawl it lifts nothing, so a stopped car can still steer back in (H6 seed 0: five rivals stood 20 s 'file in')
             if (PackFileInOn && oncomingGuard && car.forwardSpeed > FileInMinMps && path != null)
             {
+                fileInSw.Restart(); FileInLooks++;
                 Vector3 prr = Vector3.Cross(Vector3.up, path.GetTangent(nearestIdx)).normalized;
                 float myLatNow = Vector3.Dot(transform.position - path.GetPoint(nearestIdx), prr);
                 float edgeAir = myLatNow - MyHalfW;
@@ -2127,8 +2131,10 @@ namespace PSXRacing
                     FilingIn = true;
                     throttleLift = 1f;
                     trafficBrake = Mathf.Max(trafficBrake, squeezed ? 0.5f : 0.25f);
+                    FileInBand++;
                     Why("file in", throttleLift, trafficBrake);
                 }
+                FileInMs += fileInSw.Elapsed.TotalMilliseconds;
             }
             bool passApproved = false;
             var rm = RaceManager.Instance;

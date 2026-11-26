@@ -113,9 +113,13 @@ namespace PSXRacing
         public bool InSolidContact => Time.time - lastSolidContactTime < 0.25f;
         float lastSolidContactTime = -10f;
 
+        /// <summary>The last thing this car touched (name) and when; the dev field trace's "blocked by" reason.</summary>
+        public string LastContactName { get; private set; } = "";
+        public float LastContactTime => lastContactTime;
         void StampContact(Collision c)
         {
             lastContactTime = Time.time;
+            LastContactName = c.collider != null ? c.collider.name : "";   // (cityai round 5) read by the dev trace only
             var other = c.rigidbody;
             if (other == null || other.GetComponent<CarController>() == null) lastSolidContactTime = Time.time;
         }
