@@ -368,6 +368,8 @@ namespace PSXRacing
                 if (clearView < 0) clearView = System.Environment.GetEnvironmentVariable("PSX_CAM_CLEARVIEW") == "1" ? 1 : 0;
                 return clearView == 1;
             }
+            // (the LAB's CAMERAS: CLEAR VIEW row; read where the bystanders are placed)
+            set => clearView = value ? 1 : 0;
         }
 
         /// <summary>Anything solid within 6 m of the lens, level with it, in a

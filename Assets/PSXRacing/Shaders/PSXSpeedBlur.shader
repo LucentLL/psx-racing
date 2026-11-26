@@ -354,9 +354,52 @@ Shader "PSX/SpeedBlur"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.core/Runtime/Utilities/Blit.hlsl"
 
+            // 1 = the kept pixels painted magenta (the check tools only: CarSeenShots)
+            float _PSXCarKeepDebug;
+
             half4 KeepFrag (Varyings input) : SV_Target
             {
                 UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
+                if (_PSXCarKeepDebug > 0.5) return half4(1, 0, 1, 1);
+                return half4(SAMPLE_TEXTURE2D_X_LOD(_BlitTexture, sampler_PointClamp, input.texcoord, 0).rgb, 1);
+            }
+            ENDHLSL
+        }
+
+        // 5 - THE SAME, GATED BY THE PAINT THAT IS SEEN (the replayfx round,
+        // 2026-11-26: "an illuminated silhouette of cars through objects").
+        // Bit 128 says only that paint was DRAWN at a pixel; a pole, a trunk
+        // or a leaf card drawn over the car later kept it, and pass 4 handed
+        // the car's whole shape on that object back without the occlusion.
+        // Bit 32 is written by PSX/CarPaint's "PSXCarSeen" pass (CarDots.Seen)
+        // after every opaque and cutout, only where the paint is the nearest
+        // surface: this pass keeps those pixels and no others.
+        Pass
+        {
+            Name "CarKeepSeen"
+            ZWrite Off ZTest Always Cull Off Blend Off
+            ColorMask RGB
+            Stencil
+            {
+                Ref 32
+                ReadMask 32
+                Comp Equal
+                Pass Keep
+            }
+
+            HLSLPROGRAM
+            #pragma vertex Vert
+            #pragma fragment KeepFrag
+
+            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+            #include "Packages/com.unity.render-pipelines.core/Runtime/Utilities/Blit.hlsl"
+
+            float _PSXCarKeepDebug;
+
+            half4 KeepFrag (Varyings input) : SV_Target
+            {
+                UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
+                if (_PSXCarKeepDebug > 0.5) return half4(1, 0, 1, 1);
                 return half4(SAMPLE_TEXTURE2D_X_LOD(_BlitTexture, sampler_PointClamp, input.texcoord, 0).rgb, 1);
             }
             ENDHLSL

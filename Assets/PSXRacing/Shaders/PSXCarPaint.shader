@@ -1159,5 +1159,103 @@ Shader "PSX/CarPaint"
             }
             ENDCG
         }
+
+        // THE PAINT THAT IS SEEN (the replayfx round, 2026-11-26; the owner,
+        // over a night replay: "During replays I can see an illuminated
+        // silhouette of cars through objects"). The pass above marks stencil
+        // bit 128 on every paint pixel it draws (CarDots), and nothing clears
+        // it when a pole, a trunk, a fence or a leaf card is drawn over the
+        // car later in the opaques: CarDots' keep pass then handed those
+        // pixels back WITHOUT the occlusion - a lighter patch in the car's
+        // exact shape on whatever stood in front of it. Drawn by CarDots
+        // after every opaque and cutout (never by the camera's own passes:
+        // only its LightMode is asked for), this pass marks bit 32 where the
+        // paint was drawn (bit 128) AND the car's surface is the nearest
+        // thing at the end of the opaques: the same vertices as the pass
+        // above, pulled a hair toward the lens so they land on their own
+        // depth, tested against the final depth. Bit 32 is never cleared, so
+        // the order the cars come in does not matter. No colour, no depth.
+        Pass
+        {
+            Name "PSXCarSeen"
+            Tags { "LightMode"="PSXCarSeen" }
+            Cull [_PSXCull]
+            ZWrite Off
+            ZTest LEqual
+            ColorMask 0
+            Stencil
+            {
+                Ref 160
+                ReadMask 128
+                WriteMask 32
+                Comp Equal
+                Pass Replace
+            }
+            CGPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+            #pragma multi_compile_local __ PSX_CAR_HD
+            #include "UnityCG.cginc"
+            #include "PSXCabinClip.cginc"
+            #include "PSXArchFlare.cginc"
+            sampler2D _LightMask;   // (PSXCarDamage.cginc reads it in its pixel half, unused here)
+            #include "PSXCarDamage.cginc"
+
+            float _PSXSnap;
+            float _PSXInside;
+            float _PSXHoleMode;
+
+            // A hair toward the lens along each vertex's own ray (same pixel,
+            // less depth): MARK_PULL_M + MARK_PULL_K x its distance - 2.5 cm
+            // at 50 m. Nothing in front of a car stands that close to it.
+            #define MARK_PULL_M 0.002
+            #define MARK_PULL_K 0.0005
+
+            struct appdata { float4 vertex : POSITION; };
+            struct v2f { float4 pos : SV_POSITION; float3 wpos : TEXCOORD0; };
+
+            v2f vert (appdata v)
+            {
+                v2f o;
+                v.vertex.xyz = PSXArchFlare(v.vertex.xyz);
+                v.vertex.xyz = PSXCarDamageVert(v.vertex.xyz);
+                o.wpos = mul(unity_ObjectToWorld, v.vertex).xyz;
+                // the pass above's position and snap, operation for operation: the same pixels
+                // (a snap worked out from a pulled vertex can round to the next cell, a line of misses)
+                float4 clipPos = UnityObjectToClipPos(v.vertex);
+            #ifndef PSX_CAR_HD
+                if (_PSXSnap > 0.5 && clipPos.w > 0.0)
+                {
+                    float2 grid = _ScreenParams.xy * 0.5;
+                    float2 ndc = clipPos.xy / clipPos.w;
+                    ndc = floor(ndc * grid + 0.5) / grid;
+                    clipPos.xy = ndc * clipPos.w;
+                }
+            #endif
+                // ...and only the DEPTH pulled toward the lens along the vertex's ray
+                float3 vp = UnityObjectToViewPos(v.vertex.xyz);
+                float d = max(length(vp), 1e-4);
+                vp *= max(d - (MARK_PULL_M + MARK_PULL_K * d), 0.5 * d) / d;
+                float4 pulled = mul(UNITY_MATRIX_P, float4(vp, 1.0));
+                if (pulled.w > 1e-6) clipPos.z = pulled.z / pulled.w * clipPos.w;
+                // DamageCabin's hole companions (its mark, its depth) are not paint
+                if (_PSXHoleMode > 0.5) clipPos = float4(0, 0, -2, 1);
+                o.pos = clipPos;
+                return o;
+            }
+
+            fixed4 frag (v2f i) : SV_Target
+            {
+                // the pass above's cuts (the player's shell from the cockpit, its dark inside)
+                PSXCabinClip(i.wpos);
+                if (_PSXInside > 0.5)
+                {
+                    float3 cp = mul(_PSXCabinW2L, float4(i.wpos, 1.0)).xyz;
+                    if (_PSXCabinOn * _PSXCabinOwn < 0.5 || cp.z < _PSXCabinBox.x) discard;
+                }
+                return 0;
+            }
+            ENDCG
+        }
     }
 }

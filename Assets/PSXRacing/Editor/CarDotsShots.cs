@@ -403,7 +403,7 @@ namespace PSXRacing.EditorTools
             }
         }
 
-        static Texture2D Read(RenderTexture rt)
+        public static Texture2D Read(RenderTexture rt)
         {
             var prev = RenderTexture.active;
             RenderTexture.active = rt;
@@ -438,7 +438,7 @@ namespace PSXRacing.EditorTools
             Object.DestroyImmediate(mask);
         }
 
-        static Texture2D Render(Camera cam, PSXCameraOutput output, bool shown)
+        public static Texture2D Render(Camera cam, PSXCameraOutput output, bool shown)
         {
             var rt = new RenderTexture(W, H, 32, RenderTextureFormat.ARGB32) { filterMode = FilterMode.Point };
             rt.Create();

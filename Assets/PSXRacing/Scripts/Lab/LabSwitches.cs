@@ -12,7 +12,7 @@ namespace PSXRacing
     public enum LabWhen { Now, NextLoad, BuiltIn }
 
     /// <summary>The LAB page's tabs, in strip order.</summary>
-    public enum LabGroup { Rain, Lights, World, Cars, Traffic }
+    public enum LabGroup { Rain, Lights, World, Cars, Traffic, Tapes }
 
     /// <summary>
     /// One DECISION the owner has to make (not one environment variable): a plain name, one line saying what to
@@ -339,6 +339,13 @@ namespace PSXRacing
                 env = new[] { "PSX_CARDOTS" }, members = new[] { "CarDots.On" },
                 apply = RemarkCarPaint,
             });
+            // replayfx (2026-11-26): the paint's keep only where the paint is SEEN; nothing else changes
+            Register(new LabRow
+            {
+                id = "carseen", group = LabGroup.Cars, name = "NO CAR SHAPE ON POLES", when = LabWhen.Now, pcOnly = true,
+                look = "No lighter car-shaped patch on a pole, tree, fence or sign standing in front of a car (replays, night).",
+                env = new[] { "PSX_CARSEEN" }, members = new[] { "CarDots.Seen" },
+            });
             Register(new LabRow
             {
                 id = "cardrops2", group = LabGroup.Cars, name = "SMALL BEADS ON CARS", when = LabWhen.Now,
@@ -457,6 +464,57 @@ namespace PSXRacing
                 id = "aiplancap", group = LabGroup.Traffic, name = "RIVALS: BEND SPEED CAP", when = LabWhen.Now,
                 look = "Rivals plan fast bends by measured grip, so they stop running wide into trees. OLD: faster, wider.",
                 env = new[] { "PSX_AI_PLANCAP" }, members = new[] { "AIDriver.PlanAeroCap" },
+            });
+            // ---- TAPES (the replayfx round, 2026-11-26: the camcorder's switches were environment-only) ----
+            Register(new LabRow
+            {
+                id = "steadyhands", group = LabGroup.Tapes, name = "CAMCORDER: STEADIER HANDS", when = LabWhen.Now,
+                look = "Replay cameras shake far less, each bystander their own way: most steady, a few shakier, some rock steady.",
+                env = new[] { "PSX_STEADYHANDS" }, members = new[] { "CamcorderCam.SteadyHands" },
+            });
+            Register(new LabRow
+            {
+                id = "camcorder", group = LabGroup.Tapes, name = "CAMCORDER REPLAYS", when = LabWhen.Now,
+                look = "From the next replay: bystanders' tapes from the start, each checkpoint and the finish. OLD: trackside replay.",
+                env = new[] { "PSX_CAMCORDER" }, members = new[] { "Camcorder.Enabled" },
+            });
+            Register(new LabRow
+            {
+                id = "cammic", group = LabGroup.Tapes, name = "CAMCORDER: TAPE SOUND", when = LabWhen.Now, option = true,
+                look = "From the next replay: the camcorder's own mic - mono, wind, hiss. OFF: the game's own sound.",
+                env = new[] { "PSX_CAM_MIC" }, members = new[] { "Camcorder.MicOn" },
+            });
+            Register(new LabRow
+            {
+                id = "camgain", group = LabGroup.Tapes, name = "CAMCORDER: NIGHT GAIN", when = LabWhen.Now,
+                look = "Night tapes brightened up to 3.2 times, as a camcorder's gain does. OLD: 1.7 times, darker nights.",
+                env = new[] { "PSX_CAM_GAIN" }, members = new[] { "Camcorder.GainRound2" },
+            });
+            Register(new LabRow
+            {
+                id = "camclearview", group = LabGroup.Tapes, name = "CAMERAS: CLEAR VIEW", when = LabWhen.Now,
+                look = "From the next replay: no bystander films with a pole or trunk right in front of the lens. Not yet played.",
+                env = new[] { "PSX_CAM_CLEARVIEW" }, members = new[] { "RacePlan.ClearViewOn" },
+                def = () => false,
+            });
+            Register(new LabRow
+            {
+                id = "tapes", group = LabGroup.Tapes, name = "TAPES ON THE SHELF", when = LabWhen.Now, option = true,
+                look = "SAVE TAPE after a race, the tape shelf at home and the VIDEO counter. OFF hides them; saved tapes stay.",
+                env = new[] { "PSX_TAPES" }, members = new[] { "Tapes.Enabled" },
+            });
+            Register(new LabRow
+            {
+                id = "tapeflex", group = LabGroup.Tapes, name = "TAPES: PRICE BY CLIPS", when = LabWhen.Now,
+                look = "A tape is worth what its clips show plus the result. OLD: round 1's price, by the result alone.",
+                env = new[] { "PSX_TAPE_FLEX" }, members = new[] { "Tapes.FlexOn" },
+            });
+            Register(new LabRow
+            {
+                id = "montage", group = LabGroup.Tapes, name = "TAPES: THE MONTAGE", when = LabWhen.Now, option = true,
+                look = "A MONTAGE button on the tape shelf: mark clips in and out to cut your own tape. Not yet played through.",
+                env = new[] { "PSX_MONTAGE" }, members = new[] { "Tapes.MontageOn" },
+                def = () => false,
             });
         }
 

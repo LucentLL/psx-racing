@@ -15,7 +15,7 @@ namespace PSXRacing
     /// </summary>
     public static class LabCatalog
     {
-        public static readonly string[] TabNames = { "RAIN", "LIGHTS", "WORLD", "CARS", "TRAFFIC" };
+        public static readonly string[] TabNames = { "RAIN", "LIGHTS", "WORLD", "CARS", "TRAFFIC", "TAPES" };
         public static readonly string[] TabBlurbs =
         {
             "The rain: on the road, the glass and the cars, and the spray.",
@@ -23,6 +23,7 @@ namespace PSXRacing
             "Haze, tunnels, the fall, the race map.",
             "The cars' paint in shade and in the rain.",
             "How traffic and rivals behave.",
+            "Camcorder replays, their hands and sound, and the tape shelf.",
         };
 
         public static readonly SettingsPages Pages = new SettingsPages
