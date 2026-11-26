@@ -142,6 +142,22 @@ namespace PSXRacing.EditorTools
                 var path = Object.FindAnyObjectByType<TrackPath>();
                 log.Append($"tile cache {(CityTileCache.Enabled ? "ON" : "off")}\n");
                 log.Append(CityMeshes.ZoneTrace.ToString());
+                // (round 4, D) every bay laid along its host: the list for the contact sheet and the count by host road
+                {
+                    var bt = new StringBuilder("branch\tnode\thost\thostName\tx\tz\thdg\twayLen\tturnAt\tmedian\tturnOnly\tzone\n");
+                    var zb = new HashSet<int>(CityMeshes.Zones.Where(zz => zz.bay).Select(zz => zz.branch));
+                    foreach (var bb in LineModel.Bays)
+                    {
+                        var H = map.edges[bb.host]; var B = map.edges[bb.branch];
+                        var hp = map.nodes[bb.node];
+                        var ht = H.a == bb.node ? H.TangentAt(0f) : -H.TangentAt(H.length);
+                        if (H.a != bb.node) ht = H.TangentAt(H.length);
+                        var mid = B.PointAt(Mathf.Min(B.length, 0.5f * bb.turnAt));
+                        bt.Append(string.Format(inv, "{0}\t{1}\t{2}\t{3}\t{4:0.0}\t{5:0.0}\t{6:0.0}\t{7:0}\t{8:0}\t{9}\t0x{10:X}\t{11}\n", bb.branch, bb.node, bb.host, H.name, mid.x, mid.y,
+                            Mathf.Repeat(Mathf.Atan2(ht.x, ht.y) * Mathf.Rad2Deg, 360f), bb.wayLen, bb.turnAt, bb.median ? 1 : 0, B.lsTurnOnly, zb.Contains(bb.branch) ? 1 : 0));
+                    }
+                    File.WriteAllText(Path.Combine(dir, $"c7_bays_{tag}.tsv"), bt.ToString());
+                }
                 log.Append($"GORESPLIT {(LineModel.GoreSplitOn ? 1 : 0)}: arm pairs within {LineModel.GoreMaxDeg:0} deg {LineModel.GorePairs}, overlapping before {LineModel.GoreOverlapBefore}, still overlapping {LineModel.GoreOverlapAfter}, decks skipped {LineModel.GoreSkippedDeck}, bays laid along their host {LineModel.Bays.Count}, left to the merge zones {LineModel.GoreZoneLeft}, {LineModel.GoreBuildMs:0} ms; BAYLANES {(CityMeshes.BayLanesOn ? 1 : 0)}: crossover far nodes made fans {CityMeshes.CrossoverFans} ({string.Join(",", CityMeshes.CrossoverFanNodes.Take(40))}), zones {CityMeshes.Zones.Count}, of them bays {CityMeshes.Zones.Count(zz => zz.bay)}\n");
                 foreach (var c in rows)
                 {
