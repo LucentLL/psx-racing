@@ -262,6 +262,12 @@ namespace PSXRacing
                 look = "Built into the city tiles: two roads leaving a node on the same side no longer overlap; their lanes share one edge to where they part. A city bake.",
                 env = new[] { "PSX_CITY_GORESPLIT" }, requires = "LineModel.GoreSplitOn",
             });
+            Register(new LabRow
+            {
+                id = "laneclip", group = LabGroup.World, name = "NOTHING IN A LANE", when = LabWhen.BuiltIn,
+                look = "Built into the city tiles: no verge, curb, face, slab or ground piece stands inside a lane; each is cut back at the lane's edge. A city bake.",
+                env = new[] { "PSX_CITY_LANECLIP" }, requires = "CityMeshes.LaneClipOn",
+            });
             // stage round 3 (merged 11-25): build-time switches of the stage scenes; they show once its play-time code is in
             Register(new LabRow
             {

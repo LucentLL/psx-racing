@@ -185,6 +185,7 @@ namespace PSXRacing.EditorTools
                     foreach (var zz in CityMeshes.Zones)
                         if ((map.nodes[zz.node] - p2).magnitude < 150f)
                             log.Append(string.Format(inv, "  ZONE e{0} n{1} host e{2} style {3} k {4} D {5:0.0} wN {6:0.00} theta {7:0.0} {8}{9}\n", zz.branch, zz.node, zz.host, zz.style, zz.k, zz.D, zz.wN, zz.theta, zz.merge ? "merge" : "diverge", zz.bay ? " BAY" : ""));
+                    log.Append($"  LANECLIP {(CityMeshes.LaneClipOn ? 1 : 0)} so far: tested {CityMeshes.LaneClipTested}, dropped {CityMeshes.LaneClipDropped}, cut {CityMeshes.LaneClipCut}, {CityMeshes.LaneClipMs:0} ms; " + string.Join(", ", CityMeshes.LaneClipBySlot.Select(kv => kv.Key + " " + kv.Value)) + "\n");
                     bool doInv = views.Contains("inv");
                     if (doInv) { recs.Clear(); spotsXZ = new[] { p2 }; CityMeshes.ProvHook = Hook; }
                     CityMeshes.IslandDebugAt = p2; CityMeshes.IslandDebug.Clear();

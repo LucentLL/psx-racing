@@ -2415,6 +2415,7 @@ namespace PSXRacing.City
             if (IslandSolidsOn) foreach (var _ in IslandSolids(map, trims, tm)) yield return 0;   // (c7roads) junction islands as closed solids in one paved surface (CityMeshes.IslandSolids.cs)
             FlushLotIslands(map, tm, min);   // leftover item 4: the lots' islands, tops and curbs
             EmitLotCurbs(map, tm, min);      // streets pass 4: the lots' own curbs
+            LaneClip(map, trims, min, max);   // (c7roads r3, R2) nothing raised or laid inside a lane (CityMeshes.LaneClip.cs)
             stepItem = 6;
             yield return 0;
             stepItem = 0;
