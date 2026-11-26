@@ -22,6 +22,7 @@ namespace PSXRacing
         readonly List<float> ftDeg = new List<float>();
         readonly Dictionary<Rigidbody, int> ftIds = new Dictionary<Rigidbody, int>();
         readonly HashSet<Rigidbody> ftRace = new HashSet<Rigidbody>();
+        int ftWrecks; readonly StringBuilder ftWreckNotes = new StringBuilder();
         static readonly CultureInfo FtCI = CultureInfo.InvariantCulture;
 
         bool FieldTraceOn => ShotLink.Query(Request() ?? "", "trace") == "1";
@@ -32,7 +33,7 @@ namespace PSXRacing
             if (!FieldTraceOn || path == null) return;
             ftb = new StringBuilder(1 << 20);
             ftb.Append("t,id,kind,x,z,heading,speed,steer,thr,brk,rev,why\n");
-            ftNext = 0f; ftT0 = Time.time; ftIds.Clear();
+            ftNext = 0f; ftT0 = Time.time; ftIds.Clear(); ftWreckNotes.Length = 0; ftWrecks = TrafficSystem.Instance != null ? TrafficSystem.Instance.WreckLog.Count : 0;
             TurnMapDump.Turns(path, ftTurns, ftDeg);
             Post(id + "_turns.csv", TurnMapDump.TurnsCsv(ftTurns, ftDeg));
             TurnMapDump.Map(ftTurns, out string edges, out string kerbs);
@@ -60,6 +61,7 @@ namespace PSXRacing
                         c.steerInput, c.throttleInput, c.brakeInput, ai != null && ai.DebugBackingUp, ai != null ? ai.DebugGiveWhy : "");
                 }
             var ts = TrafficSystem.Instance;
+            if (ts != null && ts.WreckLog.Count > ftWrecks) { for (int w = ftWrecks; w < ts.WreckLog.Count; w++) ftWreckNotes.Append(t.ToString("0.0", FtCI)).Append(" s: ").Append(ts.WreckLog[w]).Append('\n'); ftWrecks = ts.WreckLog.Count; }
             if (ts != null)
                 for (int i = 0; i < ts.Obstacles.Count; i++)
                 {
@@ -88,6 +90,8 @@ namespace PSXRacing
         {
             if (ftb == null) return;
             Post(id + "_field.csv", ftb.ToString());
+            var tsw = TrafficSystem.Instance;
+            if (tsw != null) Post(id + "_wrecks.txt", ftWreckNotes.ToString());
             Say("FIELD TRACE " + id + ": " + (ftb.Length / 1024) + " KB");
             ftb = null;
         }

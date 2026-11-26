@@ -293,8 +293,8 @@ namespace PSXRacing
             Register(new LabRow
             {
                 id = "junctionwait", group = LabGroup.Traffic, name = "RIVALS WAIT IN JUNCTIONS", when = LabWhen.Now,
-                look = "City races: a rival held up in a junction waits for the car crossing instead of reversing to and fro.",
-                env = new[] { "PSX_AI_JUNCTION_WAIT" }, members = new[] { "AIDriver.JunctionWaitOn" },
+                look = "City races: in a junction a rival keeps behind turning traffic and waits, not knocking it or reversing.",
+                env = new[] { "PSX_AI_JUNCTION_WAIT", "PSX_AI_JUNCTION_TRAFFIC" }, members = new[] { "AIDriver.JunctionWaitOn", "AIDriver.JunctionTrafficOn" },
             });
         }
 
