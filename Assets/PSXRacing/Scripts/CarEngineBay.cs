@@ -43,6 +43,10 @@ namespace PSXRacing
             public const string Dir = "EngineModels/";
             static readonly Dictionary<string, EngineKitDef> loaded = new Dictionary<string, EngineKitDef>();
             static readonly Dictionary<string, ResourceRequest> pending = new Dictionary<string, ResourceRequest>();
+            static readonly Dictionary<string, int> pendingFrom = new Dictionary<string, int>();
+            /// <summary>Tests: hold a load this many frames past its start (the
+            /// editor loads at once; a phone reading from storage does not).</summary>
+            public static int TestDelayFrames;
             static readonly Dictionary<string, int> users = new Dictionary<string, int>();
             public static int Loads { get; private set; }
 
@@ -62,8 +66,9 @@ namespace PSXRacing
                 {
                     rq = Resources.LoadAsync<GameObject>(Dir + key);
                     pending[key] = rq;
+                    pendingFrom[key] = Time.frameCount;
                 }
-                if (!rq.isDone) return null;
+                if (!rq.isDone || Time.frameCount < pendingFrom[key] + TestDelayFrames) return null;
                 pending.Remove(key);
                 var g = rq.asset as GameObject;
                 d = g != null ? g.GetComponent<EngineKitDef>() : null;
@@ -187,17 +192,22 @@ namespace PSXRacing
         /// <summary>Called by CarParts while a hood waits: ready yet? (and the wait logged)</summary>
         public bool ReadyForLid()
         {
-            if (Ready) return true;
-            if (requestedAt < 0f) requestedAt = Time.realtimeSinceStartup;
-            TryAssemble();
-            if (Ready)
+            if (!Ready)
             {
+                if (requestedAt < 0f) requestedAt = Time.realtimeSinceStartup;
+                TryAssemble();
+                if (!Ready) return false;
+            }
+            if (requestedAt >= 0f)
+            {
+                // the lid waited from its first ask to now
                 float w = Time.realtimeSinceStartup - requestedAt;
+                requestedAt = -1f;
                 Waits++;
                 if (w > LongestWait) LongestWait = w;
                 Debug.Log($"[CarEngineBay] a lid waited {w * 1000f:0} ms for its engine ({Choice.key})");
             }
-            return Ready;
+            return true;
         }
 
         void TryAssemble()

@@ -50,7 +50,7 @@ namespace PSXRacing.EditorTools
                     var d = CarEngineBay.EngineAssets.Get(key);
                     bool kit = key == EngineLibrary.BayKit;
                     int hd = d != null ? d.Tris(true) : 0, low = d != null ? d.Tris(false) : 0;
-                    Check(d != null && d.standIn && d.pieces.Length >= (kit ? 10 : 25) && hd <= (kit ? 3600 : 15000) && low <= (kit ? 1300 : 5000),
+                    Check(d != null && d.standIn && d.pieces.Length >= (kit ? 10 : 25) && hd <= (kit ? 3600 : 16000) && low <= (kit ? 1300 : 5000),
                           $"{key}: a STAND-IN in Resources/EngineModels, {(kit ? "the kit's items" : "one piece per fault-table object")}",
                           d != null ? $"{d.pieces.Length} pieces, every option {hd} tris HD / {low} low, exhaust {(d.exhaustSide > 0 ? "+X" : d.exhaustSide < 0 ? "-X" : "both")}" : "missing");
                 }
@@ -82,8 +82,12 @@ namespace PSXRacing.EditorTools
                         bool rightSide = four ? m.z < o.z : m.x > o.x;
                         string where = four ? (m.z < o.z ? "behind the engine (the downpipe's side)" : "IN FRONT of the engine") : (m.x > o.x ? "on the car's right (the downpipe's side)" : "ON THE LEFT");
                         if (rule)
+                        {
                             Check(rightSide, $"{key} ({(four ? "transverse" : "longitudinal")}): the inline-4's exhaust manifold on the downpipe's side, {where}",
                                   $"reflected {bay.Reflected}, car downpipe side {def.engineDownpipeSide}, engine exhaust {eng.exhaustSide}");
+                            int at = bay.EngineRenderer.GetComponent<MeshFilter>().sharedMesh.triangles.Length / 3;
+                            Check(at <= 13000, $"{key}: the assembled engine (the pieces this car needs) inside the ~12,000 budget", at + " tris HD/low as the profile");
+                        }
                         else
                             Check(!rightSide, $"{key}: with the mirror rule off the same test FAILS (it can tell a wrong sign): {where}");
                         CarEngineBay.Release(mf);

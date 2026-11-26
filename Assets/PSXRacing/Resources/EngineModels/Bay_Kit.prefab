@@ -1,0 +1,151 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &7013313527826134014
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 3289081447500369185}
+  - component: {fileID: 3520398285601810736}
+  m_Layer: 0
+  m_Name: Bay_Kit
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &3289081447500369185
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7013313527826134014}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &3520398285601810736
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7013313527826134014}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1529e8e4cf6f9b447bef7f4745e0b4b8, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PSXRacing.EngineKitDef
+  key: Bay_Kit
+  standIn: 1
+  isKit: 1
+  material: {fileID: 2100000, guid: 0302d1ad3b4ca794b8048461f09bd338, type: 2}
+  exhaustSide: 0
+  pieces:
+  - name: Bay_Battery
+    hd: {fileID: 4300000, guid: 4a04adf33662f1d47b34e48fac495125, type: 2}
+    low: {fileID: -8484836342760109496, guid: 4a04adf33662f1d47b34e48fac495125, type: 2}
+    min: {x: -0.09, y: 0, z: -0.13}
+    max: {x: 0.09, y: 0.18, z: 0.13}
+    inFit: 0
+    option: 
+    defaultTransverse: {x: -0.45, y: -0.05, z: 0.05}
+    defaultLongitudinal: {x: -0.42, y: 0.02, z: 0.55}
+  - name: Bay_Radiator
+    hd: {fileID: -5650643541836925508, guid: 4a04adf33662f1d47b34e48fac495125, type: 2}
+    low: {fileID: -5874079175371581087, guid: 4a04adf33662f1d47b34e48fac495125, type: 2}
+    min: {x: -0.5, y: 0, z: -0.025}
+    max: {x: 0.5, y: 0.42, z: 0.025}
+    inFit: 0
+    option: 
+    defaultTransverse: {x: 0, y: -0.28, z: 0.48}
+    defaultLongitudinal: {x: 0, y: -0.22, z: 0.95}
+  - name: Bay_Fan
+    hd: {fileID: -7931920510392923370, guid: 4a04adf33662f1d47b34e48fac495125, type: 2}
+    low: {fileID: 7113288470488667164, guid: 4a04adf33662f1d47b34e48fac495125, type: 2}
+    min: {x: -0.18, y: 0, z: -0.03}
+    max: {x: 0.18, y: 0.36, z: 0.03}
+    inFit: 0
+    option: fan
+    defaultTransverse: {x: 0.15, y: -0.24, z: 0.42}
+    defaultLongitudinal: {x: 0, y: -0.18, z: 0.88}
+  - name: Bay_Overflow
+    hd: {fileID: -4056011158988918517, guid: 4a04adf33662f1d47b34e48fac495125, type: 2}
+    low: {fileID: -8680935813063263895, guid: 4a04adf33662f1d47b34e48fac495125, type: 2}
+    min: {x: -0.05, y: 0, z: -0.05}
+    max: {x: 0.05, y: 0.16, z: 0.05}
+    inFit: 0
+    option: 
+    defaultTransverse: {x: 0.42, y: 0, z: 0.38}
+    defaultLongitudinal: {x: 0.4, y: 0.05, z: 0.85}
+  - name: Bay_PSReservoir
+    hd: {fileID: 145348646047742385, guid: 4a04adf33662f1d47b34e48fac495125, type: 2}
+    low: {fileID: -3333825837839465727, guid: 4a04adf33662f1d47b34e48fac495125, type: 2}
+    min: {x: -0.04, y: 0, z: -0.04}
+    max: {x: 0.04, y: 0.1, z: 0.04}
+    inFit: 0
+    option: 
+    defaultTransverse: {x: 0.3, y: 0.05, z: -0.05}
+    defaultLongitudinal: {x: 0.32, y: 0.1, z: 0.6}
+  - name: Bay_Intercooler
+    hd: {fileID: -7097183110355190310, guid: 4a04adf33662f1d47b34e48fac495125, type: 2}
+    low: {fileID: -8094363426609213398, guid: 4a04adf33662f1d47b34e48fac495125, type: 2}
+    min: {x: -0.3, y: 0, z: -0.03}
+    max: {x: 0.3, y: 0.16, z: 0.03}
+    inFit: 0
+    option: ic
+    defaultTransverse: {x: 0, y: -0.42, z: 0.56}
+    defaultLongitudinal: {x: 0, y: -0.38, z: 1.02}
+  - name: Bay_Intercooler_Top
+    hd: {fileID: -1862895676960788920, guid: 4a04adf33662f1d47b34e48fac495125, type: 2}
+    low: {fileID: 8771367028334522885, guid: 4a04adf33662f1d47b34e48fac495125, type: 2}
+    min: {x: -0.2, y: 0, z: -0.15}
+    max: {x: 0.2, y: 0.06, z: 0.15}
+    inFit: 0
+    option: ictop
+    defaultTransverse: {x: 0, y: 0.32, z: 0.1}
+    defaultLongitudinal: {x: 0, y: 0.3, z: 0.3}
+  - name: Bay_BrakeMaster
+    hd: {fileID: -8445466201999323389, guid: 4a04adf33662f1d47b34e48fac495125, type: 2}
+    low: {fileID: -1661296430458628864, guid: 4a04adf33662f1d47b34e48fac495125, type: 2}
+    min: {x: -0.05, y: 0, z: -0.1}
+    max: {x: 0.05, y: 0.1, z: 0.1}
+    inFit: 0
+    option: 
+    defaultTransverse: {x: -0.4, y: 0.08, z: -0.3}
+    defaultLongitudinal: {x: -0.4, y: 0.12, z: -0.05}
+  - name: Bay_WasherBottle
+    hd: {fileID: 8998461640588958470, guid: 4a04adf33662f1d47b34e48fac495125, type: 2}
+    low: {fileID: -7250691870487687848, guid: 4a04adf33662f1d47b34e48fac495125, type: 2}
+    min: {x: -0.07, y: 0, z: -0.07}
+    max: {x: 0.07, y: 0.2, z: 0.07}
+    inFit: 0
+    option: 
+    defaultTransverse: {x: 0.5, y: -0.05, z: 0.3}
+    defaultLongitudinal: {x: 0.5, y: -0.02, z: 0.75}
+  - name: Bay_FuseBox
+    hd: {fileID: -8856604109193644098, guid: 4a04adf33662f1d47b34e48fac495125, type: 2}
+    low: {fileID: 2419089423150082851, guid: 4a04adf33662f1d47b34e48fac495125, type: 2}
+    min: {x: -0.07, y: 0, z: -0.1}
+    max: {x: 0.07, y: 0.08, z: 0.1}
+    inFit: 0
+    option: 
+    defaultTransverse: {x: -0.3, y: 0.1, z: 0.25}
+    defaultLongitudinal: {x: -0.3, y: 0.12, z: 0.35}
+  - name: Bay_EngineOut
+    hd: {fileID: 4639758004788713572, guid: 4a04adf33662f1d47b34e48fac495125, type: 2}
+    low: {fileID: -3046109782671526343, guid: 4a04adf33662f1d47b34e48fac495125, type: 2}
+    min: {x: -0.25, y: 0, z: -0.25}
+    max: {x: 0.25, y: 0.04, z: 0.25}
+    inFit: 0
+    option: engineout
+    defaultTransverse: {x: 0, y: 0, z: 0}
+    defaultLongitudinal: {x: 0, y: 0, z: 0}

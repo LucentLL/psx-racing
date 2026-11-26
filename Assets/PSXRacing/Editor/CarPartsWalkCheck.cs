@@ -219,9 +219,12 @@ namespace PSXRacing.EditorTools
             if (body == null) { Done(); yield break; }
             var L = CarPartsWalkCheck.log;
             // ---- the load's hitch ----------------------------------------------
+            // every bay let go (the lawn cars hold the same engine): a load that has to come from disk
+            foreach (var other in Object.FindObjectsByType<CarEngineBay>()) { var f = other.GetComponent<MeshFilter>(); if (f != null && f != body) CarEngineBay.Release(f); }
             for (int run = 0; run < 3; run++)
             {
                 CarEngineBay.Release(body);
+                Resources.UnloadUnusedAssets();
                 for (int i = 0; i < 10; i++) yield return null;
                 float before = 0f;
                 for (int i = 0; i < 60; i++) { yield return null; before = Mathf.Max(before, Time.unscaledDeltaTime); }
@@ -232,15 +235,18 @@ namespace PSXRacing.EditorTools
                 for (int i = 0; i < 30; i++) { yield return null; worst = Mathf.Max(worst, Time.unscaledDeltaTime); }
                 L.AppendLine($"    load {run + 1}: ready in {frames} frames ({(Time.realtimeSinceStartup - t0) * 1000f:0} ms incl. 30 frames after); worst frame {worst * 1000f:0.0} ms against {before * 1000f:0.0} ms in the 60 frames before (EDITOR, shared machine)");
             }
-            // ---- the press that comes first --------------------------------------
+            // ---- the press that comes first (each load held 20 frames: the editor
+            // loads at once, a phone reading from storage does not) -------------
             CarEngineBay.LongestWait = 0f;
+            CarEngineBay.EngineAssets.TestDelayFrames = 20;
             int bad = 0, seen = 0;
             for (int run = 0; run < 3; run++)
             {
                 CarParts.Request(body, def, 0, true);
                 for (int i = 0; i < 70; i++) yield return null;
                 CarEngineBay.Release(body);
-                yield return null;
+                Resources.UnloadUnusedAssets();
+                for (int i = 0; i < 5; i++) yield return null;
                 CarParts.Request(body, def, CarParts.Hood, true);   // before any load
                 for (int i = 0; i < 200; i++)
                 {
@@ -256,7 +262,9 @@ namespace PSXRacing.EditorTools
                     if (ang >= 54.9f) break;
                 }
             }
-            Check(seen > 0 && bad == 0, "a press before the load: the lid waits; no frame with the lid off its seat and the bay empty", $"{seen} frames with the lid up, {bad} with an empty bay");
+            CarEngineBay.EngineAssets.TestDelayFrames = 0;
+            Check(seen > 0 && bad == 0 && CarEngineBay.Waits > 0, "a press before the load (held 20 frames): the lid waits for it; no frame with the lid off its seat and the bay empty",
+                  $"{seen} frames with the lid up, {bad} with an empty bay, {CarEngineBay.Waits} waits");
             L.AppendLine($"    the longest a lid waited for its engine: {CarEngineBay.LongestWait * 1000f:0} ms ({CarEngineBay.Waits} waits logged)");
             // ---- ten cycles -------------------------------------------------------
             CarParts.Request(body, def, 0, true);

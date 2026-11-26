@@ -199,7 +199,7 @@ namespace PSXRacing.EditorTools
                 mfs.Add(mf);
             }
             Vector3 fw = spot.forward;
-            var eye = spot.position + fw * 9f + Vector3.up * 3.2f;
+            var eye = spot.position + fw * 5.5f + spot.right * 2.5f + Vector3.up * 3.6f;
             var rot = Quaternion.LookRotation(spot.position + Vector3.up * 0.6f - eye);
             const int N = 20, Blocks = 5;
             var rt = new RenderTexture(W, H, 32, RenderTextureFormat.ARGB32); rt.Create();

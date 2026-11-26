@@ -257,6 +257,7 @@ namespace PSXRacing.EditorTools
             string prefab = OutDir + "/" + key + ".prefab";
             PrefabUtility.SaveAsPrefabAsset(go, prefab);
             Object.DestroyImmediate(go);
+            AssetDatabase.SaveAssets();
             long bytes = new FileInfo(meshPath).Length + new FileInfo(prefab).Length;
             return $"{key,-8} STAND-IN {(kit ? "kit" : "engine")}: {pieces.Count} pieces, all options {trisHD} tris HD / {trisLow} low, exhaust side {(exhaust > 0 ? "+X" : exhaust < 0 ? "-X" : "both")}, {bytes / 1024} KB on disk";
         }

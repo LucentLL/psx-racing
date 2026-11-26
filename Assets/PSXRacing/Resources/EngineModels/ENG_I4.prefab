@@ -1,0 +1,322 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &1069434597369464602
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 5926394297667131092}
+  - component: {fileID: 7643698780922430788}
+  m_Layer: 0
+  m_Name: ENG_I4
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &5926394297667131092
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1069434597369464602}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &7643698780922430788
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1069434597369464602}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1529e8e4cf6f9b447bef7f4745e0b4b8, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PSXRacing.EngineKitDef
+  key: ENG_I4
+  standIn: 1
+  isKit: 0
+  material: {fileID: 2100000, guid: 0302d1ad3b4ca794b8048461f09bd338, type: 2}
+  exhaustSide: 1
+  pieces:
+  - name: Eng_Block
+    hd: {fileID: 4300000, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    low: {fileID: -6585679129137420867, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    min: {x: -0.1785, y: 0.02, z: -0.05}
+    max: {x: 0.1785, y: 0.66440004, z: 0.25}
+    inFit: 1
+    option: 
+    defaultTransverse: {x: 0, y: 0, z: 0}
+    defaultLongitudinal: {x: 0, y: 0, z: 0}
+  - name: Eng_OilPan
+    hd: {fileID: -4598863468063077319, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    low: {fileID: -2843507087480906787, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    min: {x: -0.1428, y: 0.06, z: -0.18}
+    max: {x: 0.1428, y: 0.6144, z: -0.05}
+    inFit: 1
+    option: 
+    defaultTransverse: {x: 0, y: 0, z: 0}
+    defaultLongitudinal: {x: 0, y: 0, z: 0}
+  - name: Eng_TimingCover
+    hd: {fileID: -1943153573389611690, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    low: {fileID: -8102893713915950421, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    min: {x: -0.151725, y: 0.66440004, z: 0}
+    max: {x: 0.151725, y: 0.70440006, z: 0.37}
+    inFit: 1
+    option: 
+    defaultTransverse: {x: 0, y: 0, z: 0}
+    defaultLongitudinal: {x: 0, y: 0, z: 0}
+  - name: Eng_WaterPump
+    hd: {fileID: -7636985285275569829, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    low: {fileID: 3170039139844240390, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    min: {x: -0.06, y: 0.70440006, z: 0.1}
+    max: {x: 0.06, y: 0.7544, z: 0.2}
+    inFit: 1
+    option: 
+    defaultTransverse: {x: 0, y: 0, z: 0}
+    defaultLongitudinal: {x: 0, y: 0, z: 0}
+  - name: Eng_DriveBelt
+    hd: {fileID: 7774285862210727007, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    low: {fileID: 6917726814469004742, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    min: {x: -0.133875, y: 0.7544, z: -0.05}
+    max: {x: 0.133875, y: 0.77440006, z: 0.25}
+    inFit: 1
+    option: 
+    defaultTransverse: {x: 0, y: 0, z: 0}
+    defaultLongitudinal: {x: 0, y: 0, z: 0}
+  - name: Eng_Mounts
+    hd: {fileID: -3617316512740586531, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    low: {fileID: 5511236234059317555, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    min: {x: -0.25849998, y: 0.29220003, z: -0.02}
+    max: {x: 0.25849998, y: 0.3722, z: 0.06}
+    inFit: 1
+    option: 
+    defaultTransverse: {x: 0, y: 0, z: 0}
+    defaultLongitudinal: {x: 0, y: 0, z: 0}
+  - name: Eng_Dipstick
+    hd: {fileID: -5113424727886583878, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    low: {fileID: 2356803553444352909, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    min: {x: 0.1071, y: 0.26576003, z: 0.1}
+    max: {x: 0.1271, y: 0.28576002, z: 0.45}
+    inFit: 1
+    option: 
+    defaultTransverse: {x: 0, y: 0, z: 0}
+    defaultLongitudinal: {x: 0, y: 0, z: 0}
+  - name: Eng_Thermostat
+    hd: {fileID: 6303148606599804784, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    low: {fileID: -8718115464288156721, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    min: {x: -0.05, y: 0.6244, z: 0.37}
+    max: {x: 0.05, y: 0.6844, z: 0.43}
+    inFit: 1
+    option: 
+    defaultTransverse: {x: 0, y: 0, z: 0}
+    defaultLongitudinal: {x: 0, y: 0, z: 0}
+  - name: Eng_Hoses
+    hd: {fileID: 4501783974517366743, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    low: {fileID: 5199204813062000484, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    min: {x: -0.04, y: 0.6844, z: 0.3}
+    max: {x: 0.04, y: 0.8644, z: 0.36}
+    inFit: 1
+    option: 
+    defaultTransverse: {x: 0, y: 0, z: 0}
+    defaultLongitudinal: {x: 0, y: 0, z: 0}
+  - name: Eng_Alternator
+    hd: {fileID: 5946062114118538800, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    low: {fileID: 8785565374053824342, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    min: {x: -0.2785, y: 0.53440005, z: 0.05}
+    max: {x: -0.1785, y: 0.65440005, z: 0.17}
+    inFit: 1
+    option: 
+    defaultTransverse: {x: 0, y: 0, z: 0}
+    defaultLongitudinal: {x: 0, y: 0, z: 0}
+  - name: Eng_PSPump
+    hd: {fileID: 5633962407686971501, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    low: {fileID: -3013753812236176826, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    min: {x: 0.1785, y: 0.54440004, z: -0.02}
+    max: {x: 0.2685, y: 0.64440006, z: 0.08}
+    inFit: 1
+    option: 
+    defaultTransverse: {x: 0, y: 0, z: 0}
+    defaultLongitudinal: {x: 0, y: 0, z: 0}
+  - name: Eng_Harness
+    hd: {fileID: -7595458175250204358, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    low: {fileID: -1457793370663460650, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    min: {x: -0.16065, y: 0.05, z: 0.35}
+    max: {x: -0.12064999, y: 0.6144, z: 0.38}
+    inFit: 1
+    option: 
+    defaultTransverse: {x: 0, y: 0, z: 0}
+    defaultLongitudinal: {x: 0, y: 0, z: 0}
+  - name: Eng_O2Sensor
+    hd: {fileID: 7940966596977096302, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    low: {fileID: 5875012928395940336, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    min: {x: 0.2785, y: 0.1, z: 0.04}
+    max: {x: 0.31849998, y: 0.14, z: 0.08}
+    inFit: 1
+    option: 
+    defaultTransverse: {x: 0, y: 0, z: 0}
+    defaultLongitudinal: {x: 0, y: 0, z: 0}
+  - name: Eng_Head
+    hd: {fileID: 8015768468849886500, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    low: {fileID: -2696565379113504282, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    min: {x: -0.16065, y: 0.04, z: 0.25}
+    max: {x: 0.16065, y: 0.64440006, z: 0.37}
+    inFit: 1
+    option: 
+    defaultTransverse: {x: 0, y: 0, z: 0}
+    defaultLongitudinal: {x: 0, y: 0, z: 0}
+  - name: Eng_ValveCover
+    hd: {fileID: -6974404307832662930, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    low: {fileID: 6444185408977564170, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    min: {x: -0.12852, y: 0.06, z: 0.37}
+    max: {x: 0.12852, y: 0.60440004, z: 0.44}
+    inFit: 1
+    option: 
+    defaultTransverse: {x: 0, y: 0, z: 0}
+    defaultLongitudinal: {x: 0, y: 0, z: 0}
+  - name: Eng_CamSensor
+    hd: {fileID: -2657563574760306390, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    low: {fileID: 2421370997847506157, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    min: {x: 0.098175, y: 0.6244, z: 0.32999998}
+    max: {x: 0.138175, y: 0.66440004, z: 0.39}
+    inFit: 1
+    option: 
+    defaultTransverse: {x: 0, y: 0, z: 0}
+    defaultLongitudinal: {x: 0, y: 0, z: 0}
+  - name: Eng_PlugLeads
+    hd: {fileID: -1872465161164079100, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    low: {fileID: 5555534478145112744, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    min: {x: -0.06, y: 0.1, z: 0.44}
+    max: {x: 0.06, y: 0.5644, z: 0.45999998}
+    inFit: 1
+    option: 
+    defaultTransverse: {x: 0, y: 0, z: 0}
+    defaultLongitudinal: {x: 0, y: 0, z: 0}
+  - name: Eng_Intake
+    hd: {fileID: 3511715043209827307, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    low: {fileID: -6392292492961572936, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    min: {x: -0.2985, y: 0.08, z: 0.12}
+    max: {x: -0.1785, y: 0.58440006, z: 0.34}
+    inFit: 1
+    option: 
+    defaultTransverse: {x: 0, y: 0, z: 0}
+    defaultLongitudinal: {x: 0, y: 0, z: 0}
+  - name: Eng_ExhaustManifold
+    hd: {fileID: -8417716961835207877, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    low: {fileID: -2199326922773335848, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    min: {x: 0.1785, y: 0.08, z: 0.06}
+    max: {x: 0.2785, y: 0.58440006, z: 0.3}
+    inFit: 1
+    option: 
+    defaultTransverse: {x: 0, y: 0, z: 0}
+    defaultLongitudinal: {x: 0, y: 0, z: 0}
+  - name: Eng_OilFiller
+    hd: {fileID: -6937619397790259815, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    low: {fileID: -4072980258486510863, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    min: {x: -0.03, y: 0.39864004, z: 0.44}
+    max: {x: 0.03, y: 0.45864004, z: 0.48000002}
+    inFit: 1
+    option: 
+    defaultTransverse: {x: 0, y: 0, z: 0}
+    defaultLongitudinal: {x: 0, y: 0, z: 0}
+  - name: Eng_Ignition
+    hd: {fileID: 2842257396267436584, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    low: {fileID: -1789601461479442669, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    min: {x: 0.0714, y: 0.02, z: 0.35}
+    max: {x: 0.1314, y: 0.08, z: 0.43}
+    inFit: 1
+    option: 
+    defaultTransverse: {x: 0, y: 0, z: 0}
+    defaultLongitudinal: {x: 0, y: 0, z: 0}
+  - name: Eng_ThrottleBody
+    hd: {fileID: 1489153518657601812, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    low: {fileID: -1555790324112060482, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    min: {x: -0.05355, y: -0.02, z: 0.31}
+    max: {x: 0.008925, y: 0.08, z: 0.39}
+    inFit: 1
+    option: 
+    defaultTransverse: {x: 0, y: 0, z: 0}
+    defaultLongitudinal: {x: 0, y: 0, z: 0}
+  - name: Eng_AirBox
+    hd: {fileID: -260347834516739709, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    low: {fileID: 2853364015133868873, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    min: {x: -0.4785, y: 0.13288002, z: 0.27}
+    max: {x: -0.2985, y: 0.39288, z: 0.43}
+    inFit: 0
+    option: 
+    defaultTransverse: {x: 0, y: 0, z: 0}
+    defaultLongitudinal: {x: 0, y: 0, z: 0}
+  - name: Eng_Gearbox_Inline
+    hd: {fileID: -7721679929616047747, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    low: {fileID: 7834214183712956763, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    min: {x: -0.15, y: -0.65, z: -0.12}
+    max: {x: 0.15, y: 0, z: 0.2}
+    inFit: 0
+    option: gearbox_inline
+    defaultTransverse: {x: 0, y: 0, z: 0}
+    defaultLongitudinal: {x: 0, y: 0, z: 0}
+  - name: Eng_Gearbox_Transaxle
+    hd: {fileID: 3845516732416173674, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    low: {fileID: 4444290975009586189, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    min: {x: -0.2, y: -0.38, z: -0.22}
+    max: {x: 0.26, y: 0, z: 0.22}
+    inFit: 0
+    option: gearbox_transaxle
+    defaultTransverse: {x: 0, y: 0, z: 0}
+    defaultLongitudinal: {x: 0, y: 0, z: 0}
+  - name: Eng_Turbo
+    hd: {fileID: -1932262420230354279, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    low: {fileID: -5371602777838717002, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    min: {x: 0.2785, y: 0.23254001, z: 0.1}
+    max: {x: 0.4185, y: 0.37254, z: 0.26}
+    inFit: 0
+    option: turbo1
+    defaultTransverse: {x: 0, y: 0, z: 0}
+    defaultLongitudinal: {x: 0, y: 0, z: 0}
+  - name: Eng_Turbo_2
+    hd: {fileID: 600060445557808864, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    low: {fileID: 619409588733699256, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    min: {x: -0.4185, y: 0.23254001, z: 0.1}
+    max: {x: -0.2785, y: 0.37254, z: 0.26}
+    inFit: 0
+    option: turbo2
+    defaultTransverse: {x: 0, y: 0, z: 0}
+    defaultLongitudinal: {x: 0, y: 0, z: 0}
+  - name: Eng_TurboPipes
+    hd: {fileID: 8354736323357428813, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    low: {fileID: -3787523076898304155, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    min: {x: -0.08925, y: 0.78440005, z: 0.2}
+    max: {x: 0.37849998, y: 0.84440005, z: 0.27}
+    inFit: 0
+    option: turbo1
+    defaultTransverse: {x: 0, y: 0, z: 0}
+    defaultLongitudinal: {x: 0, y: 0, z: 0}
+  - name: Eng_Supercharger
+    hd: {fileID: -6365917960700550244, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    low: {fileID: 6715893097353249372, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    min: {x: -0.080325, y: 0.15, z: 0.47}
+    max: {x: 0.080325, y: 0.5144, z: 0.59000003}
+    inFit: 0
+    option: sc
+    defaultTransverse: {x: 0, y: 0, z: 0}
+    defaultLongitudinal: {x: 0, y: 0, z: 0}
+  - name: Bay_Fan_Clutch
+    hd: {fileID: 5688776230914751945, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    low: {fileID: 2136843832318992857, guid: c4a7e0a8599aefa4eb1a7d517638c2e1, type: 2}
+    min: {x: -0.16065, y: 0.78440005, z: 0}
+    max: {x: 0.16065, y: 0.82440007, z: 0.37}
+    inFit: 0
+    option: fanclutch
+    defaultTransverse: {x: 0, y: 0, z: 0}
+    defaultLongitudinal: {x: 0, y: 0, z: 0}
