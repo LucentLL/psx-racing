@@ -29,6 +29,8 @@ namespace PSXRacing
         public static bool On = System.Environment.GetEnvironmentVariable("PSX_CP_TURNS") != "0";
         /// <summary>(round 2) Lay the route's turns at race load and keep each turn's whole arc, so a re-plan mid-race
         /// only reads (PSX_CP_TURNS_WARM=0: the round-1 search on every plan).</summary>
+        /// <summary>(round 3) Lay every turn at the route's nodes at load, not only the route's (PSX_CP_TURNS_WARMALL=0: the route's only).</summary>
+        public static bool WarmAllTurns = System.Environment.GetEnvironmentVariable("PSX_CP_TURNS_WARMALL") != "0";
         public static bool WarmOn = System.Environment.GetEnvironmentVariable("PSX_CP_TURNS_WARM") != "0";
         public const float MinDeg = 30f, MaxDeg = 170f;
         public static float KerbMinM = 1.15f, NearNodeM = 60f, CoarseStepM = 2f;
@@ -61,6 +63,25 @@ namespace PSXRacing
         static readonly Dictionary<long, (float T, Vector2 c, float r, float ang0, float sweep)> arcCache = new Dictionary<long, (float, Vector2, float, float, float)>(1024);
         /// <summary>Plans' turns read from <see cref="arcCache"/> and searched (the harness; cleared with the stats).</summary>
         public static int ArcReads, ArcSearches;
+        public static bool LogSearches = System.Environment.GetEnvironmentVariable("PSX_CP_TURNS_LOG") == "1"; static int searchLogs;
+        /// <summary>(round 3, the islands check) Every cached arc's points, every <paramref name="step"/> metres, with its
+        /// turn's key (node, road in, road out).</summary>
+        public static void CachedArcPoints(List<Vector2> pts, List<long> keys, float step = 1f)
+        {
+            pts.Clear(); keys.Clear();
+            foreach (var kv in arcCache)
+            {
+                var a = kv.Value;
+                if (a.r <= 0f) continue;
+                int m = Mathf.Max(2, Mathf.CeilToInt(a.r * Mathf.Abs(a.sweep) / Mathf.Max(step, 0.1f)));
+                for (int q = 0; q <= m; q++)
+                {
+                    float ang = a.ang0 + a.sweep * q / m;
+                    pts.Add(a.c + new Vector2(Mathf.Cos(ang), Mathf.Sin(ang)) * a.r);
+                    keys.Add(kv.Key);
+                }
+            }
+        }
         /// <summary>The fan kerbs of the join's node AND of every node within <see cref="NearNodeM"/> of it, two hops
         /// along the graph: an arc may reach a neighbouring junction's island (a split's nose, a channelised turn's
         /// island at the next node).</summary>
@@ -325,8 +346,12 @@ namespace PSXRacing
                     Arc(bestT, out float fa0, out float fa1, out var fc, out float fr, out float fang0, out float fsweep);
                     found.Add((fa0, fa1, fc, fr, fang0, fsweep, defl));
                     // kept only when the path's own ends did not limit the search (a shorter arc forced by them is not the turn's)
-                    if (prev <= aJ + uP - Tcap - 0.5f && next >= aO + vP + Tcap + 0.5f) arcCache[fkey] = (bestT, fc, fr, fang0, fsweep);
+                    // (round 3) kept whatever bounded it: an arc cut short by the path's ends is still on the pavement, and
+                    // re-searched it cost every later plan 3-5 ms (X1); one found unbounded replaces a bounded one
+                    bool bounded = !(prev <= aJ + uP - Tcap - 0.5f && next >= aO + vP + Tcap + 0.5f);
+                    if (!bounded || !arcCache.TryGetValue(fkey, out var had) || had.r <= 0f || had.T < bestT) arcCache[fkey] = (bestT, fc, fr, fang0, fsweep);
                     ArcSearches++;
+                    if (LogSearches && searchLogs++ < 30) Debug.Log($"[RacingTurns] searched node {J.node} in {J.ein} out {J.eout} at ({pts[j].x:0},{pts[j].y:0}): r {fr:0.0} m, T {bestT:0.0} of cap {Tcap:0.0}, prev {prev:0.0} a0 {fa0:0.0}, next {next - aO:0.0} past the out point; cached {(prev <= aJ + uP - Tcap - 0.5f && next >= aO + vP + Tcap + 0.5f)}");
                     lastA1 = fa1;
                     fit = true;
                     Laid++; LaidR.Add(fr); MinLaidR = Mathf.Min(MinLaidR, fr);

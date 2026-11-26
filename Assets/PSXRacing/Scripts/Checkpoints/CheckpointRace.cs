@@ -330,6 +330,7 @@ namespace PSXRacing
                 var tmp = holder.AddComponent<TrackPath>();
                 var states = new List<int>(512);
                 var states2 = new List<int>(512);
+                var warmNodes = new HashSet<int>();
                 var pcs = new List<RoutedPath.Piece>(512);
                 int legs = 0;
                 for (int k = 0; k < GateCount; k++)
@@ -350,10 +351,61 @@ namespace PSXRacing
                             else if (a1 - a0 > 0.05f) pcs.Add(new RoutedPath.Piece { st = states2[i], t0 = a0, t1 = a1 });
                         }
                     RoutedPath.Build(map, pcs, tmp, 12f);
+                    foreach (var pc in pcs) { warmNodes.Add(R.sNode[pc.st]); warmNodes.Add(R.eNode[pc.st]); }
                     legs++;
                     if (frame2.Elapsed.TotalMilliseconds > 40.0) { yield return null; frame2.Restart(); }
                 }
+                // a sprint's run-out past the flag (the planner's smallest-turn road on, AIRoutePlanner.ExtendStraight):
+                // round 2's one search mid-race on X1 was there
+                if (!Loop && GateCount > 0)
+                {
+                    pcs.Clear();
+                    int x = gates[GateCount - 1].anchorSt; float t0 = gates[GateCount - 1].anchorT, got = 0f;
+                    pcs.Add(new RoutedPath.Piece { st = x, t0 = t0, t1 = R.len[x] }); got += R.len[x] - t0;
+                    for (int guard = 0; guard < 200 && got < 900f; guard++)
+                    {
+                        int by = -1; float bt = float.PositiveInfinity;
+                        for (int q = R.succStart[x]; q < R.succStart[x + 1]; q++)
+                        {
+                            int y = R.succ[q];
+                            if (R.succStart[y + 1] - R.succStart[y] == 0) continue;
+                            if (R.succTurn[q] < bt) { bt = R.succTurn[q]; by = y; }
+                        }
+                        if (by < 0) break;
+                        pcs.Add(new RoutedPath.Piece { st = by, t0 = 0f, t1 = R.len[by] }); got += R.len[by];
+                        x = by;
+                    }
+                    RoutedPath.Build(map, pcs, tmp, 12f);
+                    legs++;
+                }
+                // (round 3) EVERY TURN AT THESE NODES, not only the route's: a rival that re-plans round traffic or off its
+                // road turns at them too, and round 2's last mid-race searches (X1, C2) were such turns
+                int pairs = 0;
+                if (RacingTurns.WarmAllTurns)
+                    foreach (int nd in warmNodes)
+                    {
+                        if (nd < 0 || nd >= map.nodeEdges.Length || map.nodeEdges[nd] == null) continue;
+                        foreach (int ea in map.nodeEdges[nd])
+                            for (int da = 0; da < 2; da++)
+                            {
+                                int sa = ea * 2 + da;
+                                if (!R.legal[sa] || R.eNode[sa] != nd) continue;
+                                foreach (int eb in map.nodeEdges[nd])
+                                    for (int db = 0; db < 2; db++)
+                                    {
+                                        int sb = eb * 2 + db;
+                                        if (eb == ea || !R.legal[sb] || R.sNode[sb] != nd) continue;
+                                        pcs.Clear();
+                                        pcs.Add(new RoutedPath.Piece { st = sa, t0 = Mathf.Max(0f, R.len[sa] - 45f), t1 = R.len[sa] });
+                                        pcs.Add(new RoutedPath.Piece { st = sb, t0 = 0f, t1 = Mathf.Min(R.len[sb], 45f) });
+                                        RoutedPath.Build(map, pcs, tmp, 12f);
+                                        pairs++;
+                                        if (frame2.Elapsed.TotalMilliseconds > 40.0) { yield return null; frame2.Restart(); }
+                                    }
+                            }
+                    }
                 Destroy(holder);
+                Debug.Log($"[Checkpoints] racing turns: {pairs} turn pairs at {warmNodes.Count} route nodes laid too");
                 Debug.Log($"[Checkpoints] racing turns laid at load: {legs} legs, {RacingTurns.Laid} turns ({RacingTurns.NoFit} no fit) in {wsw.Elapsed.TotalMilliseconds:0} ms");
             }
             // every AI on its own road
