@@ -572,6 +572,9 @@ namespace PSXRacing
         /// </summary>
         public void PlanMistake(float atFraction) { mistakeAt = atFraction; mistakeTries = 0; }
         public bool MakingMistake => Time.time < mistakeUntil;
+        /// <summary>In its planned mistake or within 3 s of it: a retirement here is the race's own incident
+        /// (RaceManager's log line says so, to tell it from a car that left the road on its own).</summary>
+        public bool MistakeRecent => mistakeUntil > 0f && Time.time < mistakeUntil + 3f;
         float mistakeAt = -1f, mistakeUntil = -1f, mistakeDamage0;
         int mistakeTries;
         // Near-straight on: the cars hold far more than the AI's own corner
