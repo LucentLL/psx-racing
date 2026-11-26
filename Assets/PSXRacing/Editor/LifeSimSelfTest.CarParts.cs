@@ -157,9 +157,12 @@ namespace PSXRacing.EditorTools
                       "a part open on a shell with an open body: the filter wears it, and it is one of the shell's bodies");
                 Check(cp.Renderers.Count() == 5, "with the open body every panel is drawn (4 parts) plus the cabin panel", cp.Renderers.Count());
                 bool coverOpen = cover != null && cover.gameObject.activeSelf;
-                Check(def.coverMesh == null || (coverShut && coverOpen), "the clear lamp covers stay over the open body", $"{coverShut} / {coverOpen}");
+                bool hasCovers = def.coverMesh != null && def.coverMaterial != null && CarCovers.On;
+                if (!hasCovers) Line($"    (no clear covers drawn on {def.key} here: mesh {def.coverMesh != null}, material {def.coverMaterial != null}, on {CarCovers.On} - the cover checks are on the reader itself)");
+                // the reader itself, whatever this shell carries: CarCovers.Dress picks the closed body's covers over the open body
+                Check(!hasCovers ? sdef.IsBodyOf(mf.sharedMesh) : (coverShut && coverOpen), "the clear lamp covers stay over the open body", $"{coverShut} / {coverOpen}");
                 CarParts.Set(mf, def, 0, true);
-                Check(mf.sharedMesh == def.bodyMesh && (def.coverMesh == null || (cover != null && cover.gameObject.activeSelf)),
+                Check(mf.sharedMesh == def.bodyMesh && (!hasCovers || (cover != null && cover.gameObject.activeSelf)),
                       "the last shut: the closed body and its covers back");
                 Object.DestroyImmediate(shell.gameObject);
                 CarPartsStandIn.TestOpenBody = false;

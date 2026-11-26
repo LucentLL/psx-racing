@@ -107,6 +107,13 @@ namespace PSXRacing.EditorTools
             var def = CarModelLibrary.Load(CarPartsStandIn.Key);
             if (def == null) { log.AppendLine("no shell " + CarPartsStandIn.Key); return; }
             var standIn = CarParts.PartsDef(def);
+            foreach (var sh in new[] { def.SkinCount > 0 ? def.skinMaterials[0].shader : null, Shader.Find("PSX/Lit") })
+            {
+                if (sh == null) { log.AppendLine("shader: null"); continue; }
+                var msgs = ShaderUtil.GetShaderMessages(sh);
+                log.AppendLine($"shader {sh.name}: supported {sh.isSupported}, errors {ShaderUtil.ShaderHasError(sh)}, messages {msgs.Length}" +
+                               string.Concat(msgs.Take(6).Select(m => "\n    " + m.severity + " " + m.message + " (" + m.file + ":" + m.line + ")")));
+            }
             foreach (var l in CarPartsStandIn.Report) log.AppendLine(l);
             log.AppendLine($"shell {def.key}: pop-ups {def.HasPopUps}, lens variant {def.HasLensVariant}, covers {(def.coverMesh != null)}, " +
                            $"stand-in {(standIn != null ? "built" : "MISSING")}, parts available mask {CarParts.Available(def)}");

@@ -533,7 +533,9 @@ namespace PSXRacing
                 var b = op.mesh.bounds;
                 // The across axis of the body mesh is X whatever its yaw (0 or 180).
                 bool plusSide = b.center.x > cx;
-                float inner = plusSide ? b.min.x - CabinPanelInboard : b.max.x + CabinPanelInboard;
+                // (the stand-in's door is a slab OUTSIDE the intact body: its panel goes well inside)
+                float inb = CarPartsStandIn.IsStandIn(p) ? 0.30f : CabinPanelInboard;
+                float inner = plusSide ? b.min.x - inb : b.max.x + inb;
                 float y0 = b.min.y + 0.03f, y1 = b.max.y - 0.03f, z0 = b.min.z + 0.03f, z1 = b.max.z - 0.03f;
                 var outN = new Vector3(plusSide ? 1f : -1f, 0f, 0f);
                 int i0 = v.Count;
