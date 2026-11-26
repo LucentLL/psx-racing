@@ -424,6 +424,7 @@ namespace PSXRacing
             // closed circuit.
             BuildLanes(path.roadWidth, oneWay);
             if (!oneWay) MapOneWay(def);
+            MapPavement(def);
 
             // Enough cars for the window at this density, both ways, with a
             // quarter over for the random gaps; none at all for NONE.
@@ -476,6 +477,90 @@ namespace PSXRacing
             }
             if (OneWayWaypoints > 0) oneWayWp = flags;
         }
+        /// <summary>
+        /// (cityai round 4) THE PAVEMENT UNDER EACH LANE (PSX_TRAFFIC_LANES_FIT, LAB row TRAFFIC KEEPS TO PAVEMENT). The strip
+        /// lays its lanes at one width the whole race; where the route's own road is narrower (a ramp, a merge, a
+        /// narrowing) the outer lanes ran into the barriers and rails: every static-object wreck of the H6 and I-485 West
+        /// runs was a car in a +-5.5 m lane, with no racer near (s 788-3185 on H6, a cluster at s 1724 on I-485 West).
+        /// Per waypoint of a city race's path: metres from the line to the drawn pavement edge either side (the route's
+        /// own edge under it, LineModel's extents); a car whose lane does not fit ahead moves to the nearest lane of its
+        /// direction that does, and slows to a crawl where none does. Null elsewhere (stages): no change.
+        /// </summary>
+        float[] paveR, paveL;
+        public static bool LanesFitOn = System.Environment.GetEnvironmentVariable("PSX_TRAFFIC_LANES_FIT") != "0";
+        const float LaneFitAirM = 0.35f;
+        void MapPavement(TrackCatalog.TrackDef def)
+        {
+            paveR = paveL = null;
+            if (!LanesFitOn || def == null || !def.IsCityRace) return;
+            var map = City.CityMap.Get();
+            var route = map != null ? map.RouteById(def.cityRoute) : null;
+            if (route == null || route.edges == null || route.edges.Length == 0) return;
+            int len = route.edges.Length, n = path.Count;
+            var pr = new float[n]; var pl = new float[n];
+            int k = -1;
+            for (int i = 0; i < n; i++)
+            {
+                Vector3 w = path.GetPoint(i);
+                var p = new Vector2(w.x, w.z);
+                int best = 0; float bestD = float.MaxValue;
+                int from = k < 0 ? 0 : k - 1, to = k < 0 ? len - 1 : k + 3;
+                for (int kk = from; kk <= to; kk++)
+                {
+                    int e = route.loop ? ((kk % len) + len) % len : kk;
+                    if (e < 0 || e >= len) continue;
+                    float d = PolylineDist(map.edges[route.edges[e]].pts, p);
+                    if (d < bestD) { bestD = d; best = e; }
+                }
+                k = best;
+                var ed = map.edges[route.edges[k]];
+                // the edge's point nearest the waypoint, and its arc
+                float sAt = 0f; float bd = float.MaxValue; Vector2 o = p;
+                for (int q = 0; q + 1 < ed.pts.Length; q++)
+                {
+                    var a = ed.pts[q]; var ab = ed.pts[q + 1] - a;
+                    float L2 = ab.sqrMagnitude; if (L2 < 1e-8f) continue;
+                    float t = Mathf.Clamp01(Vector2.Dot(p - a, ab) / L2);
+                    var c = a + ab * t; float dd = (p - c).sqrMagnitude;
+                    if (dd < bd) { bd = dd; sAt = ed.s[q] + t * (ed.s[q + 1] - ed.s[q]); o = c; }
+                }
+                Vector3 t3 = path.GetTangent(i); var tp = new Vector2(t3.x, t3.z).normalized;
+                var right = new Vector2(tp.y, -tp.x);
+                int sgn = Vector2.Dot(ed.TangentAt(sAt), tp) >= 0f ? 1 : -1;
+                float latO = Vector2.Dot(o - p, right);
+                pr[i] = Mathf.Max(2f, latO + ed.PaveEdgeM(sAt, sgn));
+                pl[i] = Mathf.Max(2f, -latO + ed.PaveEdgeM(sAt, -sgn));
+            }
+            paveR = pr; paveL = pl;
+        }
+
+        /// <summary>Does a car of half width hw at lane lat fit the pavement at s?</summary>
+        bool LaneFits(float s, float lat, float hw)
+        {
+            if (paveR == null) return true;
+            int i = Mathf.RoundToInt(Wrap(s) / path.spacing);
+            i = path.HasEnds ? Mathf.Clamp(i, 0, paveR.Length - 1) : ((i % paveR.Length) + paveR.Length) % paveR.Length;
+            return lat + hw + LaneFitAirM <= paveR[i] && -lat + hw + LaneFitAirM <= paveL[i];
+        }
+
+        /// <summary>The lane this car keeps over the next stretch: its own, or the nearest of its direction that fits
+        /// the pavement all the way (NaN: none does).</summary>
+        float FittingLane(Car c)
+        {
+            float look = Mathf.Max(30f, c.speed * 2.5f + 10f);
+            bool Fits(float lat) { for (float d = 0f; d <= look; d += path.spacing) if (!LaneFits(c.s + c.dir * d, lat, c.halfW)) return false; return true; }
+            if (Fits(c.lat)) return c.lat;
+            var lanes = c.dir > 0 ? lanesFwd : lanesBack;
+            float best = float.NaN, bestD = float.MaxValue;
+            foreach (float l in lanes)
+            {
+                if (Mathf.Abs(l - c.lat) < 0.05f || !Fits(l)) continue;
+                float d = Mathf.Abs(l - c.lat);
+                if (d < bestD) { bestD = d; best = l; }
+            }
+            return best;
+        }
+
         static float PolylineDist(Vector2[] pts, Vector2 p)
         {
             float best = float.MaxValue;
@@ -851,6 +936,8 @@ namespace PSXRacing
             if (path.HasEnds && (s < 8f || s > total - 8f)) return false;
             // no oncoming car on a one-way street (MapOneWay)
             if (dir < 0 && OneWayAt(s)) return false;
+            // (round 4) never born in a lane the pavement does not hold there (a ramp's narrow end)
+            if (!LaneFits(s, lat, 1.0f)) return false;
             // Never on top of anything: another traffic car in the lane, or a
             // racer (they use the whole road).
             foreach (var c in live)
@@ -1014,6 +1101,13 @@ namespace PSXRacing
             float firm = 6f * roadGrip;
             float decel = gap < c.speed * c.speed / (2f * firm) + StopGap ? 9f : firm;
 
+            // (round 4) its lane on the pavement ahead: another lane of its direction, or a crawl where none fits
+            if (paveR != null)
+            {
+                float fit = FittingLane(c);
+                if (float.IsNaN(fit)) v = Mathf.Min(v, 4f);
+                else if (Mathf.Abs(fit - c.lat) > 0.05f) { c.lat = fit; c.edgeLat = float.NaN; }
+            }
             // A RACER COMING, and what this driver does about it (Temper).
             float latTarget = c.lat;
             bool coming = RacerComing(c, dt, out float racerLat, out bool sat);
