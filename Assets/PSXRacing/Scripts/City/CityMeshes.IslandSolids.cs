@@ -284,6 +284,7 @@ namespace PSXRacing.City
             foreach (int k in cells)
             {
                 if (!isNearJ[k] && !isKnife[k]) continue;
+                if (!IsPaveable(k)) continue;
                 bool lane = isBand[k] && (isDist[k] <= lim || isKnife[k]);
                 // the KNIFE where two roads part (or join): land thinner than a nose with no wider land beside it,
                 // between the lanes of two roads that leave one node within 60 degrees of each other - pavement,
@@ -455,6 +456,7 @@ namespace PSXRacing.City
         static void IsKnife(CityMap.Edge A, CityMap.Edge B, int n, Vector2 dA, Vector2 dB, Vector3 o)
         {
             float cross = dA.x * dB.y - dA.y * dB.x;     // > 0: B lies left of A's outward direction
+            var map0Node = A.a == n ? A.PointAt(0f) : A.PointAt(A.length);
             Vector2 prevA = Vector2.zero, prevB = Vector2.zero; bool havePrev = false;
             float lim = Mathf.Min(60f, Mathf.Min(A.length, B.length));
             int nb = Mathf.FloorToInt(lim / 0.5f) + 1;
@@ -470,6 +472,8 @@ namespace PSXRacing.City
                 float gap = Vector2.Dot(pb - pa, nA);
                 isKnifeY = A.YAt(Mathf.Clamp(A.a == n ? d : A.length - d, 0f, A.length)) - o.y;
                 if (havePrev) IsFillQuad(prevA, pa, pb, prevB, o);
+                if (IslandDebugAt.HasValue && (map0Node - IslandDebugAt.Value).sqrMagnitude < 3600f && d < 12f)
+                    IslandDebug.Append($"    knife n{n} e{A.index}/e{B.index} d {d:0.0}: gap {gap:0.00} pa ({pa.x:0.0},{pa.y:0.0}) pb ({pb.x:0.0},{pb.y:0.0})\n");
                 if (gap >= IslandMinWidthM + 2f * IslandCurbMarginM) { if (d > 0f) IslandKnifePairs++; break; }
                 if (d > 0f && gap > 0f) IslandKnifeLenM = Mathf.Max(IslandKnifeLenM, d);
                 prevA = pa; prevB = pb; havePrev = true;
@@ -804,8 +808,18 @@ namespace PSXRacing.City
             return buckets[(int)SlotOf(JunctionProfile, (Surface)surf)];
         }
 
+        /// <summary>A cell this near the tile's edge may lie under a ribbon the NEXT tile draws (the raster only
+        /// holds this tile's pavement): never paved.</summary>
+        const float IslandPaveEdgeM = 8f;
+        static bool IsPaveable(int k)
+        {
+            float x = (k % IsN + 0.5f) * IsCell - IsMargin, z = (k / IsN + 0.5f) * IsCell - IsMargin;
+            return x >= IslandPaveEdgeM && z >= IslandPaveEdgeM && x <= TileSize - IslandPaveEdgeM && z <= TileSize - IslandPaveEdgeM;
+        }
+
         static void IsPaveCell(int k, Vector3 o)
         {
+            if (!IsPaveable(k)) return;
             int i = k % IsN, j = k / IsN;
             float x0 = i * IsCell - IsMargin, z0 = j * IsCell - IsMargin, e = 0.12f;
             float y = isNearY[k] - 0.004f;
