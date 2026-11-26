@@ -57,10 +57,16 @@ namespace PSXRacing.City
             var res = new Result { arms = new List<Arm>(arms) };
             if (arms.Count < 2) { res.refused = "fewer than two arms"; return res; }
             var centre = Vector2.zero; foreach (var a in arms) centre += a.C[0]; centre /= arms.Count;
+            // arms that start together (one node, or side by side within a road's width) sort by their own heading;
+            // arms of a cluster that start apart sort by where they are round the cluster's centre
+            float spread = 0f, maxHalf = 0f;
+            foreach (var a in arms) { spread = Mathf.Max(spread, (a.C[0] - centre).magnitude); maxHalf = Mathf.Max(maxHalf, Mathf.Max((a.L[0] - a.C[0]).magnitude, (a.R[0] - a.C[0]).magnitude)); }
+            bool together = spread <= maxHalf * 1.5f + 1f;
             foreach (var a in arms)
             {
                 var p = a.C[Mathf.Min(a.C.Count - 1, Mathf.RoundToInt(12f / Step))];
-                a.ang = Mathf.Atan2(p.y - centre.y, p.x - centre.x) * Mathf.Rad2Deg;
+                var from = together ? a.C[0] : centre;
+                a.ang = Mathf.Atan2(p.y - from.y, p.x - from.x) * Mathf.Rad2Deg;
             }
             res.arms.Sort((p, q) => p.ang.CompareTo(q.ang));
             var A = res.arms;
