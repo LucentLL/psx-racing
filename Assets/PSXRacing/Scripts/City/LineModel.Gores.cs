@@ -214,6 +214,11 @@ namespace PSXRacing.City
                 if ((q - mid.p).magnitude > BayMedianSeekM) continue;
                 if (Vector2.Dot(q - mid.p, mid.left) * awaySide > 2f) { median = true; break; }
             }
+            // round 4: a median bay leaves its host on the host's LEFT (right-hand traffic: the median side of a
+            // one-way carriageway); a link leaving on the right is an outer bay or a slip whatever lies beyond it
+            // (e9611 at spot 80, the right turn toward N Tryon, lost its exit-only marks as a 'median' bay)
+            bool hostLeaves = H.oneway && H.a == n;
+            if (!(hostLeaves && sideH > 0)) median = false;
             float corridor = median ? BayCorridorM : RoadProfiles.LaneM + 1f;
             int inside = 0; for (int i = 0; i < nB; i++) if (gaps[i] <= corridor) inside++;
             if (inside < BayShareMin * nB) return;
