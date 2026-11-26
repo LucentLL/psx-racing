@@ -429,6 +429,7 @@ namespace PSXRacing.City
         /// <summary>A raised island's nose is at least this wide (AASHTO Green Book 9.6.3: a curbed island's
         /// approach nose 2-4 ft; the city takes 1.2 m, the island pass's own minimum).</summary>
         public static int IslandKnifePairs;
+        public static float IslandKnifeLenM;
 
         static void IsRasterKnives(CityMap map, Vector3 o)
         {
@@ -467,27 +468,30 @@ namespace PSXRacing.City
             float lim = Mathf.Min(60f, Mathf.Min(A.length, B.length));
             int nb = Mathf.FloorToInt(lim / 0.5f) + 1;
             if (isKB.Length < nb) isKB = new Vector2[nb * 2];
-            for (int q = 0; q < nb; q++) isKB[q] = IsFacingEdge(B, n, q * 0.5f, cross < 0f);
+            for (int q = 0; q < nb; q++) isKB[q] = IsFacingEdge(B, n, q * 0.5f, cross < 0f, out _);
             for (float d = 0f; d <= lim; d += 0.5f)
             {
-                var pa = IsFacingEdge(A, n, d, cross > 0f);
+                var pa = IsFacingEdge(A, n, d, cross > 0f, out var nA);
                 // B's facing edge nearest pa
                 var pb = isKB[0]; float bd = (pb - pa).sqrMagnitude;
                 for (int q = 1; q < nb; q++) { float dd = (isKB[q] - pa).sqrMagnitude; if (dd < bd) { bd = dd; pb = isKB[q]; } }
-                float gap = Vector2.Distance(pa, pb);
+                // the gap across, signed: where the two ribbons still overlap (at the node) it is negative
+                float gap = Vector2.Dot(pb - pa, nA);
                 if (havePrev) IsFillQuad(prevA, pa, pb, prevB, o);
                 if (gap >= IslandMinWidthM + 2f * IslandCurbMarginM) { if (d > 0f) IslandKnifePairs++; break; }
+                if (d > 0f && gap > 0f) IslandKnifeLenM = Mathf.Max(IslandKnifeLenM, d);
                 prevA = pa; prevB = pb; havePrev = true;
             }
         }
 
-        static Vector2 IsFacingEdge(CityMap.Edge e, int node, float fromNode, bool leftOfOutward)
+        static Vector2 IsFacingEdge(CityMap.Edge e, int node, float fromNode, bool leftOfOutward, out Vector2 facing)
         {
             float s = e.a == node ? fromNode : e.length - fromNode;
             s = Mathf.Clamp(s, 0f, e.length);
             LineModel.Extents(e, s, out float eM, out float eP);
             var tg = e.TangentAt(s); var left = new Vector2(-tg.y, tg.x);     // left of a->b
             bool leftAB = e.a == node ? leftOfOutward : !leftOfOutward;
+            facing = leftAB ? left : -left;
             return e.PointAt(s) + left * (leftAB ? eP + IslandCurbMarginM : -(eM + IslandCurbMarginM));
         }
 
