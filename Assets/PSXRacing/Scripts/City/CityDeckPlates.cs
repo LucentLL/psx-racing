@@ -22,17 +22,30 @@ namespace PSXRacing.City
     /// THE RULE (from the map alone, no list of places): a DECK KNOT is a set
     /// of <see cref="MinNodes"/> or more junction nodes (three arms or more,
     /// every arm on structure at the node) joined by edges that are on
-    /// structure end to end and no longer than <see cref="ShortEdgeM"/>. Its
-    /// PLATE is the convex hull of those edges' pavements and of each arm's
-    /// pavement out to where it stops overlapping the knot's
-    /// (<see cref="MarginM"/> wider). Inside the plate every road at the
-    /// knot's level stands at ONE height H: the mean of what the solve left
-    /// there, and never under what any piece of deck over a lower road's
-    /// pavement had (the clearance the solve gave is kept everywhere). Past
-    /// the plate each road eases from H back to its own profile over
-    /// <see cref="BlendM"/> of road (graph distance, so a ramp that loops
-    /// under the deck is never touched), level at the plate's rim and with
-    /// the least extra grade a level start allows (<see cref="U"/>).
+    /// structure end to end and no longer than <see cref="ShortEdgeM"/>.
+    /// City-wide that is three places: I-85 at Brookshire Boulevard, I-85 at
+    /// Freedom Drive, I-77 at Tyvola Road. Its PLATE is a convex rim round
+    /// the knot's pavements, tried widest first (TryPlate's modes): the whole
+    /// DECK (each arm out to where its structure ends), the knot's pavements
+    /// and 10 m, the knot's pavements (each arm out to where it stops
+    /// overlapping them) - the widest that moves nothing more than
+    /// MaxDeckChangeM. Inside the rim every road at the knot's level stands
+    /// at ONE height H: the mean of what the solve left there, raised where
+    /// a piece of deck over a lower road would otherwise come under the
+    /// clearance the solve stands a deck at (NeedM; never lowered at all
+    /// where it already has less). Past the rim each road eases from H back
+    /// to its own profile over <see cref="BlendM"/> or more of road (longer
+    /// for a larger change, one curvature; graph distance, so a ramp that
+    /// loops under the deck is never touched), level at the rim and with the
+    /// least extra grade a level start allows (<see cref="U"/>). A ramp
+    /// seated on another road is eased as that road is, and the road as the
+    /// ramp, where they share pavement (the seeds in TryPlate).
+    ///
+    /// A LEVEL plate, not a tilted one: everything built from a road's level
+    /// cross-section (kerbs, rails, girders, the lane paths) then follows
+    /// with no rule of its own. The price is a deck that stands on a grade:
+    /// Tyvola Road climbs 3 % across its deck, the whole deck as one level
+    /// slab would move it 1.5 m, so there the plate is the knot alone.
     ///
     /// The heights are written into the DRAWN profile (Edge.vS / vY, and the
     /// node heights) after the solve and its presentation pass have finished:
