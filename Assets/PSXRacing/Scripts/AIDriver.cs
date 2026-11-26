@@ -61,6 +61,7 @@ namespace PSXRacing
         const float FileInAirM = 0.25f;
         /// <summary>For the harness: filing in this tick.</summary>
         public bool FilingIn { get; private set; }
+        const float FileInMinMps = 4f;
         public static bool JunctionWaitOn = System.Environment.GetEnvironmentVariable("PSX_AI_JUNCTION_WAIT") != "0";
         /// <summary>
         /// (cityai round 3) A FINISHER CLEARS THE LANE: past the flag it drives on at <see cref="FinishCruiseMps"/> in its
@@ -2070,18 +2071,25 @@ namespace PSXRacing
             // fastest rival, in the pack eleven seconds in, met an oncoming BMW
             // head-on at 38.6 m/s.
             float leftLimit = float.NegativeInfinity;
+            bool oncomingGuard = false; // (cityai round 4) set only where a car is really coming
             var twoWay = TrafficSystem.Instance;
             if (twoWay != null && TwoWayHere(twoWay) && OncomingAhead(twoWay, OncomingGuardM))
                 // ...and with one about to be MET, well into its own lane: held
                 // at 1.0 m the racer still lagged its mark by half a metre and
                 // met cars with 2.0-2.2 m between centres - every head-on in
                 // sixteen measured races (2026-11-02).
+            {
                 leftLimit = (OncomingNear(twoWay, OncomingNearS) ? OncomingNearInnerM : OwnLaneInnerM) - lineOffset;
+                oncomingGuard = true;
+            }
             // A ROAD ITS OWN MAP CALLS ONE-WAY, with the race strip's oncoming stream on it all the same (the strip lays
             // oncoming lanes along the whole route: CltC2 at MEDIUM, 12 such meets in a race): those cars are met as
             // oncoming cars, right of the line (aipass, PASS WINDOW)
             else if (PassWindowOn && twoWay != null && twoWay.TwoWay && path.Routed && !TwoWayHere(twoWay) && OncomingAhead(twoWay, OncomingGuardM))
+            {
                 leftLimit = (OncomingNear(twoWay, OncomingNearS) ? OncomingNearInnerM : OwnLaneInnerM) - lineOffset;
+                oncomingGuard = true;
+            }
             // THE PASS WINDOW's lane (aipass): with traffic on a two-way road, not over the line without a pass that
             // holds - where it cannot see far enough to be there (a car at the street's speed would meet it within
             // PassStartGapS and the swing back), or a pass was just given up
@@ -2098,7 +2106,9 @@ namespace PSXRacing
             // the line) into oncoming traffic. Body edge within FileInAirM of the line with something coming: lift and
             // brake (harder with a racer alongside on the right, the squeeze) until it is back in its lane behind it.
             FilingIn = false;
-            if (PackFileInOn && !float.IsNegativeInfinity(leftLimit) && path != null)
+            // only with a car really coming (not the pass window's short-sight limit), and only while moving: at a
+            // crawl it lifts nothing, so a stopped car can still steer back in (H6 seed 0: five rivals stood 20 s 'file in')
+            if (PackFileInOn && oncomingGuard && car.forwardSpeed > FileInMinMps && path != null)
             {
                 Vector3 prr = Vector3.Cross(Vector3.up, path.GetTangent(nearestIdx)).normalized;
                 float myLatNow = Vector3.Dot(transform.position - path.GetPoint(nearestIdx), prr);
