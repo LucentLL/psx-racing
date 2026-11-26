@@ -123,10 +123,82 @@ namespace PSXRacing.City
             GoreShift(map, add, partner, p, far, ((e.a == fromNode) == (p.a == far)) ? shift : -shift, len, d0 + e.length, depth + 1);
         }
 
+        // ------------------------------------------------------------------
+        //  R0 (owner 11-26 on spot 80, "What are these roads?"): A TURN BAY IS A LANE OF ITS HOST.
+        //  OSM draws a left- or right-turn bay as its own line from its carriageway, often diagonally across the
+        //  median, to the junction node. A one-way link leaving a tier-1 through host within 35 degrees whose way
+        //  (under BayLenMaxM) ends on a road of its host's name and lies within BayCorridorM of the host's
+        //  pavement for BayShareMin of its stations is a BAY: its lanes are laid against the host's through lanes
+        //  (a sampled shift toward the host: the gap less BayInsetM, so the merge zone reads it as inside the host
+        //  and carries it as the host's aux lane) from where it leaves the through lanes to the TURN POINT, then
+        //  ease back onto its own line over the crossing run (BayCrossK x the lateral move, at least
+        //  BayCrossFloorM) to its end node. The merge zone (CityMeshes.Merge) then cuts the link's ribbon to the
+        //  nose at the turn point and widens the host there: no ribbon, verge or land of the link along the bay.
+        // ------------------------------------------------------------------
+        public const float BayLenMaxM = 250f, BayCorridorM = 20f, BayShareMin = 0.6f, BayInsetM = 0.3f, BayCrossK = 1.6f, BayCrossFloorM = 15f;
+        public sealed class Bay { public int node, branch, host; public float wayLen, turnAt, gapEnd, inside; }
+        public static readonly List<Bay> Bays = new List<Bay>();
+        static readonly HashSet<int> bayEdges = new HashSet<int>();
+        /// <summary>R0: is this link edge part of a bay laid along its host?</summary>
+        public static bool IsBayEdge(int edge) => bayEdges.Count > 0 && bayEdges.Contains(edge);
+
+        static void BayShift(CityMap map, System.Func<CityMap.Edge, int, int> partner, List<Ease>[] add, CityMap.Edge B, CityMap.Edge H, int n, List<GoreSt> WB, int sideB, int sideH)
+        {
+            if (bayEdges.Contains(B.index)) return;
+            const float ds = 1f;
+            // the bay's own way along its walk
+            int nB = 0; while (nB < WB.Count && WB[nB].e.wayId == B.wayId) nB++;
+            if (nB < 10) return;
+            float wayLen = (nB - 1) * ds;
+            if (wayLen > BayLenMaxM) return;
+            var wb = WB.GetRange(0, nB);
+            // its far node must be on a road of the host's name
+            var last = wb[nB - 1].e; int far = (wb[nB - 1].s > last.length * 0.5f) ? last.b : last.a;
+            bool named = false;
+            foreach (int i in map.nodeEdges[far]) { var h = map.edges[i]; if (!h.link && !string.IsNullOrEmpty(H.name) && h.name == H.name) { named = true; break; } }
+            if (!named) return;
+            var WH = GoreWalk(map, partner, H, n, ds, wayLen + 40f);
+            if (WH.Count < 4) return;
+            var gaps = new float[nB];
+            GoreOverlap(wb, WH, sideB, sideH, 0f, 0f, 1f, ds, 0f, gaps);
+            int inside = 0; for (int i = 0; i < nB; i++) if (gaps[i] <= BayCorridorM) inside++;
+            if (inside < BayShareMin * nB) return;
+            // the turn point: the crossing run before the end node
+            int iEnd = nB - 1; while (iEnd > 0 && gaps[iEnd] > 90f) iEnd--;
+            float gEnd = Mathf.Max(0f, gaps[iEnd]);
+            float cross = Mathf.Max(BayCrossFloorM, BayCrossK * (gEnd + RoadProfiles.LaneM));
+            float turnAt = wayLen - cross;
+            if (turnAt < 10f) return;
+            int iT = Mathf.Min(nB - 1, Mathf.RoundToInt(turnAt / ds));
+            var want = new float[nB + 1];
+            for (int i = 0; i <= iT; i++) want[i] = gaps[i] > 90f ? 0f : Mathf.Max(0f, gaps[i] + BayInsetM);
+            // round the start (where the lanes leave the through lanes) over 4 m
+            for (int i = 1; i <= iT; i++) want[i] = Mathf.Min(want[i], want[i - 1] + 2f * ds);
+            for (int i = iT + 1; i < nB; i++) want[i] = want[iT] * (1f - Smooth((i - iT) * ds / Mathf.Max(1f, wayLen - iT * ds)));
+            want[nB] = 0f;
+            // one profile ease per piece of the way, in its own frame (toward the host = +sideB in the away frame)
+            float d0 = 0f; int from = n; var E = B;
+            for (int guard = 0; guard < 8 && E != null && E.wayId == B.wayId; guard++)
+            {
+                bool fwd = E.a == from;
+                var prof = new float[want.Length];
+                for (int i = 0; i < want.Length; i++) prof[i] = (fwd ? 1f : -1f) * sideB * want[i];
+                (add[E.index] ??= new List<Ease>(2)).Add(new Ease { shift = true, fromA = fwd, prof = prof, profD0 = 0f, profDs = ds, d0 = d0, len = wayLen + 1f });
+                bayEdges.Add(E.index);
+                d0 += E.length;
+                int nf = fwd ? E.b : E.a;
+                if (nf == far) break;
+                int pi = partner(E, nf);
+                if (pi < 0) break;
+                E = map.edges[pi]; from = nf;
+            }
+            Bays.Add(new Bay { node = n, branch = B.index, host = H.index, wayLen = wayLen, turnAt = turnAt, gapEnd = gEnd, inside = (float)inside / nB });
+        }
+
         static void BuildGoreSplits(CityMap map, System.Func<CityMap.Edge, int, int> partner, Dictionary<int, Split> splitAt)
         {
             var clock = System.Diagnostics.Stopwatch.StartNew();
-            GoreSplits.Clear(); goreAt.Clear();
+            GoreSplits.Clear(); goreAt.Clear(); Bays.Clear(); bayEdges.Clear();
             GorePairs = 0; GoreOverlapBefore = 0; GoreOverlapAfter = 0; GoreSkippedDeck = 0; GoreZoneLeft = 0;
             if (!GoreSplitOn || map.nodeEdges == null) { GoreBuildMs = 0f; return; }
             const float ds = 1f;
@@ -174,7 +246,12 @@ namespace PSXRacing.City
                         if (CityMeshes.MergeZonesOn && ang <= 35f && moveX != moveY)
                         {
                             var B = moveX ? X : Y; var H = moveX ? Y : X;
-                            if (B.link && B.oneway && CityTier.Of(H) == CityTier.T1) { GoreZoneLeft++; continue; }
+                            if (B.link && B.oneway && CityTier.Of(H) == CityTier.T1)
+                            {
+                                GoreZoneLeft++;
+                                if (CityMeshes.BayLanesOn) BayShift(map, partner, add, B, H, n, B == X ? WX : WY, B == X ? sideX : sideY, B == X ? sideY : sideX);
+                                continue;
+                            }
                         }
                         if (moved.Contains(X.index) && moveY) moveX = false;      // an arm already moved at this node keeps its shift
                         if (moved.Contains(Y.index) && moveX) moveY = false;

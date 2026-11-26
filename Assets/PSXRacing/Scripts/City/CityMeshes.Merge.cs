@@ -99,8 +99,7 @@ namespace PSXRacing.City
         public static bool MergeZonesOn = System.Environment.GetEnvironmentVariable("PSX_CITY_MERGEZONES") != "0";
         /// <summary>c7roads round 3, R0: turn bays carried as their host's lane (=0: today's zones exactly).</summary>
         public static bool BayLanesOn = System.Environment.GetEnvironmentVariable("PSX_CITY_BAYLANES") != "0";
-        public const float BayGapM = 3.66f + 1f, BayShare = 0.6f, BayMaxLenM = 250f;
-        public static int BayZonesN;
+
         /// <summary>PSX_CITY_ZONELANES=0: the drawing as L5, the lane paths as L4 (A9 off).</summary>
         public static bool ZoneLanesOn = System.Environment.GetEnvironmentVariable("PSX_CITY_ZONELANES") != "0";
         public static readonly List<MergeZone> Zones = new List<MergeZone>();
@@ -332,7 +331,7 @@ namespace PSXRacing.City
         /// and the tiles' see the same zones.</summary>
         static void BuildMergeZones(CityMap map, Trims t)
         {
-            Zones.Clear(); zoneCuts.Clear(); ZoneRejects.Clear(); ZoneRejectAt.Clear(); zonePairs.Clear(); BayZonesN = 0;
+            Zones.Clear(); zoneCuts.Clear(); ZoneRejects.Clear(); ZoneRejectAt.Clear(); zonePairs.Clear();
             if (!MergeZonesOn) return;
             var splitNodes = new HashSet<int>();
             if (map.splt != null) foreach (var sp in map.splt) splitNodes.Add(sp.node);
@@ -545,34 +544,11 @@ namespace PSXRacing.City
             ZoneSample(host, br, tN, ref sd, out var at);
             float theta = Mathf.Acos(Mathf.Clamp(Vector2.Dot(at.dirL, at.dirM), -1f, 1f)) * Mathf.Rad2Deg;
             if (theta > ZoneMaxDeg) { ZoneReject("over 35 deg (a junction mouth)"); return null; }
-            // c7roads round 3, R0 (PSX_CITY_BAYLANES): A TURN BAY IS A LANE OF ITS HOST. OSM draws a left- or
-            // right-turn bay as its own line running beside (or diagonally across the median from) its
-            // carriageway to the junction; drawn as a road it is a narrow diagonal road with a wedge of land
-            // (the owner's spot 80, e3176; 79, e2292). A diverging one-way link whose inner lane edge stays within
-            // BayGapM (one lane + 1 m) of its host's through lanes for at least BayShare of its own way, under
-            // BayMaxLenM, is a bay: its nose N moves on to where it leaves that corridor, so the host's aux lane
-            // (the zone's lane) carries it from the node to N and the link's own ribbon starts there (the turn
-            // across). Traffic, the AI and the race line drive the aux lane over that stretch (ZoneLanePoint).
-            bool isBay = false;
-            if (BayLanesOn && !merge && L.link && L.oneway)
-            {
-                float wayLen = 0f;
-                foreach (var E in br.edges) { if (E.wayId != L.wayId) break; wayLen += E.length; }
-                float tLeave = tN, inside = 0f;
-                for (float tb = tN; tb <= Mathf.Min(wayLen, BayMaxLenM); tb += 2f)
-                {
-                    int sb = side;
-                    if (!ZoneSample(host, br, tb, ref sb, out var ob) || sb != side) break;
-                    if (ob.g > BayGapM) break;
-                    tLeave = tb; inside = tb;
-                }
-                if (wayLen <= BayMaxLenM && inside >= BayShare * wayLen && tLeave - tN >= 6f)
-                {
-                    tN = tLeave; BayZonesN++; isBay = true;
-                    if (ZoneTraceEdges != null && ZoneTraceEdges.Contains(L.index)) ZoneTrace.Append($"zone e{L.index}/n{n}: BAY, nose moved to {tN:0.0} m of {wayLen:0.0}\n");
-                }
-                else if (ZoneTraceEdges != null && ZoneTraceEdges.Contains(L.index)) ZoneTrace.Append($"zone e{L.index}/n{n}: not a bay (beside {inside:0.0} of {wayLen:0.0} m)\n");
-            }
+            // c7roads round 3, R0 (PSX_CITY_BAYLANES): A TURN BAY IS A LANE OF ITS HOST. The line model lays a bay's
+            // lanes against its host's through lanes up to its turn point (LineModel.BayShift), so this zone finds
+            // its nose there: the host's aux lane carries the bay from the node, the link's own ribbon is only the
+            // turn across, and traffic, the AI and the race line drive the aux lane (ZoneLanePoint).
+            bool isBay = BayLanesOn && !merge && LineModel.IsBayEdge(L.index);
             float xN = at.arcIn;
             // the step at N must lie inside one host piece, off its polyline
             // vertices (a section there is square to the chain), and the

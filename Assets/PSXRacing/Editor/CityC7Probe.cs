@@ -114,6 +114,7 @@ namespace PSXRacing.EditorTools
         {
             var inv = CultureInfo.InvariantCulture;
             string tag = System.Environment.GetEnvironmentVariable("PSX_C7_TAG") ?? "run";
+            CityMeshes.ZoneTraceEdges = new HashSet<int>((System.Environment.GetEnvironmentVariable("PSX_ZONETRACE") ?? "").Split(',').Where(x => x.Trim().Length > 0).Select(x => int.Parse(x.Trim())));
             float planHalf = 40f;
             float.TryParse(System.Environment.GetEnvironmentVariable("PSX_C7_PLAN") ?? "40", NumberStyles.Float, inv, out planHalf);
             float.TryParse(System.Environment.GetEnvironmentVariable("PSX_C7_R") ?? "40", NumberStyles.Float, inv, out spotR);
@@ -139,7 +140,8 @@ namespace PSXRacing.EditorTools
                 var globals = Object.FindAnyObjectByType<PSXGlobals>();
                 var path = Object.FindAnyObjectByType<TrackPath>();
                 log.Append($"tile cache {(CityTileCache.Enabled ? "ON" : "off")}\n");
-                log.Append($"GORESPLIT {(LineModel.GoreSplitOn ? 1 : 0)}: arm pairs within {LineModel.GoreMaxDeg:0} deg {LineModel.GorePairs}, overlapping before {LineModel.GoreOverlapBefore}, still overlapping {LineModel.GoreOverlapAfter}, decks skipped {LineModel.GoreSkippedDeck}, left to the merge zones {LineModel.GoreZoneLeft}, {LineModel.GoreBuildMs:0} ms; BAYLANES {(CityMeshes.BayLanesOn ? 1 : 0)}: zones {CityMeshes.Zones.Count}, of them bays {CityMeshes.Zones.Count(zz => zz.bay)}\n");
+                log.Append(CityMeshes.ZoneTrace.ToString());
+                log.Append($"GORESPLIT {(LineModel.GoreSplitOn ? 1 : 0)}: arm pairs within {LineModel.GoreMaxDeg:0} deg {LineModel.GorePairs}, overlapping before {LineModel.GoreOverlapBefore}, still overlapping {LineModel.GoreOverlapAfter}, decks skipped {LineModel.GoreSkippedDeck}, bays laid along their host {LineModel.Bays.Count}, left to the merge zones {LineModel.GoreZoneLeft}, {LineModel.GoreBuildMs:0} ms; BAYLANES {(CityMeshes.BayLanesOn ? 1 : 0)}: zones {CityMeshes.Zones.Count}, of them bays {CityMeshes.Zones.Count(zz => zz.bay)}\n");
                 foreach (var c in rows)
                 {
                     string id = c[0];
@@ -186,6 +188,9 @@ namespace PSXRacing.EditorTools
                         if ((map.nodes[zz.node] - p2).magnitude < 150f)
                             log.Append(string.Format(inv, "  ZONE e{0} n{1} host e{2} style {3} k {4} D {5:0.0} wN {6:0.00} theta {7:0.0} {8}{9}\n", zz.branch, zz.node, zz.host, zz.style, zz.k, zz.D, zz.wN, zz.theta, zz.merge ? "merge" : "diverge", zz.bay ? " BAY" : ""));
                     log.Append($"  LANECLIP {(CityMeshes.LaneClipOn ? 1 : 0)} so far: tested {CityMeshes.LaneClipTested}, dropped {CityMeshes.LaneClipDropped}, cut {CityMeshes.LaneClipCut}, {CityMeshes.LaneClipMs:0} ms; " + string.Join(", ", CityMeshes.LaneClipBySlot.Select(kv => kv.Key + " " + kv.Value)) + "\n");
+                    foreach (var bb in LineModel.Bays)
+                        if ((map.nodes[bb.node] - p2).magnitude < 200f)
+                            log.Append(string.Format(inv, "  BAY e{0} n{1} host e{2}: way {3:0.0} m, turn at {4:0.0} m, gap at end {5:0.0} m, inside {6:0.00}\n", bb.branch, bb.node, bb.host, bb.wayLen, bb.turnAt, bb.gapEnd, bb.inside));
                     bool doInv = views.Contains("inv");
                     if (doInv) { recs.Clear(); spotsXZ = new[] { p2 }; CityMeshes.ProvHook = Hook; }
                     CityMeshes.IslandDebugAt = p2; CityMeshes.IslandDebug.Clear();
