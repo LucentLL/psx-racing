@@ -1335,7 +1335,9 @@ namespace PSXRacing
                     }
                     continue;
                 }
-                if (o.dir != c.dir || Mathf.Abs(o.lat - c.lat) > 1.5f) continue;
+                // (round 4) in its lane, or where it physically is: a car changing lane (TRAFFIC KEEPS TO PAVEMENT) still
+                // sees the car ahead in the lane it is leaving (two rear-ended one in seven runs, Tryon)
+                if (o.dir != c.dir || (Mathf.Abs(o.lat - c.lat) > 1.5f && !(LanesFitOn && Mathf.Abs(o.latNow - c.latNow) < 1.9f))) continue;
                 float d = Delta(c.s, o.s) * c.dir;
                 if (d > 0f && d < best) { best = d; leaderV = o.speed; }
             }
