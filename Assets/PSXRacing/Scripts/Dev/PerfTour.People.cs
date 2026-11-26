@@ -269,17 +269,17 @@ namespace PSXRacing
             table.AppendLine($"each variant: {reps} reps x {blockS:0.#} s, each beside a {blockS:0.#} s block with no figures; delta = mean over reps of (median with - median without); runs = the reps in three groups");
             table.AppendLine("markers: " + (found.Length > 0 ? found.ToString() : "none found"));
             table.AppendLine();
-            table.AppendLine("variant   | frame med  p99  | d frame (sd)  runs            | d view call | d gpu wait | d main(FTM) d RT(FTM) d GPU(FTM) | draws  d     | setpass d | tris M   | d skin mk | d anim mk");
+            table.AppendLine("variant   | frame med  p99  | d frame (sd)  runs            | d view call | d gpu wait | d main(FTM) d RT(FTM) d GPU(FTM) | draws  d     | setpass d | tris M   | d skin mk | d anim mk | median of rep deltas: frame, main(FTM), p99");
             var csv = new StringBuilder("variant,tech,count,metric,with_median,without_median,delta_mean,delta_sd,with_p99,reps\n");
             for (int v = 0; v < vars.Count; v++)
             {
                 var on = onAll[v]; var off = offAll[v];
                 table.AppendLine(string.Format(ci,
-                    "{0,-9} | {1,6:0.00} {2,6:0.00} | {3,6:0.00} ({4:0.00}) {5,-15} | {6,11:0.00} | {7,10:0.00} | {8,11:0.00} {9,9:0.00} {10,10:0.00} | {11,5:0} {12,5:+0;-0;0} | {13,5:0} {14,3:+0;-0;0} | {15,5:0.00}>{16:0.00} | {17,9:0.000} | {18,9:0.000}",
+                    "{0,-9} | {1,6:0.00} {2,6:0.00} | {3,6:0.00} ({4:0.00}) {5,-15} | {6,11:0.00} | {7,10:0.00} | {8,11:0.00} {9,9:0.00} {10,10:0.00} | {11,5:0} {12,5:+0;-0;0} | {13,5:0} {14,3:+0;-0;0} | {15,5:0.00}>{16:0.00} | {17,9:0.000} | {18,9:0.000} | {19,6:0.00} {20,6:0.00} {21,7:0.00}",
                     vars[v].name, Median(on[PP_FRAME]), Pct(on[PP_FRAME], 0.99f), Mean(dRep[v, PP_FRAME]), Sd(dRep[v, PP_FRAME]), Thirds(dRep[v, PP_FRAME]),
                     Mean(dRep[v, PP_CALL]), Mean(dRep[v, PP_WAIT]), Mean(dRep[v, PP_MAIN]), Mean(dRep[v, PP_RT]), Mean(dRep[v, PP_GPU]),
                     Median(on[PP_DRAWS]), Mean(dRep[v, PP_DRAWS]), Median(on[PP_SETPASS]), Mean(dRep[v, PP_SETPASS]),
-                    Median(off[PP_TRIS]), Median(on[PP_TRIS]), Mean(dRep[v, PP_SKIN]), Mean(dRep[v, PP_ANIM])));
+                    Median(off[PP_TRIS]), Median(on[PP_TRIS]), Mean(dRep[v, PP_SKIN]), Mean(dRep[v, PP_ANIM]), Median(new List<float>(dRep[v, PP_FRAME])), Median(new List<float>(dRep[v, PP_MAIN])), Pct(on[PP_FRAME], 0.99f) - Pct(off[PP_FRAME], 0.99f)));
                 for (int m = 0; m < PP_N; m++)
                     csv.Append(vars[v].name).Append(',').Append(vars[v].t).Append(',').Append(vars[v].n).Append(',').Append(PpNames[m]).Append(',')
                        .Append(Median(on[m]).ToString("0.000", ci)).Append(',').Append(Median(off[m]).ToString("0.000", ci)).Append(',')
