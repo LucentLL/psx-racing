@@ -92,6 +92,8 @@ namespace PSXRacing.City
         static int[] isDist2;      // the same, a lane's band counted as pavement
         static bool[] isBand;      // inside some road's lanes (its ribbon less its shoulders)
         static int[] isBandEdge;   // ... whose (the last one drawn)
+        static float[] isBandY;    // the band's road height
+        static bool[] isBandM;     // the band grown by the curb margin: no island core here (not paved)
         static bool[] isBandUp;    // under a deck's or a tunnel's lanes, or an elevated section's: never island, never paved
         static bool[] isKnife;     // the knife where two roads part (paved gore)
         static bool[] isNearJ;     // within IslandLaneTipNodeM of a node where three or more roads meet (a split, a junction)
@@ -109,10 +111,10 @@ namespace PSXRacing.City
             var sw = System.Diagnostics.Stopwatch.StartNew();
             if (isY == null || isY.Length != NN)
             {
-                isY = new float[NN]; isSlot = new short[NN]; isDist = new int[NN]; isDist2 = new int[NN]; isBand = new bool[NN]; isBandEdge = new int[NN]; isBandUp = new bool[NN]; isKnife = new bool[NN]; isNearJ = new bool[NN]; isNearY = new float[NN]; isComp = new int[NN]; isFlag = new byte[NN];
+                isY = new float[NN]; isSlot = new short[NN]; isDist = new int[NN]; isDist2 = new int[NN]; isBand = new bool[NN]; isBandEdge = new int[NN]; isBandUp = new bool[NN]; isBandM = new bool[NN]; isBandY = new float[NN]; isKnife = new bool[NN]; isNearJ = new bool[NN]; isNearY = new float[NN]; isComp = new int[NN]; isFlag = new byte[NN];
             }
             isGone.Clear();
-            for (int k = 0; k < NN; k++) { isY[k] = float.NaN; isSlot[k] = -1; isComp[k] = -1; isFlag[k] = 0; isDist[k] = int.MaxValue; isBand[k] = false; isBandEdge[k] = -1; isBandUp[k] = false; isKnife[k] = false; isNearJ[k] = false; }
+            for (int k = 0; k < NN; k++) { isY[k] = float.NaN; isSlot[k] = -1; isComp[k] = -1; isFlag[k] = 0; isDist[k] = int.MaxValue; isBand[k] = false; isBandEdge[k] = -1; isBandUp[k] = false; isBandM[k] = false; isKnife[k] = false; isNearJ[k] = false; }
             // ---- the drawn pavement ----------------------------------------------------------------
             bool any = false;
             for (int s = 0; s < buckets.Length; s++)
@@ -145,7 +147,8 @@ namespace PSXRacing.City
             // ---- distance (chamfer 10 / 14 a cell) and the nearest pavement's height into the land ----
             for (int k = 0; k < NN; k++)
             {
-                if (float.IsNaN(isY[k])) { isFlag[k] = 1; isDist[k] = int.MaxValue / 2; isNearY[k] = float.NaN; }
+                // one field (cost): from the drawn pavement AND the travelled way's band (its road's height)
+                if (float.IsNaN(isY[k])) { isFlag[k] = 1; if (isBandM[k]) { isDist[k] = 0; isNearY[k] = isBandY[k]; } else { isDist[k] = int.MaxValue / 2; isNearY[k] = float.NaN; } }
                 else { isDist[k] = 0; isNearY[k] = isY[k]; }
             }
             for (int j = 0; j < N; j++)
@@ -164,23 +167,7 @@ namespace PSXRacing.City
                     if (i + 1 < N) IsRelax(k, k + 1, 10);
                     if (j + 1 < N) { IsRelax(k, k + N, 10); if (i + 1 < N) IsRelax(k, k + N + 1, 14); if (i > 0) IsRelax(k, k + N - 1, 14); }
                 }
-            for (int k = 0; k < NN; k++) isDist2[k] = (isDist[k] == 0 || isBand[k]) ? 0 : int.MaxValue / 2;
-            for (int j = 0; j < N; j++)
-                for (int i = 0; i < N; i++)
-                {
-                    int k = IsIdx(i, j);
-                    if (isDist2[k] == 0) continue;
-                    if (i > 0) IsRelax2(k, k - 1, 10);
-                    if (j > 0) { IsRelax2(k, k - N, 10); if (i > 0) IsRelax2(k, k - N - 1, 14); if (i + 1 < N) IsRelax2(k, k - N + 1, 14); }
-                }
-            for (int j = N - 1; j >= 0; j--)
-                for (int i = N - 1; i >= 0; i--)
-                {
-                    int k = IsIdx(i, j);
-                    if (isDist2[k] == 0) continue;
-                    if (i + 1 < N) IsRelax2(k, k + 1, 10);
-                    if (j + 1 < N) { IsRelax2(k, k + N, 10); if (i + 1 < N) IsRelax2(k, k + N + 1, 14); if (i > 0) IsRelax2(k, k + N - 1, 14); }
-                }
+            System.Array.Copy(isDist, isDist2, NN);
             IslandMs[3] += sw.Elapsed.TotalMilliseconds;
             yield return 0;
             sw.Restart();
@@ -229,7 +216,7 @@ namespace PSXRacing.City
                 if (IsHasBuilding(cells)) { IsPaveLaneTips(map, cells, o, tipCells); continue; }
                 // the core: cells half the minimum width from the pavement; an island is the core grown back
                 int coreN = 0;
-                foreach (int k in cells) if (!isBand[k] && !isBandUp[k] && isDist2[k] >= tipCells) coreN++;
+                foreach (int k in cells) if (!isBandM[k] && !isBandUp[k] && isDist2[k] >= tipCells) coreN++;
                 if (coreN == 0)
                 {
                     // all of it narrower than a nose: a long one is a narrow median (as it was); a short one is the
@@ -243,7 +230,8 @@ namespace PSXRacing.City
                     }
                     continue;
                 }
-                foreach (int k in cells) isFlag[k] = (byte)(isBandUp[k] ? 4 : !isBand[k] && isDist2[k] >= tipCells ? 2 : 3);
+                // 2 island core; 3 paved (a lane, a knife, a tip); 4 left as it was (under a deck, or the curb margin)
+                foreach (int k in cells) isFlag[k] = (byte)(isBandUp[k] ? 4 : isBand[k] ? 3 : isBandM[k] ? 4 : isDist2[k] >= tipCells ? 2 : 3);
                 // grow the core back over tip cells within tipCells of it (an opening)
                 IsGrowCore(cells, growCells);
                 IsEmitComponent(map, tm, cells, o);
@@ -412,13 +400,18 @@ namespace PSXRacing.City
                     bool upHere = up || e.ElevatedAt(sv);
                     LineModel.Extents(e, sv, out float eM, out float eP);
                     var tg = e.TangentAt(sv); var left = new Vector2(-tg.y, tg.x);
+                    float yRoad = e.YAt(sv) - o.y;
                     float lo = -eM - IslandCurbMarginM, hi = eP + IslandCurbMarginM;
                     for (float l = lo; l <= hi + 0.01f; l += 0.35f)
                     {
-                        var q = pt + left * Mathf.Min(l, hi);
+                        float lc = Mathf.Min(l, hi);
+                        var q = pt + left * lc;
                         if (!IsCellAt(q.x - o.x, q.y - o.z, out int k)) continue;
                         if (upHere) { isBandUp[k] = true; continue; }
-                        isBand[k] = true; isBandEdge[k] = e.index;
+                        isBandM[k] = true; isBandY[k] = yRoad;
+                        // paved only within the road's own extents (its shoulder's edge); the margin past it keeps
+                        // the island's curb off the edge line but is the apron's, not new asphalt
+                        if (lc > -eM + 0.05f && lc < eP - 0.05f) { isBand[k] = true; isBandEdge[k] = e.index; }
                     }
                 }
             }
@@ -475,6 +468,7 @@ namespace PSXRacing.City
                 for (int q = 1; q < nb; q++) { float dd = (isKB[q] - pa).sqrMagnitude; if (dd < bd) { bd = dd; pb = isKB[q]; } }
                 // the gap across, signed: where the two ribbons still overlap (at the node) it is negative
                 float gap = Vector2.Dot(pb - pa, nA);
+                isKnifeY = A.YAt(Mathf.Clamp(A.a == n ? d : A.length - d, 0f, A.length)) - o.y;
                 if (havePrev) IsFillQuad(prevA, pa, pb, prevB, o);
                 if (gap >= IslandMinWidthM + 2f * IslandCurbMarginM) { if (d > 0f) IslandKnifePairs++; break; }
                 if (d > 0f && gap > 0f) IslandKnifeLenM = Mathf.Max(IslandKnifeLenM, d);
@@ -494,6 +488,7 @@ namespace PSXRacing.City
         }
 
         static Vector2[] isKB = new Vector2[256];
+        static float isKnifeY;
 
         static void IsFillQuad(Vector2 a, Vector2 b, Vector2 c, Vector2 d, Vector3 o)
         {
@@ -505,7 +500,8 @@ namespace PSXRacing.City
                     var q = new Vector2(x + o.x, z + o.z);
                     if (!InQuad(q, a, b, c, d)) continue;
                     if (!IsCellAt(x, z, out int k) || isBandUp[k]) continue;
-                    isBand[k] = true; if (isBandEdge[k] < 0) isBandEdge[k] = -2;
+                    if (!isBandM[k]) isBandY[k] = isKnifeY;
+                    isBand[k] = true; isBandM[k] = true; if (isBandEdge[k] < 0) isBandEdge[k] = -2;
                     isKnife[k] = true;
                 }
         }
@@ -752,7 +748,7 @@ namespace PSXRacing.City
                     int ii = i + (q == 0 ? 1 : q == 1 ? -1 : 0), jj = j + (q == 2 ? 1 : q == 3 ? -1 : 0);
                     if (ii < 0 || jj < 0 || ii >= N || jj >= N) continue;
                     int kk = IsIdx(ii, jj);
-                    if (isFlag[kk] != 3 || isBand[kk] || dist.ContainsKey(kk)) continue;
+                    if (isFlag[kk] != 3 || isBandM[kk] || dist.ContainsKey(kk)) continue;
                     dist[kk] = d + 1; isFlag[kk] = 2; isQ.Enqueue(kk);
                 }
             }
