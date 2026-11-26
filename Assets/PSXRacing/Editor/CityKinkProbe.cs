@@ -112,7 +112,7 @@ namespace PSXRacing.EditorTools
                             }
                     }
                 }
-                log.Append($"ribbons read near the spots {ribs}\n");
+                log.Append($"ribbons read near the spots {ribs} (failed {ribFail})\n");
                 log.Append("CITY-WIDE (fan rings; ribbons only near the spots):\n");
                 foreach (var kv in city) log.Append($"  {kv.Key}: {kv.Value}\n");
                 log.Append($"WITHIN {SpotR:0} m OF THE SPOTS:\n");
