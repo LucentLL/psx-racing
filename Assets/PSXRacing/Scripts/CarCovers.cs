@@ -58,7 +58,9 @@ namespace PSXRacing
             if (def != null && def.coverMaterial != null && On)
             {
                 var b = bodyFilter.sharedMesh;
-                if (b != null && b == def.bodyMesh) mesh = def.coverMesh;
+                // (the open body of CarParts wears the closed body's covers: a
+                // cover carried by a lid is part of that lid's own mesh)
+                if (b != null && (b == def.bodyMesh || b == def.bodyOpenMesh)) mesh = def.coverMesh;
                 else if (b != null && b == def.lampsUpMesh) mesh = def.coverUpMesh;
                 // (the lens variant B wears its own covers: none here)
             }

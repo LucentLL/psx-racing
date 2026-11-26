@@ -2876,6 +2876,7 @@ namespace PSXRacing.EditorTools
             TestPaintAndFilmGrade();
             Guard(nameof(TestCarDotsShade), TestCarDotsShade);   // cardots: LifeSimSelfTest.CarDots.cs
             Guard(nameof(TestLab), TestLab);   // labswitches: LifeSimSelfTest.Lab.cs
+            Guard(nameof(TestCarParts), TestCarParts);   // carparts: LifeSimSelfTest.CarParts.cs
             TestLampControlMaps();
             TestOneToneCurve();
             TestReversedStageDistance();

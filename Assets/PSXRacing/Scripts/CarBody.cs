@@ -245,6 +245,9 @@ namespace PSXRacing
             lensCovers = on;
             var def = Def;
             if (def == null) return;
+            // B is refused with parts open (CarParts.Allowed): every part shuts first
+            if (on) CarParts.TearDown(bodyFilter);
+            Debug.Assert(!on || CarParts.Find(bodyFilter) == null, "[CarParts] lens B with parts open");
             if (bodyFilter != null && !on && bodyFilter.sharedMesh == def.lensBodyMesh)
                 bodyFilter.sharedMesh = def.bodyMesh;
             DressLenses(def);
@@ -373,6 +376,8 @@ namespace PSXRacing
                 : null;
             skinIndex = def.SkinCount > 0 ? Mathf.Clamp(skin, 0, def.SkinCount - 1) : -1;
 
+            // a re-dress always starts shut (CarParts: the closed body back, parts gone)
+            CarParts.TearDown(bodyFilter);
             if (bodyFilter != null) bodyFilter.sharedMesh = def.bodyMesh;
             PSXTexDecode.Stamp(mat);   // a livery's 16-bit sheet is decoded in the shader
             if (bodyRenderer != null && mat != null) bodyRenderer.sharedMaterial = mat;

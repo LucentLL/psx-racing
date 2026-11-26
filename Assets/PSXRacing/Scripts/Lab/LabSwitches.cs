@@ -347,6 +347,14 @@ namespace PSXRacing
                 look = "Brake lamps stay lit through light braking instead of flickering every frame or two.",
                 env = new[] { "PSX_BRAKELAMPHOLD" }, members = new[] { "CarLights.BrakeLampHold" },
             });
+            // carparts (stage 1): live - switched off, every part on every car shuts at once
+            Register(new LabRow
+            {
+                id = "carparts", group = LabGroup.Cars, name = "OPEN HOOD, TRUNK AND DOORS", when = LabWhen.Now,
+                look = "Parked or walking pace: O / D-pad down / OPEN opens the hood, trunk and doors; the engine shows under the hood.",
+                env = new[] { "PSX_CARPARTS" }, members = new[] { "CarParts.On" },
+                apply = CarParts.ApplyLab,
+            });
             // ---- TRAFFIC --------------------------------------------------------
             Register(new LabRow
             {

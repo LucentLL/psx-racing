@@ -2,6 +2,9 @@ using UnityEngine;
 
 namespace PSXRacing
 {
+    /// <summary>How the engine sits in the bay (5A `Engine_Mount.layout`).</summary>
+    public enum EngineLayout { Unknown, Longitudinal, Transverse }
+
     /// <summary>
     /// One drivable body shell: the meshes, the liveries, and the handful of
     /// measurements the chassis needs to wear it.
@@ -207,6 +210,77 @@ namespace PSXRacing
         public Mesh coverMesh;
         public Mesh coverUpMesh;
         public Material coverMaterial;
+
+        /// <summary>
+        /// OPENING PARTS (carparts, vehicle spec 5A; owner 2026-11-26: "rigged
+        /// cars (hood, doors, trunk)", "engine models in engine bay"). All
+        /// optional: null or empty = today's car, and a prefab baked before
+        /// these existed loads unchanged. <see cref="bodyMesh"/> stays the
+        /// CLOSED car (Body and its outer panels merged), so a shut car draws
+        /// exactly as before; <see cref="bodyOpenMesh"/> (Body with its
+        /// apertures, Jamb_L, Jamb_R, Bay, TrunkWell) goes on the body's
+        /// filter only while a part is open, and each open panel is then drawn
+        /// on its own (CarParts). Every mesh and point here is in the body
+        /// OBJ's frame after the converter's scale, i.e. <see cref="bodyMesh"/>'s.
+        /// </summary>
+        public Mesh bodyOpenMesh;
+        /// <summary>One per outer panel present (Hood, Trunk or Hatch, Door_L,
+        /// Door_R, Door_RL, Door_RR).</summary>
+        public OpeningPart[] openingParts;
+
+        [System.Serializable]
+        public struct OpeningPart
+        {
+            /// <summary>Hood | Trunk | Hatch | Door_L | Door_R | Door_RL | Door_RR</summary>
+            public string name;
+            /// <summary>The outer skin + its _Inner + what it carries (lenses,
+            /// mirror inserts, a spoiler), merged; body mesh space.</summary>
+            public Mesh mesh;
+            /// <summary>A point on the hinge line, body mesh space.</summary>
+            public Vector3 pivot;
+            /// <summary>Unit hinge axis, body mesh space; a positive angle opens.</summary>
+            public Vector3 axis;
+            /// <summary>How far it opens, positive degrees.</summary>
+            public float openDeg;
+        }
+
+        /// <summary>The engine's seat (5A `Engine_Mount`): origin on the crank
+        /// centreline at the flywheel face, +Y along the crank to the timing
+        /// end, +Z up the bore (or the banks' bisector). Body mesh space.</summary>
+        public bool hasEngineMount;
+        public Vector3 engineMountPos;
+        public Quaternion engineMountRot = Quaternion.identity;
+        public EngineLayout engineLayout;
+        /// <summary>Six distances in the mount's frame (front, back, left,
+        /// right, up, down), metres, from the origin to the nearest bay surface.</summary>
+        public float[] engineClearBox;
+        /// <summary>Where the downpipe leaves the bay, body mesh space.</summary>
+        public Vector3 engineDownpipe;
+        /// <summary>+1 = the mount's +X side, -1 = its -X side; 0 = unknown.</summary>
+        public sbyte engineDownpipeSide;
+        /// <summary>The bay kit's seats on Bay (`Kit_Battery`, `Kit_Radiator`...).</summary>
+        public KitMount[] kitMounts;
+
+        [System.Serializable]
+        public struct KitMount
+        {
+            public string name;
+            public Vector3 pos;
+            public Quaternion rot;
+        }
+
+        /// <summary>This shell has panels that open (5A art, or the test stand-in).</summary>
+        public bool HasParts => openingParts != null && openingParts.Length > 0;
+
+        /// <summary>Is <paramref name="m"/> one of THIS shell's bodies (closed,
+        /// lamps-up or open)? The one test every reader that finds the body by
+        /// mesh identity uses, so the open body is never taken for a new shell.
+        /// The lens body B is deliberately not one of them (CarBody owns it).</summary>
+        public bool IsBodyOf(Mesh m) =>
+            m != null && (m == bodyMesh || m == lampsUpMesh || m == bodyOpenMesh);
+
+        /// <summary><see cref="IsBodyOf(Mesh)"/> for a def that may be null.</summary>
+        public static bool IsBodyOf(CarModelDef def, Mesh m) => def != null && def.IsBodyOf(m);
 
         public Vector3 colliderCenter = new Vector3(0f, 0.72f, 0.05f);
         public Vector3 colliderSize = new Vector3(1.72f, 1.0f, 4.1f);

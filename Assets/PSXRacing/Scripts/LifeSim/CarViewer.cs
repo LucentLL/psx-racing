@@ -578,6 +578,8 @@ namespace PSXRacing.LifeSim
             // and the wheels sit symmetrically about them.
             float centre = fit.P(def.colliderCenter).z;
 
+            // a re-dress always starts shut (CarParts: the closed body back, parts gone)
+            CarParts.TearDown(bodyFilter);
             bodyFilter.sharedMesh = def.bodyMesh;
             bodyRenderer.sharedMaterial = mat;
             CarCovers.Dress(bodyFilter, def);   // the clear lamp covers
