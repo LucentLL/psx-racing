@@ -396,7 +396,7 @@ namespace PSXRacing
             public float knockHoldUntil;
             public float knockWindowAt; public int knocks;
             public float lastRacerAt = -100f;
-            public float fitNext, fitLane;
+            public float fitNext, fitLane, fitRoomM = float.PositiveInfinity;
             public string lastContactPath; public Vector3 lastContactPt;   // (cityai round 5) what it hit, where
             public Vector3[] trail; public int trailN; public float trailNext;  // (cityai round 5) last 3 s, WreckTrace only
         }
@@ -518,6 +518,9 @@ namespace PSXRacing
         /// <summary>(cityai round 5) PSX_TRAFFIC_GAP_STANDING: a lane change or a move out round a stopped racer needs the
         /// strip it moves across clear of every other traffic car, standing ones included, by where each car physically is.
         /// Off = round 4.</summary>
+        /// <summary>(cityai round 5) PSX_TRAFFIC_LANE_DROP: the lane look reaches 70 m+ (merge before a narrowing), a car
+        /// with no gap stops short of where its lane ends, and none is born in a lane that ends within 70 m. Off = round 4.</summary>
+        public static bool LaneDropOn = System.Environment.GetEnvironmentVariable("PSX_TRAFFIC_LANE_DROP") != "0";
         public static bool GapCountsStandingOn = System.Environment.GetEnvironmentVariable("PSX_TRAFFIC_GAP_STANDING") != "0";
         bool SideClear(Car c, float fromLat, float toLat, float back, float ahead)
         {
@@ -591,14 +594,21 @@ namespace PSXRacing
         /// the pavement all the way (NaN: none does).</summary>
         float FittingLane(Car c)
         {
-            float look = Mathf.Max(30f, c.speed * 2.5f + 10f);
-            bool Fits(float lat) { for (float d = 0f; d <= look; d += path.spacing) if (!LaneFits(c.s + c.dir * d, lat, c.halfW)) return false; return true; }
-            if (Fits(c.lat)) return c.lat;
+            // (round 5) THE LANE DROP: the strip lays four lanes where a bridge carries three (S Tryon over I-277, s 746-910:
+            // parapets 5.4-5.6 m either side of the line, the outer lanes need 6.75 m). The look reaches far enough to merge
+            // before the taper (it looked 30-45 m and merged in the taper, into standing cars), and the distance the own
+            // lane still fits is kept, to stop short of the drop when the merge has no gap.
+            float look = LaneDropOn ? Mathf.Max(70f, c.speed * 4f + 20f) : Mathf.Max(30f, c.speed * 2.5f + 10f);
+            c.fitRoomM = float.PositiveInfinity;
+            float FitsFor(float lat) { for (float d = 0f; d <= look; d += path.spacing) if (!LaneFits(c.s + c.dir * d, lat, c.halfW)) return d; return float.PositiveInfinity; }
+            float own = FitsFor(c.lat);
+            if (float.IsPositiveInfinity(own)) return c.lat;
+            c.fitRoomM = own;
             var lanes = c.dir > 0 ? lanesFwd : lanesBack;
             float best = float.NaN, bestD = float.MaxValue;
             foreach (float l in lanes)
             {
-                if (Mathf.Abs(l - c.lat) < 0.05f || !Fits(l)) continue;
+                if (Mathf.Abs(l - c.lat) < 0.05f || !float.IsPositiveInfinity(FitsFor(l))) continue;
                 float d = Mathf.Abs(l - c.lat);
                 if (d < bestD) { bestD = d; best = l; }
             }
@@ -996,6 +1006,8 @@ namespace PSXRacing
             if (dir < 0 && OneWayAt(s)) return false;
             // (round 4) never born in a lane the pavement does not hold there (a ramp's narrow end)
             if (!LaneFits(s, lat, 1.0f)) return false;
+            // (round 5) nor in one that ends within 70 m ahead (it was born in the outer lane short of the bridge and had to merge)
+            if (LaneDropOn) for (float d = 0f; d <= 70f; d += path.spacing) if (!LaneFits(s + dir * d, lat, 1.0f)) return false;
             // Never on top of anything: another traffic car in the lane, or a
             // racer (they use the whole road).
             foreach (var c in live)
@@ -1191,8 +1203,17 @@ namespace PSXRacing
                         float gapS = Delta(c.s, o.s) * c.dir;
                         if (gapS > -10f - Mathf.Max(0f, o.speed - c.speed) * 1.5f && gapS < 12f + Mathf.Max(0f, c.speed - o.speed) * 1.5f) { clear = false; break; }
                     }
-                    if (clear) { c.lat = fit; c.edgeLat = float.NaN; }
-                    else v = Mathf.Min(v, Mathf.Max(4f, c.speed - 3f));   // ease off and merge behind it
+                    if (clear) { c.lat = fit; c.edgeLat = float.NaN; c.fitRoomM = float.PositiveInfinity; }
+                    else
+                    {
+                        v = Mathf.Min(v, Mathf.Max(4f, c.speed - 3f));   // ease off and merge behind it
+                        // (round 5) and never past where its own lane ends: a stop 6 m short, waiting for the gap
+                        if (LaneDropOn && !float.IsPositiveInfinity(c.fitRoomM))
+                        {
+                            float left = c.fitRoomM - (Time.time - (c.fitNext - 0.5f)) * c.speed - 6f;
+                            v = Mathf.Min(v, Mathf.Sqrt(2f * 3f * Mathf.Max(0f, left)));
+                        }
+                    }
                 }
                 fitSw.Stop();
             }

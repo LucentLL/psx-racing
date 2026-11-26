@@ -363,6 +363,12 @@ namespace PSXRacing
             });
             Register(new LabRow
             {
+                id = "trafficlanedrop", group = LabGroup.Traffic, name = "TRAFFIC MERGES BEFORE A LANE ENDS", when = LabWhen.Now,
+                look = "City races: where four lanes become three (a bridge), traffic merges early and waits short of the end, not into the parapet.",
+                env = new[] { "PSX_TRAFFIC_LANE_DROP" }, members = new[] { "TrafficSystem.LaneDropOn" },
+            });
+            Register(new LabRow
+            {
                 id = "turnsahead", group = LabGroup.Traffic, name = "RIVAL TURNS LAID AHEAD", when = LabWhen.NextLoad,
                 look = "City races: every junction turn near the route is laid at load; a new one mid-race costs a slice a frame.",
                 env = new[] { "PSX_CP_TURNS_WARMALL", "PSX_CP_TURNS_DEFER" }, members = new[] { "RacingTurns.WarmAllTurns", "RacingTurns.DeferOn" },
