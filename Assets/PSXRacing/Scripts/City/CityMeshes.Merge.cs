@@ -113,8 +113,7 @@ namespace PSXRacing.City
         public static readonly System.Text.StringBuilder ZoneTrace = new System.Text.StringBuilder();
         static void ZoneReject(string why)
         {
-            if (ZoneTraceEdges != null && ZoneTraceEdges.Contains(rejectEdge)) ZoneTrace.Append($"zone e{rejectEdge}/n{rejectNode}: {why}
-");
+            if (ZoneTraceEdges != null && ZoneTraceEdges.Contains(rejectEdge)) ZoneTrace.Append($"zone e{rejectEdge}/n{rejectNode}: {why}\n");
             if (!countRejects) return;
             ZoneRejects.TryGetValue(why, out int n); ZoneRejects[why] = n + 1;
             if (n < 3) { ZoneRejectAt.TryGetValue(why, out var at); ZoneRejectAt[why] = (at == null ? "" : at + " ") + $"e{rejectEdge}/n{rejectNode}"; }
