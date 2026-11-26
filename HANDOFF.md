@@ -1,3 +1,23 @@
+# HANDOFF - CITYAI ROUND 2: runtime field trace, the junction block (wrecked traffic), plan cost read not searched, finishers brake, lane hold everywhere (agent "cityai", 11-25 night; branch `city-ai-turns` on mountain-nm 07d467b3; NOT pushed, NOT merged)
+
+All runs: EDITOR in PSXCity, hidden, muted (every log has `[MasterOut] test run: the sound is muted`).
+- A. `Scripts/Dev/PerfTour.FieldTrace.cs` (+ hooks in PerfTour.Stage.cs): `&trace=1` writes `<tag>_<stage>_field.csv` (10 Hz: every race car
+  + race traffic within 80 m of a junction turn: t,id,kind,x,z,heading,speed,steer,thr,brk,rev,why), `_turns/_edges/_kerbs.csv`
+  (`Scripts/Checkpoints/TurnMapDump.cs`, runtime API only), `_wrecks.txt` (traffic wrecks with times). `&seed=N` seeds the race.
+  Plot: `python -I tools\city\cityai_field_plan.py <off_field.csv> <on_field.csv> <outdir>` (plans + table + junction standstills).
+  The stage summary's plan cost now counts from the green, and adds `arcs read N, searched M`.
+- B. The junction block = TRAFFIC WRECKS. Rivals on the arc touched turning race traffic at 1.5-5 m/s (TrafficSystem wrecks at 1.5 m/s)
+  and the wreck stood in the box; the tour car and rivals then squeezed round it, rivals BACKING UP to and fro (the Civic in seed 0).
+  Fixes (AIDriver): PSX_AI_JUNCTION_TRAFFIC (in a junction zone, moving traffic in the car's own swept corridor caps its speed),
+  PSX_AI_JUNCTION_WAIT (no back-up in a junction zone for the first 4 s unless pinned); LAB row RIVALS WAIT IN JUNCTIONS.
+  Traffic also wrecks itself at C7's node (traffic-on-traffic, both arms): TrafficSystem, not touched.
+- C. RacingTurns.WarmOn (PSX_CP_TURNS_WARM): every leg (+ the next) built once at load; each turn's whole arc cached per map, a later
+  plan only reads it (no pavement/kerb test). C7: 34 read, 0 searched per 150 s.
+- D. (1) lane walk ALL PASS (RulerHold reads the drawn pavement on the car's side, not HalfMax); (2) the red T1 trace on the round-1
+  sheet = the 180SX's planned mistake at 158 km/h (fixed in round 1); (3) AIDriver.FinishRunOutOn (LAB row FINISHERS BRAKE FOR ROAD):
+  finishers brake for run-out bends and its end; (4) Tryon MEDIUM s0 head-on: a racer standing/crawling in the oncoming lane in the
+  start crawl, and oncoming race traffic does not stop for it (TrafficSystem) - not fixed.
+
 # TEST RUNS ARE SILENT (coordinator, 11-25; mountain-nm 8a5737c0)
 
 Owner 2026-11-25: "please mute all testing. I constantly hear the game without ever seeing it". Measured at 18:02: two hidden batch editors (RacePlayCheck in PSXPerf and PSXCity) were at full-scale peak on his speakers. Batch mode hides the window, not the sound.
