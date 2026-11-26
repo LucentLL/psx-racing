@@ -29,6 +29,8 @@ namespace PSXRacing
         public static bool On = System.Environment.GetEnvironmentVariable("PSX_CP_TURNS") != "0";
         /// <summary>(round 2) Lay the route's turns at race load and keep each turn's whole arc, so a re-plan mid-race
         /// only reads (PSX_CP_TURNS_WARM=0: the round-1 search on every plan).</summary>
+        /// <summary>(round 3) Lay every turn at the route's nodes at load, not only the route's (PSX_CP_TURNS_WARMALL=0: the route's only).</summary>
+        public static bool WarmAllTurns = System.Environment.GetEnvironmentVariable("PSX_CP_TURNS_WARMALL") != "0";
         public static bool WarmOn = System.Environment.GetEnvironmentVariable("PSX_CP_TURNS_WARM") != "0";
         public const float MinDeg = 30f, MaxDeg = 170f;
         public static float KerbMinM = 1.15f, NearNodeM = 60f, CoarseStepM = 2f;

@@ -992,10 +992,16 @@ namespace PSXRacing
         /// PSX_AI_JUNCTION_TRAFFIC=0: as before. (LAB row RIVALS WAIT IN JUNCTIONS, with the back-up rule.)
         /// </summary>
         public static bool JunctionTrafficOn = System.Environment.GetEnvironmentVariable("PSX_AI_JUNCTION_TRAFFIC") != "0";
+        float junctionCapHeld;
         float JunctionTrafficCap(float speed)
         {
             var ts = TrafficSystem.Instance;
             if (ts == null || ts.Obstacles.Count == 0) return float.PositiveInfinity;
+            // (round 3) NO STAND-OFF: held still by it for 3 s, the cap gives way to the pass logic until the car is moving
+            // again (C2 seed 0: a van turning across the box waited for the rivals and they for it, 5-10 s, five cars)
+            if (speed > 5f) junctionCapHeld = 0f;
+            else if (speed < 1f) junctionCapHeld += Time.fixedDeltaTime;
+            if (junctionCapHeld > 3f) return float.PositiveInfinity;
             Vector3 fwd = transform.forward; fwd.y = 0f;
             if (fwd.sqrMagnitude < 1e-4f) return float.PositiveInfinity;
             fwd.Normalize();
