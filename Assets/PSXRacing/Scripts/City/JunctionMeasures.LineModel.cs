@@ -27,7 +27,7 @@ namespace PSXRacing.City
 
         public static void FeedLineModel(CityMap map)
         {
-            Fed.Clear(); FeedLog = "";
+            Fed.Clear(); Fits.Clear(); FeedLog = "";
             var set = Current;
             if (set == null || map == null) return;
             var log = new System.Text.StringBuilder();
@@ -51,6 +51,22 @@ namespace PSXRacing.City
                     if (anyL && anyR) { c0 = Mathf.Min(l0, r0); c1 = Mathf.Max(l1, r1); } else if (anyL) { c0 = l0; c1 = l1; } else if (anyR) { c0 = r0; c1 = r1; } else { c0 = 0f; c1 = e.length; }
                 }
                 float maxS = 0f, maxW = 0f;
+                // (round 2) THE FIT: the lanes laid into the measured pavement (JunctionMeasures.Fit.cs); an explicit
+                // 'shift' (round 1's lane measure) still wins where a file carries one
+                float[] fitShift = null;
+                if (!lanesGiven && (anyL || anyR))
+                {
+                    var aL = new float[n]; var aR = new float[n]; var bL = new float[n]; var bR = new float[n];
+                    for (int k = 0; k < n; k++)
+                    {
+                        float s = Mathf.Min(k * FeedStepM, e.length);
+                        LineModel.Extents(e, s, out float eM, out float eP);
+                        aL[k] = eP; aR[k] = eM;
+                        if (anyL && SideAt(em, true, s, out float oL, out float wL, e.length)) { aL[k] = Mathf.Lerp(eP, oL, wL); bL[k] = wL; }
+                        if (anyR && SideAt(em, false, s, out float oR, out float wR, e.length)) { aR[k] = Mathf.Lerp(eM, oR, wR); bR[k] = wR; }
+                    }
+                    fitShift = BuildFit(set, e, em, aL, aR, bL, bR);
+                }
                 for (int k = 0; k < n; k++)
                 {
                     float s = Mathf.Min(k * FeedStepM, e.length);
@@ -59,7 +75,8 @@ namespace PSXRacing.City
                     if (anyL && SideAt(em, true, s, out float oL, out float wL, e.length)) mL = Mathf.Lerp(eP, oL, wL);
                     if (anyR && SideAt(em, false, s, out float oR, out float wR, e.length)) mR = Mathf.Lerp(eM, oR, wR);
                     float S = 0f;
-                    if (lanesGiven)
+                    if (fitShift != null) S = fitShift[k];
+                    else if (lanesGiven)
                     {
                         float ws = s < c0 ? (em.holdA ? 1f : 1f - Mathf.SmoothStep(0f, 1f, (c0 - s) / Mathf.Max(1f, Mathf.Min(em.blend, c0 - 0.5f))))
                                  : s > c1 ? (em.holdB ? 1f : 1f - Mathf.SmoothStep(0f, 1f, (s - c1) / Mathf.Max(1f, Mathf.Min(em.blend, e.length - 0.5f - c1)))) : 1f;
@@ -94,7 +111,8 @@ namespace PSXRacing.City
                 all.AddRange(add);
                 e.lmEase = all.ToArray();
                 Fed.Add(em.edge);
-                log.Append($"e{em.edge} shift up to {maxS:0.00} m, widen up to {maxW:0.00} m; ");
+                var fe = FitOf(em.edge);
+                log.Append($"e{em.edge} shift up to {maxS:0.00} m, widen up to {maxW:0.00} m{(fe != null ? $", FIT {(fe.oneway ? "one-way" : "two-way")} map lanes {fe.nRule}" : "")}; ");
             }
             FeedLog = log.ToString();
             if (Fed.Count > 0) Debug.Log($"[JunctionMeasures] the line model carries {Fed.Count} measured edges ({set.provider}): {FeedLog}");

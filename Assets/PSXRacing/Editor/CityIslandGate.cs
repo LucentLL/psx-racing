@@ -374,6 +374,7 @@ namespace PSXRacing.EditorTools
         }
 
         static long Key(int x, int z) => ((long)x << 32) ^ (uint)z;
+        static readonly List<float> fitLanes = new List<float>(8);
         /// <summary>(round 5) pavement drawn past a tile's own edge (a fan drawn whole by its node's tile).</summary>
         static readonly HashSet<long> spillPaved = new HashSet<long>();
         static long CellKey(float x, float z) => Key(Mathf.FloorToInt(x / Cell), Mathf.FloorToInt(z / Cell));
@@ -567,10 +568,24 @@ namespace PSXRacing.EditorTools
                     LineModel.Extents(e, s, out float eM, out float eP);
                     var t = e.TangentAt(s); var left = new Vector2(-t.y, t.x);
                     float lo = -(eM - e.shr) + 0.3f, hi = (eP - e.shl) - 0.3f;
+                    // (road-surface round 2) THE GATE READS WHAT IS BUILT: a fitted edge's lane cells are the lanes the
+                    // fit lays (the band, and the bay against the median), not the whole measured pavement; a cell on a
+                    // measured island is the island (the lane check, JunctionSurfaces, answers for lanes near one)
+                    float gapLo = float.NaN, gapHi = float.NaN;
+                    bool surf = CityMeshes.RoadSurfaceOn;
+                    if (surf && JunctionMeasures.LaneCentres(e, s, fitLanes, out float bLo, out float bHi))
+                    {
+                        lo = bLo + 0.3f;
+                        float aux = LineModel.AuxWidth(e, s, 1);
+                        if (aux > 2f) { gapLo = bHi - 0.3f; gapHi = (eP - e.shl) - aux + 0.3f; }
+                        else hi = bHi - 0.3f;
+                    }
                     float yLane = e.YAt(s);
                     for (float l = lo; l <= hi; l += 0.5f)
                     {
+                        if (l > gapLo && l < gapHi) continue;
                         var q = pt + left * l;
+                        if (surf && JunctionSurfaces.OnIsland(q)) continue;
                         int i = Mathf.FloorToInt((q.x - o.x - m0) / Cell), j = Mathf.FloorToInt((q.y - o.z - m0) / Cell);
                         if (i < 0 || j < 0 || i >= N || j >= N) continue;
                         if (q.x < o.x || q.y < o.z || q.x >= o.x + CityMeshes.TileSize || q.y >= o.z + CityMeshes.TileSize) continue;

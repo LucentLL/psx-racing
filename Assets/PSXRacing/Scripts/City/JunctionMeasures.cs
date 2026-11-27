@@ -42,7 +42,37 @@ namespace PSXRacing.City
             /// measured pavement where BOTH sides are measured and leaves them where one side or none is. It is what a
             /// pavement edge cannot give: which lanes go on through a junction when the rule's lane count is off.</summary>
             public float shift = float.NaN;
+            /// <summary>(round 2) A lane count that caps the fit (0: none; the state's through-lane count later).</summary>
+            public int lanes;
+            /// <summary>(round 2) THE EDGE KIND per side: 0 kerbed (the measure is the kerb's face: lanes start at it, no
+            /// edge line), 1 a paved shoulder of shoulderL / shoulderR metres with an edge line, 2 paint only (a painted
+            /// median's edge: pavement goes on beyond it).</summary>
+            public byte kindL, kindR; public float shoulderL, shoulderR;
+            /// <summary>(round 2) LANE PICKS: see JunctionMeasures.Fit.cs.</summary>
+            public List<LineM> lines = new List<LineM>();
         }
+        public const byte LkBroken = 0, LkSolid = 1, LkYellow2 = 2, LkEdge = 3, LkNone = 4, LkYellow = 5;
+
+        /// <summary>A picked line of an edge: the band's boundary index (from the right; over the layout's count or
+        /// paintOnly: a line of paint that bounds no lane, a bay's or a buffer's), its kind, (station, offset) rows.</summary>
+        public sealed class LineM
+        {
+            public int index; public byte kind; public bool paintOnly; public List<Vector2> st = new List<Vector2>();
+            public bool At(float s, out float off, out float w)
+            {
+                off = 0f; w = 0f;
+                int n = st.Count; if (n == 0) return false;
+                // the pick fades in and out over 3 m at its ends (the fit, or nothing, beyond)
+                if (s < st[0].x - 3f || s > st[n - 1].x + 3f) return false;
+                w = s < st[0].x ? 1f - (st[0].x - s) / 3f : s > st[n - 1].x ? 1f - (s - st[n - 1].x) / 3f : 1f;
+                if (s <= st[0].x) { off = st[0].y; return true; }
+                if (s >= st[n - 1].x) { off = st[n - 1].y; return true; }
+                int i = 0; while (i + 2 < n && st[i + 1].x < s) i++;
+                off = Mathf.Lerp(st[i].y, st[i + 1].y, (s - st[i].x) / Mathf.Max(1e-3f, st[i + 1].x - st[i].x));
+                return true;
+            }
+        }
+
         public sealed class NoseM { public int a, b; public Vector2 capA, capB; public float r = 1.2f; public int kind; }
         public sealed class ReturnM { public int a, b; public float r; }
         public sealed class IslandM { public List<Vector2> pts = new List<Vector2>(); public List<float> r = new List<float>(); public int kind = 1; public float kerb = 0.15f; }
@@ -101,7 +131,10 @@ namespace PSXRacing.City
 
         /// <summary>The text form (one item a line, '#' comments):
         ///   provider hand|survey
-        ///   edge ID [blend M] [hold a|b|ab] [shift M]   then lines:  s STATION LEFT RIGHT   ('-' = no measure on that side)
+        ///   edge ID [blend M] [hold a|b|ab] [shift M] [lanes N] [left kerb|shoulder M|paint] [right kerb|shoulder M]
+        ///                                               then lines:  s STATION LEFT RIGHT   ('-' = no measure on that side)
+        ///                                                            line INDEX broken|solid|yellow2|yellow|edge|none [paint]
+        ///                                                            p STATION OFFSET   (rows of the line above)
         ///   junction NAME nodes N N ...  then lines:  nose A B X1 Z1 X2 Z2 r M kind grass|concrete
         ///                                             return A B r M
         ///                                             island kind concrete|grass kerb M pts X,Z,R X,Z,R ...
@@ -110,7 +143,7 @@ namespace PSXRacing.City
         public static Set Parse(string text)
         {
             var inv = CultureInfo.InvariantCulture;
-            var set = new Set(); EdgeM e = null; JunctionM j = null;
+            var set = new Set(); EdgeM e = null; JunctionM j = null; LineM ln = null;
             float F(string v) => float.Parse(v, inv);
             int Kind(string v) => v == "concrete" ? 1 : v == "painted" ? 2 : 0;
             foreach (var raw in text.Split('\n'))
@@ -123,8 +156,32 @@ namespace PSXRacing.City
                     case "provider": set.provider = t[1]; break;
                     case "edge":
                         e = new EdgeM { edge = int.Parse(t[1], inv) }; j = null;
-                        for (int i = 2; i + 1 < t.Length; i += 2) { if (t[i] == "blend") e.blend = F(t[i + 1]); else if (t[i] == "hold") { e.holdA = t[i + 1].Contains("a"); e.holdB = t[i + 1].Contains("b"); } else if (t[i] == "shift") e.shift = F(t[i + 1]); }
+                        ln = null;
+                        for (int i = 2; i + 1 < t.Length; i += 2)
+                        {
+                            if (t[i] == "blend") e.blend = F(t[i + 1]);
+                            else if (t[i] == "hold") { e.holdA = t[i + 1].Contains("a"); e.holdB = t[i + 1].Contains("b"); }
+                            else if (t[i] == "shift") e.shift = F(t[i + 1]);
+                            else if (t[i] == "lanes") e.lanes = int.Parse(t[i + 1], inv);
+                            else if (t[i] == "left" || t[i] == "right")
+                            {
+                                // left|right kerb | shoulder M | paint
+                                byte kd = t[i + 1] == "shoulder" ? (byte)1 : t[i + 1] == "paint" ? (byte)2 : (byte)0;
+                                float sw = 0f;
+                                if (kd == 1 && i + 2 < t.Length) { sw = F(t[i + 2]); i++; }
+                                if (t[i - (kd == 1 ? 1 : 0)] == "left") { e.kindL = kd; e.shoulderL = sw; } else { e.kindR = kd; e.shoulderR = sw; }
+                            }
+                        }
                         set.edges[e.edge] = e; break;
+                    case "line":
+                        // line INDEX broken|solid|yellow2|yellow|edge|none [paint]
+                        if (e == null) break;
+                        ln = new LineM { index = int.Parse(t[1], inv), kind = t[2] == "solid" ? LkSolid : t[2] == "yellow2" ? LkYellow2 : t[2] == "yellow" ? LkYellow : t[2] == "edge" ? LkEdge : t[2] == "none" ? LkNone : LkBroken,
+                                         paintOnly = t.Length > 3 && t[3] == "paint" };
+                        e.lines.Add(ln); break;
+                    case "p":
+                        if (ln != null) ln.st.Add(new Vector2(F(t[1]), F(t[2])));
+                        break;
                     case "s":
                         if (e == null) break;
                         e.st.Add(new Station { s = F(t[1]), left = t[2] == "-" ? float.NaN : F(t[2]), right = t[3] == "-" ? float.NaN : F(t[3]) }); break;
@@ -156,7 +213,7 @@ namespace PSXRacing.City
                     case "join": if (j != null) j.join.Add((int.Parse(t[1], inv), int.Parse(t[2], inv))); break;
                 }
             }
-            foreach (var em in set.edges.Values) em.st.Sort((p, q) => p.s.CompareTo(q.s));
+            foreach (var em in set.edges.Values) { em.st.Sort((p, q) => p.s.CompareTo(q.s)); foreach (var l in em.lines) l.st.Sort((p, q) => p.x.CompareTo(q.x)); }
             return set;
         }
 

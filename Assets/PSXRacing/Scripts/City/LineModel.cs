@@ -2766,6 +2766,8 @@ namespace PSXRacing.City
                 if (auxM > 0f && lay.kind[k] == KEdgeM) lat -= auxM;
                 if (ok) into.Add(new LineAt { k = k, lat = lat + sh });   // the whole layout rides the median taper's shift
             }
+            // (road-surface round 2) a measured edge's lanes are FITTED into its clear pavement
+            if (JunctionMeasures.Fits.Count > 0) JunctionMeasures.FitLines(e, s, lay, into);
         }
 
         /// <summary>Move line k by the taper z at reduction r from

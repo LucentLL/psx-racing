@@ -72,6 +72,8 @@ namespace PSXRacing.EditorTools
             for (int nd = 0; nd < map.nodes.Length; nd++)
             {
                 if (!trims.patch[nd] || (map.nodes[nd] - p).magnitude > r + 40f) continue;
+                // (road-surface round 2) a junction built as one surface: its solved outline is read below
+                if (CityMeshes.RoadSurfaceOn && JunctionSurfaces.AtNode(nd) != null) continue;
                 int key = CityMeshes.FanRingCorners(map, trims, nd, ring);
                 if (key < 0 || !seen.Add(key) || ring.Count < 3) continue;
                 int m = ring.Count;
@@ -82,11 +84,30 @@ namespace PSXRacing.EditorTools
                     if (Kink(prev.p, cur.p, next.p, out _)) n++;
                 }
             }
+            if (CityMeshes.RoadSurfaceOn)
+            {
+                var surfTrims = CityMeshes.SurfaceTrims(map, trims);
+                var rings = new List<(List<Vector2> ring, List<bool> onRow)>();
+                JunctionSurfaces.OutlineRings(p, r, rings);
+                foreach (var (rg, on) in rings)
+                {
+                    int m = rg.Count;
+                    for (int i = 0; i < m; i++)
+                    {
+                        int ip = (i - 1 + m) % m, inx = (i + 1) % m;
+                        if (on[ip] || on[i] || on[inx] || (rg[i] - p).magnitude > r) continue;
+                        if (Kink(rg[ip], rg[i], rg[inx], out _)) n++;
+                    }
+                }
+                trims = surfTrims;
+            }
             var segs = new HashSet<int>();
             map.EdgeSegsInRect(p - Vector2.one * r, p + Vector2.one * r, segs);
             foreach (int ei in segs.Select(pk => pk >> 12).Distinct().ToList())
             {
                 Vector2[] L, R;
+                // (road-surface round 2) an edge inside a junction built as one surface has no ribbon
+                if (CityMeshes.RoadSurfaceOn && JunctionSurfaces.AtNode(map.edges[ei].a) != null && JunctionSurfaces.AtNode(map.edges[ei].a) == JunctionSurfaces.AtNode(map.edges[ei].b)) continue;
                 try { if (!CityMeshes.RibbonOutline(map, trims, ei, out L, out R)) continue; }
                 catch (System.Exception) { continue; }
                 foreach (var side in new[] { L, R })

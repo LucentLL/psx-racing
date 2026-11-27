@@ -64,6 +64,64 @@ namespace PSXRacing.City
             return null;
         }
 
+        /// <summary>(round 2) Is a map point ON AN ISLAND of a solved junction (a hole of its pavement)? The gates count
+        /// a measured island as an island, not as lane cells.</summary>
+        public static bool OnIsland(Vector2 world, float grow = 0f)
+        {
+            foreach (var b in all)
+            {
+                if (!b.Solved) continue;
+                var p = world - b.origin;
+                if (p.x < b.min.x || p.x > b.max.x || p.y < b.min.y || p.y > b.max.y) continue;
+                foreach (var h in b.res.holes)
+                    if (JunctionOutline.InPoly(h, p) || (grow > 0f && NearRing(h, p, grow))) return true;
+            }
+            return false;
+        }
+        static bool NearRing(List<Vector2> ring, Vector2 p, float d)
+        {
+            for (int i = 0; i < ring.Count; i++)
+            {
+                var a = ring[i]; var ab = ring[(i + 1) % ring.Count] - a; float l2 = ab.sqrMagnitude;
+                float t = l2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(p - a, ab) / l2) : 0f;
+                if ((a + ab * t - p).sqrMagnitude < d * d) return true;
+            }
+            return false;
+        }
+
+        /// <summary>(round 2) THE KINK PROBE READS WHAT IS BUILT: the free outline (kerb lines, island rings) of every
+        /// solved junction with a node within r + 40 m of p, as world rings; onRow[i]: vertex i lies on an end row (a
+        /// mouth: the ribbon goes on there, no kerb).</summary>
+        public static void OutlineRings(Vector2 p, float r, List<(List<Vector2> ring, List<bool> onRow)> into)
+        {
+            foreach (var b in all)
+            {
+                if (!b.Solved || forMap == null) continue;
+                bool near = false;
+                foreach (int n in b.nodes) near |= (forMap.nodes[n] - p).magnitude <= r + 40f;
+                if (!near) continue;
+                var rings = new List<List<Vector2>> { b.res.outline };
+                rings.AddRange(b.res.holes);
+                foreach (var ring in rings)
+                {
+                    var w = new List<Vector2>(ring.Count); var on = new List<bool>(ring.Count);
+                    foreach (var q in ring)
+                    {
+                        w.Add(q + b.origin);
+                        bool row = false;
+                        for (int a = 0; a < b.res.rowR.Length && !row; a++)
+                        {
+                            var ra = b.res.rowR[a]; var ab = b.res.rowL[a] - ra; float l2 = ab.sqrMagnitude;
+                            float t = l2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(q - ra, ab) / l2) : 0f;
+                            row = (ra + ab * t - q).sqrMagnitude < 0.03f * 0.03f;
+                        }
+                        on.Add(row);
+                    }
+                    into.Add((w, on));
+                }
+            }
+        }
+
         /// <summary>Solve every measured junction once for this map. farTrim(edge, node): the rule's trim of an edge at its
         /// OTHER end (an arm is only as long as the ribbon the far junction leaves it).</summary>
         public static List<Built> Ensure(CityMap map, System.Func<CityMap.Edge, int, float> farTrim)
@@ -194,6 +252,7 @@ namespace PSXRacing.City
 
         /// <summary>Half a car and a hand: a lane's centre nearer than this to a kerb (or on land) cannot be driven as laid.</summary>
         public const float LaneClearM = 1.1f;
+        static readonly List<float> fitLanes = new List<float>(8);
         static void LaneCheck(CityMap map, Built b, int ei, float upTo)
         {
             var e = map.edges[ei];
@@ -207,6 +266,19 @@ namespace PSXRacing.City
                 if (atA && atB) s = d;
                 var t = e.TangentAt(s); var left = new Vector2(-t.y, t.x);
                 bool off = false;
+                // (round 2) a fitted edge: the lanes the fit lays
+                if (lanes > 1 && JunctionMeasures.LaneCentres(e, s, fitLanes, out _, out _))
+                {
+                    for (int k = 0; k < fitLanes.Count; k++)
+                    {
+                        var p = e.PointAt(s) + left * fitLanes[k];
+                        float cl = JunctionOutline.Clearance(b.res, p - b.origin);
+                        if (cl < worst) { worst = cl; at = p; worstLane = k; }
+                        off |= cl < LaneClearM;
+                    }
+                    if (off) run += JunctionOutline.Step;
+                    continue;
+                }
                 for (int k = 0; k < lanes; k++)
                 {
                     // a one-lane edge: the traffic's own point (a bay drives its host's aux lane: LineModel.LanePoint)
