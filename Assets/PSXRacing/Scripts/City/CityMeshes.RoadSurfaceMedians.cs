@@ -123,9 +123,12 @@ namespace PSXRacing.City
                     RsMedianM += run;
                     // the far end: a face down into the ground, turned away from the junction
                     {
-                        var a = edge[n - 1]; var m = mid[n - 1];
+                        var a = back[n - 1]; var m = mid[n - 1];
                         var along = new Vector2(edge[n - 1].x - edge[n - 2].x, edge[n - 1].z - edge[n - 2].z).normalized;
-                        kerbBucket.WallSloped(new Vector3(a.x, 0f, a.z), new Vector3(m.x, 0f, m.z), m.y - 0.6f, m.y, m.y - 0.6f, m.y, along, 0f, 0.3f * Vector3.Distance(a, m), 0f, 0.05f);
+                        var d3 = new Vector3(along.x * 1.2f, -0.45f, along.y * 1.2f);
+                        gb.Up(a, a + d3, m + d3, m,
+                              GroundUV(paved, a.x + o.x, a.z + o.z), GroundUV(paved, a.x + d3.x + o.x, a.z + d3.z + o.z),
+                              GroundUV(paved, m.x + d3.x + o.x, m.z + d3.z + o.z), GroundUV(paved, m.x + o.x, m.z + o.z));
                         RsMedianTris += 2;
                     }
                 }
