@@ -245,6 +245,12 @@ namespace PSXRacing
             });
             Register(new LabRow
             {
+                id = "treecalm", group = LabGroup.World, name = "TREE COLOUR: CALMER BY DAY", when = LabWhen.Now,
+                look = "Leaves by day and at dusk a little less bright, the fall's reds, oranges and golds kept. Night unchanged.",
+                env = new[] { "PSX_RAINLOOK_CALM" }, members = new[] { "RainLook.TreeCalm" },
+            });
+            Register(new LabRow
+            {
                 id = "tunnel2", group = LabGroup.World, name = "PARKWAY TUNNELS", when = LabWhen.BuiltIn,
                 look = "Built into the stage scenes: the tunnels' bore, walls and fixtures. A scene build.",
                 env = new[] { "PSX_TUNNEL2" }, requires = "TunnelLamps.Tunnel2",

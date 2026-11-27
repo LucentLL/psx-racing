@@ -29,6 +29,11 @@ namespace PSXRacing
         static bool cabinMask = Env("PSX_RAINLOOK_CABIN");
         static bool roadLeaves = Env("PSX_RAINLOOK_LEAVES");
         static bool duskLeaves = Env("PSX_RAINLOOK_DUSK");
+        static bool treeCalm = Env("PSX_RAINLOOK_CALM");
+        /// <summary>(round 4) TREE COLOUR: CALMER BY DAY's strength: the share of a leaf's brightness taken off by
+        /// day and at dusk. 0 = the shader's own TREE_CALM_K (PSXLit.shader, 0.30). PSX_RAINLOOK_CALM_K: tools.</summary>
+        public static float TreeCalmK = float.TryParse(System.Environment.GetEnvironmentVariable("PSX_RAINLOOK_CALM_K"),
+            System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float ck) ? ck : 0f;
 
         /// <summary>Runs on car glass and paint: thin, soft, wandering; no dark wiped column.</summary>
         public static bool SoftRuns { get => softRuns; set { softRuns = value; Push(); } }
@@ -40,6 +45,8 @@ namespace PSXRacing
         public static bool RoadLeaves { get => roadLeaves; set { roadLeaves = value; Push(); } }
         /// <summary>Foliage light at dusk and by day falls with the sun (no blacklight glow).</summary>
         public static bool DuskLeaves { get => duskLeaves; set { duskLeaves = value; Push(); } }
+        /// <summary>(round 4) The leaves' brightness eased by day and at dusk; hue, saturation and night kept.</summary>
+        public static bool TreeCalm { get => treeCalm; set { treeCalm = value; Push(); } }
 
         /// <summary>The cabin mask needs the scene's depth while the cockpit glass draws: the water's depth copy
         /// (SpeedBlurFeature) is made for this camera too.</summary>
@@ -49,7 +56,7 @@ namespace PSXRacing
         public static void Push()
         {
             Shader.SetGlobalVector(OffId, new Vector4(softRuns ? 0f : 1f, trueGlow ? 0f : 1f, cabinMask ? 0f : 1f, roadLeaves ? 0f : 1f));
-            Shader.SetGlobalVector(Off2Id, new Vector4(duskLeaves ? 0f : 1f, 0f, 0f, 0f));
+            Shader.SetGlobalVector(Off2Id, new Vector4(duskLeaves ? 0f : 1f, treeCalm ? 0f : 1f, Mathf.Max(TreeCalmK, 0f), 0f));
 #if !UNITY_EDITOR
             // the tools-only globals (PSX/Lit's id pass, the SSR's cabin split) are set only by Editor code, which a
             // player does not contain; held at 0 here as well, at boot and on every flip

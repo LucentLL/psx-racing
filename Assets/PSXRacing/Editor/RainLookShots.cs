@@ -387,6 +387,14 @@ namespace PSXRacing.EditorTools
                 string b = Path.Combine(outDir, "EDITOR_" + tag + "_" + v);
                 SetAll(true); yield return Settle();
                 var pNew = Grab(); File.WriteAllBytes(b + "_NEW.png", pNew);
+                // (round 4) RL_CALMKS=0.15,0.6: NEW again at those TREE COLOUR strengths (the range)
+                foreach (var ks in RainLookShots.Env("RL_CALMKS", "").Split(','))
+                {
+                    if (!float.TryParse(ks, NumberStyles.Float, CultureInfo.InvariantCulture, out float kv) || kv <= 0f) continue;
+                    RainLook.TreeCalmK = kv; RainLook.Push(); yield return Settle();
+                    File.WriteAllBytes(b + "_NEW_K" + ks.Trim() + ".png", Grab());
+                    RainLook.TreeCalmK = 0f; RainLook.Push(); yield return Settle();
+                }
                 // (round 2) THE ID PASS (PSX/Lit _PSXIdMask): r foliage, g paved ground, b any PSX/Lit surface
                 Shader.SetGlobalFloat("_PSXIdMask", 1f); yield return Settle();
                 { var prev = RenderTexture.active; RenderTexture.active = Pic(); tex.ReadPixels(new Rect(0, 0, W, H), 0, 0, false); tex.Apply(false); RenderTexture.active = prev;

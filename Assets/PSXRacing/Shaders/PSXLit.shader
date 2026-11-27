@@ -547,6 +547,9 @@ Shader "PSX/Lit"
             float4 _PSXLookOff2;      // x 0: the foliage light falls with the sun (no glow at dusk and by day)
             #endif
             float _PSXIdMask;         // (rainlook round 2, tools only) 1: the id pass (see the frag's end)
+            // (rainlook round 4) TREE COLOUR: CALMER BY DAY - the share of a leaf's brightness taken off by day and at
+            // dusk (none at night). THE ONE STRENGTH: RainLook.TreeCalmK may override it (0 = this).
+            #define TREE_CALM_K 0.30
             float4 _PSXFallPhase;   // global (SeasonDress): x 1 = live, y the fall's phase 0 early .. 0.5 peak .. 1 late
             // A leaf texel in another colour AT ITS OWN LUMINANCE (owner
             // 2026-11-11, the title's drone: the poplars "not following the
@@ -2520,6 +2523,19 @@ Shader "PSX/Lit"
                         if (late > 0.0)
                             tex.rgb = lerp(tex.rgb, LeafRecolour(float3(1.0, 0.292, 0.074), lumF) * 0.72, saturate(late * 1.25) * 0.85);
                     }
+                }
+                // (rainlook round 4, RainLook.TreeCalm; _PSXLookOff2.y 1 = OLD, z the strength, 0 = TREE_CALM_K)
+                // TREE COLOUR: CALMER BY DAY. The owner: trees "glowing like objects in a blacklight" at dusk and
+                // by day, night right. Measured: the light on the city's leaves at dusk is a third of the road's,
+                // yet they read brighter - their own colour gains (LeafVivid's brightness x1.6, the fall's gold
+                // gain) are what lift them. Their BRIGHTNESS only is eased by day and at dusk: the colour is
+                // scaled as a whole, so its hue and saturation (the fall's red, orange and gold) are kept.
+                // Off at night (_PSXNight 1): the night picture is the bit-for-bit same. The foliage path only
+                // (_LeafVivid.z): fences, signs, poles and bark are not touched.
+                if (_LeafVivid.z > 0.5 && _PSXLookOff2.y < 0.5)
+                {
+                    float calmK = _PSXLookOff2.z > 0.0 ? _PSXLookOff2.z : TREE_CALM_K;
+                    tex.rgb *= 1.0 - calmK * saturate((1.0 - _PSXNight) * 8.0);
                 }
                 clip(tex.a - _Cutoff);
             #ifdef PSX_LODFADE
