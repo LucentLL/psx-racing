@@ -2528,6 +2528,7 @@ namespace PSXRacing
                     standBlockZ = bo.rb != null && bo.rb.linearVelocity.sqrMagnitude < 1f ? bo.z : float.PositiveInfinity;
                     standBlockLat = bo.lat;
                     standBlockOncoming = bo.oncoming;
+                    if (!float.IsPositiveInfinity(standBlockZ)) { standSeenZ = standBlockZ; standSeenAt = Time.time; }
                     // How far the pass runs: to the car, and a car's length
                     // and a second past it at the speed we pass it at.
                     float passEnd = bo.z + 6f + Mathf.Max(bo.closing, 3f) * 1f;
@@ -3028,6 +3029,7 @@ namespace PSXRacing
         /// the line round it (NaN when none is clear).</summary>
         float standBlockZ = float.PositiveInfinity, standBlockLat, standPick = float.NaN;
         bool standBlockOncoming, backShort;   // (round 6) the standing car is of the oncoming stream; this back-up is the short one
+        float standSeenZ, standSeenAt = -99f;   // (round 6) the last standing car seen ahead and when (the block flickers off every few ticks)
         /// <summary>Half the length of a car, about: the room a nose and a
         /// boot take up between two centres.</summary>
         const float CarHalfLenM = 2.3f;
@@ -3246,8 +3248,11 @@ namespace PSXRacing
                 // own waypoint, which is clear (the car itself is not an obstacle to itself), so a car held in a queue was
                 // set back where it stood, every 20 s of its waiting clock, for as long as the queue stood (the Supra,
                 // editor seed 0 behind a staged wreck: s 1416.1 at 80, 100, 120 and 140 s; the PC79 exe's FD and 180SX).
+                // (the standing car is not the block on every tick: at the follow gap it flickers off, and a recovery on such
+                // a tick landed 8 m on, still behind it; the last one seen within 1.5 s counts)
+                float zb = !float.IsPositiveInfinity(standBlockZ) ? standBlockZ : Time.time - standSeenAt < 1.5f ? standSeenZ : float.PositiveInfinity;
                 RecoveryAheadM = RoundStandingOn && (heldOut || LastRecoveryWhy == "stuck" || LastRecoveryWhy == "crawling")
-                    ? (float.IsPositiveInfinity(standBlockZ) ? (heldOut ? 8f : 0f) : standBlockZ + 5f) : 0f;
+                    ? (float.IsPositiveInfinity(zb) ? (heldOut ? 8f : 0f) : zb + 5f) : 0f;
                 RaceManager.Instance?.RespawnCar(car);
                 RecoveryAheadM = 0f;
             }
