@@ -272,7 +272,7 @@ namespace PSXRacing.City
             for (int i = 0; i < na && na >= 2; i++)
             {
                 var c = r.corners[i];
-                if (c.shape != "through" && c.shape != "through-taper") continue;
+                if (c.shape != "through" && c.shape != "through-taper" && !c.through) continue;
                 for (int pass = 0; pass < 2; pass++)
                 {
                     var A = map.edges[r.arms[pass == 0 ? i : (i + 1) % na].id]; var B = map.edges[r.arms[pass == 0 ? (i + 1) % na : i].id];
@@ -287,10 +287,7 @@ namespace PSXRacing.City
                     int lo = -1, hi = -1;
                     for (int k = 0; k < la.Count; k++)
                     {
-                        var p0 = pA + nA * la[k];
-                        float den = nB.x * tA.y - nB.y * tA.x;
-                        if (Mathf.Abs(den) < 1e-4f) continue;
-                        float v = ((p0.x - pB.x) * tA.y - (p0.y - pB.y) * tA.x) / den;
+                        float v = Vector2.Dot(pA + nA * la[k] - pB, nB);
                         bool got = false;
                         foreach (float q in lb) got |= Mathf.Abs(q - v) < 1.83f;
                         if (got) { if (lo < 0) lo = k; hi = k; }
@@ -326,16 +323,18 @@ namespace PSXRacing.City
         {
             p = zonePt;
             if (all.Count == 0) return false;
-            foreach (var b in all)
-            {
-                if (!b.Solved || !b.bayFrom.TryGetValue(e.index, out float from)) continue;
-                float d = b.nodes.Contains(e.a) ? s : e.length - s;
-                if (d >= from + BayBlendM) return false;
-                var own = LineModel.OwnLanePoint(e, s);
-                p = Vector2.Lerp(own, zonePt, Mathf.SmoothStep(0f, 1f, (d - from) / BayBlendM));
-                return true;
-            }
+            foreach (var b in all) if (b.Solved && BayLaneOf(b, e, s, zonePt, out p)) return true;
             return false;
+        }
+        static bool BayLaneOf(Built b, CityMap.Edge e, float s, Vector2 zonePt, out Vector2 p)
+        {
+            p = zonePt;
+            if (!b.bayFrom.TryGetValue(e.index, out float from)) return false;
+            float d = b.nodes.Contains(e.a) ? s : e.length - s;
+            if (d >= from + BayBlendM) return false;
+            var own = LineModel.OwnLanePoint(e, s);
+            p = Vector2.Lerp(own, zonePt, Mathf.SmoothStep(0f, 1f, (d - from) / BayBlendM));
+            return true;
         }
 
         /// <summary>Half a car and a hand: a lane's centre nearer than this to a kerb (or on land) cannot be driven as laid.</summary>
@@ -373,6 +372,9 @@ namespace PSXRacing.City
                 {
                     // a one-lane edge: the traffic's own point (a bay drives its host's aux lane: LineModel.LanePoint)
                     var p = lanes == 1 ? LineModel.LanePoint(e, s) : e.PointAt(s) + left * (LineModel.LaneCentre(e, s) + (k - 0.5f * (lanes - 1)) * lw);
+                    // (round 2) a bay inside this junction: its own line through the opening (this junction is not yet
+                    // in the solved list while it is being checked)
+                    if (lanes == 1 && BayLaneOf(b, e, s, p, out var bp)) p = bp;
                     float cl = JunctionOutline.Clearance(b.res, p - b.origin);
                     if (cl < worst) { worst = cl; at = p; worstLane = k; }
                     off |= cl < LaneClearM;

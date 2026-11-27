@@ -174,7 +174,7 @@ namespace PSXRacing.City
                     float h = MeasHatchBarW * 1.41421356f;
                     for (float y = s0 + 0.5f; y < sEnd - 0.5f; y += MeasHatchStepM)
                     {
-                        float lo = BandL(f, y) + 0.45f, hi = f.Lerp(f.leftPave, y);
+                        float lo = BandL(f, y) + 0.45f, hi = f.Lerp(f.leftRaw, y);
                         float rise = hi - lo;
                         if (rise < 0.4f || y + rise + h > sEnd) continue;
                         RsPoly(tm.origin, e, new[] { new Vector2(lo, y), new Vector2(lo, y + h), new Vector2(hi, y + rise + h), new Vector2(hi, y + rise) }, true);

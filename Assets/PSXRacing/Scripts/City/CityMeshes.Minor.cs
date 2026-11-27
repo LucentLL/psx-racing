@@ -176,9 +176,10 @@ namespace PSXRacing.City
                 float expB = float.NaN;
                 if (tpWorldTol > 0f)
                 {
-                    var p0 = pA + rA * la.lat; var tn = tA.normalized;
-                    float den = rB.x * tn.y - rB.y * tn.x;
-                    if (Mathf.Abs(den) > 1e-4f) expB = ((p0.x - pB.x) * tn.y - (p0.y - pB.y) * tn.x) / den;
+                    // a line keeps its lateral along its own edge: at A's node end, read in B's frame at B's node end
+                    float sNA = A.a == nA ? 0f : A.length, sNB = B.a == nB ? 0f : B.length;
+                    var tNA = A.TangentAt(sNA); var tNB = B.TangentAt(sNB);
+                    expB = Vector2.Dot(A.PointAt(sNA) + new Vector2(-tNA.y, tNA.x) * la.lat - B.PointAt(sNB), new Vector2(-tNB.y, tNB.x));
                 }
                 for (int j = 0; j < tpLinesB.Count; j++)
                 {

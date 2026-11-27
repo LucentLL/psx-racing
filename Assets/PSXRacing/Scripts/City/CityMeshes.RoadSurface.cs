@@ -148,7 +148,7 @@ namespace PSXRacing.City
             for (int i = 0; i < na && na >= 2; i++)
             {
                 var c = r.corners[i];
-                if (c.shape != "through" && c.shape != "through-taper") continue;
+                if (c.shape != "through" && c.shape != "through-taper" && !c.through) continue;
                 var A = map.edges[r.arms[i].id]; var B = map.edges[r.arms[(i + 1) % na].id];
                 // one NAMED road going on (a split's approach and its slip are a through corner too: their lines do not pair)
                 if (string.IsNullOrEmpty(A.name) || A.name != B.name) continue;

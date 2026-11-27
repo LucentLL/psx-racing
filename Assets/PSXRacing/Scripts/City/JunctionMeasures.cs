@@ -45,8 +45,9 @@ namespace PSXRacing.City
             /// <summary>(round 2) A lane count that caps the fit (0: none; the state's through-lane count later).</summary>
             public int lanes;
             /// <summary>(round 2) THE EDGE KIND per side: 0 kerbed (the measure is the kerb's face: lanes start at it, no
-            /// edge line), 1 a paved shoulder of shoulderL / shoulderR metres with an edge line, 2 paint only (a painted
-            /// median's edge: pavement goes on beyond it).</summary>
+            /// edge line), 1 a paved shoulder of shoulderL / shoulderR metres with an edge line, 2 a PAINTED MEDIAN: the
+            /// measure is its middle (pavement goes on beyond), its doubled yellow line lies shoulderL metres inside and
+            /// the strip between is hatched; 3 a lane line only (pavement goes on beyond it, no hatch).</summary>
             public byte kindL, kindR; public float shoulderL, shoulderR;
             /// <summary>(round 2) LANE PICKS: see JunctionMeasures.Fit.cs.</summary>
             public List<LineM> lines = new List<LineM>();
@@ -137,7 +138,7 @@ namespace PSXRacing.City
 
         /// <summary>The text form (one item a line, '#' comments):
         ///   provider hand|survey
-        ///   edge ID [blend M] [hold a|b|ab] [shift M] [lanes N] [left kerb|shoulder M|paint] [right kerb|shoulder M]
+        ///   edge ID [blend M] [hold a|b|ab] [shift M] [lanes N] [left kerb|shoulder M|paint M|line] [right kerb|shoulder M|line]
         ///                                               then lines:  s STATION LEFT RIGHT   ('-' = no measure on that side)
         ///                                                            line INDEX broken|solid|yellow2|yellow|edge|none [paint]
         ///                                                            p STATION OFFSET   (rows of the line above)
@@ -174,11 +175,12 @@ namespace PSXRacing.City
                             else if (t[i] == "lanes") e.lanes = int.Parse(t[i + 1], inv);
                             else if (t[i] == "left" || t[i] == "right")
                             {
-                                // left|right kerb | shoulder M | paint
-                                byte kd = t[i + 1] == "shoulder" ? (byte)1 : t[i + 1] == "paint" ? (byte)2 : (byte)0;
-                                float sw = 0f;
-                                if (kd == 1 && i + 2 < t.Length) { sw = F(t[i + 2]); i++; }
-                                if (t[i - (kd == 1 ? 1 : 0)] == "left") { e.kindL = kd; e.shoulderL = sw; } else { e.kindR = kd; e.shoulderR = sw; }
+                                // left|right kerb | shoulder M | paint M | line
+                                byte kd = t[i + 1] == "shoulder" ? (byte)1 : t[i + 1] == "paint" ? (byte)2 : t[i + 1] == "line" ? (byte)3 : (byte)0;
+                                float sw = 0f; bool took = false;
+                                if ((kd == 1 || kd == 2) && i + 2 < t.Length && float.TryParse(t[i + 2], NumberStyles.Float, inv, out float swv)) { sw = swv; took = true; }
+                                if (t[i] == "left") { e.kindL = kd; e.shoulderL = sw; } else { e.kindR = kd; e.shoulderR = sw; }
+                                if (took) i++;
                             }
                         }
                         set.edges[e.edge] = e; break;

@@ -31,7 +31,7 @@ namespace PSXRacing.City
             /// lies (the band's left edge; the median's edge where a bay runs). nEff: lanes (a fraction through a
             /// taper). laneW; leftPave: the measured pavement's left edge less its shoulder; shift: the measure's shift
             /// ease; scale + anchor: a two-way's lines (lat = anchor + metres from the right lane edge * scale).</summary>
-            public float[] wgt, edgeP, nEff, laneW, leftPave, shift, anchor, scale, buffer;
+            public float[] wgt, edgeP, nEff, laneW, leftPave, leftRaw, shift, anchor, scale, buffer;
             public float[][] bnd;
             public List<LineM> lines;
             public float Lerp(float[] a, float s)
@@ -78,6 +78,18 @@ namespace PSXRacing.City
             return best;
         }
 
+        /// <summary>The kind of the median a carriageway runs along, from the measured median end (nose) it reaches:
+        /// 0 none measured, 1 grass, 2 concrete (CityMeshes.MedianSurfaceOf's values).</summary>
+        public static int MedianKind(int edge)
+        {
+            var set = Current;
+            if (set == null) return 0;
+            foreach (var j in set.junctions)
+                foreach (var ns in j.noses)
+                    if (ns.a == edge || ns.b == edge) return ns.kind == 1 ? 2 : 1;
+            return 0;
+        }
+
         /// <summary>Does a measured island's edge cross the section at pt between the offsets lo and hi?</summary>
         public static bool IslandNear(Set set, Vector2 pt, Vector2 left, float lo, float hi) => set != null && !float.IsPositiveInfinity(IslandFrom(set, pt, left, lo, hi));
 
@@ -92,9 +104,9 @@ namespace PSXRacing.City
             int nRule = pr.lanes;
             if (nRule < 1) return null;
             var f = new FitE { edge = e.index, oneway = oneway, nRule = nRule, wgt = new float[n], edgeP = new float[n], nEff = new float[n], laneW = new float[n],
-                               leftPave = new float[n], shift = new float[n], anchor = new float[n], scale = new float[n], buffer = new float[n], bnd = new float[n][],
+                               leftPave = new float[n], leftRaw = new float[n], shift = new float[n], anchor = new float[n], scale = new float[n], buffer = new float[n], bnd = new float[n][],
                                lines = PicksOn ? em.lines : null };
-            float gL = em.kindL == 1 ? em.shoulderL : 0f, gR = em.kindR == 1 ? em.shoulderR : 0f;
+            float gL = em.kindL == 1 || em.kindL == 2 ? em.shoulderL : 0f, gR = em.kindR == 1 ? em.shoulderR : 0f;
             var clear = new float[n]; var A = new float[n]; var cnt = new int[n];
             int cap = em.lanes > 0 ? Mathf.Min(nRule, em.lanes) : nRule;
             bool any = false;
@@ -107,7 +119,7 @@ namespace PSXRacing.City
                 float auxP = LineModel.AuxWidth(e, s, 1), auxM = LineModel.AuxWidth(e, s, -1);
                 A[k] = -mR[k] + gR + auxM;
                 float lim = mL[k] - gL - auxP;
-                f.leftPave[k] = mL[k] - gL;
+                f.leftPave[k] = mL[k] - gL; f.leftRaw[k] = mL[k];
                 if (set != null) lim = Mathf.Min(lim, IslandFrom(set, pt, left, A[k] + 1.5f, mL[k]));
                 clear[k] = lim - A[k];
             }

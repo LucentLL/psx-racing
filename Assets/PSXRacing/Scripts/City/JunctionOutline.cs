@@ -89,6 +89,9 @@ namespace PSXRacing.City
             public int a, b; public string shape = ""; public float r, deg, sA, sB; public Vector2 tA, tB;
             public List<Vector2> pts = new List<Vector2>(); public string note = "";
             public Vector2 lineP, lineD;       // a nose's cut line
+            /// <summary>(round 2) A corner paved up to a measured line between two arms of ONE road going on (the mouth
+            /// of a street the map lacks): the road's lanes and lines carry across as at a through corner.</summary>
+            public bool through;
         }
         public sealed class Result
         {
@@ -463,7 +466,7 @@ namespace PSXRacing.City
                 foreach (var pv in meas.paved) if (pv.a == A.id && pv.b == B.id)
                 {
                     if (pv.open) { c.shape = "abreast"; c.sA = pv.at; c.note = "paved to a measured line"; return c; }
-                    if (PavedCorner(A, B, pv, c)) return c;
+                    if (PavedCorner(A, B, pv, c)) { c.through = Mathf.Abs(Mathf.DeltaAngle(A.head, B.head)) >= ThroughDeg; return c; }
                     c.shape = "paved-not-found"; c.note = "the measured line does not start and end on the two borders"; c.tA = A.L[0]; c.tB = B.R[0]; return c;
                 }
                 foreach (var ns in meas.noses) if (ns.a == A.id && ns.b == B.id)

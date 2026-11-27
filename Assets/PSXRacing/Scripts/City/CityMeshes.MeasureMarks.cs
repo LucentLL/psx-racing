@@ -46,7 +46,7 @@ namespace PSXRacing.City
                     });
                     // a painted median: the second yellow line and the hatching
                     if (em != null && em.kindL == 2)
-                        Runs(e, sLo, sHi, s => f.Lerp(f.wgt, s) >= 0.5f && LineModel.AuxWidth(e, s, 1) <= 0.3f && f.Lerp(f.leftPave, s) - BandL(f, s) > MeasHatchMinW, (s0, s1) =>
+                        Runs(e, sLo, sHi, s => f.Lerp(f.wgt, s) >= 0.5f && LineModel.AuxWidth(e, s, 1) <= 0.3f && f.Lerp(f.leftRaw, s) - BandL(f, s) > MeasHatchMinW, (s0, s1) =>
                         {
                             AddMark(new PaintMark { style = MkBand, edge = e.index, s0 = s0, s1 = s1, side = 1, yellow = true, off = 0.25f, zone = -1, what = "fit: a painted median's double yellow" });
                             if (Hatch(e, f, s0, s1)) hatches++;
@@ -112,7 +112,7 @@ namespace PSXRacing.City
             var pieces = new List<Vector2[]>(16); var bps = new List<float>(64);
             float h = MeasHatchBarW * 1.41421356f;
             float Lo(float s) => BandL(f, s) + 0.25f + 0.2f;
-            float Hi(float s) => f.Lerp(f.leftPave, s);
+            float Hi(float s) => f.Lerp(f.leftRaw, s);
             for (float y = s0 + 0.5f; y < s1 - 0.5f; y += MeasHatchStepM)
             {
                 float lo = Lo(y), hi = Hi(y);
