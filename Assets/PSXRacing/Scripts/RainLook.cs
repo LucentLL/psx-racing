@@ -50,7 +50,17 @@ namespace PSXRacing
         {
             Shader.SetGlobalVector(OffId, new Vector4(softRuns ? 0f : 1f, trueGlow ? 0f : 1f, cabinMask ? 0f : 1f, roadLeaves ? 0f : 1f));
             Shader.SetGlobalVector(Off2Id, new Vector4(duskLeaves ? 0f : 1f, 0f, 0f, 0f));
+#if !UNITY_EDITOR
+            // the tools-only globals (PSX/Lit's id pass, the SSR's cabin split) are set only by Editor code, which a
+            // player does not contain; held at 0 here as well, at boot and on every flip
+            Shader.SetGlobalFloat(IdMaskId, 0f);
+            Shader.SetGlobalFloat(CabinSplitId, 0f);
+#endif
         }
+#if !UNITY_EDITOR
+        static readonly int IdMaskId = Shader.PropertyToID("_PSXIdMask");
+        static readonly int CabinSplitId = Shader.PropertyToID("_PSXCabinSplit");
+#endif
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
         static void Boot() => Push();

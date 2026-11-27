@@ -282,6 +282,30 @@ namespace PSXRacing.EditorTools
                 for (float t0 = Time.time; Time.time - t0 < after;) { car.throttleInput = 0f; car.brakeInput = 1f; yield return null; }
                 Say("after the green: " + after + " s, the race " + RaceManager.Instance.State);
             }
+            // (round 3) RL_BLURLOG=1: the speed blur's inputs and output, logged in each standing state:
+            // held on the brake, wheels spun on the brakes (throttle open), just after a reset to the road
+            if (RainLookShots.Env("RL_BLURLOG", "0") == "1")
+            {
+                if (System.Enum.TryParse(RainLookShots.Env("RL_BLURMODE", ""), true, out SpeedBlurMode bm)) SpeedBlurPrefs.Forced = bm;
+                var sb = Camera.main != null ? Camera.main.GetComponent<SpeedBlur>() : null;
+                var shownF = typeof(SpeedBlur).GetField("shownMps", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                void Log(string state)
+                {
+                    var bc = sb != null ? sb.car : null;
+                    Say($"BLUR {state} t {Time.time:0.00}: player {car.name} v {car.forwardSpeed:0.00} m/s ({car.speedKmh:0.0} km/h), " +
+                        $"blur's car {(bc != null ? bc.name : "none")}{(bc == car ? " (= player)" : " (NOT the player)")} v {(bc != null ? bc.forwardSpeed : 0f):0.00}, " +
+                        $"shown {(sb != null && shownF != null ? (float)shownF.GetValue(sb) : -1f):0.00} m/s, strength {SpeedBlur.ActiveStrength:0.000}, shutter {SpeedBlur.ActiveShutter:0.000}, mode {SpeedBlurPrefs.Mode}, cam {(SpeedBlur.ActiveCamera != null ? SpeedBlur.ActiveCamera.name : "none")}");
+                }
+                for (float t0 = Time.time; Time.time - t0 < 4f;) { car.throttleInput = 0f; car.brakeInput = 1f; car.handbrakeInput = false; if (Time.frameCount % 30 == 0) Log("held"); yield return null; }
+                for (float t0 = Time.time; Time.time - t0 < 5f;) { car.throttleInput = 1f; car.brakeInput = 1f; car.handbrakeInput = true; if (Time.frameCount % 30 == 0) Log("spin"); yield return null; }
+                car.throttleInput = 0f; car.handbrakeInput = false;
+                var rp = car.transform.position + Vector3.up * 0.3f; var rr = car.transform.rotation;
+                car.ResetTo(rp, rr, seated: true);
+                for (float t0 = Time.time; Time.time - t0 < 3f;) { car.throttleInput = 0f; car.brakeInput = 1f; if (Time.frameCount % 15 == 0) Log("reset"); yield return null; }
+                if (RainLookShots.Env("RL_BLURSTATE", "held") == "spin")
+                    for (float t0 = Time.time; Time.time - t0 < 3f;) { car.throttleInput = 1f; car.brakeInput = 1f; car.handbrakeInput = true; yield return null; }
+                Log("shot");
+            }
             Say($"RAINLOOK {tag}: place {RainLookShots.Place} hour {TimeOfDay.Current} weather {Seasons.CurrentWeather} dress {SeasonDress.AppliedDress} at {car.transform.position.x:0},{car.transform.position.z:0} {System.DateTime.Now:yyyy-MM-dd HH:mm}");
 
             // THE ROAD'S OWN STRETCH (a stage): the road mesh's V (x RoadVTile metres) against the metres its

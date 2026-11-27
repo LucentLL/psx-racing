@@ -3447,13 +3447,18 @@ Shader "PSX/Lit"
                 // cutout), b = any PSX/Lit surface (alpha 1: the leaves draw alpha-to-coverage); never set in the game (a uniform branch, 0)
                 // 2: the light on THIS pixel, halved (r the sun as shadowed, g the sky and ambient as kept, b the
                 // lamps and beams), 3: r _Emission, g the albedo's luminance, b the exposure / 4
+                // (round 3: x 0.1 and no exposure, so the display's curve stays in its straight part)
+                // 2: r the street lamps' light arriving (lampD), g what this surface takes of it (x lampGain, roadN),
+                //    b the beams; 3: r the sun as shadowed, g the sky and ambient as kept, b the exposure
                 if (_PSXIdMask > 2.5)
-                    return fixed4(saturate(_Emission), dot(tex.rgb, float3(0.2126, 0.7152, 0.0722)), expo * 0.25, 1.0);
+                {
+                    float3 lw3 = float3(0.2126, 0.7152, 0.0722);
+                    return fixed4(dot(sunIn * sunVis, lw3) * 0.1, dot(ambIn * skyKeep, lw3) * 0.1, expo * 0.1, 1.0);
+                }
                 if (_PSXIdMask > 1.5)
                 {
                     float3 lw = float3(0.2126, 0.7152, 0.0722);
-                    return fixed4(dot(sunIn * sunVis, lw) * expo * 0.5, dot(ambIn * skyKeep, lw) * expo * 0.5,
-                                  dot((headD * beamGain + lampD * lampGain) * roadN, lw) * expo * 0.5, 1.0);
+                    return fixed4(dot(lampD, lw) * 0.1, dot(lampD * lampGain * roadN, lw) * 0.1, dot(headD * beamGain, lw) * 0.1, 1.0);
                 }
                 if (_PSXIdMask > 0.5)
                     return fixed4(_LeafVivid.z > 0.5 ? 1.0 : 0.0, (N.y > 0.85 && _Wet > 0.001 && _Cutoff < 0.001) ? 1.0 : 0.0, 1.0, 1.0);
