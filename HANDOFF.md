@@ -1,3 +1,41 @@
+# ROAD SURVEY, STAGE 3: SHALLOW SPLITS AND MERGES (agent "survey", 11-27 ~14:35-15:35; branch `road-survey`; NOT pushed by me, NOT merged)
+
+**State: Wendover NOT MET, the 20 longest NOT MET, the 30 others NOT MET. One partial rule built (SF1), opt-in, default
+OLD.** Generator code changed (a city bake): `Scripts/City/CityMeshes.ShallowFork.cs` (new), one call in
+`CityMeshes.ComputeTrims` (`CityMeshes.cs`, after the through pair is chosen), LAB row `shallowfork` "SHALLOW FORKS ONE
+ROAD" (World, env `PSX_CITY_SHALLOWFORK=1`, look line ends "A city bake."); DumpNear prints branch / through pairs.
+Proof: scratch `survey\proof3\`.
+- THE OLD GORE SPLIT (LineModel.Gores.cs, R1, c7roads round 3, `PSX_CITY_GORESPLIT=1`, LAB row goresplit, OFF): for two
+  arms leaving a node on one side within 60 deg it pushed the moving arm sideways with SHIFT eases so the two travelled
+  ways shared one boundary, and a GoreFill paved the gore to a 2.4 m nose. Off because moving lanes failed the line gate
+  city-wide (SHIFT +619, SJOG +156, STEP +48, MEDIAN +4 at 8265a347); its paved gore was never built. The brief forbids
+  moving lanes, so SF1 does NOT repair it; it sits beside it (both off by default).
+- WHAT WAS WRONG AT WENDOVER (DumpNear, EDITOR): n3583 is a mitre whose through pair is chosen by opposition alone:
+  Expressway e13593 went through into Albemarle Rd e2370 (2 lanes, 1 deg straighter) and Independence Blvd e3521 (4
+  lanes) was the BRANCH clipped onto the 2-lane road, so the big road's lines ran across the small one for 115 m.
+- SF1 (built): at such a node the incoming arm's through partner is the one-way arm with the most lanes (then the
+  widest) among its continuations within 12 deg of the most opposite; links never displace a road. The existing branch
+  machinery (ClipAt / EmitBranch / BuildGores) then makes the smaller road the branch: one owner of the shared pavement,
+  its ribbon cut at the host's edge, the painted gore (two diverging solid lines) once it leaves. No graph, lane count,
+  ease or control trim changes. City-wide it changes 17 nodes (556, 566, 823, 1407, 1900, 1926, 2309, 3583, 3854,
+  3924, 4898, 6274, 7070, 8282, 8465, 10361, 17330).
+- NOT BUILT: the pair classes (lane alongside / fork) as their own rule, chevrons in the gore, a rounded physical nose,
+  the paved gore with the land closed against it, the deck start inside the other road (Wendover).
+- SPOT TABLE (`spot_table.txt`; gate_old / gate_new): the gate does NOT see the Wendover fault (OLD OVERLAY, LINEUNDER,
+  LAYERS 0 there). Wendover old|new: SEETHRU 6|5, STEP 1|0, KINK 12|23 (worse). The 20 longest (all motorway + link,
+  the merge zones'): SF1 does not touch them, identical; 19 of 20 already 0 on the three gates, f10 LAYERS 2. 30 others:
+  29 identical, f45 STEP 1|2, KINK 1|2; OVERLAY / LINEUNDER / LAYERS non-zero at 13 of them, old and new. The 17 SF1
+  nodes: OVERLAY n3854 0|4, LINEUNDER n566 0|2, LAYERS n566 0|3, n4898 2|4, n8282 0|4; better at n1407, n3854 (LAYERS
+  13|0), n6274 (HOLES); KINK 784|810 over all 72 spots. Spots 77, 79, 80, 81: unchanged.
+- PICTURES (EDITOR, noon): `wendover_plan40.png`, `wendover_plan160.png`, `wendover_chase.png` (OLD | NEW, faults
+  circled: the deck slab still across the lanes, Albemarle's asphalt over the deck start, gore lines meeting in a point
+  with no chevrons, a tone seam); `sheet_f01 / f02 / f21 / f29 / f36 / f49.png` (one per class + two longest: OLD = NEW).
+- TESTS: Unity JunctionOutlineTests with SF1 on: as before, the one failure g44_slip (a rule fixture). Typecheck OK.
+- NOT RUN: the line gate (box or city), the kink probe on its own, tools\city-spots.ps1; cost only as the gate's tile
+  averages (NEW 648 tiles 13,888 triangles 149 ms; OLD two runs 553 + 137 tiles): not like for like. Traffic and rivals
+  not tested (no play mode): a play test should watch lane-following through the 17 nodes (host / branch roles swapped)
+  and the AI at the Wendover split before checkpoint 7.
+
 # ROAD SURVEY, STAGE 2 (agent "survey", 11-27 afternoon; branch `road-survey`; NOT pushed by me, NOT merged)
 
 **State: A+B MET (60 test junctions + 80, 81, Wendover through RunMeasured; 45 of 63 clean, 13 refused, 2 solved with a
