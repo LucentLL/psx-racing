@@ -117,7 +117,8 @@ namespace PSXRacing.City
                 f.wgt[k] = w; any |= w > 0f;
                 var pt = e.PointAt(s); var t = e.TangentAt(s); var left = new Vector2(-t.y, t.x);
                 float auxP = LineModel.AuxWidth(e, s, 1), auxM = LineModel.AuxWidth(e, s, -1);
-                A[k] = -mR[k] + gR + auxM;
+                // (a right side measured as a LANE LINE is the lanes' own edge: the rule's aux lane lies beyond it)
+                A[k] = -mR[k] + gR + (em.kindR == 3 ? 0f : auxM);
                 // THE MAP'S LANES FIRST: the clear width runs to the median (or an island); a bay the rule lays there
                 // keeps its place against the median only if it fits beside the lanes (below)
                 float lim = mL[k] - gL;

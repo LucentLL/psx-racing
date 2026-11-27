@@ -304,6 +304,8 @@ namespace PSXRacing.City
                 RsKerbM += run;
                 RsTop(tm, org, r, hr, kh, kind != 0);
             }
+            // 4. (round 2) THE MEDIAN ALONG THE RIBBONS beyond the rows, of the measured nose's kind (RoadSurfaceMedians.cs)
+            EmitRsMedians(map, tm, js);
             RsBuildMs += sw.Elapsed.TotalMilliseconds;
         }
 
