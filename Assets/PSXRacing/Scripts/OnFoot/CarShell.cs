@@ -97,6 +97,8 @@ namespace PSXRacing.OnFoot
             if (mat != null) br.sharedMaterial = mat;
             // The clear lamp covers over it (CarCovers).
             CarCovers.Dress(body.GetComponent<MeshFilter>(), def);
+            // carparts: a shell that opens knows its row (its engine's shape)
+            if (spec != null && CarParts.Allowed(def)) CarEngineBay.Note(body.GetComponent<MeshFilter>(), spec);
             ArchFlare.Stamp(br, def, fit);   // a stand-in shell's arches over the sheet's tyres
 
             // The player's own car wears whatever they fitted, or nothing.

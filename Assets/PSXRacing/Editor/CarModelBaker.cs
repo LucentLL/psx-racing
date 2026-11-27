@@ -21,7 +21,7 @@ namespace PSXRacing.EditorTools
     /// Run from Tools > PSX Racing > Bake Car Models, or let PSXRacingBuilder
     /// call it as part of a scene build.
     /// </summary>
-    public static class CarModelBaker
+    public static partial class CarModelBaker
     {
         const string Root = "Assets/PSXRacing";
         const string ModelDir = Root + "/Art/Car/Models";
@@ -115,7 +115,7 @@ namespace PSXRacing.EditorTools
 
         // ------------------------------------------------------------------
 
-        static void BakeOne(CarModelLibrary.Model model, Shader shader)
+        static void BakeOne(CarModelLibrary.Model model, Shader shader, string prefabDir = null)
         {
             string dir = ModelDir + "/" + model.key;
             string objPath = dir + "/" + model.key + ".obj";
@@ -292,8 +292,10 @@ namespace PSXRacing.EditorTools
             // After the skins: the covers take the first livery's sheet.
             BakeLensVariant(d, dir, model.key, bodyMesh);
             BakeCovers(d, dir, model.key);
+            // After the covers: a section 5A shell's opening parts (carparts).
+            BakeOpeningParts(d, dir, model.key, bodyMesh);
 
-            string prefabPath = OutDir + "/" + model.key + ".prefab";
+            string prefabPath = (prefabDir ?? OutDir) + "/" + model.key + ".prefab";
             PrefabUtility.SaveAsPrefabAsset(def, prefabPath);
             UnityEngine.Object.DestroyImmediate(def);
 

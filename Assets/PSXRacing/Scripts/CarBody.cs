@@ -245,6 +245,9 @@ namespace PSXRacing
             lensCovers = on;
             var def = Def;
             if (def == null) return;
+            // B is refused with parts open (CarParts.Allowed): every part shuts first
+            if (on) CarParts.TearDown(bodyFilter);
+            Debug.Assert(!on || CarParts.Find(bodyFilter) == null, "[CarParts] lens B with parts open");
             if (bodyFilter != null && !on && bodyFilter.sharedMesh == def.lensBodyMesh)
                 bodyFilter.sharedMesh = def.bodyMesh;
             DressLenses(def);
@@ -320,8 +323,14 @@ namespace PSXRacing
             // missing or when several liveries tie.
             widthMm = spec.widthMm;
             specGeometry = CarModelLibrary.SpecGeometry.Of(spec);
+            if (specIdForBay != spec.id) CarEngineBay.Release(bodyFilter);   // another row: perhaps another engine
+            specIdForBay = spec.id;
+            CarEngineBay.Note(bodyFilter, spec);   // carparts: the engine's shape
             Apply(def, def.SkinFor(spec.color, Mathf.Abs(spec.id != null ? spec.id.GetHashCode() : 0) % 97));
         }
+
+        CarModelDef cachedDefForBay;
+        string specIdForBay;
 
         public void ApplyKey(string key, int skin)
         {
@@ -373,6 +382,10 @@ namespace PSXRacing
                 : null;
             skinIndex = def.SkinCount > 0 ? Mathf.Clamp(skin, 0, def.SkinCount - 1) : -1;
 
+            // a re-dress always starts shut (CarParts: the closed body back, parts gone)
+            CarParts.TearDown(bodyFilter);
+            if (cachedDefForBay != def) CarEngineBay.Release(bodyFilter);   // another shell: another engine
+            cachedDefForBay = def;
             if (bodyFilter != null) bodyFilter.sharedMesh = def.bodyMesh;
             PSXTexDecode.Stamp(mat);   // a livery's 16-bit sheet is decoded in the shader
             if (bodyRenderer != null && mat != null) bodyRenderer.sharedMaterial = mat;

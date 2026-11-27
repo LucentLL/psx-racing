@@ -228,6 +228,9 @@ namespace PSXRacing
                     DriveSession.Respawn(car);
             }
 
+            // carparts: O / D-pad down / wheel OPEN / touch OPEN (CarPartsDrive)
+            CarPartsDrive.Tick(this, car, inputEnabled && !DriveSession.ResultsUp);
+
             // On-screen controls (phones, tablets, touch laptops). The wheel wins
             // over the gamepad only while it is actually being held.
             var touch = TouchControls.Instance;

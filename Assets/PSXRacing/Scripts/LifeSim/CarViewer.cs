@@ -467,6 +467,7 @@ namespace PSXRacing.LifeSim
             // of it.
             waterCar = null;
             Show(def, Paint.FactorySkin(spec, def), CarModelLibrary.SpecGeometry.Of(spec));
+            CarEngineBay.Note(bodyFilter, spec);   // carparts: its engine's shape
             SetWheelsOff(false);
         }
 
@@ -526,6 +527,7 @@ namespace PSXRacing.LifeSim
             dressNext = car;   // its condition, as the drive shows it (DamageView)
             waterCar = car;    // and its own water: rain it came home in, a wash (CarWater)
             Show(def, skinOverride >= 0 ? skinOverride : Paint.SkinFor(car, spec, def), CarModelLibrary.SpecGeometry.Of(spec));
+            CarEngineBay.Note(bodyFilter, spec);   // carparts: its engine's shape
             // A car whose wheels are in storage is shown on its stands, everywhere.
             SetWheelsOff(car != null && car.noWheels);
         }
@@ -578,6 +580,9 @@ namespace PSXRacing.LifeSim
             // and the wheels sit symmetrically about them.
             float centre = fit.P(def.colliderCenter).z;
 
+            // a re-dress always starts shut (CarParts: the closed body back, parts gone)
+            CarParts.TearDown(bodyFilter);
+            CarEngineBay.Release(bodyFilter);
             bodyFilter.sharedMesh = def.bodyMesh;
             bodyRenderer.sharedMaterial = mat;
             CarCovers.Dress(bodyFilter, def);   // the clear lamp covers

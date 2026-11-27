@@ -69,6 +69,8 @@ namespace PSXRacing
         public WheelBinding reset = new WheelBinding();
         public WheelBinding camera = new WheelBinding();
         public WheelBinding pause = new WheelBinding();
+        /// <summary>carparts: opens the hood, trunk and doors (unbound by default).</summary>
+        public WheelBinding open = new WheelBinding();
         public bool ffbOn = true;
         public int ffbStrengthPct = WheelConfig.DefaultFfbStrength;
         public bool ffbInvert;
@@ -143,6 +145,7 @@ namespace PSXRacing
             d.reset = d.reset ?? new WheelBinding();
             d.camera = d.camera ?? new WheelBinding();
             d.pause = d.pause ?? new WheelBinding();
+            d.open = d.open ?? new WheelBinding();
             d.rotationDeg = Mathf.Clamp(Mathf.RoundToInt(d.rotationDeg / (float)RotationStep) * RotationStep,
                                         MinRotation, MaxRotation);
             d.ratioMode = Mathf.Clamp(d.ratioMode, RatioCar, RatioFullLock);

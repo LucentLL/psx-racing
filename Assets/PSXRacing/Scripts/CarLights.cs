@@ -773,7 +773,19 @@ namespace PSXRacing
         bool ShellChanged()
         {
             if (body != null && body.bodyFilter != null)
-                return body.bodyFilter.sharedMesh != fittedMesh;
+            {
+                var m = body.bodyFilter.sharedMesh;
+                if (m == fittedMesh) return false;
+                // CarParts' open body and the closed one are the same shell:
+                // the swap is not a new shell (as PopUps' swap is not)
+                var d = Def;
+                if (d != null && d.bodyOpenMesh != null && d.IsBodyOf(m) && d.IsBodyOf(fittedMesh))
+                {
+                    fittedMesh = m;
+                    return false;
+                }
+                return true;
+            }
             return box != null && (box.center != fitCenter || box.size != fitSize);
         }
 
@@ -907,6 +919,8 @@ namespace PSXRacing
             if (def == null || def.lampsUpMesh == null) return;
             var f = ShellFilter(def);
             if (f == null) return;
+            // refused (CarParts.Allowed): a pop-up shell never has a part open
+            Debug.Assert(CarParts.Find(f) == null, "[CarParts] a pop-up shell with parts open");
             var want = def.BodyMeshFor(LitNow);
             // Only ever trade one of this shell's two bodies for the other.
             if (f.sharedMesh == want || (f.sharedMesh != def.bodyMesh && f.sharedMesh != def.lampsUpMesh)) return;
@@ -925,11 +939,11 @@ namespace PSXRacing
         {
             if (body == null) body = GetComponent<CarBody>();
             if (body != null) return body.bodyFilter;
-            if (shellFilter != null && (shellFilter.sharedMesh == def.bodyMesh || shellFilter.sharedMesh == def.lampsUpMesh))
+            if (shellFilter != null && def.IsBodyOf(shellFilter.sharedMesh))
                 return shellFilter;
             shellFilter = null;
             foreach (var mf in GetComponentsInChildren<MeshFilter>(true))
-                if (mf.sharedMesh == def.bodyMesh || mf.sharedMesh == def.lampsUpMesh) { shellFilter = mf; break; }
+                if (def.IsBodyOf(mf.sharedMesh)) { shellFilter = mf; break; }
             return shellFilter;
         }
 

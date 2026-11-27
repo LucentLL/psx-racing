@@ -22,7 +22,7 @@ namespace PSXRacing
     /// </summary>
     public sealed class WheelCapture
     {
-        public enum Target { None, Steer, Throttle, Brake, Clutch, ShiftUp, ShiftDown, Handbrake, LookBack, Reset, Camera, Pause }
+        public enum Target { None, Steer, Throttle, Brake, Clutch, ShiftUp, ShiftDown, Handbrake, LookBack, Reset, Camera, Pause, Open }
         public enum Phase { Idle, Left, Right, Centre, Press, Release, Button, ButtonRelease, Done, Failed }
 
         public Target target { get; private set; }
@@ -276,6 +276,7 @@ namespace PSXRacing
                 case Target.Reset: return d.reset;
                 case Target.Camera: return d.camera;
                 case Target.Pause: return d.pause;
+                case Target.Open: return d.open;
             }
             return PedalBinding(t);
         }

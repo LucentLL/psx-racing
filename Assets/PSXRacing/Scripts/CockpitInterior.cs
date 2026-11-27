@@ -1004,6 +1004,16 @@ namespace PSXRacing
         static readonly int CullId = Shader.PropertyToID("_PSXCull"), InsideId = Shader.PropertyToID("_PSXInside");
         public static bool InsideOn = System.Environment.GetEnvironmentVariable("PSX_COCKPIT_INSIDE") != "0";
 
+        /// <summary>The body's filter changed mesh under a fitted cabin
+        /// (CarParts' open body and back): the inside copy is re-copied and
+        /// the car's renderers re-sorted, so the hood can open in the cockpit
+        /// view and a new part is cut like the body.</summary>
+        internal void BodyChanged()
+        {
+            if (!fitted) return;
+            CollectShell();
+        }
+
         void EnsureInside()
         {
             if (!InsideOn || body == null || body.bodyFilter == null || body.bodyRenderer == null) return;

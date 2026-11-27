@@ -104,6 +104,8 @@ namespace PSXRacing.OnFoot
             public FootTarget hook;      // the car itself
             public FootTarget rigHook;   // the jack, or the lift
             public Transform shell;      // body + wheels + collider, as one
+            public CarPartsFoot parts;   // carparts: a target per hood, trunk, door (a car with parts only)
+            public CarModelDef def;
             public Transform stands;     // four of them, standing on the floor
             public Transform arms;       // lift arms, which ride up with the car
             public float standsHeight, liftHeight;
@@ -259,6 +261,11 @@ namespace PSXRacing.OnFoot
                 if (car.noWheels && Toolbox.RaiseOf(S, car) == Toolbox.Raise.Ground) Toolbox.ToggleRaise(S, car);
                 st.shell = SpawnShell(bay, def, skin, out Vector3 roofPoint, spec, car);
                 PaintGloss.WriteAll(st.shell, PaintGloss.Of(car));
+                st.def = def;
+                // carparts: the player's own car in its bay opens on foot
+                st.parts = CarPartsFoot.Attach(st.shell, st.shell != null ? st.shell.Find("Body")?.GetComponent<MeshFilter>() : null, def);
+                // and its engine loaded now, ready before the hood can move (decision 10)
+                if (st.parts != null) CarEngineBay.Preload(st.shell.Find("Body").GetComponent<MeshFilter>(), def, spec);
 
                 BuildRaiseRig(st, def, spec);
                 // Straight to wherever the save says it was left. A car the
@@ -811,6 +818,15 @@ namespace PSXRacing.OnFoot
                 bool open = Inspection.OpenToday(S, car);
                 hook.action2 = open ? "CARRY ON INSPECTING IT" : "INSPECT IT  (a time slot)";
                 hook.onUse2 = () => OpenInspection(target);
+                // carparts: the hood's target carries the car's INSPECT IT too
+                // (and the LAB preview switched on since the bay was filled)
+                if (st.shell != null && st.def != null)
+                    st.parts = CarPartsFoot.Attach(st.shell, st.shell.Find("Body")?.GetComponent<MeshFilter>(), st.def);
+                if (st.parts != null && st.parts.HoodTarget != null)
+                {
+                    st.parts.HoodTarget.action2 = hook.action2;
+                    st.parts.HoodTarget.onUse2 = hook.onUse2;
+                }
 
                 RefreshRigLabel(st);
             }

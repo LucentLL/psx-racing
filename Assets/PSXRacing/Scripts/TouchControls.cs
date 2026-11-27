@@ -60,6 +60,15 @@ namespace PSXRacing
         /// <summary>The same button, TAPPED. Getting out of the car is a press;
         /// working the nozzle is a hold. One control, two verbs, told apart the
         /// way every other control in this game tells them apart.</summary>
+        /// <summary>carparts: the small OPEN button (hood, trunk, doors), HELD.
+        /// On screen only while the car has parts and the speed rule allows
+        /// opening (<see cref="SetOpen"/>).</summary>
+        public bool OpenHeld => openBtn != null && openBtn.gameObject.activeSelf && openBtn.Pressed;
+        public bool OpenShown => openBtn != null && openBtn.gameObject.activeSelf;
+        /// <summary>Its rect (the layout check: never over the pedals, the
+        /// wheel or the ACTION button).</summary>
+        public RectTransform OpenRect => openBtn != null ? (RectTransform)openBtn.transform : null;
+        public RectTransform ActionRect => actionBtn != null ? (RectTransform)actionBtn.transform : null;
         public bool ActionPressed => actionBtn != null &&
                                      actionBtn.gameObject.activeSelf && actionBtn.PressedThisFrame;
         public bool Visible { get; private set; }
@@ -67,7 +76,7 @@ namespace PSXRacing
         TouchWheel wheel;
         TouchPedal gasPedal, brakePedal, ebrakePedal;
         TouchShifter shifter;
-        TouchButton continueBtn, actionBtn;
+        TouchButton continueBtn, actionBtn, openBtn;
         Canvas canvas;
 
         // Palette, carried over from the source's control colours.
@@ -181,6 +190,16 @@ namespace PSXRacing
                                    new Color(0.55f, 0.36f, 0.02f, 0.82f), 24);
             actionBtn.gameObject.SetActive(false);
 
+            // carparts: OPEN, small, in the top row LEFT of the contextual
+            // slot - the corner the drive leaves empty - so it never sits over
+            // the pedals, the shifter, the wheel or the ACTION button, and the
+            // pizza cam under the ACTION slot keeps its place.
+            openBtn = MakeButton(canvasGO.transform, "Open", "OPEN", font,
+                                 new Vector2(1f, 1f), new Vector2(-30f - 252f - OpenGap, -ActionTopInset),
+                                 new Vector2(OpenW, ActionH),
+                                 new Color(0.18f, 0.20f, 0.24f, 0.82f), 22);
+            openBtn.gameObject.SetActive(false);
+
             // Bottom centre, wide, and clear of the wheel and the pedals: a
             // results screen is the one moment nothing else on this panel does
             // anything, so the button that leaves it can have the middle of the
@@ -200,6 +219,21 @@ namespace PSXRacing
             if (continueBtn != null && continueBtn.gameObject.activeSelf != show)
                 continueBtn.gameObject.SetActive(show);
         }
+        /// <summary>The OPEN button's width and its gap to the ACTION slot.</summary>
+        public const float OpenW = 170f, OpenGap = 16f;
+
+        /// <summary>Show or hide OPEN (carparts), with the step it will take.</summary>
+        public void SetOpen(bool show, string label = null)
+        {
+            if (openBtn == null) return;
+            if (show && !string.IsNullOrEmpty(label))
+            {
+                var t = openBtn.GetComponentInChildren<Text>();
+                if (t != null && t.text != label) t.text = label;
+            }
+            if (openBtn.gameObject.activeSelf != show) openBtn.gameObject.SetActive(show);
+        }
+
         /// <summary>Show or hide the contextual button, and say what it does.
         /// Driven from the HUD, which is the one component that already ticks
         /// every frame and already knows what the world is offering.</summary>

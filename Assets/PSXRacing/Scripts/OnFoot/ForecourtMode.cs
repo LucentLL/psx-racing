@@ -116,6 +116,7 @@ namespace PSXRacing.OnFoot
         StoreScreen store;
 
         FootTarget storeTarget, carTarget;
+        CarPartsFoot parts;
         /// <summary>One prompt per pump in the scene. A single moving one sat
         /// on whichever fuelling volume claimed the car, and an island's
         /// volumes overlap (pumps 2 m apart, volumes 7 m wide), so the claim
@@ -324,6 +325,21 @@ namespace PSXRacing.OnFoot
                 DecorateCarTarget?.Invoke(carTarget);
             }
 
+            // carparts: on foot at the player's OWN car (the driveway, the town,
+            // a meet's lot), a target per hood, trunk and door; the hood's
+            // second verb is the car's (INSPECT IT at home)
+            if (OnFoot && playerCar != null)
+            {
+                var cb = playerCar.GetComponent<CarBody>();
+                parts = cb != null ? CarPartsFoot.Attach(playerCar.transform, cb.bodyFilter, cb.Def) : null;
+                if (parts != null) CarEngineBay.Preload(cb.bodyFilter, cb.Def);   // ready before the hood can move
+                if (parts != null && parts.HoodTarget != null && carTarget != null)
+                {
+                    parts.HoodTarget.action2 = carTarget.action2;
+                    parts.HoodTarget.onUse2 = carTarget.onUse2;
+                }
+            }
+
             if (storeTarget != null)
             {
                 storeTarget.title = StationBrand.Name;
@@ -446,6 +462,9 @@ namespace PSXRacing.OnFoot
         IEnumerator GetIn()
         {
             phase = Phase.GettingIn;
+            // carparts: the walker's part targets go with the walker
+            if (playerCar != null) CarPartsFoot.Detach(playerCar.transform);
+            parts = null;
             GasPump.WalkerAtNozzle = false;
             OnFoot = false;
 

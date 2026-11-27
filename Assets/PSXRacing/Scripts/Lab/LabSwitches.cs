@@ -360,6 +360,23 @@ namespace PSXRacing
                 look = "Brake lamps stay lit through light braking instead of flickering every frame or two.",
                 env = new[] { "PSX_BRAKELAMPHOLD" }, members = new[] { "CarLights.BrakeLampHold" },
             });
+            // carparts (stage 1): live - switched off, every part on every car shuts at once
+            Register(new LabRow
+            {
+                id = "carparts", group = LabGroup.Cars, name = "OPEN HOOD, TRUNK AND DOORS", when = LabWhen.Now,
+                look = "Parked or walking pace: O / D-pad down / OPEN opens the hood, trunk and doors; the engine shows under the hood.",
+                env = new[] { "PSX_CARPARTS" }, members = new[] { "CarParts.On" },
+                apply = CarParts.ApplyLab,
+            });
+            // carparts (stage 3, coordinator 11-26): the stand-in, so a build can open something before a pilot car exists
+            Register(new LabRow
+            {
+                id = "carpartspreview", group = LabGroup.Cars, name = "OPENING: STAND-IN PREVIEW", when = LabWhen.Now,
+                option = true, def = () => false,
+                look = "Striped placeholder panels on one car (the late-80s coupe) until real car art arrives; they open with the normal control.",
+                env = new[] { "PSX_PARTS_STANDIN" }, members = new[] { "CarPartsStandIn.Preview" },
+                apply = CarPartsStandIn.ApplyLab,
+            });
             // ---- TRAFFIC --------------------------------------------------------
             Register(new LabRow
             {
