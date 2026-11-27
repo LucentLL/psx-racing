@@ -2560,6 +2560,12 @@ namespace PSXRacing
                             if (i == block) continue;
                             var o = obs[i];
                             if (Mathf.Abs(o.lat - line) >= o.half + myHalf + air) continue;
+                            // (round 6) already out at this line or beyond it: a car level with this one or behind its nose,
+                            // on the side it came from and clear of its body, is BESIDE it, not in the line (two rivals side
+                            // by side behind the staged wreck each held the other's line: the Civic, out in the clear at
+                            // -1.0, stood 8 s for the 180SX 2 m behind its nose)
+                            if (RoundStandingOn && !o.oncoming && o.z < 2f && Mathf.Abs(o.lat - myLat) >= o.half + myHalf + 0.05f &&
+                                (isLeft ? myLat <= line + 0.3f && o.lat > myLat : myLat >= line - 0.3f && o.lat < myLat)) continue;
                             // An oncoming car is met sooner than it stands: it
                             // comes to us while we go to it. Anything within
                             // the pass, meeting point included, blocks the line.
@@ -2678,6 +2684,11 @@ namespace PSXRacing
                         float lateralLeft = Mathf.Max(0f, bo.half + myHalf + air - Mathf.Abs(bo.lat - myLat));
                         float tSide = lateralLeft / LateralRateMps;
                         float tHit = gap / Mathf.Max(bo.closing, 0.3f);
+                        // (round 6) clear of it across the road with the pass's own air: nothing left to be late for. Nose
+                        // past its tail (gap under 0) the time to reach it was negative, so a car going by at a crawl got the
+                        // brake and six tenths off the throttle and crept the car's length at 0.3 m/s (the Viper beside the
+                        // staged wreck, seed 0: 7 s for 3 m, then its recovery).
+                        if (RoundStandingOn && lateralLeft <= 0f) tHit = 1e3f;
                         if (tHit < tSide * 1.3f) trafficBrake = Mathf.Max(trafficBrake, stopBrake);
                         Why("pass-late", throttleLift, trafficBrake);
                         // A lift only while the move is MARGINAL - from twice
