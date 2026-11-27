@@ -149,6 +149,7 @@ namespace PSXRacing.City
                               : JunctionMeasures.LkBroken;
                     float a = s0, b = sEnd;
                     if (pick != null && pick.st.Count >= 2) { a = Mathf.Max(a, pick.st[0].x); b = Mathf.Min(b, pick.st[pick.st.Count - 1].x); }
+                    else if (inside && em != null && em.st.Count > 0) { a = Mathf.Max(a, em.st[0].s); b = Mathf.Min(b, em.st[em.st.Count - 1].s); }
                     if (kind == JunctionMeasures.LkNone)
                     {
                         // FIT: the lanes' left line is solid white along a measured island
@@ -167,16 +168,24 @@ namespace PSXRacing.City
                     if (kind == JunctionMeasures.LkYellow2) { RsLine(tm.origin, e, a, b, s => Lat(s) - 0.12f, true, false); RsLine(tm.origin, e, a, b, s => Lat(s) + 0.12f, true, false); }
                     else RsLine(tm.origin, e, a, b, Lat, kind == JunctionMeasures.LkYellow || (kind == JunctionMeasures.LkEdge && idx == f.nRule), kind == JunctionMeasures.LkBroken);
                 }
-                // a painted median on an inside edge: the second yellow line and the bars
-                if (paintL && inside)
+                // a painted median inside the junction: the second yellow line and the bars, over the stations the measure
+                // gives its middle (an inside edge: from its first to its last; an arm: from its row to its node)
+                if (paintL)
                 {
-                    RsLine(tm.origin, e, s0, sEnd, s => BandL(f, s) + 0.25f, true, false);
+                    float h0 = s0, h1 = sEnd;
+                    if (inside)
+                    {
+                        float lf = float.MaxValue, ll = float.MinValue;
+                        foreach (var st in em.st) if (!float.IsNaN(st.left)) { lf = Mathf.Min(lf, st.s); ll = Mathf.Max(ll, st.s); }
+                        h0 = Mathf.Max(h0, lf); h1 = Mathf.Min(h1, ll);
+                    }
+                    RsLine(tm.origin, e, h0, h1, s => BandL(f, s) + 0.25f, true, false);
                     float h = MeasHatchBarW * 1.41421356f;
-                    for (float y = s0 + 0.5f; y < sEnd - 0.5f; y += MeasHatchStepM)
+                    for (float y = h0 + 0.5f; y < h1 - 0.5f; y += MeasHatchStepM)
                     {
                         float lo = BandL(f, y) + 0.45f, hi = f.Lerp(f.leftRaw, y);
                         float rise = hi - lo;
-                        if (rise < 0.4f || y + rise + h > sEnd) continue;
+                        if (rise < 0.4f || y + rise + h > h1) continue;
                         RsPoly(tm.origin, e, new[] { new Vector2(lo, y), new Vector2(lo, y + h), new Vector2(hi, y + rise + h), new Vector2(hi, y + rise) }, true);
                     }
                 }

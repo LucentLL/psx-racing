@@ -31,7 +31,7 @@ namespace PSXRacing.City
             /// lies (the band's left edge; the median's edge where a bay runs). nEff: lanes (a fraction through a
             /// taper). laneW; leftPave: the measured pavement's left edge less its shoulder; shift: the measure's shift
             /// ease; scale + anchor: a two-way's lines (lat = anchor + metres from the right lane edge * scale).</summary>
-            public float[] wgt, edgeP, nEff, laneW, leftPave, leftRaw, shift, anchor, scale, buffer;
+            public float[] wgt, edgeP, nEff, laneW, leftPave, leftRaw, rightRaw, shift, anchor, scale, buffer, bayW;
             public float[][] bnd;
             public List<LineM> lines;
             public float Lerp(float[] a, float s)
@@ -104,7 +104,7 @@ namespace PSXRacing.City
             int nRule = pr.lanes;
             if (nRule < 1) return null;
             var f = new FitE { edge = e.index, oneway = oneway, nRule = nRule, wgt = new float[n], edgeP = new float[n], nEff = new float[n], laneW = new float[n],
-                               leftPave = new float[n], leftRaw = new float[n], shift = new float[n], anchor = new float[n], scale = new float[n], buffer = new float[n], bnd = new float[n][],
+                               leftPave = new float[n], leftRaw = new float[n], rightRaw = new float[n], bayW = new float[n], shift = new float[n], anchor = new float[n], scale = new float[n], buffer = new float[n], bnd = new float[n][],
                                lines = PicksOn ? em.lines : null };
             float gL = em.kindL == 1 || em.kindL == 2 ? em.shoulderL : 0f, gR = em.kindR == 1 ? em.shoulderR : 0f;
             var clear = new float[n]; var A = new float[n]; var cnt = new int[n];
@@ -118,8 +118,10 @@ namespace PSXRacing.City
                 var pt = e.PointAt(s); var t = e.TangentAt(s); var left = new Vector2(-t.y, t.x);
                 float auxP = LineModel.AuxWidth(e, s, 1), auxM = LineModel.AuxWidth(e, s, -1);
                 A[k] = -mR[k] + gR + auxM;
-                float lim = mL[k] - gL - auxP;
-                f.leftPave[k] = mL[k] - gL; f.leftRaw[k] = mL[k];
+                // THE MAP'S LANES FIRST: the clear width runs to the median (or an island); a bay the rule lays there
+                // keeps its place against the median only if it fits beside the lanes (below)
+                float lim = mL[k] - gL;
+                f.leftPave[k] = mL[k] - gL; f.leftRaw[k] = mL[k]; f.rightRaw[k] = -mR[k];
                 if (set != null) lim = Mathf.Min(lim, IslandFrom(set, pt, left, A[k] + 1.5f, mL[k]));
                 clear[k] = lim - A[k];
             }
@@ -160,8 +162,14 @@ namespace PSXRacing.City
                 int top = Mathf.Clamp(Mathf.RoundToInt(nE), 1, nRule);
                 float b0 = row[0], bT = float.IsNaN(row[top]) ? a0 + nE * lw : row[top];
                 float auxP = LineModel.AuxWidth(e, s, 1);
-                f.buffer[k] = (mL[k] - gL - auxP) - bT;
-                f.edgeP[k] = oneway ? Mathf.Lerp(bT, Mathf.Max(bT, mL[k] - gL - e.shl), Mathf.Clamp01(auxP / 3f)) : bT;
+                // the bay fits where a lane's width is left between the lanes and the median
+                float room = (mL[k] - gL) - bT;
+                float bay = oneway && auxP > 0.3f && room >= FitMinLaneM - 0.25f ? Mathf.Min(auxP, room) : 0f;
+                f.bayW[k] = bay;
+                f.buffer[k] = room - bay;
+                // (the left edge line rides the rule's aux lane out: AuxThroughLat = this - the aux's line shift, so a bay
+                // that does not fit leaves both on the lanes' left line)
+                f.edgeP[k] = !oneway ? bT : bay > 0f ? Mathf.Lerp(bT, Mathf.Max(bT, mL[k] - gL - e.shl), Mathf.Clamp01(bay / 3f)) : bT + LineModel.AuxLineShift(e, s, 1);
                 // the lanes' centre: the shift ease carries it (LineModel.LaneCentre, the traffic, the AI)
                 LineModel.ExtentsBefore(e, s, out float lM, out float lP);
                 float ruleC = 0.5f * ((lP - e.shl) - (lM - e.shr));

@@ -1196,7 +1196,7 @@ namespace PSXRacing.City
                              Vector2 ua, Vector2 ub, Vector2 uc, Vector2 ud)
             {
                 // (road-surface stage 1) one owner per surface: nothing of another method inside a junction's outline
-                if (RsMaskOn && RsMasked((a + b + c + d) * 0.25f)) { RsMaskedTris += 2; return; }
+                if ((RsMaskOn && RsMasked((a + b + c + d) * 0.25f)) || (RsPaintMaskOn && rsPaintLines.Count > 0 && RsSoft(this) && RsOnPaint((a + b + c + d) * 0.25f))) { RsMaskedTris += 2; return; }
                 int i = v.Count;
                 v.Add(a); v.Add(b); v.Add(c); v.Add(d);
                 uv.Add(ua); uv.Add(ub); uv.Add(uc); uv.Add(ud);
@@ -1210,7 +1210,7 @@ namespace PSXRacing.City
 
             public void Tri(Vector3 a, Vector3 b, Vector3 c, Vector2 ua, Vector2 ub, Vector2 uc)
             {
-                if (RsMaskOn && RsMasked((a + b + c) * (1f / 3f))) { RsMaskedTris++; return; }
+                if ((RsMaskOn && RsMasked((a + b + c) * (1f / 3f))) || (RsPaintMaskOn && rsPaintLines.Count > 0 && RsSoft(this) && RsOnPaint((a + b + c) * (1f / 3f)))) { RsMaskedTris++; return; }
                 int i = v.Count;
                 v.Add(a); v.Add(b); v.Add(c);
                 uv.Add(ua); uv.Add(ub); uv.Add(uc);
@@ -2395,6 +2395,7 @@ namespace PSXRacing.City
             Phase(0);
             clipPairs.Clear(); goreEdges.Clear();
             RsMaskOn = rsHere.Count > 0;   // (road-surface stage 1) from here to the junctions' end: the roads' own emitters
+            RsPaintMaskOn = true;
             foreach (var _ in BuildGores(map, trims, tm, min, max)) yield return 0;
             Phase(1);
             // A gore's nose solves its verge before every branch's clip is in
@@ -2406,7 +2407,7 @@ namespace PSXRacing.City
             Phase(2);
             foreach (var _ in BuildJunctions(map, trims, tm, min, max)) yield return 0;
             BuildCentreMedians(map, trims, tm, min, max);
-            RsMaskOn = false;
+            RsMaskOn = false; RsPaintMaskOn = false;
             BuildHighMasts(map, tm, min, max);   // the bridges pass: the interchanges' high masts
             Phase(3);
             stepPhase = 4; stepItem = -1; stepPart = 0;
@@ -2435,11 +2436,12 @@ namespace PSXRacing.City
             ConcreteRunRulesNow();   // the concrete gate's run rules (CityMeshes.Concrete.cs), before the ground closes against what stands
             foreach (var _ in CloseOpenGround(map, trims, tm)) yield return 0;
             RsMaskOn = rsHere.Count > 0;   // (road-surface stage 1) the late road pieces too (corner pans, island solids)
+            RsPaintMaskOn = true;
             Cs2EmitCornerPans();   // (cityinteg 11-11) the curbs' corner pans, seated on the drawn junction (CityMeshes.Curbs2.cs)
             stepItem = 5;
             yield return 0;
             if (IslandSolidsOn) foreach (var _ in IslandSolids(map, trims, tm)) yield return 0;   // (c7roads) junction islands as closed solids in one paved surface (CityMeshes.IslandSolids.cs)
-            RsMaskOn = false;
+            RsMaskOn = false; RsPaintMaskOn = false;
             FlushLotIslands(map, tm, min);   // leftover item 4: the lots' islands, tops and curbs
             EmitLotCurbs(map, tm, min);      // streets pass 4: the lots' own curbs
             LaneClip(map, trims, min, max);   // (c7roads r3, R2) nothing raised or laid inside a lane (CityMeshes.LaneClip.cs)

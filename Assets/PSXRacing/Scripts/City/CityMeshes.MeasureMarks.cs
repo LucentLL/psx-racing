@@ -39,14 +39,14 @@ namespace PSXRacing.City
                 if (f.oneway)
                 {
                     // beside a bay: the lanes' own left line
-                    Runs(e, sLo, sHi, s => f.Lerp(f.wgt, s) >= 0.5f && LineModel.AuxWidth(e, s, 1) > 0.3f, (s0, s1) =>
+                    Runs(e, sLo, sHi, s => f.Lerp(f.wgt, s) >= 0.5f && f.Lerp(f.bayW, s) > 0.3f, (s0, s1) =>
                     {
                         AddMark(new PaintMark { style = MkBand, edge = e.index, s0 = s0, s1 = s1, side = 1, zone = -1, what = "fit: the lanes' left line beside a bay" });
                         bands++;
                     });
                     // a painted median: the second yellow line and the hatching
                     if (em != null && em.kindL == 2)
-                        Runs(e, sLo, sHi, s => f.Lerp(f.wgt, s) >= 0.5f && LineModel.AuxWidth(e, s, 1) <= 0.3f && f.Lerp(f.leftRaw, s) - BandL(f, s) > MeasHatchMinW, (s0, s1) =>
+                        Runs(e, sLo, sHi, s => f.Lerp(f.wgt, s) >= 0.99f && f.Lerp(f.bayW, s) <= 0.3f && f.Lerp(f.leftRaw, s) - BandL(f, s) > MeasHatchMinW, (s0, s1) =>
                         {
                             AddMark(new PaintMark { style = MkBand, edge = e.index, s0 = s0, s1 = s1, side = 1, yellow = true, off = 0.25f, zone = -1, what = "fit: a painted median's double yellow" });
                             if (Hatch(e, f, s0, s1)) hatches++;
@@ -69,7 +69,7 @@ namespace PSXRacing.City
                         byte st = ln.kind == JunctionMeasures.LkSolid ? MkLS : ln.kind == JunctionMeasures.LkNone ? MkOff : ln.kind == JunctionMeasures.LkYellow ? MkYS : (byte)255;
                         if (st == 255) continue;
                         // the left edge line lies at the median where a bay runs (the band's own line is MkBand there)
-                        if (ln.index == f.nRule) Runs(e, a, b, s => LineModel.AuxWidth(e, s, 1) <= 0.3f, (s0, s1) => AddMark(new PaintMark { style = st, edge = e.index, s0 = s0, s1 = s1, k = k, zone = -1, what = "pick: line kind" }));
+                        if (ln.index == f.nRule) Runs(e, a, b, s => f.Lerp(f.bayW, s) <= 0.3f, (s0, s1) => AddMark(new PaintMark { style = st, edge = e.index, s0 = s0, s1 = s1, k = k, zone = -1, what = "pick: line kind" }));
                         else AddMark(new PaintMark { style = st, edge = e.index, s0 = a, s1 = b, k = k, zone = -1, what = "pick: line kind" });
                         picks++;
                     }

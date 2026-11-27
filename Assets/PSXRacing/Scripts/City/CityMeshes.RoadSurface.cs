@@ -27,12 +27,12 @@ namespace PSXRacing.City
         // ribbons and their roadside, junction pieces, centre medians, corner pans, island solids), a quad or triangle
         // whose centre lies inside a solved junction's outline is not laid - the junction's own pieces are (rsOwn).
         // The lattice, the lots, the buildings and the closing pass are not masked.
-        static bool RsMaskOn, rsOwn;
+        static bool RsMaskOn, RsPaintMaskOn, rsOwn;
         static readonly List<JunctionSurfaces.Built> rsHere = new List<JunctionSurfaces.Built>(4);
         static Vector3 rsOrigin;
         static void RsTileBegin(TileMeshes tm, Vector2 min, Vector2 max)
         {
-            rsHere.Clear(); RsMaskOn = false; rsOwn = false; rsOrigin = tm.origin;
+            rsHere.Clear(); rsPaintLines.Clear(); RsMaskOn = false; RsPaintMaskOn = false; rsOwn = false; rsOrigin = tm.origin;
             if (!RoadSurfaceOn) return;
             foreach (var b in JunctionSurfaces.All)
             {
@@ -41,7 +41,60 @@ namespace PSXRacing.City
                 if (hi.x < min.x - 20f || lo.x > max.x + 20f || hi.y < min.y - 20f || lo.y > max.y + 20f) continue;
                 rsHere.Add(b);
             }
+            RsPaintLinesFor(CityMap.Get(), min, max);
         }
+        /// <summary>(round 2) THE PAINTED SIDES: the measured edge lines of sides the measure calls paint or line (a painted
+        /// median's middle, a lane line with pavement beyond). The rule's kerb, verge and median pieces within
+        /// RsPaintMaskM of one are not laid (the two ribbons lap there: one pavement).</summary>
+        static readonly List<Vector2[]> rsPaintLines = new List<Vector2[]>(8);
+        const float RsPaintMaskM = 0.9f;
+        static void RsPaintLinesFor(CityMap map, Vector2 min, Vector2 max)
+        {
+            rsPaintLines.Clear();
+            var set = JunctionMeasures.Current;
+            if (map == null || set == null || JunctionMeasures.Fits.Count == 0) return;
+            foreach (var f in JunctionMeasures.Fits.Values)
+            {
+                if (!set.edges.TryGetValue(f.edge, out var em)) continue;
+                var e = map.edges[f.edge];
+                for (int side = 0; side < 2; side++)
+                {
+                    byte kd = side == 0 ? em.kindL : em.kindR;
+                    if (kd != 2 && kd != 3) continue;
+                    var pts = new List<Vector2>(64); bool near = false;
+                    for (float s = 0f; ; s += 2f)
+                    {
+                        float sc = Mathf.Min(s, e.length);
+                        if (f.Lerp(f.wgt, sc) >= 0.5f)
+                        {
+                            var t = e.TangentAt(sc); var q = e.PointAt(sc) + new Vector2(-t.y, t.x) * (side == 0 ? f.Lerp(f.leftRaw, sc) : f.Lerp(f.rightRaw, sc));
+                            pts.Add(q);
+                            near |= q.x > min.x - 20f && q.x < max.x + 20f && q.y > min.y - 20f && q.y < max.y + 20f;
+                        }
+                        if (s >= e.length) break;
+                    }
+                    if (near && pts.Count >= 2) rsPaintLines.Add(pts.ToArray());
+                }
+            }
+        }
+        static bool RsOnPaint(Vector3 localCentre)
+        {
+            if (rsOwn) return false;
+            var w = new Vector2(localCentre.x + rsOrigin.x, localCentre.z + rsOrigin.z);
+            float r2 = RsPaintMaskM * RsPaintMaskM;
+            for (int i = 0; i < rsPaintLines.Count; i++)
+            {
+                var pl = rsPaintLines[i];
+                for (int k = 0; k + 1 < pl.Length; k++)
+                {
+                    var a = pl[k]; var ab = pl[k + 1] - a; float l2 = ab.sqrMagnitude;
+                    float t = l2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(w - a, ab) / l2) : 0f;
+                    if ((a + ab * t - w).sqrMagnitude < r2) return true;
+                }
+            }
+            return false;
+        }
+        static bool RsSoft(Bucket b) => ReferenceEquals(b, kerbBucket) || ReferenceEquals(b, buckets[(int)Slot.Ground]) || ReferenceEquals(b, buckets[(int)Slot.Pavement]);
         static bool RsMasked(Vector3 localCentre)
         {
             if (rsOwn) return false;

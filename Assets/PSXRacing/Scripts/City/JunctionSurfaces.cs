@@ -30,6 +30,7 @@ namespace PSXRacing.City
             /// <summary>(round 2) A bay merged into its host: metres out from the node where it becomes the host's lane
             /// (nearer the node it runs on its own line, the link through the opening).</summary>
             public Dictionary<int, float> bayFrom = new Dictionary<int, float>();
+            public Dictionary<int, int> bayHost = new Dictionary<int, int>();
             /// <summary>(round 2) Per fitted arm: the lanes (from the right, first..last) that have a receiving lane on its
             /// through partner; the others end at the row (a turn lane whose exit the map lacks).</summary>
             public Dictionary<int, (int lo, int hi)> carried = new Dictionary<int, (int, int)>();
@@ -214,8 +215,12 @@ namespace PSXRacing.City
             b.log.AddRange(JunctionOutline.MergeBays(arms, links));
             foreach (string ln in b.log)
             {
-                var mt = System.Text.RegularExpressions.Regex.Match(ln, "^arm ([0-9]+) is a lane of arm [0-9]+ on its [a-z]+ from ([0-9.]+) m");
-                if (mt.Success) b.bayFrom[int.Parse(mt.Groups[1].Value)] = float.Parse(mt.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture);
+                var mt = System.Text.RegularExpressions.Regex.Match(ln, "^arm ([0-9]+) is a lane of arm ([0-9]+) on its [a-z]+ from ([0-9.]+) m");
+                if (mt.Success)
+                {
+                    b.bayFrom[int.Parse(mt.Groups[1].Value)] = float.Parse(mt.Groups[3].Value, System.Globalization.CultureInfo.InvariantCulture);
+                    b.bayHost[int.Parse(mt.Groups[1].Value)] = int.Parse(mt.Groups[2].Value);
+                }
             }
             // the measures AFTER the bays: a measured border is the pavement's own edge (bays included) and blends back,
             // where the measure ends, to the host's border with its bay
@@ -329,11 +334,22 @@ namespace PSXRacing.City
         static bool BayLaneOf(Built b, CityMap.Edge e, float s, Vector2 zonePt, out Vector2 p)
         {
             p = zonePt;
-            if (!b.bayFrom.TryGetValue(e.index, out float from)) return false;
+            if (!b.bayFrom.TryGetValue(e.index, out float from) || !b.bayHost.TryGetValue(e.index, out int hi) || forMap == null) return false;
             float d = b.nodes.Contains(e.a) ? s : e.length - s;
-            if (d >= from + BayBlendM) return false;
-            var own = LineModel.OwnLanePoint(e, s);
-            p = Vector2.Lerp(own, zonePt, Mathf.SmoothStep(0f, 1f, (d - from) / BayBlendM));
+            if (!b.rowOf.TryGetValue(e.index, out float row) || d > row + 0.5f) return false;
+            // its own line = the MAP's turn-lane way itself (the rule lays the link's lanes off that line, beside where IT
+            // put the host's lanes: stale once the host's lanes are fitted to the measured kerbs)
+            var own = e.PointAt(s);
+            // beside its host: the bay keeps its place against the median (the host's measured edge on the bay's side,
+            // less the shoulder and half a lane)
+            var H = forMap.edges[hi];
+            CityElevation.ProjectOn(H, own, out float sH);
+            sH = Mathf.Clamp(sH, 0f, H.length);
+            var t = H.TangentAt(sH); var left = new Vector2(-t.y, t.x); var hp = H.PointAt(sH);
+            LineModel.Extents(H, sH, out float eM, out float eP);
+            bool onLeft = Vector2.Dot(own - hp, left) > 0f;
+            var bay = hp + left * (onLeft ? eP - H.shl - 0.5f * RoadProfiles.LaneM : -(eM - H.shr - 0.5f * RoadProfiles.LaneM));
+            p = Vector2.Lerp(own, bay, Mathf.SmoothStep(0f, 1f, (d - from) / BayBlendM));
             return true;
         }
 
