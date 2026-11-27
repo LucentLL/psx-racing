@@ -130,6 +130,22 @@ namespace PSXRacing.EditorTools
                     standSet = true;
                 }
             }
+            else
+            {
+                // a stage: stood on the road's centre line RL_FROM metres from its start, facing along it
+                var path = FindFirstObjectByType<TrackPath>();
+                if (path != null && path.Count > 10)
+                {
+                    float.TryParse(RainLookShots.Env("RL_FROM", "30"), NumberStyles.Float, CultureInfo.InvariantCulture, out float from);
+                    int i0 = Mathf.Clamp(Mathf.RoundToInt(from / Mathf.Max(0.5f, path.spacing)), 1, path.Count - 2);
+                    var side = Vector3.Cross(Vector3.up, path.GetTangent(i0)).normalized;
+                    standPos = path.GetPoint(i0) + side * 1.6f + Vector3.up * 0.45f;   // the right-hand lane
+                    var tg = path.GetTangent(i0); tg.y = 0f;
+                    standRot = Quaternion.LookRotation(tg.normalized, Vector3.up);
+                    car.ResetTo(standPos, standRot, seated: true);
+                    standSet = true;
+                }
+            }
             var pin = car.GetComponent<PlayerCarInput>(); if (pin != null) { pin.inputEnabled = false; pin.enabled = false; }
             for (float t0 = Time.realtimeSinceStartup; Time.realtimeSinceStartup - t0 < 20f;)
             {
@@ -144,7 +160,8 @@ namespace PSXRacing.EditorTools
             if (CityMode.Instance == null)
                 foreach (var mf in FindObjectsByType<MeshFilter>(FindObjectsInactive.Exclude))
                 {
-                    if (mf.gameObject.name != "Road" || mf.sharedMesh == null) continue;
+                    if (mf.sharedMesh == null || !(mf.gameObject.name == "Road" || mf.sharedMesh.name.StartsWith("RoadMesh"))) continue;
+                    Say("road mesh " + mf.gameObject.name + " / " + mf.sharedMesh.name + " readable " + mf.sharedMesh.isReadable + " verts " + mf.sharedMesh.vertexCount);
                     var vs = mf.sharedMesh.vertices; var us = mf.sharedMesh.uv;
                     if (vs.Length < 9 || us.Length != vs.Length) continue;
                     var ratios = new System.Collections.Generic.List<float>();

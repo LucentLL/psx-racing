@@ -791,7 +791,9 @@ Shader "PSX/CabinGlass"
                         dropC = cover * (sky * 0.05 + ambient * 0.03) * (1.0 - edge)
                               + g2 * (sky * 0.6 + _PSXLightColor.rgb * 0.35 * day + lamp * 2.0 + ambient * 0.25)
                               + sheet * R2G_VEIL * (b2 ? park + 0.4 * wind : park) * (ambient * 0.5 + sky * 0.25 + lamp)
-                              + (b2 ? smear * rain * 0.18 * (lamp * 1.5 + sky * 0.2) : 0.0)
+                              // (rainlook, TrueGlow: the blade's smear takes a lamp's colour only half, as the bank
+                              // and the lip below do - the car's own tail lamps tinted the blade red)
+                              + (b2 ? smear * rain * 0.18 * ((_PSXRainLookOff.y > 0.5 ? lamp : lerp(lamp, dot(lamp, float3(0.30, 0.59, 0.11)).xxx, 0.5)) * 1.5 + sky * 0.2) : 0.0)
                               // (RAINGLASS2) the bank's lip catches the light: a bright wavering line
                               + lipL * rain * (lerp(lamp, dot(lamp, float3(0.30, 0.59, 0.11)).xxx, 0.5) * 0.9 + sky * 0.30 + ambient * 0.30 + _PSXLightColor.rgb * 0.20 * day)
                               // (a lamp's colour only half: a brake lamp beside the car tinted the whole band red)

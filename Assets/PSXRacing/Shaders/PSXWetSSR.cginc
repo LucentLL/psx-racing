@@ -179,15 +179,13 @@ float SSRMarch(float3 wpos, float3 R, float2 fragXY, out float2 hitUV)
         float m = 0.5 * (lo + hi);
         float rz = 1.0 / lerp(k0, k1, m);
         float sz = SSRSeenZ(SSRUV(lerp(s0, s1, m)));
-        bool crossed = rz >= sz && (!maskNear || sz >= rz - (SSR_THICK_M + SSR_THICK_K * sz));
+        // (the depths swept from the last point short of the crossing, the march's own test; the step the
+        // march accepted, hi at the start, always passes it)
+        float rlo = 1.0 / lerp(k0, k1, lo);
+        bool crossed = rz >= sz && (!maskNear || sz >= min(rlo, rz) - (SSR_THICK_M + SSR_THICK_K * sz));
         if (crossed) hi = m; else lo = m;
     }
     hitUV = SSRUV(lerp(s0, s1, hi));
-    if (maskNear)
-    {
-        float hz = SSRSeenZ(hitUV), rh = 1.0 / lerp(k0, k1, hi);
-        if (hz < rh - (SSR_THICK_M + SSR_THICK_K * hz)) return 0.0;
-    }
     // fade at the screen's edges, where the next pixel out is unknown...
     float2 e = min(hitUV, 1.0 - hitUV);
     float conf = saturate(min(e.x, e.y) / SSR_EDGE);
