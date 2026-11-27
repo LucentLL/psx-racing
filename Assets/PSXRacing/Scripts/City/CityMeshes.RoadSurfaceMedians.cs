@@ -17,28 +17,30 @@ namespace PSXRacing.City
         public static int RsMedianTris; public static float RsMedianM;
         const float RsMedianLift = 0.015f;   // over a rule's top that may lie at the kerb's height in the same place
         static readonly Dictionary<int, Vector2[]> rsLeftBorder = new Dictionary<int, Vector2[]>();
+        static readonly Dictionary<int, float[]> rsLeftBorderY = new Dictionary<int, float[]>();
         static object rsLeftBorderFor;
 
         /// <summary>The measured left edge of a fitted one-way (world points every 2 m where the measure is in force).</summary>
         static Vector2[] RsLeftBorder(CityMap map, JunctionMeasures.FitE f)
         {
-            if (!ReferenceEquals(rsLeftBorderFor, JunctionMeasures.Current)) { rsLeftBorder.Clear(); rsLeftBorderFor = JunctionMeasures.Current; }
+            if (!ReferenceEquals(rsLeftBorderFor, JunctionMeasures.Current)) { rsLeftBorder.Clear(); rsLeftBorderY.Clear(); rsLeftBorderFor = JunctionMeasures.Current; }
             if (rsLeftBorder.TryGetValue(f.edge, out var got)) return got;
-            var e = map.edges[f.edge]; var pts = new List<Vector2>(64);
+            var e = map.edges[f.edge]; var pts = new List<Vector2>(64); var ys = new List<float>(64);
             for (float s = 0f; ; s += 2f)
             {
                 float sc = Mathf.Min(s, e.length);
-                if (f.Lerp(f.wgt, sc) >= 0.99f) { var t = e.TangentAt(sc); pts.Add(e.PointAt(sc) + new Vector2(-t.y, t.x) * f.Lerp(f.leftRaw, sc)); }
+                if (f.Lerp(f.wgt, sc) >= 0.99f) { var t = e.TangentAt(sc); pts.Add(e.PointAt(sc) + new Vector2(-t.y, t.x) * f.Lerp(f.leftRaw, sc)); ys.Add(e.YAt(sc)); }
                 if (s >= e.length) break;
             }
+            rsLeftBorderY[f.edge] = ys.ToArray();
             return rsLeftBorder[f.edge] = pts.ToArray();
         }
 
         /// <summary>The gap from p leftward (along left) to the measured left edge of another fitted one-way: the
         /// opposite carriageway's median kerb.</summary>
-        static bool RsOpposite(CityMap map, int self, Vector2 p, Vector2 left, float maxD, out float gap)
+        static bool RsOpposite(CityMap map, int self, Vector2 p, Vector2 left, float maxD, out float gap, out float yOpp)
         {
-            gap = maxD; bool any = false;
+            gap = maxD; yOpp = 0f; bool any = false;
             var tan = new Vector2(left.y, -left.x);
             foreach (var g in JunctionMeasures.Fits.Values)
             {
@@ -50,8 +52,9 @@ namespace PSXRacing.City
                     if ((b - a).sqrMagnitude > 9f) continue;   // a break in the measured stretch
                     float va = Vector2.Dot(a, tan), vb = Vector2.Dot(b, tan);
                     if ((va > 0f) == (vb > 0f)) continue;
-                    float u = Vector2.Dot(a + (b - a) * (va / (va - vb)), left);
-                    if (u > 0.3f && u < gap) { gap = u; any = true; }
+                    float tt = va / (va - vb);
+                    float u = Vector2.Dot(a + (b - a) * tt, left);
+                    if (u > 0.3f && u < gap) { gap = u; any = true; var yy = rsLeftBorderY[g.edge]; yOpp = Mathf.Lerp(yy[i], yy[i + 1], tt); }
                 }
             }
             return any;
@@ -80,12 +83,13 @@ namespace PSXRacing.City
                         if (f.Lerp(f.wgt, s) < 0.99f) break;
                         var t = e.TangentAt(s); var left = new Vector2(-t.y, t.x);
                         var p = e.PointAt(s) + left * f.Lerp(f.leftRaw, s);
-                        if (!RsOpposite(map, ei, p, left, 16f, out float gap) || 0.5f * gap < RsKerbW + 0.1f) break;
+                        if (!RsOpposite(map, ei, p, left, 16f, out float gap, out float yOpp) || 0.5f * gap < RsKerbW + 0.1f) break;
                         float y = e.YAt(s);
+                        float yMid = 0.5f * (y + yOpp);
                         var b2 = p + left * RsKerbW; var m2 = p + left * (0.5f * gap + 0.03f);
                         edge.Add(new Vector3(p.x - o.x, y, p.y - o.z));
                         back.Add(new Vector3(b2.x - o.x, y + RsKerbH + RsMedianLift, b2.y - o.z));
-                        mid.Add(new Vector3(m2.x - o.x, y + RsKerbH + RsMedianLift, m2.y - o.z));
+                        mid.Add(new Vector3(m2.x - o.x, yMid + RsKerbH + RsMedianLift, m2.y - o.z));
                     }
                     int n = edge.Count;
                     if (n < 2) continue;

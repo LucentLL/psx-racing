@@ -304,6 +304,13 @@ namespace PSXRacing.City
                         res.rowL[i] = nc.tA; res.sL[i] = nc.sA;
                         if (!LineCross(a.R, nc.lineP, nc.lineD, nc.tA, out res.rowR[i], out res.sR[i])) { res.refused ??= $"arm {a.id}: the nose's cut line misses its right border"; res.rowR[i] = a.R[a.R.Count - 1]; res.sR[i] = (a.R.Count - 1) * Step; }
                     }
+                    else if (nc.shape == "abreast" && nc.note == "paved to a measured line")
+                    {
+                        // (road-surface round 2) square across THIS arm at the station where the cut meets its right border
+                        res.rowR[i] = nc.tB; res.sR[i] = nc.sB;
+                        float kf = Mathf.Clamp(nc.sB / Step, 0f, a.L.Count - 1); int k0 = Mathf.Min((int)kf, a.L.Count - 2);
+                        res.rowL[i] = Vector2.Lerp(a.L[k0], a.L[k0 + 1], kf - k0); res.sL[i] = kf * Step;
+                    }
                     else
                     {
                         res.rowR[i] = nc.tB; res.sR[i] = nc.sB;

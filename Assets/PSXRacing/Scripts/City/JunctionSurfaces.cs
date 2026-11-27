@@ -31,6 +31,8 @@ namespace PSXRacing.City
             /// (nearer the node it runs on its own line, the link through the opening).</summary>
             public Dictionary<int, float> bayFrom = new Dictionary<int, float>();
             public Dictionary<int, int> bayHost = new Dictionary<int, int>();
+            /// <summary>(round 2) The lattice's floor record under this junction's fill (CityMeshes' own type).</summary>
+            public object floor;
             /// <summary>(round 2) Per fitted arm: the lanes (from the right, first..last) that have a receiving lane on its
             /// through partner; the others end at the row (a turn lane whose exit the map lacks).</summary>
             public Dictionary<int, (int lo, int hi)> carried = new Dictionary<int, (int, int)>();
@@ -379,7 +381,7 @@ namespace PSXRacing.City
         public const float LaneClearM = 1.1f;
         /// <summary>(round 2) How far a ribbon laps the fill past a skew row's nearer end (the ribbon's end pieces are
         /// laid on its own section grid: 1.6 m of a wedge stayed open at 81 with none).</summary>
-        public const float SkewLapM = 3f;
+        public const float SkewLapM = 0.05f;
         /// <summary>(round 2) A point's distance to the junction's KERBS and islands (its free runs: an end row is a
         /// mouth, the ribbon goes on there), negative on land or on an island. A skew row (two arms abreast) passes
         /// within a metre of a lane's centre near its end without being a kerb.</summary>
