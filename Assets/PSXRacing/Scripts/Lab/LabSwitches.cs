@@ -296,6 +296,12 @@ namespace PSXRacing
             });
             Register(new LabRow
             {
+                id = "shallowfork", group = LabGroup.World, name = "SHALLOW FORKS ONE ROAD", when = LabWhen.BuiltIn,
+                look = "Opt-in (PSX_CITY_SHALLOWFORK=1), built into the city tiles: where two one-way roads part at under 12 degrees the bigger one goes through and the smaller one is cut back against it (one owner of the shared pavement). A city bake.",
+                env = new[] { "PSX_CITY_SHALLOWFORK" }, requires = "CityMeshes.ShallowForkOn",
+            });
+            Register(new LabRow
+            {
                 id = "laneclip", group = LabGroup.World, name = "NOTHING IN A LANE", when = LabWhen.BuiltIn,
                 look = "Built into the city tiles: no verge, curb, face, slab or ground piece stands inside a lane; each is cut back at the lane's edge. A city bake.",
                 env = new[] { "PSX_CITY_LANECLIP" }, requires = "CityMeshes.LaneClipOn",
