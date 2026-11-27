@@ -1141,6 +1141,29 @@ namespace PSXRacing.City
                     fanFloors.Add(rec);
                 }
             }
+            // (road-surface round 2) a junction built as one surface is its own floor: the lattice under its fill (former
+            // land too: a paved gore, a painted triangle) is held under it as under a fan
+            if (RoadSurfaceOn)
+                foreach (var b in JunctionSurfaces.All)
+                {
+                    if (!b.Solved || b.res.tris.Count < 3) continue;
+                    var rec = b.floor as FanFloorRec;
+                    if (rec == null)
+                    {
+                        var r = b.res; var o = b.origin;
+                        rec = new FanFloorRec { tris = new Vector3[r.tris.Count], ring = new Vector2[r.outline.Count], x0 = float.MaxValue, z0 = float.MaxValue, x1 = float.MinValue, z1 = float.MinValue };
+                        for (int i = 0; i < r.tris.Count; i++)
+                        {
+                            var p = r.fillVerts[r.tris[i]]; var v = new Vector3(p.x + o.x, r.fillY[r.tris[i]], p.y + o.y);
+                            rec.tris[i] = v;
+                            rec.x0 = Mathf.Min(rec.x0, v.x); rec.x1 = Mathf.Max(rec.x1, v.x); rec.z0 = Mathf.Min(rec.z0, v.z); rec.z1 = Mathf.Max(rec.z1, v.z);
+                        }
+                        for (int i = 0; i < r.outline.Count; i++) rec.ring[i] = r.outline[i] + o;
+                        b.floor = rec;
+                    }
+                    if (rec.x1 < min.x - 8f || rec.x0 > max.x + 8f || rec.z1 < min.y - 8f || rec.z0 > max.y + 8f) continue;
+                    fanFloors.Add(rec);
+                }
             // what was sectioned here had no clip table: the build sections again
             if (computed) { ClearSectionCaches(); fanPolys.Clear(); fanStructure.Clear(); }
         }

@@ -59,6 +59,8 @@ namespace PSXRacing.City
             public float[] px, pd; public bool fromA; public float c0, xN, blend; public int sideH;
             public List<Vector2[]> pieces; public float[] bps; public float hdg;
             public int zone; public string what; public bool yellow;
+            /// <summary>(road-surface round 2) MkPick: the picked line; MkBand: an offset off the band's left edge.</summary>
+            public JunctionMeasures.LineM pick; public float off;
         }
 
         public static bool MarksOn = System.Environment.GetEnvironmentVariable("PSX_CITY_MARKS") != "0";
@@ -90,6 +92,9 @@ namespace PSXRacing.City
         /// trims, after the merge zones).</summary>
         public static void EnsureMarks(CityMap map, Trims t)
         {
+            // (road-surface stage 1) the marks keep the CONTROL trim (stop lines, arrows and crosswalks stay where the
+            // traffic stops), whichever trims the caller builds its ribbons on
+            if (t != null && t.control != null) t = t.control;
             if (marksMap == map && marksTrims == t) return;
             marksMap = map; marksTrims = t;
             EnsureJcl(map);   // Five Points round 4: short links inside a junction complex
@@ -105,6 +110,7 @@ namespace PSXRacing.City
             TurnMarks(map, t);
             TwltlArrows(map, t);
             PocketMarks(map, t);
+            MeasureMarks(map, t);   // (road-surface round 2) a measured edge's fitted and picked paint
             NoseMarks(map, t);
             float t2 = (float)sw.Elapsed.TotalMilliseconds;
             YieldMarks(map, t);
@@ -1007,6 +1013,9 @@ namespace PSXRacing.City
             const float bar = 0.6f, gap = 0.6f, edgeIn = 0.3f;
             foreach (var cw in CitySignals.Crosswalks(map, t))
             {
+                // (road-surface round 2) a measured junction's marks are the measure's (the rule's stop bars stand down
+                // there too: CitySignals.Furnish); a crosswalk pick is not in the socket yet
+                if (RoadSurfaceOn && JunctionSurfaces.MeasuredNode(cw.node)) continue;
                 var e = map.edges[cw.edge];
                 float sLo = Mathf.Min(cw.sNear, cw.sFar), sHi = Mathf.Max(cw.sNear, cw.sFar);
                 LineModel.Extents(e, 0.5f * (sLo + sHi), out float eM, out float eP);
@@ -1250,6 +1259,12 @@ namespace PSXRacing.City
             float wHi = (tex.x1[jw] + 0.5f) / tw, wLo = (tex.x0[jw] + 0.5f) / tw;
             int jy = LineOfKind(tex, LineModel.KYellow);
             float yHi = jy >= 0 ? (tex.x1[jy] + 0.5f) / tw : wHi, yLo = jy >= 0 ? (tex.x0[jy] + 0.5f) / tw : wLo;
+            // (road-surface round 2) a fitted one-way's yellow paint: its texture's yellow left edge line
+            if (jy < 0 && !tex.twoWay && RoadSurfaceOn && JunctionMeasures.FitOf(e.index) != null)
+            {
+                int je = LineOfKind(tex, LineModel.KEdgeP);
+                if (je >= 0) { yHi = (tex.x1[je] + 0.5f) / tw; yLo = (tex.x0[je] + 0.5f) / tw; }
+            }
             mcols.Clear();
             void Add(float la0, float la1, float lb0, float lb1, byte kind, float uL, float uR, int k, bool extra) =>
                 mcols.Add(new MCol { loA = la0, hiA = la1, loB = lb0, hiB = lb1, kind = kind, uL = uL, uR = uR, k = k, extra = extra });
@@ -1320,6 +1335,28 @@ namespace PSXRacing.City
                         break;
                     }
                     Add(la - CHHalf, la + CHHalf, lb - CHHalf, lb + CHHalf, 2, wHi, wLo, -1, true);
+                }
+                else if (m.style == MkBand)
+                {
+                    // (road-surface round 2) the fitted lanes' left line (beside a bay; a painted median's second yellow)
+                    if (!JunctionMeasures.BandLeft(e, A.s, out float la, out _) || !JunctionMeasures.BandLeft(e, B.s, out float lb, out _)) continue;
+                    la += m.off; lb += m.off;
+                    if (m.yellow) Add(la - PH, la + PH, lb - PH, lb + PH, 2, yHi, yLo, -1, true);
+                    else Add(la - PH, la + PH, lb - PH, lb + PH, 2, wHi, wLo, -1, true);
+                }
+                else if (m.style == MkPick)
+                {
+                    // (road-surface round 2) a picked line of paint
+                    if (m.pick == null || !m.pick.At(A.s, out float la, out _) || !m.pick.At(B.s, out float lb, out _)) continue;
+                    byte pk = m.pick.kind;
+                    if (pk == JunctionMeasures.LkYellow2)
+                    {
+                        Add(la - 0.12f - PH, la - 0.12f + PH, lb - 0.12f - PH, lb - 0.12f + PH, 2, yHi, yLo, -1, true);
+                        Add(la + 0.12f - PH, la + 0.12f + PH, lb + 0.12f - PH, lb + 0.12f + PH, 2, yHi, yLo, -1, true);
+                    }
+                    else if (pk == JunctionMeasures.LkYellow) Add(la - PH, la + PH, lb - PH, lb + PH, 2, yHi, yLo, -1, true);
+                    else if (pk == JunctionMeasures.LkBroken) Add(la - PH, la + PH, lb - PH, lb + PH, 1, wHi, wLo, -1, true);
+                    else Add(la - PH, la + PH, lb - PH, lb + PH, 2, wHi, wLo, -1, true);
                 }
                 else if (m.style == MkGlyph) glyphs = true;
             }
@@ -1495,6 +1532,8 @@ namespace PSXRacing.City
                 wU = (tex.x0[jw] + tex.x1[jw] + 1f) * 0.5f / tw;
                 // the medians pass: a yellow glyph (the nose hatch) takes the solid yellow line's texels
                 int jy = LineOfKind(tex, LineModel.KYellow);
+                // (road-surface round 2) a fitted one-way's yellow glyph: its texture's yellow left edge line
+                if (jy < 0 && !tex.twoWay && RoadSurfaceOn && JunctionMeasures.FitOf(e.index) != null) jy = LineOfKind(tex, LineModel.KEdgeP);
                 if (jy >= 0) yU = (tex.x0[jy] + tex.x1[jy] + 1f) * 0.5f / tw;
             }
             for (int i = 0; i + 1 < subT.Count; i++)

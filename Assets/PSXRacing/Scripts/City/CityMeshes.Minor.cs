@@ -61,6 +61,10 @@ namespace PSXRacing.City
         static readonly HashSet<int> tpUsedB = new HashSet<int>();
         /// <summary>Round 4: while CrossingLines draws a fan holding a junction-complex link.</summary>
         static bool tpNoEdges;
+        /// <summary>(road-surface round 2) Over 0: ThroughPair pairs two arms' lines where one, carried straight on, comes
+        /// within this of the other in the WORLD (measured arms' lanes sit on their kerbs, not at a fixed place off their
+        /// map lines).</summary>
+        static float tpWorldTol;
 
         static void ReleaseStrips()
         {
@@ -167,7 +171,16 @@ namespace PSXRacing.City
                 if (edgeA && tpNoEdges) continue;   // round 4: no edge line across a median crossing
                 // an edge line on the side a street opens on is broken there
                 if (gaps == null && edgeA && ((leftA > 0f && sideLeft) || (leftA < 0f && sideRight))) { if (count) ThroughStats.nearEdgesDropped++; continue; }
-                int match = -1; float bestD = 0.3f;
+                int match = -1; float bestD = tpWorldTol > 0f ? tpWorldTol : 0.3f;
+                // (road-surface round 2) where the line, carried straight on, meets B's section (its lateral there)
+                float expB = float.NaN;
+                if (tpWorldTol > 0f)
+                {
+                    // a line keeps its lateral along its own edge: at A's node end, read in B's frame at B's node end
+                    float sNA = A.a == nA ? 0f : A.length, sNB = B.a == nB ? 0f : B.length;
+                    var tNA = A.TangentAt(sNA); var tNB = B.TangentAt(sNB);
+                    expB = Vector2.Dot(A.PointAt(sNA) + new Vector2(-tNA.y, tNA.x) * la.lat - B.PointAt(sNB), new Vector2(-tNB.y, tNB.x));
+                }
                 for (int j = 0; j < tpLinesB.Count; j++)
                 {
                     if (tpUsedB.Contains(j)) continue;
@@ -176,7 +189,7 @@ namespace PSXRacing.City
                     bool edgeB = kb == LineModel.KEdgeP || kb == LineModel.KEdgeM;
                     if (edgeA != edgeB || (!edgeA && ka != kb)) continue;
                     float leftB = sgnB > 0f ? lb.lat : -lb.lat;
-                    float d = Mathf.Abs(leftA - leftB);
+                    float d = float.IsNaN(expB) ? Mathf.Abs(leftA - leftB) : Mathf.Abs(expB - lb.lat);
                     if (d < bestD) { bestD = d; match = j; }
                 }
                 if (match < 0) continue;
@@ -853,7 +866,7 @@ namespace PSXRacing.City
                             ClipHalfPlane(cpB, L1, L0, true, cpA);
                             ClipHalfPlane(cpA, L0, R0, true, cpB);
                             if (cpB.Count >= 3 && PolyArea(cpB) > 1e-5f)
-                                EmitStripPiece(stripBk, cpB, st, qi, c0, c1);
+                                EmitStripPiece(buckets[st.slot], cpB, st, qi, c0, c1);   // (road-surface stage 1: each strip in its own slot; a fan's strips share one)
                             else if (cpB.Count < 3 || PolyArea(cpB) <= 1e-5f)
                             { cutNext.Add(piece); continue; }
                             // outside: what lies beyond each edge in turn

@@ -498,6 +498,9 @@ namespace PSXRacing.City
         public static Surface SurfaceOf(CityMap.Edge e, bool elevated)
         {
             bool fresh = IsFresh(e.hasAgeSeed ? e.ageSeed : e.pts[0]);   // one age per chain (WP-11)
+            // (road-surface round 2) the arms of a junction built as one surface take its main arm's age: one pavement
+            var rf = rsFresh;
+            if (rf != null && rf.TryGetValue(e.index, out bool jf)) fresh = jf;
             return elevated ? (fresh ? Surface.ConcreteNew : Surface.ConcreteOld)
                             : (fresh ? Surface.AsphaltNew : Surface.AsphaltOld);
         }
@@ -1195,6 +1198,8 @@ namespace PSXRacing.City
             public void Quad(Vector3 a, Vector3 b, Vector3 c, Vector3 d,
                              Vector2 ua, Vector2 ub, Vector2 uc, Vector2 ud)
             {
+                // (road-surface stage 1) one owner per surface: nothing of another method inside a junction's outline
+                if ((RsMaskOn && RsMasked((a + b + c + d) * 0.25f)) || (RsPaintMaskOn && rsPaintLines.Count + rsShoulderLines.Count > 0 && RsSoft(this) && RsOnPaint((a + b + c + d) * 0.25f, ReferenceEquals(this, kerbBucket)))) { RsMaskedTris += 2; return; }
                 int i = v.Count;
                 v.Add(a); v.Add(b); v.Add(c); v.Add(d);
                 uv.Add(ua); uv.Add(ub); uv.Add(uc); uv.Add(ud);
@@ -1208,6 +1213,7 @@ namespace PSXRacing.City
 
             public void Tri(Vector3 a, Vector3 b, Vector3 c, Vector2 ua, Vector2 ub, Vector2 uc)
             {
+                if ((RsMaskOn && RsMasked((a + b + c) * (1f / 3f))) || (RsPaintMaskOn && rsPaintLines.Count + rsShoulderLines.Count > 0 && RsSoft(this) && RsOnPaint((a + b + c) * (1f / 3f), ReferenceEquals(this, kerbBucket)))) { RsMaskedTris++; return; }
                 int i = v.Count;
                 v.Add(a); v.Add(b); v.Add(c);
                 uv.Add(ua); uv.Add(ub); uv.Add(uc);
@@ -1358,6 +1364,11 @@ namespace PSXRacing.City
             /// <summary>Ribbon trim at each end of each edge: the ribbon runs
             /// from atA to length - atB, the fan patch covers the rest.</summary>
             public float[] atA, atB;
+            /// <summary>(road-surface stage 1) Set on the tile build's SURFACE trims (CityMeshes.SurfaceTrims: a junction
+            /// solved as one surface ends its arms' ribbons on its rows): the rules' trims they were made from - the
+            /// CONTROL trim that traffic, signals, stop lines and marks keep. Null on the rules' own trims.</summary>
+            public Trims control;
+            public Trims CloneForSurface() { var c = (Trims)MemberwiseClone(); c.atA = (float[])atA.Clone(); c.atB = (float[])atB.Clone(); c.control = this; return c; }
             /// <summary>RETIRED with the symmetric taper (WP-11b): the line
             /// model's one-sided eases (<see cref="LineModel"/>) replace them.
             /// Kept, at the plain half width and no taper, for readers that
@@ -1991,6 +2002,9 @@ namespace PSXRacing.City
             BuildSlipWidening(map, t);
             // the arterials pass (11-10): a left-turn pocket before a median opening
             BuildTurnPockets(map, t);
+            // (road-surface stage 1) the measures feed the line model, once the rule's extents are final: a measured
+            // edge's ribbon, lanes, paint and lane centre follow its measured pavement (JunctionMeasures.LineModel.cs)
+            if (RoadSurfaceOn) JunctionMeasures.FeedLineModel(map); else { JunctionMeasures.Fed.Clear(); JunctionMeasures.Fits.Clear(); }
             // leftover item 4: the bulbs' necks, on the street's final extents
             BulbNecks(map, t);
             // plan A2: which parallel decks are drawn as one structure, where
@@ -2346,6 +2360,9 @@ namespace PSXRacing.City
         {
             var min = new Vector2(tx * TileSize, tz * TileSize);
             var max = min + new Vector2(TileSize, TileSize);
+            // (road-surface stage 1) the tile is built on the SURFACE trims; every other reader keeps the control trims
+            trims = SurfaceTrims(map, trims);
+            RsTileBegin(tm, min, max);
 
             foreach (var b in buckets) b.Clear();
             barrierBucket.Clear();
@@ -2380,6 +2397,8 @@ namespace PSXRacing.City
             groundBaseV[1] = buckets[(int)Slot.Pavement].v.Count; groundBaseT[1] = buckets[(int)Slot.Pavement].t.Count;
             Phase(0);
             clipPairs.Clear(); goreEdges.Clear();
+            RsMaskOn = rsHere.Count > 0;   // (road-surface stage 1) from here to the junctions' end: the roads' own emitters
+            RsPaintMaskOn = true;
             foreach (var _ in BuildGores(map, trims, tm, min, max)) yield return 0;
             Phase(1);
             // A gore's nose solves its verge before every branch's clip is in
@@ -2391,6 +2410,7 @@ namespace PSXRacing.City
             Phase(2);
             foreach (var _ in BuildJunctions(map, trims, tm, min, max)) yield return 0;
             BuildCentreMedians(map, trims, tm, min, max);
+            RsMaskOn = false; RsPaintMaskOn = false;
             BuildHighMasts(map, tm, min, max);   // the bridges pass: the interchanges' high masts
             Phase(3);
             stepPhase = 4; stepItem = -1; stepPart = 0;
@@ -2418,10 +2438,13 @@ namespace PSXRacing.City
             // build's longest, 20-210 ms)
             ConcreteRunRulesNow();   // the concrete gate's run rules (CityMeshes.Concrete.cs), before the ground closes against what stands
             foreach (var _ in CloseOpenGround(map, trims, tm)) yield return 0;
+            RsMaskOn = rsHere.Count > 0;   // (road-surface stage 1) the late road pieces too (corner pans, island solids)
+            RsPaintMaskOn = true;
             Cs2EmitCornerPans();   // (cityinteg 11-11) the curbs' corner pans, seated on the drawn junction (CityMeshes.Curbs2.cs)
             stepItem = 5;
             yield return 0;
             if (IslandSolidsOn) foreach (var _ in IslandSolids(map, trims, tm)) yield return 0;   // (c7roads) junction islands as closed solids in one paved surface (CityMeshes.IslandSolids.cs)
+            RsMaskOn = false; RsPaintMaskOn = false;
             FlushLotIslands(map, tm, min);   // leftover item 4: the lots' islands, tops and curbs
             EmitLotCurbs(map, tm, min);      // streets pass 4: the lots' own curbs
             LaneClip(map, trims, min, max);   // (c7roads r3, R2) nothing raised or laid inside a lane (CityMeshes.LaneClip.cs)
@@ -3075,6 +3098,9 @@ namespace PSXRacing.City
                     int n = end == 0 ? L.a : L.b;
                     int hostIdx = end == 0 ? trims.branchA[ei] : trims.branchB[ei];
                     if (hostIdx < 0) continue;
+                    // (road-surface stage 1) a branch that leaves its host AT a node of a junction drawn as one surface: the
+                    // junction's outline owns the gore and the clipped stretch (EmitBranch lays its pieces without the mask)
+                    if (RoadSurfaceOn && JunctionSurfaces.AtNode(n) != null) continue;
                     // the medians pass round 2: a refuge island's two carriageways
                     // are not a branch and its host - their pavements meet on the
                     // island's axis at the nose and part around it; the gore
@@ -4462,6 +4488,7 @@ namespace PSXRacing.City
         {
             LineModel.LinesAt(e, c.s, into);
             if (IsJcl(e)) { into.Clear(); return; }   // Five Points round 4: no lines inside a junction complex
+            if (RoadSurfaceOn) JunctionMeasures.DropKerbEdgeLines(e, c.s, lay, into);   // (road-surface round 2) the measure's edge kind
             // (cityinteg 11-11) a curbed side paints no edge line (Curbs2.cs CurbNoEdgeLines)
             if (noEdge != 0)
             {
@@ -10797,6 +10824,17 @@ namespace PSXRacing.City
                 yield return 0;   // WP-09: a junction a step
                 stepPhase = 3; stepItem = n; stepPart = 0;
                 var np = map.nodes[n];
+                // (road-surface stage 1) a junction solved as ONE SURFACE: its owner node's tile draws it whole; the old
+                // fan and everything it lays down (clips' fills, NoseFill, aprons, corner walks, chords) are skipped
+                if (RoadSurfaceOn)
+                {
+                    var js = JunctionSurfaces.AtNode(n);
+                    if (js != null)
+                    {
+                        if (js.ownerNode == n && !(np.x < min.x || np.x >= max.x || np.y < min.y || np.y >= max.y)) EmitRoadSurface(map, trims, tm, js);
+                        continue;
+                    }
+                }
                 if (!trims.patch[n])
                 {
                     // roads pass L8 (A17): a plain dead end's verge across its end

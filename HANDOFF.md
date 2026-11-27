@@ -180,6 +180,442 @@ Only round 6 was run on these seeds tonight (no round 5 arm), and the matrix ran
 - Two runs lack a captured mute line because I stopped their wrapper script while restarting a batch (same hidden batch-mode editor launcher as every other run): d5_r5_s0_wreck (quoted for the mechanism only; the table's staged round 5 run is its repeat) and e_CltC7_r5_s2_no_mute_line (not in the table; its repeat is). Every run in the table has the line counted once.
 - The LAB self-test fails one check, `the Rain tab has rows`, in this sandbox; the same line fails in the replay-fx job's report of this afternoon (scratchpad\replayfx\PSXRacing_selftest_replayfx.txt), before this round. Not looked into.
 - Round 4's own head-on counts: seeds 0-2 only this time (six in round 4), and only with round 6 on.
+# ROAD SURFACE, ROUND 2 (roadsurf hand-over, 11-26 late night, branch road-surface; NOT pushed by the agent, NOT merged)
+
+**State in one line: 80: MET (64 of 71 read points within 0.5 m; the 7 others are the returns of the two streets the map's source lacks). 81: MET (52 of 52). 77: NOT MET (measured in part, solved offline, not built: its light-rail median and crosswalks are not in the socket). 79: not started (design below). Behind the same LAB row, default OLD.**
+
+**READ THIS FIRST: every aerial crop is 71.1 m x 48.85 m, not 71.1 x 40.** The NC OneMap image service fits the bbox to
+the 1920 x 1080 picture in DEGREES (bboxSR 4326), so it widens the latitude span by 1.221. Proof: two crops laid side by
+side at 40 m show every feature twice, 6.4 m apart; at 48.85 m they are one picture (scratch: `mosaic.py`). It holds for
+the 55 gallery crops too (c7roads' `draw_aerial.py` and round 1's picks both assumed 40 m): every outline drawn over a
+crop and every hand pick was squashed 18 % north-south about the crop's middle (up to 4.4 m at its top and bottom).
+Round 1's "three lanes of about 3.3 m" at 80 and its lane shifts came from that. Read in the true frame, the MAP'S
+LINES LIE IN THE MIDDLE OF THE REAL THROUGH LANES (within about 0.5 m at 80 and 81); it is the RULE that lays the lanes
+2 to 2.5 m off them. Every measure of round 2 was re-read in the true frame, in the edge's own frame (station, offset)
+off straightened strips (scratch: `strip.py`); the proof sheets' aerial cell is the mosaic re-cut to the game's
+71.1 x 40 m plan frame.
+
+## What round 2 added (all behind PSX_CITY_ROADSURFACE=1, the same LAB row, default OLD; a city bake)
+- **Scripts/City/JunctionMeasures.Fit.cs - WHERE LANES COME FROM (the ruling).** `BuildFit` (called by `FeedLineModel`
+  per measured edge, every metre): the clear width of a one-way = from its measured outer (right) edge, less a shoulder
+  the measure names, to its measured left edge (a painted median: to its doubled yellow line) or the nearest measured
+  island on the way; count = min(the map's count, an optional `lanes N` cap in the measure (the state's count later),
+  what fits at 3.0 m); width = clear / count held to 3.0 - 3.66 m; the lanes are laid from the outer edge and what is
+  left over lies on the median side; a count change tapers at 30 m a lane; an island is met at 1:15. The rule's bay
+  keeps its place against the median only where a lane's width is left beside the map's lanes (else it is not laid: the
+  map's lanes come first). A two-way edge is fitted about the middle of its two measured edges (not exercised: every
+  measured edge so far is one-way). `LineModel.LinesAt` ends with `FitLines` (each layout line to its boundary of the
+  fit, dropped lanes removed, blended with the measure's weight); the shift ease carries the fitted lanes' centre
+  (`LineModel.LaneCentre`: traffic, the AI, the race line); `LaneCentres`, `BandLeft`, `DropKerbEdgeLines`,
+  `MedianKind`, `IslandNear` are the readers' entries.
+- **LANE PICKS (hand file only; `PSX_CITY_LANEPICKS=0` = FIT only).** Under an edge: `line INDEX
+  broken|solid|yellow|yellow2|edge|none [paint]` + `p STATION OFFSET` rows (INDEX = the lane band's boundary from the
+  outer edge, 0 .. the map's count; `paint` or an index over the count = a line that bounds no lane), `arrow STATION
+  OFFSET left|right`, `stop STATION`. A picked boundary replaces the fit's place (lanes, lines, lane centre follow) and
+  names its paint.
+- **A side may BREAK at a station** (`leftuntil S` / `rightuntil S`): the stations up to S and those beyond it are two
+  measures with no curve between; beyond S the side's kind is kerb; with no station beyond S the side is the rule's at
+  once. Made for a merge: a lane LINE up to where the merge lane joins, the far KERB beyond; the through lanes are laid
+  from the median side beyond the break (`JunctionMeasures.KindAt`).
+- **Edge kinds in the measure** (`left|right kerb | shoulder M | paint M | line`): kerb = lanes start at the kerb's
+  face, no edge line at it; shoulder M = the edge line M inside the measured pavement edge, no kerb (the junction's run
+  between two shoulder sides is flush, the rule's kerb along a shoulder side is not laid); paint M = a PAINTED MEDIAN:
+  the measure is its middle, its doubled yellow line M inside, yellow diagonal bars between (each side its half), no
+  kerb, no nose, no hole; line = a lane line with pavement beyond (a slip's left line, a merge).
+- **Corners paved up to a measured line** (`paved A B open at M [onb]` | `paved A B pts X,Z ...` under a junction):
+  open = two arms run on as one pavement (a painted median, a painted triangle, a merge gore): no corner, the cut
+  square across A at M and EACH ARM'S ROW SQUARE TO ITSELF where the cut meets it (a ribbon ends square: a shared skew
+  row left a wedge unpaved); `onb` = the cut square across B at M along B and both rows on it (a merge: the ramp ends
+  on its host's cross-line, where the rule's merge zone takes over); pts = the pavement's limit between the two borders (the mouth of a street the map lacks, a bell-mouth
+  read point by point), a kerb along it; one road going on across it carries its lanes (`Corner.through`).
+- **Paint** - on a measured ribbon, as marks cut into it (`CityMeshes.MeasureMarks.cs`: the lanes' own left line
+  beside a bay, a painted median's second yellow line and bars, picked kinds, lines and arrows); inside a junction
+  surface, as strips cut into the fill (`CityMeshes.RoadSurfacePaint.cs`: a lane line along a measured island is solid,
+  an inside edge's lanes to its stop line, an entering arm's lanes from its row to its picked stop line, a painted
+  median's lines and bars, picks, arrows, the stop line). Through lines pair by the lines' own laterals read at the
+  node (`tpWorldTol`), never an edge line across (the kerb runs there), only for one NAMED road through a through
+  corner: never across the signalised crossing at 81.
+- **Striped buffer** (`line INDEX KIND paint hatch`): white diagonal bars between the lanes' left line and that picked
+  line, on the ribbon (a glyph mark) and inside the junction (cut strips).
+- **The tile build around a junction surface**: an arm's ribbon ends square at its row (no mitre, no host clip at a
+  node the junction owns: `SurfaceTrims` clears `throughA/B` and the arms' `branchA/B` there); the lattice is held
+  under the fill as under a fan (`PrepareFanFloorSteps`: former land the fill paves, a gore or a painted triangle,
+  lay within 5 cm of it); the arms and inside edges take the main arm's asphalt age (`rsFresh`); the rule's
+  crosswalks and stop bars stand down at a measured junction (picks carry the stop lines).
+- **Bays** (`JunctionSurfaces.BayLane`, `bayFrom`, `bayHost`): inside its junction a bay's lane is the map's own
+  turn-lane way through the opening, then (10 m blend) the place against its host's measured median edge. Lanes with
+  no receiving lane across (`carried`: e9712's right-turn lane, its street is not in the map) end at the row.
+- **Medians along the ribbons** (`CityMeshes.RoadSurfaceMedians.cs`): from the rows out to where the measure ends each
+  carriageway of a measured nose carries its half of the median in the nose's kind (kerb, top, end face).
+  `MedianSurfaceOf` takes the kind from the measure. The rule's kerb, verge and median pieces along a paint / line
+  side are not laid (`rsPaintLines`, the one-owner mask).
+- **Gates that read what is built** (Editor/CityIslandGate.cs, CityKinkProbe.cs): a fitted edge's lane cells are the
+  lanes the fit lays (band and bay; inside its junction only the lanes that go on across), a cell on a measured island
+  (or within 0.4 m of its kerb: one 0.5 m cell) is the island; the kink probe reads the solved outline (rows are
+  mouths) and the surface trims; `city_islandgate_<tag>_back.tsv` names the mesh, normal and eye of every see-through
+  hit. The lane check measures to kerbs and islands, not to end rows (`ClearFree`).
+
+## Numbers (EDITOR, edit-mode batch, tiles built live; head 7bdc4f93 (the proof's jobs; the row-off table and OLD frames ran on f6d529db, the same code but for 7bdc4f93's asphalt-age line, which the row off never reaches); measures `scratchpad\roadsurf\measures_run19.txt`)
+- OUTLINE OVER THE PHOTO (Unity's own outline; read points in the true frame): 80: 71 points, 64 within 0.5 m (worst 0.46), 7 over, all MAP (the two streets' returns: 0.74, 2.03, 3.95, 6.13, 1.88, 3.27, 5.41). 81: 52 points, 52 within 0.5 m (worst 0.42), 0 over.
+- THE LINE MODEL CARRIES THE MEASURE: 16 measured edges, LineModel.Extents against the measure at its own stations: worst 0.06 m.
+- LANE CHECK (every lane's centre 1.1 m clear of a kerb or island, node to row): with picks 80: clear; 81: clear. FIT ONLY (PSX_CITY_LANEPICKS=0, no lane number in the file) 80: clear; 81: clear.
+- SPOT TABLE (RAISED SEETHRU OVERLAY LINEUNDER HOLES LAYERS STEP KINK):
+  80  base 4 0 0 0 4 13 7 5 | row off 4 0 0 0 4 13 7 5 | NEW 0 0 0 0 0 0 0 0
+  81  base 0 0 0 0 0 8 13 52 | row off 0 0 0 0 0 8 13 52 | NEW 0 0 0 0 0 2 2 20
+  79  base 3 0 0 1 5 6 0 7 | row off 3 0 0 1 5 6 0 7 | NEW 3 0 0 1 5 6 0 7
+  77  base 5 1 0 4 4 5 10 50 | row off 5 1 0 4 4 5 10 50 | NEW 5 1 0 4 4 5 10 50
+  Row off against base: the two .tsv files are identical.
+  See-through rays over the four spots' routes: base 34 of 308448 met a face from behind, NEW 35 of 308448.
+- COST A TILE (25 tiles round the four spots; counts, the machine was shared): base 20683 triangles, 40381 vertices, 17.6 draws | NEW 22395 triangles, 44056 vertices, 17.6 draws (build 230 | 312 ms a tile: not a measure tonight).
+- SOLVE s80: clean; outline 416 vertices, 1 islands, fill 1035 triangles; solve 23.32 ms, fill 108.63 ms, in all 291.2 ms (once a map load).
+- SOLVE s81: clean; outline 270 vertices, 0 islands, fill 4096 triangles; solve 6.28 ms, fill 1032.05 ms, in all 1190.5 ms (once a map load).
+- TESTS: 33 tests, 32 pass, 1 fails as at base (RealJunctions: the rule fixture g44_slip, a 6.0 degree joint; not a measured junction) (Unity, edit mode, 7bdc4f93); 2 new (the round 2 measure syntax, a corner paved up to a line). Typecheck OK before every job and commit.
+- INVENTORY (7bdc4f93, row on): inside the two outlines the other emitters' non-road pieces are the closing pass's skirts (vertical, at a pavement edge, below it) and one ground strip 7 cm under 81's fill; nothing stands over the pavement (RAISED 0, OVERLAY 0 above). Not counted the way round 1's "0 foreign pieces" was.
+
+## What is still open
+- THE TWO STREETS AT 80 (MAP; not fixed, not re-exported): the map's source snapshot does not hold them. The export
+  reads `tools/city/cache/ways_all.json` (fetched by `tools/city/fetch/fetch_ways.mjs`: only
+  `highway ~ motorway|trunk|primary|secondary|tertiary` and their links, beltway box: 18,628 ways) and
+  `streets_core.json` (residential / unclassified / service / living_street: 5,728 ways, but only inside the core box
+  x -5823..2848, z 491..8680 m; spot 80 lies at x 6370, z 13205). Near the spot the snapshot has E W T Harris Blvd
+  (ways 204897691, 993841992 / 3 / 4), the two turn-lane links (204897710, 204897711) and 966562977; its only
+  "McCullough" ways are tertiary pieces 430 - 800 m to the west that stop at x 5950. So both streets are ABSENT FROM
+  THE SOURCE (never fetched: a class below tertiary outside the core box, as far as the snapshot shows; OSM itself not
+  queried), not dropped by a class filter of the exporter. At 80 the west mouth is closed along the main road's own
+  kerb line by a `paved ... pts` corner and e9712's right-turn lane ends at the row (logged); the east kerb runs
+  straight across E McCullough's mouth.
+- 81's FILL IS SLOW: 4,096 triangles and 1.04 s of fill (0.11 s at 80). The slip's row lies on its host's cross-line
+  (skew to the slip) and the triangulation's refinement runs long there. It is once a map load and the result is
+  clean, but it is not a cost to take city-wide: the fill of an outline with a skew row needs a look.
+- A RIBBON MEDIAN'S FAR END is a vertical face: from one lane place 55 m from 81 (outside the spot's radius, so not
+  in its row) two rays met it from behind; the total over the four routes is 35 back hits against base's 34. A batter
+  (the top run down into the ground; the junction kerb's back likewise) was written and reverted unrun (e60dd3ac,
+  f6d529db).
+- A MERGE INSIDE A MEASURED ARM (81's slip into UC Blvd west): the socket now has what it took (a side's measure
+  BREAKS at a station: lane line up to it, the far kerb beyond; the abreast cut square across the host; the through
+  lanes laid from the median side beyond the break) but the rule's merge ZONE still owns the merge lane itself (its
+  dotted line, its taper, where the ramp's own ribbon ends). The lanes jog 0.06 m at the break.
+- FIT AGAINST THE PHOTO: at 80 FIT alone lands within 0.2 m of the painted lines (4 lanes of 3.66 from the west
+  kerb; the bay where it fits; the lanes' left line solid along the island). At 81's approach the real lanes are
+  unequal (wide turn lanes) and FIT lays 3 x 3.66 from the right edge: up to 1.1 m off the paint; the picks carry it.
+  FIT knows a PAINTED median only because the hand file says `paint M`: a surveyed pavement polygon will not.
+- PAINT NOT IN THE SOCKET: a through arrow and a combined arrow (the stamp is left / right only), a crosswalk (the
+  rule's stand down at a measured junction), a gore's chevrons. A painted median's bars are laid by each ribbon for
+  its own half: the two halves' bars do not line up across the middle.
+- A LANE COUNT ABOVE THE MAP'S is not in the socket (`lanes N` only caps). A TWO-WAY measured edge is written
+  (lanes about the middle of its two edges) and not exercised: every measured edge so far is one-way.
+- ONE PAVEMENT, ONE AGE (the last change, 7bdc4f93): a measured junction's arms take its main arm's asphalt age, so
+  the tone step that stood at an arm's row now stands at the arm's far node (where two OSM ways meet, as everywhere
+  in the city).
+- THE RULE'S BAY NOSE at 80: a concrete quarter round of the rule's bay opening still stands in the dirt median
+  about 38 m north of the spot's centre (outside the 71 x 40 m frame, inside the 80 m plan): the rule's median
+  island beyond the rows is not re-pointed to the measure.
+- NOT RE-POINTED: traffic's and the rivals' paths through a junction (RoutedPath, RacingTurns), the signals' stop
+  positions (the control trims) and the minimap still read the rule. `LineModel.LaneCentre` follows the fit, so
+  lane-following along the arms does. No play-mode run was made.
+- 79: design only (below). 77: below.
+
+## 77: what the socket lacks (not built)
+NOT MET: measured in part, solved offline, NOT put through the tile build. Its spot table row is the rule's, unchanged
+from base (RAISED 5, SEETHRU 1, OVERLAY 0, LINEUNDER 4, HOLES 4, LAYERS 5, STEP 10, KINK 50).
+- Done: the east half read in edge frames on r77j / r77n / g01 (e4058 both kerbs, e1449 both, e4057's median kerb, the
+  UC Blvd median's nose, the NE corner's radius) and solved offline with the rest by rule: clean, 12 of 12 read points
+  within 0.5 m (worst 0.10 m). `picks.py` marks the spot `offline`: it is in no measures file a Unity job read.
+- What the socket lacks:
+  1. THE TRACKWAY. N Tryon's median carries the light rail THROUGH the junction: two carriageways about 35 m apart
+     (e4047 / e1449 east of the tracks, e4042 / e4038 west), a fenced ballasted strip between them that crosses UC Blvd
+     on flush panels. The map has only the two one-way roads; the rule (and the fixture s77) solves the east crossing
+     alone (nodes at 5543.8,11801.4 and 5535.1,11785.3) and leaves the west crossing (about 5509.9,11805.3) to a second
+     fan 34 m away. In the photo it is ONE signalised junction. Needed: a median / island KIND
+     "trackway" (a kerb each side along the arms, ballast and rails on top; inside the junction a flush crossing: an
+     island with no kerb whose top lies at pavement level), and ONE junction measure over both crossings (`join` is in
+     the syntax; the two arms between, e4022 and e2260, 34 - 35 m, become inside edges: untested).
+  2. CROSSWALKS. Every arm carries a zebra and the NE corner a pork-chop island with the slip e13224 behind it. The
+     island fits the socket (an `island`, as at 80); a crosswalk does not (round 2 stands the rule's crosswalks down at
+     a measured junction and has no pick for one).
+  3. LANES. UC Blvd westbound arrives at its stop line with more lanes than the map's edge carries (two left-turn
+     arrows and three more lanes read on e4058's strip); the fit never lays more than the map's count: it needs the
+     state's count (the `lanes N` cap raises nothing: a count ABOVE the map's is not in the socket) or picks.
+
+## 79: the virtual node (design, not started)
+The bay at 79 leaves the SE-bound carriageway in the middle of edge e2180 / e2179's run and crosses the median to
+n3499: a junction with no map node on the main line. Design: a JUNCTION measure may name `at EDGE STATION` instead of
+a node (`junction NAME nodes ... at 2180 12.5`). `JunctionSurfaces.BuildCluster` then treats the edge as TWO arms
+(a..s and s..b) meeting at a virtual node at PointAt(s): each arm is the edge's own borders sampled away from s (the
+arm builder already samples a border outward from a node end: give it a start station), `Arm.fromA` / `edgeLength`
+become a start station and a sign, the two arms are a `through` corner on both sides by construction (one named
+road), rows on the edge at s - rowA and s + rowB, and the edge's ribbon is drawn in two pieces: the trim table needs a
+per-edge INNER cut (today `Trims.atA` / `atB` cut only at the ends), which is the one real change in
+`CityMeshes.BuildRoadsAndDecks` (emit [atA, s - rowA] and [s + rowB, L - atB]; the marks and the lane check take the
+same two spans). Everything else (measures, fit, paint, medians) is per edge station already. Not started.
+
+## The measures file today (scratch only; never in the repository)
+`scratchpad\roadsurf\picks.py` (edge-frame readings: `"st": (station, left, right)`, kinds, lane picks, arrows, stop,
+noses, islands, paved corners) -> `mk_measures.py` -> `measures_hand.txt` (frozen per run as `measures_runN.txt`).
+Viewers: `mosaic.py` (all crops as one map-space picture, 48.85 m), `strip.py EDGE s0 s1 latMin latMax out` (the
+picture straightened along an edge: read offsets directly; the grid line of station N is at the TOP of its label),
+`ef.py` (E(edge, s, lat) <-> SL(edge, x, z); arms of a junction's fixture for edges the gallery export lacks),
+`pickview.py`, `testpts.py`, `draw_meas.py` (the outline over the mosaic, departures), `sheet2.py` (the proof sheet).
+Offline solve: `JH_FED=1 sh meas.sh s80 s80 [measures]` (the harness in `jh\`; refresh `fx\*.txt` from a RunMeasured
+job's `out\mN_shots`).
+
+## Commands (as round 1; run the chains from the PowerShell tool: Git Bash's tar cannot open a C:\ archive)
+`chain5.ps1 -Commit <h> -Sfx N -Measures measures_runN.txt -Part a|f|b|c` (a: RunMeasured mN, frames fnN, spot table
+snN; f: FIT only mfN + ffN; b: spot table row off soN, base sbN, old frames foN; c: Unity tests jtN, inventory invN).
+
+# ROAD SURFACE, STAGE 1 (roadsurf hand-over, 11-26 night, branch road-surface from charlotte-c7roads dbf5bfa0; NOT pushed, NOT merged)
+
+**(ROUND 1, history: superseded by the round 2 section above; its picks were read in a squashed frame.) State then: NOT MET at 80 and at 81.** By measured numbers the outline meets the photo at both (80: 50 of 56
+read points within 0.5 m, the 6 others are the two side streets the map lacks; 81: 28 of 30, the 2 others a painted
+triangle the rule draws as land) and both are built as one paved surface behind a LAB row (default OLD). What is missing
+is the LANE measure (below, "What is structurally missing"): a channel strip stands in a lane the rule lays (80) and a
+junction's inside carries only its through road's lines. 79 is not started (it needs a junction in the middle of an edge),
+77 solves by rule now (no measure: its junction lies outside the crop). The c7roads section under this one ("STAGE 1:
+START HERE") is history: its solver inputs / outputs and traps still hold.
+
+## What exists (all behind PSX_CITY_ROADSURFACE=1, LAB row "JUNCTIONS AS ONE SURFACE", World tab, default OLD; a city bake)
+- **Scripts/City/JunctionMeasures.cs** - THE MEASURES SOURCE. Providers: RULES (nothing loaded = today), HAND (a text file
+  named by PSX_CITY_MEASURES, outside the repository), SURVEY (later; the spec is the section after next). `Parse`, `SideAt`
+  (hold / blend), `ApplyToArm` (solver-level, for a measure the line model does not carry), `ToSolver`, `ContentTag` (the
+  file's content in the tile bake's signature, CityTileCache.Settings).
+- **Scripts/City/JunctionMeasures.LineModel.cs** - `FeedLineModel`: an edge's measure becomes PROFILE EASES of the line model
+  (the refuge islands' mechanism): a SHIFT of the whole cross-section and a WIDEN per side (pavement only, summed:
+  `LineModel.Ease.measure`). `LineModel.Extents` then returns the measure at its stations (checked: 0.00-0.05 m on all 12
+  edges), so the ribbon, its kerbs, its lanes, its paint and the traffic's lane centre follow the measured pavement. Called
+  at the end of `ComputeTrimsCore`'s ease builders (after the merge zones, the slip widening and the turn pockets).
+- **Scripts/City/JunctionOutline.cs** (the solver, still pure): `Measures` = measured median ends (`Nose`: two points of the
+  front + shoulder radius + kind), kerb returns (`Return`), islands (`Island`: a short polygon, a rounding radius per vertex,
+  kind, kerb height; `RoundedPolygon`), per-arm minimum rows; an arm's row stands beyond every island in its pavement;
+  `ringOuter` / `ringHoles` (the fill's own boundary vertices); `Clearance` / `LaneCheck`; a lane runs the same way as its
+  host (MergeBays); a kerb return is shrunk when it leaves no room for an abreast row (77 solves: r 12 -> 8.4 at 2260 / 4047).
+- **Scripts/City/JunctionSurfaces.cs** - every measured junction solved once per map (`Ensure`), its rows per edge (a bay
+  merged into its host ends at the host's row), `AtNode`, `MeasuredNode`, `Covering`, the LANE CHECK (every lane the line
+  model lays inside the junction against the kerbs and islands; logged, not a refusal).
+- **Scripts/City/CityMeshes.RoadSurface.cs** - `SurfaceTrims` (the TILE BUILD's trims: rows as ribbon trims; a clone, the
+  rules' trims stay the CONTROL trim for traffic, signals and marks: `Trims.control`), `EmitRoadSurface` (the fill at its
+  own heights, no lift; the through road's lane lines carried row to row by `ThroughPair` and cut into the fill by
+  `EmitCutFan`: none off the outline, none under an island; a kerb 0.15 m high and 0.15 m thick on the fill's own boundary
+  vertices along every free edge, thinned on straights, its ends closed; each island a closed solid on its hole's vertices;
+  the land behind a median end closed against its kerb and at its far end; a verge from the outer kerbs), the ONE OWNER
+  mask (`RsMasked`: while the roads' own emitters run, a quad or triangle whose centre lies inside a solved outline is not
+  laid). Hooks: `TileSteps` (surface trims, mask), `BuildJunctions` (the old fan and all it lays down skipped), `BuildGores`
+  (no branch gore at a measured junction's node), `EnsureMarks` (control trims), `ComputeTrimsCore` (the feed),
+  `CitySignals.Furnish` (no stop bar at the rule's place on a measured junction).
+- **Editor/JunctionSurfaceTools.cs** - `RunMeasured` (solve as the tile build does, the feed check, the lane check, JSON and
+  fixtures for the offline harness), `DumpNear`. **Editor/JunctionOutlineTests.cs**: 6 new tests (31 in all).
+
+## Numbers (EDITOR, edit-mode batch, tiles built live; head 7576e9dd; hand measures of scratchpad\roadsurf\measures_run7.txt)
+- Spot table old (LAB row off) | new: **80** RAISED 4 | 21, SEETHRU 0 | 2, OVERLAY 0 | 0, LINEUNDER 0 | 0, HOLES 4 | 21,
+  LAYERS 13 | 0, STEP 7 | 0, KINK 5 | 9. **81** RAISED 0 | 0, SEETHRU 0 | 3, OVERLAY 0 | 0, LINEUNDER 0 | 0, HOLES 0 | 0,
+  LAYERS 8 | 1, STEP 13 | 2, KINK 52 | 31. **79**, **77**: unchanged (no measure). NOT "no worse than base": 80's RAISED and
+  HOLES are every one a cell of the measured channel strip (the gate reads the whole pavement between a road's edges as
+  lanes); SEETHRU 2 / 3 are at the hand-over of the rule's median to the junction's (80) and at three row ends (81); 81's
+  LAYERS 1 / STEP 2 are at e1464's row. KINK is read on the rules' trims (the probe is not re-pointed to the outline): the
+  outline's own rule-4 check has 0 kinks on the outline and on the island.
+- Lane check: 80 e9712 lane 4 of 4 runs 19.5 m within 1.1 m of the strip (0.65 m at the nearest), the bays e3177 / e3176 run
+  15.5 m / 12.5 m within 1.1 m and 0.62 m / 0.47 m ONTO it; 81 clear inside the crop.
+- Cost, the four spots' 25 tiles, old | new: 20,683 | 21,132 triangles a tile (+2.2 %), 40,381 | 41,415 vertices, 17.6 | 17.6
+  draws, 227 | 270 ms a tile (+19 %, the two solves in it: 198 ms and 563 ms once per map). Solve + fill a junction: 80
+  21 + 99 ms (342 outline vertices, 866 triangles), 81 101 + 389 ms (370, 2,231). NOT under 1 ms and not a record of its
+  own: the junction is in the tile's baked mesh (a city bake), a live tile build solves it once per map.
+- Tests: 31, 30 pass (RealJunctions fails on g44's one 6.0 degree joint as at the base; s77 now passes). Typecheck OK.
+
+## What is structurally missing (why NOT MET; measured numbers CAN place the kerbs, they cannot place the lanes)
+1. **The lanes need their own measure.** A pavement edge fixes where the kerb is, not which lanes run inside it. At 80 the
+   map says 4 through lanes + the bay on e9712 (3.66 m each); the photo has 3 through lanes, a striped buffer and a raised
+   channel strip, then the bay, and lanes of about 3.3 m by my reading. Fed with the measured kerbs the rule's lanes fit the pavement (the
+   island gate's HOLES went 59 -> 21, every one left a cell of the strip) but lane 4 and the bay's lane straddle the strip, the NW-bound lanes
+   cannot be fitted to the strip AND the kerb at once (they sit 1.1 m apart across the junction, so their lines do not go on
+   through and the east kerb steps 1.2 m at the node). Needed per edge at stations: the LANE COUNT (a lane dropped or gained
+   = a taper of the line model), the lane width, and at a bay where its lane sits and where it turns across. The hand file
+   carries a first form (`shift`: the lane bundle's sideways place); SURVEY cannot give it (see the spec).
+2. **Paint inside a junction** is only the through road's lane lines, row to row, where the two arms' lines pair within
+   0.3 m. Bay lines, turn arrows, a painted median's hatching (81), stop lines at the measured place: not drawn. The stop
+   bars at the rule's places are not painted on a measured junction; the control trim still stops the traffic there.
+3. **A junction in the middle of a map edge** (79: the bay's turn across the median meets its host between two nodes) needs
+   a virtual node on the host and a GAP in its ribbon (trims are per edge end). Not built: 79 is not started.
+4. **A painted area between converging arms** (81: the triangle between the east road, e6288 and UC Blvd) needs a "paved up
+   to this line" corner measure: the abreast rule wants 20 m of touching borders and only 11 m lie in the crop. The same
+   measure would let 81's rows stand at the split instead of 26 m up the approach.
+5. **Edge KIND**: every free edge of an outline gets a kerb. 81's photo has edge lines and shoulders, a kerb only on the
+   slip. Needed per edge side: kerbed / shoulder. The median KIND along a ribbon is the rule's too (80: concrete beside
+   the bay where the photo has earth), and the rule's median island ends in its own rounded nose 1-3 m before the
+   junction's row (a crescent of grass at the hand-over).
+6. Readers outside the tile build still see the rules' pavement (poles, trees, houses, signs, far proxies, RacingTurns'
+   OnPavement, the kink probe): Docs/ROAD_OUTLINE_READERS.md's "outline" rows are NOT ported. `JunctionSurfaces.Covering`
+   is the hook. The far proxies would differ from the near tiles at a measured junction (pop-in): not looked at.
+7. A player build cannot carry stage 1: hand measures are scratch-only by rule, so the LAB row reads OLD in any build
+   until the survey provider ships its numbers as data.
+
+## THE MEASURES: the spec for surveyed data (what SURVEY must hand the same socket)
+Given: the county's surveyed pavement polygons (kerb lines; grass medians as holes; painted medians as pavement; concrete
+islands NOT separated from the road), the map's edges, and per-road median kind / paved width where the state publishes it.
+- **edge stations** (every 2 m along each map edge: `s STATION LEFT RIGHT`): cut the pavement polygon with the cross-section
+  square to the map line at the station; LEFT / RIGHT = the distance from the line to the first polygon boundary each way
+  (the polygon holding the station's point; where the line itself lies off the pavement, the nearer boundary's signed
+  distance: a measure may be negative). Drop a station whose section meets a driveway or an apron (a boundary that leaves
+  and returns within 12 m along the edge: bridge it from its neighbours); smooth with a 5 m median, then the 1 cm rule.
+  `hold` = the end at a junction the survey also covers; no `blend` is needed where the whole edge is surveyed.
+- **shift** (the line model's): computed, not surveyed - half of ((LEFT - RIGHT)measured - (LEFT - RIGHT)rule) where both
+  sides are surveyed. It moves the rule's lanes into the surveyed pavement (at the owner's spots the map's line lies half
+  a lane to a lane from where the rule assumes it in the cross-section: 1.9 m on e3167, 2.9 m on e9712, 3.9 m on e3182). A
+  polygon CANNOT say which lanes go on through a junction when the rule's lane count or width is off there: that needs
+  lane counts (the state's through-lane field) or the hand `shift`.
+- **return** (per corner, arm A's left border to arm B's right border, anticlockwise): fit a circle (least squares) to the
+  polygon's boundary between the two arms' straight edges; radius = the fit's, the solver places it tangent to both
+  borders. A compound corner (two radii) is not in the socket yet: the fit's residual over 0.3 m says so.
+- **nose** (per median end): the hole's (grass) or the land's end between two carriageways: the two points where its front
+  leaves the two kerb lines' tangents (the cap line) and the radius of the circle fitted to each shoulder. KIND cannot come
+  from the polygon alone: a hole = raised (grass or concrete by the state's median field, else by width: under 1.8 m
+  concrete); a painted median is pavement in the polygon = no nose, the two carriageways solve abreast.
+- **island** (a closed hole inside the junction's outline): its boundary simplified to the fewest vertices whose rounded
+  polygon (a radius per vertex, least squares) stays within 0.15 m of it. A CONCRETE island is NOT in the pavement layer
+  (it is pavement there): channel strips and concrete refuges stay hand measures or come from another layer (imagery).
+- **row** (per arm): where the ribbon's own median dress still holds; computable as the station where the surveyed median
+  hole's two edges are both within 0.3 m of the ribbons' edges.
+- **drop / join**: a map side arm whose mouth the polygon boundary does not open for (the kerb runs straight across within
+  0.5 m) is dropped; two map nodes whose pavements are one polygon with no kerb between them are joined. The reverse (a
+  street in the survey that the map lacks: both side streets at 80) cannot be added by a measure: it is a map matter.
+- What a polygon cannot give at all: paint (lane lines, a painted median's hatching, stop lines), lane counts and widths,
+  kerb heights, kerbed or shoulder.
+
+## Hand measures today (scratch only: scratchpad\roadsurf\picks.py -> mk_measures.py -> measures_hand.txt)
+Read off the NC OneMap crops g04 (80) and g05 (81) on a 1 m grid; nothing of them is in the repository. Each number's
+reading error is about 0.3 m and the same eye judged the overlay. The tan concrete's edge was taken as the kerb where a
+darker 0.8-1.2 m band (gutter or older concrete) lies beside it. 81's west edge north of z 12318 is under tree canopy: taken
+parallel to the lane line (assumed). 80's channel strip is ended at the crop's edge (it goes on). Crops asked for the
+rest: scratchpad\roadsurf\aerial_requests.txt (10 crops: 80 x 2, 81 x 3, 79 x 2, 77 x 3).
+
+## Commands (edit-mode batch, silent; sandbox PSXRoadA under the roadsurf lock; job.ps1 / chain5.ps1 in scratchpad\roadsurf)
+- Solve + feed check: `job.ps1 -Commit <h> -Method PSXRacing.EditorTools.JunctionSurfaceTools.RunMeasured -Tag mN -CopyDir rs
+  -EnvList "PSX_RS_TAG=mN;PSX_CITY_ROADSURFACE=1;PSX_CITY_MEASURES=<scratch>\measures_run7.txt"` -> out\mN_shots\rs_measured_mN.txt
+- Frames: `CityC7Probe.Run` with `PSX_C7_POSES=<scratch>\poses_a.tsv` (north-up plan40 = the aerial crop's frame) + the two
+  variables above for NEW; without them for OLD.
+- Spot table: `CityIslandGate.Run` with `PSX_ISL_SPOTS=<worktree>\tools\city\spots\junction_spots.csv;PSX_ISL_SPOT_IDS=80,81`.
+- All of it: `chain5.ps1 -Commit <h> -Sfx N -Measures measures_run7.txt -Part a` (solve, new frames, new spot table), `-Part b`
+  (spot table with the row off, at the base dbf5bfa0, old frames), `-Part c` (the 31 tests in Unity, the piece inventory).
+- Offline (5 s): `sh measfed.sh s80 measures_run7.txt` (Unity's own arms -> harness solve -> overlay on the crop with the
+  departures table), `sh meas.sh s80 s80` (the rule's arms + the measure at solver level), `sh jh/run.sh` (the 31 tests).
+- Traps met: the measures file is read once per process (do not edit it under a running chain: freeze a copy); a measured
+  host is wide at its node, so the opposite carriageway's first metres merged as a "bay" (fixed: same-way test); a positive
+  widen ease is MAXED with an aux lane (hence `Ease.measure`, summed); the two-sided shift drifts as a bay opens (give the
+  lanes one `shift`); EmitBranch lays its pieces without Bucket.Quad (the mask does not see them: skipped by node).
+
+# STAGE 1: START HERE (c7roads hand-over, 11-26 evening, branch charlotte-c7roads)
+
+Stage 1 = the junction outline as MESH at 79 / 80 / 81 behind a LAB row (default OLD), refusal = today's fan. Nothing of
+it is built yet. Read the round-5 sections further down for the history; this section is what you need to start.
+
+**Rulings still open from the photo proof (photo_table_r5.csv, aerB pages in the c7roads scratch):** 80's north nose is
+~7 m short and a raised concrete channel strip runs inside the opening (not in the map); 81's U nose is ~8 m short of a
+raised tip where the photo has a PAINTED median, and its west edge is 3-5 m outside the kerb (line-model width);
+kerb-return radii by class (6 / 9 / 12 m) sit 2-5 m inside the photo's 12-20 m arterial corners; plain median crossovers
+(g32-g35) are not joined. Get the coordinator's ruling on these before meshing 80 / 81.
+
+## 1. Solver inputs (Editor/CityOutlineProto.cs)
+- Clusters: `CityMeshes.FanKey(trims, n)` over `trims.patch[n]` nodes (the generator's own fan clusters,
+  CityMeshes.Junctions.cs BuildJunctionClusters), plus every non-patch node with 3+ edges as its own key (RunCity), then
+  three join rules in this order: `JoinOpenings` (median U-turn crossover pairs: paved gaps overlap along the road within a
+  lane, no through arm between, both nodes within 2 x carriageway spacing, max 60 m), `JoinPaintedSplits` (one-in two-out
+  split whose branches overlap at 5 m out joins the junction a branch reaches within 40 m), `JoinSlips` (a one-way link of
+  at most 150 m whose two ends reach one cluster along at most two road edges / 120 m, between two named roads, joins it).
+- `BuildCluster(map, cluster, out arms, out links, out origin)`: ARM = an edge with one end in the cluster, sampled every
+  `JunctionOutline.Step` (0.5 m) out to 80 m AWAY from the junction: `C` = `e.PointAt(s)` (OSM plan polyline, metres),
+  `L` / `R` = C +/- left normal x `LineModel.Extents(e, s, out eMinus, out ePlus)` (eMinus = right of the edge's own
+  direction, ePlus = left; swapped for an arm leaving from e.b), `Y` = `e.YAt(s)` (the presented road profile height),
+  `radius` = 15 link / 12 cls>=3 / 9 cls>=1 / 6 (the class table the photos say is too small), `oneway`, `name`, `id` =
+  edge index. LINK = an edge with both ends in the cluster: its L / R borders the same way. HOLES = `IslandHoles(map,
+  cluster, origin)` (0.25 m raster of every ribbon at the cluster, uncovered land opened by 0.6 m, traced, smoothed, every
+  0.5 m; under 3 m2 = paint, left out; only islands wholly inside the outline are kept by Solve).
+- FRAME: everything is in the cluster's own frame = map plan metres (x east, y = map z north) MINUS `origin` =
+  `map.nodes[cluster.First()]`. Back to world: add origin to x / y; world Vector3 = (x, height, y). Heights are absolute
+  metres (no origin). Absolute coordinates lose ~0.5 mm in float and made 81 cross itself: always solve local.
+- Then `JunctionOutline.MergeBays(arms, links)` (a narrower arm alongside another from within 45 m for 30 m, or drawn over
+  it, is a lane of it; its crossing becomes a link), then `JunctionOutline.Solve(arms, holes, links)`.
+
+## 2. Solver output (Scripts/City/JunctionOutline.cs, pure: no CityMap)
+`Result`: `arms` (sorted anticlockwise), `corners` (per adjacent pair a..b: shape through / through-taper / nose /
+abreast / arc / connector [via link n] / refusal kinds, `r` radius m, `sA` / `sB` stations m on A.L / B.R, `pts` the
+corner's polyline, `lineP` / `lineD` a nose's or abreast cut line), END ROWS per sorted arm `rowR[i]` / `rowL[i]` (points
+on its R / L borders) at stations `sR[i]` / `sL[i]` (metres out, = sample index x 0.5) with heights `yR` / `yL` and
+`grade` (rise per metre out), `outline` (CCW ring, deduped) + `outlineSrc` (per vertex: which piece made it - use it for
+diagnoses), `holes`, the FILL `fillVerts` (first `ringCount` = the densified ring incl. bridged holes, then interior
+points) + `tris` (CCW) + `fillY` (height per fill vertex), `HeightAt(p)` (quadratic + per-arm remainder planes, C1 at the
+rows), `refused` (null = solved; else the reason, with pieces named), `planeDev`, `steinerM`, `rise`, `warp`, `plane`,
+`solveMs`, `fillMs`. The ribbon of arm i must END on the segment rowR[i]-rowL[i] and share those two points (and any
+cross-section points you add on that segment) exactly; the fill's ring vertices on that row are the densified row
+(EdgeM 1.25 m) - add the ribbon's lane points there instead. Thin straight border stretches before meshing (border points
+are 0.5 m apart on straights; keep the 1 cm / 6 degree sag rule on arcs).
+Cost: tsv shows 40-70 ms a cluster including BuildCluster; the fill dominates on big clusters. Not load-safe: bake it.
+
+## 3. What draws a junction today (switch each off for one cluster)
+- Tile build: `CityMeshes.TileSteps` (CityMeshes.cs ~2344); the junction step is phase 3 (~10795): for each node of the
+  tile, `if (!trims.patch[n])` -> `EmitDeadEnd` (Minor.cs) / `NoseSheetsAt` (Junctions.cs 1358); else only the cluster's
+  lowest member (`FanKey(trims, n) != n` continue) draws: `FanCorners` (11151) -> `FanTriangles` (11558) -> `FanSteiner` /
+  `RefineFan` (Junctions.cs 833) -> `EmitCutFan` (Minor.cs 817), plate lifted `FanProudM` (12 mm; goes to 0 inside an
+  outline), then per ring corner `EmitCornerWalk` (Walks.cs 1670, the corner sidewalk), rails / barriers, `EmitVergeLine`
+  (CityMeshes.cs 10025). Skip point for one cluster: right after the FanKey test (`continue` when the outline is used).
+- Trims (where ribbons stop): `ComputeTrims` / `ComputeTrimsCore` (CityMeshes.cs 1601 / 1667), arrays `atA` / `atB`
+  (per edge, metres from each end), `hwA` / `hwB`, `taperA` / `taperB`, `patch`, `mitre`, `bulb`. The outline's rows must
+  become those trims for the cluster's arms (set atA / atB from sR / sL) or the ribbons overlap the new surface.
+- Kerbs: curb returns (`Cs2EmitCornerPans`, Curbs2.cs; curb trims ~CityMeshes.cs 1951; `CurbArc`, SMOOTHCURB opt-in), per
+  edge `Cs3EnsurePlan` / `Cs3SplitSpan` (Curbs3.cs); islands `IslandSolids` (IslandSolids.cs 108, opt-in
+  PSX_CITY_ISLANDSOLID) and `EmitIslandCurb` (Lots.cs 701); medians `MedianDress` / `PrepareMedianDress` (MedianDress.cs),
+  `EmitUnionMedian` (Unions.cs 1486), bay noses (CurbMedian, `BayNose`).
+- Lane paint: `EnsureMarks` (Marks.cs 91) -> `ZoneMarks`, `MouthMarks`, `TurnMarks`, `NoseMarks`, `CrosswalkMarks`,
+  `YieldMarks`; `PocketMarks` (TurnPockets.cs 319); `BayStopLine` (Bays.cs 119); paint clipped at the drawn lane by
+  `LaneClip` (LaneClip.cs 43, PSX_CITY_LANECLIP). Paint crossing the new edge has to be cut against the outline.
+- LAB rows: Scripts/Lab/LabSwitches.cs (c7roads block near line 240: ISLANDSOLID, SMOOTHCURB rows show the format; row name
+  at most 26 characters; "A city bake" in the look line).
+
+## 4. The bake
+`Editor/CityTileBake.cs`: tiles live in the project's /CityTiles/ (git-ignored). `Fingerprint()` = SHA-256 of the format
+(`CityTileCache.Format`), every .cs under `Assets/PSXRacing/Scripts/City` (so JunctionOutline.cs is in it: any edit there
+re-bakes), `Scripts/RoadsideRules.cs`, the data `Resources/charlotte_*.bytes` and `Resources/CityCrowns/*.bytes`, the kit's
+tree low-reach table, and `CityTileCache.Settings()` (the generator's env switches). Baked tile meshes are written by
+CityTileCache (Scripts/City/CityTileCache*.cs); junction outlines would ride in the same tile record (bake them, or prove
+under 1 ms a junction at load). Re-bake ~57 min.
+
+## 5. Traps hit (one line each)
+- Clustering: the generator's FanKey clusters do not join a median opening's two far nodes, a split drawn without a fan
+  (81's n4449 is not a patch node), or a slip's ends; the spot's own node is not always in the cluster you think (77 = slip
+  e13224 n5555 -> n2343 cutting the corner of 2342, 81 = n4449, not the 4-node UC Blvd cluster).
+- Bays over hosts: OSM draws U-turn bays partly ON their host (80); MergeBays must accept a negative gap; only the narrower
+  arm merges; carry the widened border back PARALLEL to the host, square rows.
+- Link noses: try a link's border before an arc straight across a median; a crossover ends AT its nodes, so test "ahead"
+  strict first, loose second; relax the walked link border (its map corners break rule 4).
+- Map corners: arm / link borders carry OSM vertex corners (5-24 deg); relax only border-sourced vertices, never arcs /
+  tapers / noses (moving those makes new kinks); a fillet whose tangent point sits on a map corner keeps a joint (g44).
+- Fillets: feet on curved borders sit off the circle (blend the radius foot to foot); borders must be carried BEHIND their
+  start (skew crossings); reject sweeps over 180 deg; try them at any angle (crossovers leave at 30 deg).
+- Sort: arms that start together sort by heading, apart by position round the centroid; "together" is capped at 6 m or a
+  merged bay border fools it; ties at equal headings break the order.
+- Abreast arms (two carriageways drawn touching) need one cut line across both; a neighbour's long fillet can push it past
+  the next node (77 refused there).
+- Fill: no ring vertex may lie on a new diagonal (T-junctions on straight kerbs = height gaps); points on an ear's edge are
+  not inside (relative 10 micron tolerance); holes must lie wholly inside the outline.
+- Height: the absolute rise is not the test (a steady slope may rise any height): warp <= 1.25 m off the rows' plane and
+  plane slope <= 15 %; interior spacing is refined until no interior point is 9 mm off its neighbours' plane.
+- Harness: a .NET stub harness (scratch jh\, Unity's own SDK at Editor\Data\DotNetSdk\dotnet.exe) runs the suite in 5 s;
+  it writes Screenshots\c7 into the worktree (git-ignored).
+
+## 6. Commands (all edit-mode batch, silent; sandbox PSXRoadA under the c7roads lock; job.ps1 / gate.ps1 are in the c7roads
+scratch and mirror a commit's Scripts / Editor / Shaders + city data into the sandbox, typecheck, run, copy out\<tag>_*)
+- Test suite: `job.ps1 -Commit <h> -Method PSXRacing.EditorTools.JunctionOutlineTests.RunAll -Tag jtN -CopyDir c7 -Outputs
+  "Screenshots\c7\junction_outline_tests.txt"` (25 tests; last: 24 pass, RealJunctions 2 of 11 real fixtures fail: s77
+  refused, g44 one 6 deg joint). Harness: `jh\run.sh`.
+- Whole city: `job.ps1 -Commit <h> -Method PSXRacing.EditorTools.CityOutlineProto.RunCity -Tag cityN -CopyDir c7 -EnvList
+  "PSX_C7_TAG=cityN[;PSX_C7_FIXTURES=name:node,...;PSX_C7_FIXDIR=dir]"` -> c7_city_<tag>.txt / .tsv (+ fixtures under
+  Screenshots\c7\<dir>\ in the sandbox; copy the ones you want into Editor/JunctionFixtures). Last full: city3 (before the
+  slip rule) 7,268 clusters, 6,331 clean / 19 kink / 917 refused / 1 fill; city5 (slip rule) 7,068 clusters, 121 slips
+  joined, 6,057 clean / 18 / 881 / 112 fill (the 112 were islands reaching past the outline: now dropped, not rerun).
+- Spot table: `powershell -ExecutionPolicy Bypass -File tools\city-spots.ps1 -Project C:\Users\mcgee\PSXRoadA [-Ids
+  77,80]` (CityIslandGate.Run with PSX_ISL_SPOTS=tools/city/spots/junction_spots.csv; RAISED / SEETHRU / OVERLAY /
+  LINEUNDER / HOLES / LAYERS / STEP / KINK per spot).
+- Kinds scorecard: `job.ps1 -Method PSXRacing.EditorTools.CityKinkProbe.Run -Tag kN -CopyDir c7` -> c7_kinds_<tag>.tsv.
+- Real clusters at the spots: `CityOutlineProto.RunClusters` (PSX_ISL_SPOTS) -> c7_outline2_<tag>.json.
+- Photo overlays: harness `jh.dll overlay <fixture dir> <json>` then `py draw_aerial.py <json> <outdir>` (scratch; NC OneMap
+  crops in aerials\, never in the repo).
 
 # HANDOFF - c7roads: the University City loop's junction islands as solids in one paved surface (owner 11-25, CltC7, shots 77-81)
 
@@ -537,6 +973,77 @@ job.ps1 / gate.ps1 now refuse an unknown commit and drop their code snapshot whe
   40 m, EDITOR frames 1920x1080) and c7roads_r4_bays.png (12 bays on 11 roads, base | round 4, EDITOR plans 40 m).
 - NOT DONE: 81 and 77 (not started this round); the aerial side-by-sides (no aerial source here but the owner's 84);
   R3; the opening as one surface at 80 (two crossing ribbons); 80's right-turn ONLY.
+
+## Round 5, stage 0 (11-26 afternoon): the measured start of the junction outline
+Base: the round 4 head. Every run edit-mode batch (0 play runs). Scratch under 1 GB.
+- a. SPOT TABLE: tools/city/spots/junction_spots.csv (77-81: position, heading, edges / nodes, kind, the owner's date and
+  words, radius 45 m, the limits RAISED / SEETHRU / OVERLAY / HOLES / LAYERS / STEP / KINK = 0), known.csv (the known
+  failures with reason and since-date), runner tools/city-spots.ps1 (builds only those tiles in a given project, one
+  PASS / FAIL line per spot, the head where it last passed in last_pass.csv). The engine is the island gate's new spot mode
+  (PSX_ISL_SPOTS) with three new classes, HOLES / LAYERS / STEP, measured along the ribbons (the fan plate is not in the
+  gate's raster: inside the junctions the outline stage judges), and KINK from CityKinkProbe.KinksNear.
+- b. SCORECARD: CityKinkProbe gains TJUNC (a junction mouth's corners not the ribbon's own end vertices, 2 mm) by kind and
+  writes every fan's kind and position; the island gate's HOLES / LAYERS / STEP run on the ten race routes beside RAISED /
+  SEETHRU / OVERLAY / LINEUNDER; the city audit's fall holes and the seam gates are the existing gates (not re-run here).
+- d. THE 1,938 FACETED RETURNS (crossing 989 + T 949, SMOOTHCURB on): 1,715 were the probe counting pieces sampled AT the
+  rule's own limit (1.0x cm sagitta, 6.0x deg) as over it (float noise; the probe now allows 2 % / 0.1 deg). 223 remain:
+  125 mid-arc a little over 1 cm, 48 over 6 deg near r 6 m, 50 at the arc's ends where the 0.1 m straight kept before each
+  arc meets it. The arc maths is sound for the outline to reuse.
+- e. Docs/ROAD_OUTLINE_READERS.md: 67 runtime readers of the trims / fans (control trim / outline / generator), 58 editor
+  tools, every export-keyed fix (graphHash, node / edge lists, positions).
+- g. Docs/ROAD_RULES.md: the owner's road rules in one file, "one owner per surface" among them.
+- h. PROTOTYPE: Editor/CityOutlineProto.cs (edit mode, no mesh): arms from the line model's borders, four corner shapes
+  (arc by the StreetGen construction on the real curved borders, 2.4 m nose with one shared cut, straight through, a
+  tangent connector between arms of one cluster that start apart), shared cut rows, the outline as JSON; solve 1-4 ms a
+  junction, ear-clip fill 0.1-21 ms. It does NOT yet give right outlines at the spots: the cluster must come from the
+  junction clustering (my spot table's node lists join nodes that are not one junction), arms of a cluster must be cut at
+  the cluster's own boundary, and the fill needs the hole-capable triangulation (not written).
+- c. GALLERY: 55 junctions (owner spots 77-81, Five Points, every keyed node, Little Rock Rd, a seeded draw of 4 per kind
+  over 9 kinds), EDITOR plan frames north up 40 m tall at 1920x1080, lat / lon and the aerial bbox of each
+  (scratchpad\c7roads\gallery_list.csv, gallery_r5\*.jpg). The aerials are NOT fetched: a download needs the user's own
+  approval (the request list is ready).
+- f. PER-KIND TESTS: NOT written. The map can only be built from the exported binary (CityMap.Parse); synthetic snippets
+  need either a CityMap builder in code (nodes, edges, profiles, elevation stations, the segment grid) or a small OSM
+  fixture through the exporter. Sized at 2-4 days; the independent coverage check (every 0.25 m sample of the road covered
+  once, no step over 1 cm) already exists in the island gate's HOLES / LAYERS / STEP and can be pointed at them.
+- BASELINE NUMBERS (base = every round 1-4 switch off; r4 = the defaults; r4+S = SMOOTHCURB=1):
+  - kink probe by kind (places | corners with no return | return facets | TJUNC mouths), base -> r4:
+    T corner 2357 | 602 -> 602 | 28,300 -> 28,300 (r4+S 150) | 134 -> 134; crossing 1358 | 93 -> 93 | 32,276 -> 32,277
+    (r4+S 73) | 241 -> 242; slip / link end 361 | 376 -> 370 | 1,429 -> 1,436 (12) | 229 -> 273; split 214 | 222 -> 222 |
+    1,232 (17) | 106 -> 106; link fork / merge 55 -> 54 | 43 -> 42 | 314 (0) | 55 -> 53; skew 60 -> 59 | 14 -> 14 | 531 (1) |
+    46 -> 46; bend / dead end 108 | 59 | 2,311 -> 2,311 (2,263) | 0; median opening (new fans) 0 -> 126 | 139 | 87 (3) |
+    115. Zones' ribbon-outline kinks: diverge 7,323 -> 5,286, merge 5,152 -> 5,129, bays (96) 520.
+    TJUNC city-wide 811 -> 969 of ~17,000 mouths.
+  - island gate, ten routes, base -> r4: RAISED 5735 -> 5711, SEETHRU 215 -> 218, OVERLAY 841 -> 828, LINEUNDER 60 -> 43,
+    HOLES 2003 -> 2019, LAYERS 1104 -> 1115, STEP 366 -> 313 (HOLES / LAYERS / STEP not yet checked place by place).
+  - spot table (tools/city-spots.ps1 engine), all FAIL: 77 RAISED 5 SEETHRU 1 LINEUNDER 4 HOLES 10 LAYERS 5 STEP 9 KINK 50;
+    78 RAISED 5 LINEUNDER 4 LAYERS 7 STEP 11 KINK 51; 79 RAISED 3 LINEUNDER 1 LAYERS 6 KINK 7; 80 RAISED 4 LAYERS 1 STEP 2
+    KINK 5; 81 HOLES 3 LAYERS 8 STEP 13 KINK 52.
+
+## Round 5, items 1-4 (11-26 afternoon): gallery with aerials, the gate inside junctions, the pure solver and its tests
+- 1. Gallery with the 55 NC OneMap crops (fetched by the coordinator on the owner's approval; scratch only): aerial | EDITOR
+  plan, north up, 71 x 40 m (scratchpad\c7roads\gallery_r5\*.jpg) and gallery_truth.csv (per junction: median kind, noses,
+  bays, slip wedges, kerb radii, crossings, every edge the game draws straight or pointed, map vs photo). At 9 of 55 the
+  map's junction lies 10-30 m from the photo's (g02, g07, g10, g11, g21, g28, g40, g44, g47): the outline follows the map,
+  so those need the map moved, not the outline. 81 (g05): the photo has a PAINTED gore to the stop line, no raised land.
+- 2. The island gate's HOLES inside junctions: a junction's fan is drawn whole by its node's tile, so the next tile's lane
+  cells under it read as holes (81's 48). Every road triangle reaching past its tile is now rasterised whole into a shared
+  set and such holes are dropped. Checked place by place at the five spots (known.csv): STEP at fan mouths = the fan's
+  12 mm lift (FanProudM, real against the 1 cm rule), LAYERS = the stacked crossings at 79 / 80 (real), HOLES 77 / 80 on a
+  carriageway's edge (the lane band past the drawn pavement: unverified), 81 HOLES 0.
+- 3. Scripts/City/JunctionOutline.cs: the solver as a pure function (arms' border polylines, class, one-way, name in;
+  outline, cut rows, corners, a hole-bridged ear-clip fill out; no CityMap). Editor/JunctionOutlineTests.cs: EditMode tests
+  on synthetic arms (NUnit; batch: JunctionOutlineTests.RunAll), 4.2 s in all. PASS: T, crossing, skew, curved-arm T; the
+  fixed-seed sweep 58 / 60. FAIL: bay at host, slip end, fork, split (the nose's shared cut: the two arms' cut rows and
+  the nose's tangent points are not yet one line - the outline crosses itself by centimetres there), median opening (the
+  connector meets the borders with a kink), the island hole fill (the bridged ear clip covers 1,413 samples twice: the
+  cheap route FAILS as written; a bridge-aware clip or the constrained triangulation is next). Slivers: most fill triangles
+  are slivers (ear clipping of long thin rings), e.g. 71 of 79 in the T.
+- 4. CityOutlineProto.RunClusters: the generator's own clusters (FanKey) through the pure solver. 79's corner (n3499) and
+  81's 4-node junction pass the checks; 77's 2-node cluster crosses itself; at 80 the median opening's two far nodes
+  (n4435, n4441) are SEPARATE clusters in the generator and their outlines overlap - the clustering must join a
+  crossover's pair. Solve 2-34 ms a junction, fill 0.2-12 ms.
+- Stage 1 (mesh) NOT started: the solver fails its own tests on exactly the kinds at his spots.
 
 # TEST RUNS ARE SILENT (coordinator, 11-25; mountain-nm 8a5737c0)
 
@@ -8538,3 +9045,42 @@ launch old 109/585, uniform 102/395, routes 0/0/0; census = g5r6; route p99 1.12
    past the e2437/e2438 deck V (own approach rails ending sloped in a 14 m grass median), Independence junction fans.
 3. `PSX_CITY_TWIN_RECIP` / `PSX_CITY_UNION_SEAM` measured apart (together: none +1 at I-77 e1880 s 45).
 4. Twin hold stays OFF; e9877 s 18 rail end; mitre snap alone; 8 off-route deck holes.
+
+## Round 5, items 1-6 continued (11-26 evening): the solver passes its kinds; real clusters not yet
+- Item 1: gallery bboxes already used the exporter's projection (export_osm.mjs); map centrelines overlay the aerials and
+  game frames overlay the map. The "10-30 m off at 9 of 55" claim was a by-eye misreading, withdrawn; no new aerial request.
+  Only g10 differs (roads under construction in the photo).
+- JunctionOutline.cs: nose = 1.2 m fillet with its cut line built first and both rows on it; through tapers; link noses
+  (median crossover / U-turn crossing); borders carried behind their start for fillets; standard hole bridge + ear clip
+  + interior points + Lawson flips; height = quadratic + per-arm remainder planes (C1 at rows), spacing refined to 9 mm
+  plane deviation, >2.5 m rise refused; MergeBays (narrow arm alongside = lane of its host, its crossing a link).
+- JunctionOutlineTests: 22 / 22 pass in Unity (jt4, c0a38a0a) and in a stub harness (4.5 s).
+- CityOutlineProto.RunClusters (op5): JoinOpenings (median-opening rule) did NOT join 80's n4435 / n4441 (the two U-turn
+  links' centrelines come no closer than 9.3 m; threshold 3 m). 79 and both 80 nodes solve but each keeps one kink; 77
+  (2 nodes) and 81 (4 nodes) refuse with a self-crossing. Stage 1 not started.
+
+## Round 5, real junctions (11-26 late afternoon): fixtures, whole-city run, the rules for 80 / 81, abreast arms
+- Whole city in edit mode (CityOutlineProto.RunCity, city3, 0562ed90): 7,268 junction clusters (fan clusters, the opening
+  rule, the painted-split rule, and the 3+-arm nodes the generator draws without a fan), 301 s: 6,331 clean, 19 with a
+  kink, 917 refused (337 arc-did-not-fit, 122 nose-not-found, the rest named self-crossings), 1 fill mismatch.
+- Real fixtures (Editor/JunctionFixtures, RunCity's PSX_C7_FIXTURES) in the test RealJunctions: 9 of 11 pass (79, 80, 81,
+  g20 T, g28 crossing, g32 median, g40 skew, g48 split); s77 refused (abreast arms, no cut line before the next node),
+  g44 one 6.0 deg joint where a fillet meets a map corner of e13974.
+- Rules added: the opening rule on the paved gaps along the road (80 joined: one opening, rounded noses both sides);
+  MergeBays takes bays drawn over their host (80's U-turn lanes); the painted-split rule (81: n4449 joins the UC Blvd
+  junction, no nose, the island is the slip/boulevard corner); ABREAST corners (two carriageways' arms touching);
+  fillets at any angle; link noses strict-then-loose; map corners relaxed inside the outline's own border stretch; the
+  2.5 m rise replaced by a warp (1.25 m off the rows' plane) and slope (15 %) rule; real clusters solved in their own
+  frame (absolute float metres made 81 cross itself by half a millimetre).
+- Stage 1 (mesh) still not started.
+
+## Round 5, proof on the photos (11-26 evening): outlines over the aerials; rulings needed before stage 1
+- Every gallery junction that comes out as a cluster solved and drawn over its NC OneMap crop (scratch only: aerB\, one page
+  per kind; photo_table_r5.csv a line each). Findings that need rulings before mesh: 80 (g04) north nose ~7 m short and a
+  raised concrete channel strip inside the opening (not in the map); 81 (g05) a U nose ~8 m short of the raised tip where
+  the photo has a PAINTED median, west edge 3-5 m outside the kerb (line-model width); kerb-return radii by class
+  (6 / 9 / 12 m) sit 2-5 m inside the photo's 12-20 m arterial corners; plain median crossovers are not joined (one
+  carriageway only, noses missing); map side roads absent in the photo (g10, g12, g13, g21, g50, g51).
+- 77: the slip-island rule joins e13224's ends (121 slips joined city-wide), the NE island is found; still refused at the
+  SW acute corner (abreast arms, no cut line before the next node). Islands reaching past the outline are now dropped.
+- Stage 1 not started (held on the rulings above).

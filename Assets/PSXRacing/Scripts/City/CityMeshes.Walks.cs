@@ -127,6 +127,9 @@ namespace PSXRacing.City
         /// median side (the cell decides), 1 grass, 2 concrete.</summary>
         public static int MedianSurfaceOf(CityMap map, CityMap.Edge e, int side)
         {
+            // (road-surface round 2) THE MEDIAN KIND FROM THE MEASURE: a carriageway that ends at a measured median end
+            // has that median's kind along its ribbon (grass or concrete), so the two hand over as one median
+            if (RoadSurfaceOn && side > 0 && e.oneway) { int mk = JunctionMeasures.MedianKind(e.index); if (mk != 0) return mk; }
             if (!MedianGrassOn || !e.oneway || e.link || e.cls > 3 || Barriered(e) || e.a == e.b) return 0;
             // round 5b (review r5 #5): only an accepted (drawn) refuge pair's
             // carriageways - every other median, a reverted pair's included,
@@ -156,7 +159,7 @@ namespace PSXRacing.City
         {
             var ez = e.lmEase;
             if (ez == null) return 0;
-            foreach (var z in ez) if (z.widen && z.tag != ApronTag && z.tag != SlipWidenTag) return z.side > 0 ? 1 : -1;   // a branch apron is no island
+            foreach (var z in ez) if (z.widen && !z.measure && z.tag != ApronTag && z.tag != SlipWidenTag) return z.side > 0 ? 1 : -1;   // a branch apron is no island (nor a measured edge's widen)
             return 0;
         }
 
