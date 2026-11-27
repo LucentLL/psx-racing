@@ -316,7 +316,7 @@ namespace PSXRacing
             {
                 if (mat != null) return mat;
                 var sh = Shader.Find("PSX/Lit");
-                if (sh == null) sh = Shader.Find("Unlit/Texture");
+                if (sh == null) sh = Shader.Find("Sprites/Default");   // a shader the player always carries (the build refuses a runtime name it would strip)
                 mat = new Material(sh) { name = "CarPartsStandIn", hideFlags = HideFlags.HideAndDontSave };
                 mat.mainTexture = Texture;
                 if (mat.HasProperty("_Color")) mat.SetColor("_Color", Color.white);
