@@ -546,6 +546,7 @@ Shader "PSX/Lit"
             float4 _PSXRainLookOff;   // (rainlook, RainLook.cs) w 0: the road's leaves in world metres
             float4 _PSXLookOff2;      // x 0: the foliage light falls with the sun (no glow at dusk and by day)
             #endif
+            float _PSXIdMask;         // (rainlook round 2, tools only) 1: the id pass (see the frag's end)
             float4 _PSXFallPhase;   // global (SeasonDress): x 1 = live, y the fall's phase 0 early .. 0.5 peak .. 1 late
             // A leaf texel in another colour AT ITS OWN LUMINANCE (owner
             // 2026-11-11, the title's drone: the poplars "not following the
@@ -3441,6 +3442,21 @@ Shader "PSX/Lit"
                 // PSX/Blit's halation and PSX/Lens's dirt glow by. Any other
                 // camera's render texture (the mirror, the pizza cam) is shown
                 // by a RawImage that blends by alpha: the texel's, as ever.
+                // (rainlook round 2, tools only: Editor/RainLookShots.cs) THE ID PASS: _PSXIdMask 1 draws
+                // r = foliage (the foliage light, _LeafVivid.z), g = paved ground (wet-able, facing up, not a
+                // cutout), b = any PSX/Lit surface; never set in the game (a uniform branch, 0)
+                // 2: the light on THIS pixel, halved (r the sun as shadowed, g the sky and ambient as kept, b the
+                // lamps and beams), 3: r _Emission, g the albedo's luminance, b the exposure / 4
+                if (_PSXIdMask > 2.5)
+                    return fixed4(saturate(_Emission), dot(tex.rgb, float3(0.2126, 0.7152, 0.0722)), expo * 0.25, 0.0);
+                if (_PSXIdMask > 1.5)
+                {
+                    float3 lw = float3(0.2126, 0.7152, 0.0722);
+                    return fixed4(dot(sunIn * sunVis, lw) * expo * 0.5, dot(ambIn * skyKeep, lw) * expo * 0.5,
+                                  dot((headD * beamGain + lampD * lampGain) * roadN, lw) * expo * 0.5, 0.0);
+                }
+                if (_PSXIdMask > 0.5)
+                    return fixed4(_LeafVivid.z > 0.5 ? 1.0 : 0.0, (N.y > 0.85 && _Wet > 0.001 && _Cutoff < 0.001) ? 1.0 : 0.0, 1.0, 0.0);
                 return fixed4(col, _PSXEmitWrite > 0.5 ? emit : tex.a);
             }
             ENDCG

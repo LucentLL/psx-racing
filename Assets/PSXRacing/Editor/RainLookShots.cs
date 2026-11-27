@@ -56,10 +56,85 @@ namespace PSXRacing.EditorTools
                 if (string.Equals(TimeOfDay.All[k].name, hour, System.StringComparison.OrdinalIgnoreCase)) RaceHandoff.TimeOfDayIndex = k;
             if (System.Enum.TryParse(Env("RL_WEATHER", "Rain"), true, out Weather w)) RaceHandoff.WeatherOverride = (int)w;
             if (int.TryParse(Env("RL_DAY", "0"), out int day) && day > 0) RaceHandoff.CalendarDay = day;
+            // (round 2) RL_FIELD=1 on a stage: the arcade's field of rivals, as his race (eighth of eight)
+            if (!city && Env("RL_FIELD", "0") == "1")
+            {
+                var spec = CarCatalog.Get(PSXRacing.LifeSim.CityFrontEnd.DefaultCarId());
+                if (spec != null)
+                {
+                    ArcadeMode.Simulate(true);
+                    RaceHandoff.CarSpecId = spec.id;
+                    RaceHandoff.Solo = false;
+                    ArcadeMode.FillField(spec, ArcadeMode.RivalsAt(TrackCatalog.At(vi)));
+                }
+            }
             EditorSettings.enterPlayModeOptionsEnabled = true;
             EditorSettings.enterPlayModeOptions = EnterPlayModeOptions.DisableDomainReload;
             EditorApplication.playModeStateChanged += OnState;
             EditorApplication.EnterPlaymode();
+        }
+
+        /// <summary>(round 2) EDIT MODE, before any static batching: the stage road mesh's metres per UV unit, along
+        /// (V) and across (U), at the course's start and RL_AT metres on, against what the road texture and the leaf
+        /// layer take them to be (RoadVTile along, the road width across; _RoadLeaves.zy). RL_STAGES = ids.
+        /// Writes &lt;RL_OUT&gt;/road_uv.txt.</summary>
+        public static void MeasureRoadUV()
+        {
+            var sb = new StringBuilder();
+            string outDir = Env("RL_OUT", Path.Combine(Path.GetDirectoryName(Application.dataPath), "Screenshots", "rainlook"));
+            Directory.CreateDirectory(outDir);
+            try
+            {
+                foreach (var id in Env("RL_STAGES", "BlueRidge,LakeLure").Split(','))
+                {
+                    int vi = TrackCatalog.IndexOf(id.Trim());
+                    int s = vi >= 0 ? TrackCatalog.SceneIndex(vi) : -1;
+                    var scenes = EditorBuildSettings.scenes;
+                    if (s < 0 || s >= scenes.Length || !File.Exists(scenes[s].path)) { sb.AppendLine(id + ": no scene"); continue; }
+                    EditorSceneManager.OpenScene(scenes[s].path);
+                    var path = Object.FindFirstObjectByType<TrackPath>();
+                    sb.AppendLine($"== {id} ({scenes[s].path}), road width {TrackCatalog.At(vi).roadWidth} m, RoadVTile {CityMeshes.RoadVTile} m");
+                    foreach (var mf in Object.FindObjectsByType<MeshFilter>(FindObjectsInactive.Include))
+                    {
+                        var m = mf.sharedMesh;
+                        if (m == null || !(mf.gameObject.name == "Road" || m.name.StartsWith("RoadMesh"))) continue;
+                        var vs = m.vertices; var us = m.uv;
+                        var mr = mf.GetComponent<MeshRenderer>();
+                        string leaves = "";
+                        if (mr != null) foreach (var mat in mr.sharedMaterials) if (mat != null && mat.HasProperty("_RoadLeaves")) leaves += " " + mat.name + " _RoadLeaves " + mat.GetVector("_RoadLeaves") + " _MainTex_ST " + mat.GetVector("_MainTex_ST") + ";";
+                        sb.AppendLine($"  mesh {mf.gameObject.name}/{m.name}: {vs.Length} verts, uv {us.Length};{leaves}");
+                        if (vs.Length < 9 || us.Length != vs.Length || path == null) continue;
+                        var tr = mf.transform;
+                        float[] targets = { 0f, float.Parse(Env("RL_AT", "200"), CultureInfo.InvariantCulture), 400f, 800f };
+                        var allAlong = new System.Collections.Generic.List<float>();
+                        for (int k = 0; k + 5 < vs.Length; k += 3)
+                        {
+                            float dv = Mathf.Abs(us[k + 4].y - us[k + 1].y);
+                            if (dv > 1e-5f) allAlong.Add(Vector3.Distance(tr.TransformPoint(vs[k + 4]), tr.TransformPoint(vs[k + 1])) / dv);
+                        }
+                        allAlong.Sort();
+                        if (allAlong.Count > 0)
+                            sb.AppendLine($"    whole road, metres per V unit: min {allAlong[0]:0.00} p5 {allAlong[allAlong.Count / 20]:0.00} median {allAlong[allAlong.Count / 2]:0.00} p95 {allAlong[allAlong.Count * 19 / 20]:0.00} max {allAlong[allAlong.Count - 1]:0.00}");
+                        foreach (float at in targets)
+                        {
+                            int pi = Mathf.Clamp(Mathf.RoundToInt(at / Mathf.Max(0.5f, path.spacing)), 0, path.Count - 1);
+                            var p = path.GetPoint(pi);
+                            int best = -1; float bd = float.MaxValue;
+                            for (int k = 0; k + 2 < vs.Length; k += 3) { float d = (tr.TransformPoint(vs[k + 1]) - p).sqrMagnitude; if (d < bd) { bd = d; best = k; } }
+                            if (best < 0 || best + 5 >= vs.Length) continue;
+                            float dvA = Mathf.Abs(us[best + 4].y - us[best + 1].y);
+                            float along = Vector3.Distance(tr.TransformPoint(vs[best + 4]), tr.TransformPoint(vs[best + 1]));
+                            float across = Vector3.Distance(tr.TransformPoint(vs[best]), tr.TransformPoint(vs[best + 2]));
+                            float du = Mathf.Abs(us[best + 2].x - us[best].x);
+                            sb.AppendLine($"    at {at:0} m (ring {best / 3}, {Mathf.Sqrt(bd):0.0} m off the path): along {along:0.000} m over dV {dvA:0.0000} = {(dvA > 1e-6f ? along / dvA : 0f):0.00} m per V unit; across {across:0.00} m over dU {du:0.000} = {(du > 1e-6f ? across / du : 0f):0.00} m per U unit");
+                        }
+                    }
+                }
+            }
+            catch (System.Exception e) { sb.AppendLine("EXCEPTION " + e); }
+            File.WriteAllText(Path.Combine(outDir, "road_uv.txt"), sb.ToString());
+            Debug.Log("[RainLookShots] road uv:\n" + sb);
+            EditorApplication.Exit(0);
         }
 
         static void OnState(PlayModeStateChange s)
@@ -134,7 +209,7 @@ namespace PSXRacing.EditorTools
             {
                 // a stage: stood on the road's centre line RL_FROM metres from its start, facing along it
                 var path = FindFirstObjectByType<TrackPath>();
-                if (path != null && path.Count > 10)
+                if (path != null && path.Count > 10 && RainLookShots.Env("RL_STAND", "1") == "1")
                 {
                     float.TryParse(RainLookShots.Env("RL_FROM", "30"), NumberStyles.Float, CultureInfo.InvariantCulture, out float from);
                     int i0 = Mathf.Clamp(Mathf.RoundToInt(from / Mathf.Max(0.5f, path.spacing)), 1, path.Count - 2);
@@ -152,6 +227,14 @@ namespace PSXRacing.EditorTools
                 car.throttleInput = 0f; car.brakeInput = 1f;
                 if (standSet) car.ResetTo(standPos, standRot, seated: true);
                 yield return null;
+            }
+            // (round 2) RL_AFTER=s: that many seconds after the green, the player held on the grid (his frame)
+            if (float.TryParse(RainLookShots.Env("RL_AFTER", ""), NumberStyles.Float, CultureInfo.InvariantCulture, out float after) && RaceManager.Instance != null)
+            {
+                for (float t0 = Time.realtimeSinceStartup; Time.realtimeSinceStartup - t0 < 90f && RaceManager.Instance.State != RaceManager.RaceState.Racing;)
+                { car.throttleInput = 0f; car.brakeInput = 1f; yield return null; }
+                for (float t0 = Time.time; Time.time - t0 < after;) { car.throttleInput = 0f; car.brakeInput = 1f; yield return null; }
+                Say("after the green: " + after + " s, the race " + RaceManager.Instance.State);
             }
             Say($"RAINLOOK {tag}: place {RainLookShots.Place} hour {TimeOfDay.Current} weather {Seasons.CurrentWeather} dress {SeasonDress.AppliedDress} at {car.transform.position.x:0},{car.transform.position.z:0} {System.DateTime.Now:yyyy-MM-dd HH:mm}");
 
@@ -234,6 +317,29 @@ namespace PSXRacing.EditorTools
                 string b = Path.Combine(outDir, "EDITOR_" + tag + "_" + v);
                 SetAll(true); yield return Settle();
                 var pNew = Grab(); File.WriteAllBytes(b + "_NEW.png", pNew);
+                // (round 2) THE ID PASS (PSX/Lit _PSXIdMask): r foliage, g paved ground, b any PSX/Lit surface
+                Shader.SetGlobalFloat("_PSXIdMask", 1f); yield return Settle();
+                { var prev = RenderTexture.active; RenderTexture.active = full; tex.ReadPixels(new Rect(0, 0, W, H), 0, 0, false); tex.Apply(false); RenderTexture.active = prev;
+                  File.WriteAllBytes(b + "_ID.png", tex.EncodeToPNG()); }
+                if (RainLookShots.Env("RL_DIAG", "0") == "1")
+                    foreach (var (mode, suffix) in new[] { (2f, "_LIGHT"), (3f, "_EMIT") })
+                        for (int pass = 0; pass < 2; pass++)
+                        {
+                            // NEW, then the duskleaves row alone OLD
+                            foreach (var r in rows) if (r.id == "duskleaves") LabSwitches.Set(r, pass == 0, false);
+                            Shader.SetGlobalFloat("_PSXIdMask", mode); yield return Settle();
+                            var prev = RenderTexture.active; RenderTexture.active = full; tex.ReadPixels(new Rect(0, 0, W, H), 0, 0, false); tex.Apply(false); RenderTexture.active = prev;
+                            File.WriteAllBytes(b + suffix + (pass == 0 ? "_NEW" : "_OLD") + ".png", tex.EncodeToPNG());
+                        }
+                SetAll(true);
+                Shader.SetGlobalFloat("_PSXIdMask", 0f); yield return Settle();
+                // (round 2) the cabin mask's two halves apart: NEW with only the reflection half off
+                if (RainLookShots.Env("RL_SPLIT", "0") == "1")
+                {
+                    Shader.SetGlobalFloat("_PSXCabinSplit", 1f); yield return Settle();
+                    File.WriteAllBytes(b + "_SSROLD.png", Grab());
+                    Shader.SetGlobalFloat("_PSXCabinSplit", 0f); yield return Settle();
+                }
                 SetAll(false); yield return Settle();
                 var pOld = Grab(); File.WriteAllBytes(b + "_OLD.png", pOld);
                 Pair(pOld, pNew, b + "_PAIR.png");
