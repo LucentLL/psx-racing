@@ -405,6 +405,7 @@ namespace PSXRacing
             public float mergeWait;   // (cityai round 6) seconds waited under 2 m/s for a gap to change lane into
             public TrafficContact contact;   // (cityai round 6) the racer touching it now
             public float stagedUntil;   // (cityai round 6) dev harness: a staged wreck is kept until then
+            public float pushedUntil;   // (cityai round 6) a push from behind counts as one knock until then
         }
 
         /// <summary>Called by RaceManager.Start once the path is final (a
@@ -1183,10 +1184,11 @@ namespace PSXRacing
                 bool byCar = by.Contains(" AI") || by.Contains("Player") || by.StartsWith("Traffic");
                 if (Time.time - c.knockWindowAt > 10f) { c.knockWindowAt = Time.time; c.knocks = 0; }
                 if (holding) { c.speed = 0f; }
+                else if (pushedOn && SoftKnockOn && knock < SoftKnockMps && Time.time < c.pushedUntil) { }   // the same push, still on: one knock
                 else if (SoftKnockOn && knock < SoftKnockMps && byCar && ++c.knocks <= 3)
                 {
                     // a touch: it stops where it is and, after a moment, drives on along its lane
-                    if (pushedOn) PushedOn++;
+                    if (pushedOn) { PushedOn++; c.pushedUntil = Time.time + 1f; }
                     else { c.speed = 0f; c.knockHoldUntil = Time.time + SoftKnockHoldS; }
                     if (SoftKnockLog.Count < 2000) SoftKnockLog.Add(Time.time.ToString("0.0") + " s: " + (c.dir > 0 ? "with" : "oncoming") + " touched by " + (c.lastContact ?? "?") + ", " + knock.ToString("0.0") + " m/s");
                 }
