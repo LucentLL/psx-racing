@@ -131,6 +131,25 @@ namespace PSXRacing
                 members = new[] { "Rain2.Bank2", "Rain2.Cover", "Rain2.Clear", "Rain2.LensDrops", "Rain2.CarBeads" },
                 apply = () => Rain2.PushGlass2(),
             });
+            // rainlook (11-27): the owner's PC82 rain faults (RainLook.cs says what each one changes)
+            Register(new LabRow
+            {
+                id = "softruns", group = LabGroup.Rain, name = "RAIN RUNS ON CAR GLASS", when = LabWhen.Now,
+                look = "Chase view in rain: water runs down the glass as thin soft trails, no sliding dark rectangles. Beads unchanged.",
+                env = new[] { "PSX_RAINLOOK_RUNS" }, members = new[] { "RainLook.SoftRuns" },
+            });
+            Register(new LabRow
+            {
+                id = "wiperglow", group = LabGroup.Rain, name = "WIPER GLOW: TRUE COLOURS", when = LabWhen.Now, pcOnly = true,
+                look = "Cockpit in rain at night: no red smear on lane lines, blades or windows; lamps glow in their own colour.",
+                env = new[] { "PSX_RAINLOOK_WIPERGLOW" }, members = new[] { "RainLook.TrueGlow" },
+            });
+            Register(new LabRow
+            {
+                id = "cabinmask", group = LabGroup.Rain, name = "CABIN OUT OF REFLECTIONS", when = LabWhen.Now, pcOnly = true,
+                look = "Wet roads: no pillar or mirror in the road's reflection; no torn pillar or mirror outlines in the drops.",
+                env = new[] { "PSX_RAINLOOK_CABIN" }, members = new[] { "RainLook.CabinMask" },
+            });
             Register(new LabRow
             {
                 id = "spray2", group = LabGroup.Rain, name = "SPRAY FROM TYRES", when = LabWhen.NextLoad, pcOnly = true,
@@ -210,6 +229,19 @@ namespace PSXRacing
                 id = "fall2", group = LabGroup.World, name = "FALL COLOURS 2", when = LabWhen.BuiltIn,
                 look = "Built into the stage scenes: the fall leaves, verges and leaves on the road. A scene build.",
                 env = new[] { "PSX_FALL2" }, requires = "Seasons.Fall2Live",
+            });
+            // rainlook (11-27)
+            Register(new LabRow
+            {
+                id = "roadleaves", group = LabGroup.World, name = "LEAVES ON ROAD: SQUARE", when = LabWhen.Now,
+                look = "Mountain stages in fall: the leaves on the road are leaf-sized, never stretched into dashes.",
+                env = new[] { "PSX_RAINLOOK_LEAVES" }, members = new[] { "RainLook.RoadLeaves" },
+            });
+            Register(new LabRow
+            {
+                id = "duskleaves", group = LabGroup.World, name = "NO TREE GLOW BY DAY", when = LabWhen.Now,
+                look = "Trees at dusk and by day lit as the sun and sky allow, no blacklight glow. Night unchanged.",
+                env = new[] { "PSX_RAINLOOK_DUSK" }, members = new[] { "RainLook.DuskLeaves" },
             });
             Register(new LabRow
             {

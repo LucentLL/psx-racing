@@ -111,7 +111,27 @@ Shader "PSX/CabinGlass"
             #define LG_R2     22.0    // ...its outer taps
             #define LG_KNEE   0.42    // only what is brighter than this in the frame copy blooms
             #define LG_GAIN   2.0
-            #define R2G_LENS    0.000016   // a drop's bend of what is behind it: metres squared (see the note at its use)
+            #ifndef PSX_RAINLOOK_DECL
+            #define PSX_RAINLOOK_DECL
+            float4 _PSXRainLookOff;   // (rainlook, RainLook.cs) 0 = the new look: y the glow's hue, z the cabin mask
+            #endif
+            // (rainlook, RainLook.CabinMask) the scene's raw depth (SpeedBlurFeature's water depth copy, made for the
+            // cockpit too) and whether it is this frame's for this camera
+            sampler2D _PSXWaterDepth;
+            float _PSXCabinDepthLive;
+            // One tap of the lamp glow. OLD: each channel's excess over the knee - a yellow lane line under the
+            // lamps (0.6, 0.45, 0.1) gave (0.18, 0.03, 0): pure red-orange, spread over 22 px by the cross: the
+            // owner's "blurry red effect on blades, road lines, windows". NEW (rainlook, RainLook.TrueGlow): only
+            // what the frame marks as a LIGHT (its alpha, the emitter mask PSX/Blit's halation reads) blooms, and
+            // in its own hue (the brightest channel's excess, the colour kept).
+            float3 LGTap(float2 uv)
+            {
+                float4 c = tex2Dlod(_PSXSSRColour, float4(uv, 0.0, 0.0));
+                if (_PSXRainLookOff.y > 0.5) return max(c.rgb - LG_KNEE, 0.0);
+                float l = max(c.r, max(c.g, c.b));
+                return c.rgb * (max(l - LG_KNEE, 0.0) / max(l, 1e-4) * saturate(c.a));
+            }
+            #define R2G_LENS   0.000016   // a drop's bend of what is behind it: metres squared (see the note at its use)
             #define R2G_MAXPX   46.0       // ...never further than this many pixels (of a 1080-line frame)
             #define R2G_SHEET   0.50       // how much of the pane a downpour's sheet covers while parked
             #define R2G_WOBBLE  2.2        // the sheet's wobble of what is seen through it, pixels of a 1080-line frame
@@ -700,6 +720,17 @@ Shader "PSX/CabinGlass"
                         }
                         float wetA = saturate(max(cover, sheet));
                         float2 suv = (i.pos.xy + dpx) / _ScreenParams.xy;
+                        // (rainlook, RainLook.CabinMask) the bent picture never comes from the cabin: a tap
+                        // landing on anything no further than this pane (a pillar, the mirror, the dash) takes
+                        // what is straight behind the glass instead - before, the drops round a pillar or the
+                        // mirror carried torn, dotted copies of their outline. (The bonnet, beyond the glass,
+                        // is still seen through the drops.)
+                        if (_PSXRainLookOff.z < 0.5 && _PSXCabinDepthLive > 0.5)
+                        {
+                            float glassZ = dot(i.wpos - _WorldSpaceCameraPos, -UNITY_MATRIX_V[2].xyz);
+                            if (LinearEyeDepth(tex2Dlod(_PSXWaterDepth, float4(suv, 0.0, 0.0)).r) < glassZ + 0.05)
+                                suv = i.pos.xy / _ScreenParams.xy;
+                        }
                         // (a bead gathers light: brighter in its middle, dark only at its very rim)
                         float rim = beadTop ? smoothstep(0.72, 0.98, length(bB.yz)) : edge * 0.35;   // (a runner's trail is a bright thread of water, not a dark scratch)
                         float gather = beadTop ? 1.0 + 0.9 * park + 0.6 * smoothstep(0.3, 0.9, hgt) : 1.0 + 0.5 * smoothstep(0.45, 0.95, hgt);
@@ -740,15 +771,8 @@ Shader "PSX/CabinGlass"
                                 float2 lgC = (i.pos.xy + dpx * 0.5) / _ScreenParams.xy;
                                 float2 lgA1 = float2(LG_R1 * px1080, 0.0) / _ScreenParams.xy, lgB1 = float2(0.0, LG_R1 * px1080) / _ScreenParams.xy;
                                 float2 lgA2 = float2(LG_R2 * px1080, 0.0) / _ScreenParams.xy, lgB2 = float2(0.0, LG_R2 * px1080 * 0.6) / _ScreenParams.xy;
-                                float3 lgK = float3(LG_KNEE, LG_KNEE, LG_KNEE);
-                                float3 lgIn = max(tex2Dlod(_PSXSSRColour, float4(lgC + lgA1, 0.0, 0.0)).rgb - lgK, 0.0)
-                                             + max(tex2Dlod(_PSXSSRColour, float4(lgC - lgA1, 0.0, 0.0)).rgb - lgK, 0.0)
-                                             + max(tex2Dlod(_PSXSSRColour, float4(lgC + lgB1, 0.0, 0.0)).rgb - lgK, 0.0)
-                                             + max(tex2Dlod(_PSXSSRColour, float4(lgC - lgB1, 0.0, 0.0)).rgb - lgK, 0.0);
-                                float3 lgOut = max(tex2Dlod(_PSXSSRColour, float4(lgC + lgA2, 0.0, 0.0)).rgb - lgK, 0.0)
-                                             + max(tex2Dlod(_PSXSSRColour, float4(lgC - lgA2, 0.0, 0.0)).rgb - lgK, 0.0)
-                                             + max(tex2Dlod(_PSXSSRColour, float4(lgC + lgB2, 0.0, 0.0)).rgb - lgK, 0.0)
-                                             + max(tex2Dlod(_PSXSSRColour, float4(lgC - lgB2, 0.0, 0.0)).rgb - lgK, 0.0);
+                                float3 lgIn = LGTap(lgC + lgA1) + LGTap(lgC - lgA1) + LGTap(lgC + lgB1) + LGTap(lgC - lgB1);
+                                float3 lgOut = LGTap(lgC + lgA2) + LGTap(lgC - lgA2) + LGTap(lgC + lgB2) + LGTap(lgC - lgB2);
                                 through += (lgIn * 0.22 + lgOut * 0.10) * (lgFilm * LG_GAIN);
                             }
                         }

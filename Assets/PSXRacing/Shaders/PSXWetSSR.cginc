@@ -44,6 +44,10 @@ float _PSXWetness;
 sampler2D _PSXSSRColour;   // the frame so far (opaques + sky): what the water can mirror
 sampler2D _PSXSSRDepth;    // the camera's own depth attachment
 float4 _PSXSSRParams;      // x: strength (1 in the game; tools may turn it), yzw unused
+#ifndef PSX_RAINLOOK_DECL
+#define PSX_RAINLOOK_DECL
+float4 _PSXRainLookOff;    // (rainlook, RainLook.cs) z 0: the march's halvings never settle on a near occluder
+#endif
 
 #define SSR_STEPS        24      // march steps, evenly along the ray's line ON THE SCREEN
 #define SSR_REFINE       5       // halvings of the step that crossed behind a surface
@@ -163,14 +167,27 @@ float SSRMarch(float3 wpos, float3 R, float2 fragXY, out float2 hitUV)
     }
     if (tHit < 0.0) return 0.0;
     // the crossing, by halving the step that found it
+    // (rainlook, RainLook.CabinMask, _PSXRainLookOff.z 0) a halving that lands on something far NEARER than
+    // the ray - a cockpit pillar or mirror, the car's own body, a pole - is not the crossing: the ray only passed
+    // behind it. Before, the halvings slid onto it and the road mirrored the pillar's torn, dotted outline (the
+    // owner: "a pillars and rearview mirror weirdly interacting with reflections outside of the car").
+    bool maskNear = _PSXRainLookOff.z < 0.5;
     float lo = tPrev, hi = tHit;
     [unroll]
     for (int r = 0; r < SSR_REFINE; r++)
     {
         float m = 0.5 * (lo + hi);
-        if (1.0 / lerp(k0, k1, m) >= SSRSeenZ(SSRUV(lerp(s0, s1, m)))) hi = m; else lo = m;
+        float rz = 1.0 / lerp(k0, k1, m);
+        float sz = SSRSeenZ(SSRUV(lerp(s0, s1, m)));
+        bool crossed = rz >= sz && (!maskNear || sz >= rz - (SSR_THICK_M + SSR_THICK_K * sz));
+        if (crossed) hi = m; else lo = m;
     }
     hitUV = SSRUV(lerp(s0, s1, hi));
+    if (maskNear)
+    {
+        float hz = SSRSeenZ(hitUV), rh = 1.0 / lerp(k0, k1, hi);
+        if (hz < rh - (SSR_THICK_M + SSR_THICK_K * hz)) return 0.0;
+    }
     // fade at the screen's edges, where the next pixel out is unknown...
     float2 e = min(hitUV, 1.0 - hitUV);
     float conf = saturate(min(e.x, e.y) / SSR_EDGE);

@@ -541,6 +541,11 @@ Shader "PSX/Lit"
             #define FALL2_WARM_LO 0.04
             #define FALL2_WARM_HI 0.24
             float4 _RoadLeaves;
+            #ifndef PSX_RAINLOOK_DECL
+            #define PSX_RAINLOOK_DECL
+            float4 _PSXRainLookOff;   // (rainlook, RainLook.cs) w 0: the road's leaves in world metres
+            float4 _PSXLookOff2;      // x 0: the foliage light falls with the sun (no glow at dusk and by day)
+            #endif
             float4 _PSXFallPhase;   // global (SeasonDress): x 1 = live, y the fall's phase 0 early .. 0.5 peak .. 1 late
             // A leaf texel in another colour AT ITS OWN LUMINANCE (owner
             // 2026-11-11, the title's drone: the poplars "not following the
@@ -2281,6 +2286,13 @@ Shader "PSX/Lit"
                 float dEdge = min(rm.x, _RoadLeaves.y - rm.x);
                 float dens = lerp(0.65, 0.03, saturate((dEdge - 0.25) / 1.0)) * lerp(0.35, 1.35, saturate(_PSXFallPhase.y));
                 const float RLCell = 0.35;
+                // (rainlook 11-27, RainLook.RoadLeaves, _PSXRainLookOff.w 0; the owner at Linn Cove: "Stretched
+                // road textures ... causes leaves to stretch into unsightly rectangles") The road's V counts the
+                // track's nominal station spacing, not the metres its points really lie apart, so where those
+                // differ the cells (and every leaf in them) were drawn out along the road. The leaves now lie on
+                // the ground itself, in world metres: square whatever the road's UV does. The edge distance
+                // (how thick they lie) still comes from U, which is exact across the road.
+                if (_PSXRainLookOff.w < 0.5) rm = float2(dot(i.wpos.xz, float2(0.8, 0.6)), dot(i.wpos.xz, float2(-0.6, 0.8)));
                 float pix = max(fwidth(rm.x), fwidth(rm.y));
                 float nearK = saturate(1.6 - pix * 12.0);
                 float3 farMix = lerp(tex.rgb, float3(0.38, 0.15, 0.03), dens * 0.16);
