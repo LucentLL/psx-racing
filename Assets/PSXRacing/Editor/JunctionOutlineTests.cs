@@ -699,6 +699,44 @@ namespace PSXRacing.EditorTools
             Assert.IsTrue(c0 != null && c0.shape == "arc" && Mathf.Abs(c0.r - 15f) < 1e-3f && c1 != null && c1.shape == "arc" && Mathf.Abs(c1.r - 4f) < 1e-3f, $"returns {c0?.shape} r{c0?.r} / {c1?.shape} r{c1?.r}");
         }
 
+        [Test] public void MeasuresParseRound2()
+        {
+            // round 2: edge kinds, a lane cap, lane picks, an arrow, a stop line, corners paved up to a line
+            string text = "provider hand\nedge 7 blend 9 hold b lanes 2 left paint 1.5 right shoulder 0.3\ns 0 6 4\nline 1 solid\np 0 -0.5\np 10 -0.7\nline 3 broken paint\np 2 5\np 8 6\narrow 12.5 4.4 left\nstop 25.6\nedge 8 right line\ns 0 - 3\njunction j1 nodes 3 4\npaved 7 8 open at 6\npaved 8 7 pts 0,0 1,2 3,4\n";
+            var set = JunctionMeasures.Parse(text);
+            var e = set.edges[7];
+            Assert.IsTrue(e.holdB && !e.holdA && e.lanes == 2 && e.kindL == 2 && e.shoulderL == 1.5f && e.kindR == 1 && e.shoulderR == 0.3f, "edge kinds and the lane cap");
+            Assert.IsTrue(e.lines.Count == 2 && e.lines[0].index == 1 && e.lines[0].kind == JunctionMeasures.LkSolid && !e.lines[0].paintOnly && e.lines[1].paintOnly && e.lines[1].kind == JunctionMeasures.LkBroken && e.lines[1].st.Count == 2, "lane picks");
+            Assert.IsTrue(e.arrows.Count == 1 && e.arrows[0].x == 12.5f && e.arrows[0].z < 0f && e.stop == 25.6f, "an arrow and a stop line");
+            Assert.IsTrue(set.edges[8].kindR == 3 && float.IsNaN(set.edges[8].stop), "a side that is a lane line");
+            var j = set.junctions[0];
+            Assert.IsTrue(j.paved.Count == 2 && j.paved[0].open && j.paved[0].at == 6f && !j.paved[1].open && j.paved[1].pts.Count == 3, "paved corners");
+            Assert.IsTrue(e.lines[0].At(5f, out float off, out float w) && Mathf.Abs(off + 0.6f) < 1e-3f && w == 1f, $"a pick between two stations: {off}");
+            Assert.IsTrue(!e.lines[0].At(20f, out _, out _), "no pick beyond its last station (a 3 m fade)");
+            var m = JunctionMeasures.ToSolver(set, j, new Vector2(1f, 1f));
+            Assert.IsTrue(m.paved.Count == 2 && m.paved[0].open && m.paved[1].pts[2] == new Vector2(2f, 3f), "paved corners about the cluster's origin");
+        }
+
+        [Test] public void PavedLineCorner()
+        {
+            // one road going on; on one side the pavement runs out to a measured line (the mouth of a street the map lacks:
+            // a bulge 1.5 m deep, tangent to both kerbs), the other side is the rule's
+            var arms = new List<JunctionOutline.Arm> {
+                JunctionOutline.StraightArm(0, Vector2.zero, Dir(0), Half(2), Half(2), name: "Main"), JunctionOutline.StraightArm(1, Vector2.zero, Dir(180), Half(2), Half(2), name: "Main") };
+            float h = Half(2);
+            var pv = new JunctionOutline.Paved { a = 0, b = 1 };
+            for (float x = 12f; x >= -12.001f; x -= 2f) pv.pts.Add(new Vector2(x, h + (Mathf.Abs(x) < 8f ? 0.75f * (1f + Mathf.Cos(Mathf.PI * x / 8f)) : 0f)));
+            var meas = new JunctionOutline.Measures { provider = "hand" };
+            meas.paved.Add(pv);
+            var r = JunctionOutline.Solve(arms, null, null, meas);
+            Assert0(r, "a corner paved up to a measured line");
+            var c = r.corners.Find(q => q.a == 0 && q.b == 1);
+            Assert.IsTrue(c != null && c.shape == "arc" && c.note == "paved to a measured line" && c.through, $"corner {c?.shape} ({c?.note}) through {c?.through}");
+            Assert.IsTrue(JunctionOutline.Clearance(r, new Vector2(0f, h + 1.3f)) > 0.1f && JunctionOutline.Clearance(r, new Vector2(0f, h + 1.7f)) < -0.1f, "the pavement ends on the measured line");
+            // the two rows stand beyond the line's ends
+            for (int i = 0; i < r.arms.Count; i++) Assert.IsTrue(r.sR[i] >= 12f - 1e-3f && r.sL[i] >= 12f - 1e-3f, $"row of arm {r.arms[i].id} at {r.sR[i]} / {r.sL[i]}");
+        }
+
         /// <summary>Batch entry (-executeMethod PSXRacing.EditorTools.JunctionOutlineTests.RunAll): every [Test] here, PASS / FAIL
         /// lines to Screenshots/c7/junction_outline_tests.txt (the same tests run in the Test Runner, EditMode).</summary>
         public static void RunAll()
