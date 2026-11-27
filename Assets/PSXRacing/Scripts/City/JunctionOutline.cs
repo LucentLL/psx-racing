@@ -72,6 +72,9 @@ namespace PSXRacing.City
         public sealed class Measures
         {
             public List<Nose> noses = new List<Nose>(); public List<Island> islands = new List<Island>(); public List<Return> returns = new List<Return>();
+            /// <summary>Per arm (its id): its end row stands at least this far out - where the junction's own land (a
+            /// measured median end) takes over from the ribbon's median.</summary>
+            public Dictionary<int, float> rows = new Dictionary<int, float>();
             public string provider = "rules";
         }
         public sealed class Corner
@@ -226,6 +229,7 @@ namespace PSXRacing.City
             for (int i = 0; i < n; i++)
             {
                 var a = A[i]; reach[i] = a.measEnd;
+                if (meas != null && meas.rows.TryGetValue(a.id, out float rowMin)) reach[i] = Mathf.Max(reach[i], rowMin);
                 foreach (var ring in isl) foreach (var p in ring)
                 {
                     Project(a.C, p, out var f, out float st);

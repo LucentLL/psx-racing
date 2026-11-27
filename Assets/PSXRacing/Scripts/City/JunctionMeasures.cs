@@ -51,6 +51,7 @@ namespace PSXRacing.City
             public string name = ""; public List<int> nodes = new List<int>();
             public List<NoseM> noses = new List<NoseM>(); public List<ReturnM> returns = new List<ReturnM>(); public List<IslandM> islands = new List<IslandM>();
             public List<int> drop = new List<int>(); public List<(int a, int b)> join = new List<(int, int)>();
+            public Dictionary<int, float> rows = new Dictionary<int, float>();   // per edge: its end row at least this far out
         }
         public sealed class Set
         {
@@ -90,6 +91,7 @@ namespace PSXRacing.City
         ///   junction NAME nodes N N ...  then lines:  nose A B X1 Z1 X2 Z2 r M kind grass|concrete
         ///                                             return A B r M
         ///                                             island kind concrete|grass kerb M pts X,Z,R X,Z,R ...
+        ///                                             row EDGE M (the edge's end row at least M out)
         ///                                             drop EDGE      join N N</summary>
         public static Set Parse(string text)
         {
@@ -135,6 +137,7 @@ namespace PSXRacing.City
                           for (i++; i < t.Length; i++) { var c = t[i].Split(','); im.pts.Add(new Vector2(F(c[0]), F(c[1]))); im.r.Add(c.Length > 2 ? F(c[2]) : 0.5f); }
                           if (im.pts.Count >= 3) j.islands.Add(im); }
                         break;
+                    case "row": if (j != null) j.rows[int.Parse(t[1], inv)] = F(t[2]); break;
                     case "drop": if (j != null) j.drop.Add(int.Parse(t[1], inv)); break;
                     case "join": if (j != null) j.join.Add((int.Parse(t[1], inv), int.Parse(t[2], inv))); break;
                 }
@@ -221,6 +224,7 @@ namespace PSXRacing.City
             if (j == null) return m;
             foreach (var ns in j.noses) m.noses.Add(new JunctionOutline.Nose { a = ns.a, b = ns.b, capA = ns.capA - origin, capB = ns.capB - origin, r = ns.r, kind = ns.kind });
             foreach (var rt in j.returns) m.returns.Add(new JunctionOutline.Return { a = rt.a, b = rt.b, r = rt.r });
+            foreach (var kv in j.rows) m.rows[kv.Key] = kv.Value;
             foreach (var im in j.islands)
             {
                 var o = new JunctionOutline.Island { kind = im.kind, kerb = im.kerb };
