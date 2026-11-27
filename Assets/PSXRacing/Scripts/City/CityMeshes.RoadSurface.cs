@@ -122,10 +122,27 @@ namespace PSXRacing.City
             var built = JunctionSurfaces.Ensure(map, (e, node) => e.a == node ? rule.atA[e.index] : rule.atB[e.index]);
             var t = rule;
             bool any = false; foreach (var b in built) any |= b.Solved;
-            if (any) t = rule.CloneForSurface();
+            if (any)
+            {
+                t = rule.CloneForSurface();
+                t.throughA = (int[])rule.throughA.Clone(); t.throughB = (int[])rule.throughB.Clone();
+                if (rule.branchA != null) t.branchA = (int[])rule.branchA.Clone();
+                if (rule.branchB != null) t.branchB = (int[])rule.branchB.Clone();
+            }
             foreach (var b in built)
             {
                 if (!b.Solved) continue;
+                // (round 2) AN ARM'S RIBBON ENDS SQUARE AT ITS ROW: no mitre onto a through partner and no clip against a
+                // host at a node the junction owns (the rule cut a branch's end along its host: a wedge of the junction's
+                // row stayed unpaved). A merged bay keeps its clip: it is its host's lane.
+                foreach (int n in b.nodes) { t.throughA[n] = -1; t.throughB[n] = -1; }
+                foreach (var kv in b.rowOf)
+                {
+                    if (b.bayFrom.ContainsKey(kv.Key)) continue;
+                    var e = map.edges[kv.Key];
+                    if (b.nodes.Contains(e.a)) { if (t.branchA != null) t.branchA[e.index] = -1; }
+                    else if (t.branchB != null) t.branchB[e.index] = -1;
+                }
                 foreach (var kv in b.rowOf)
                 {
                     var e = map.edges[kv.Key];

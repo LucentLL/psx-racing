@@ -355,6 +355,42 @@ namespace PSXRacing.City
 
         /// <summary>Half a car and a hand: a lane's centre nearer than this to a kerb (or on land) cannot be driven as laid.</summary>
         public const float LaneClearM = 1.1f;
+        /// <summary>(round 2) A point's distance to the junction's KERBS and islands (its free runs: an end row is a
+        /// mouth, the ribbon goes on there), negative on land or on an island. A skew row (two arms abreast) passes
+        /// within a metre of a lane's centre near its end without being a kerb.</summary>
+        static float ClearFree(Built b, Vector2 p)
+        {
+            var r = b.res; float d2 = float.MaxValue;
+            var o = r.outline; int n = o.Count;
+            for (int i = 0; i < n; i++)
+            {
+                var a = o[i]; var c = o[(i + 1) % n];
+                bool row = false;
+                for (int q = 0; q < r.rowR.Length && !row; q++)
+                {
+                    var p0 = r.rowR[q]; var dd = r.rowL[q] - p0; float l2r = dd.sqrMagnitude; if (l2r < 1e-6f) continue;
+                    float ta = Vector2.Dot(a - p0, dd) / l2r, tc = Vector2.Dot(c - p0, dd) / l2r;
+                    row = ta > -1e-3f && ta < 1.001f && tc > -1e-3f && tc < 1.001f && (p0 + dd * ta - a).sqrMagnitude < 1e-4f && (p0 + dd * tc - c).sqrMagnitude < 1e-4f;
+                }
+                if (row) continue;
+                var ab = c - a; float l2 = ab.sqrMagnitude;
+                float t = l2 > 1e-10f ? Mathf.Clamp01(Vector2.Dot(p - a, ab) / l2) : 0f;
+                d2 = Mathf.Min(d2, (a + ab * t - p).sqrMagnitude);
+            }
+            bool inside = JunctionOutline.InPoly(o, p);
+            foreach (var h in r.holes)
+            {
+                for (int i = 0; i < h.Count; i++)
+                {
+                    var a = h[i]; var ab = h[(i + 1) % h.Count] - a; float l2 = ab.sqrMagnitude;
+                    float t = l2 > 1e-10f ? Mathf.Clamp01(Vector2.Dot(p - a, ab) / l2) : 0f;
+                    d2 = Mathf.Min(d2, (a + ab * t - p).sqrMagnitude);
+                }
+                if (JunctionOutline.InPoly(h, p)) inside = false;
+            }
+            float d = Mathf.Sqrt(d2);
+            return inside ? d : -d;
+        }
         static readonly List<float> fitLanes = new List<float>(8);
         static void LaneCheck(CityMap map, Built b, int ei, float upTo)
         {
@@ -377,7 +413,7 @@ namespace PSXRacing.City
                     {
                         if (some && (k < cr.lo || k > cr.hi)) continue;   // ends at the row: not a lane inside the junction
                         var p = e.PointAt(s) + left * fitLanes[k];
-                        float cl = JunctionOutline.Clearance(b.res, p - b.origin);
+                        float cl = ClearFree(b, p - b.origin);
                         if (cl < worst) { worst = cl; at = p; worstLane = k; }
                         off |= cl < LaneClearM;
                     }
@@ -391,7 +427,7 @@ namespace PSXRacing.City
                     // (round 2) a bay inside this junction: its own line through the opening (this junction is not yet
                     // in the solved list while it is being checked)
                     if (lanes == 1 && BayLaneOf(b, e, s, p, out var bp)) p = bp;
-                    float cl = JunctionOutline.Clearance(b.res, p - b.origin);
+                    float cl = ClearFree(b, p - b.origin);
                     if (cl < worst) { worst = cl; at = p; worstLane = k; }
                     off |= cl < LaneClearM;
                 }
