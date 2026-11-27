@@ -419,19 +419,19 @@ namespace PSXRacing
             Register(new LabRow
             {
                 id = "rivalsroundstopped", group = LabGroup.Traffic, name = "RIVALS ROUND STOPPED CARS", when = LabWhen.Now,
-                look = "City races: a rival behind a stopped car or wreck goes round it at a crawl when nothing is coming, and is never held over 8 s.",
+                look = "City races: a rival behind a stopped car or wreck goes round it at a crawl when nothing is coming; none stands longer than 8 s.",
                 env = new[] { "PSX_AI_ROUND_STANDING" }, members = new[] { "AIDriver.RoundStandingOn" },
             });
             Register(new LabRow
             {
                 id = "trafficnosein", group = LabGroup.Traffic, name = "TRAFFIC NOSES IN, LANE END", when = LabWhen.Now,
-                look = "City races: a car waiting where its lane ends takes a shorter gap the longer it waits, and never rests across two lanes.",
+                look = "City races: a car waiting where its lane ends takes a shorter gap the longer it waits, and creeps a half-made lane change out.",
                 env = new[] { "PSX_TRAFFIC_LANE_END_NOSE" }, members = new[] { "TrafficSystem.LaneEndNoseOn" },
             });
             Register(new LabRow
             {
                 id = "trafficknockbytouch", group = LabGroup.Traffic, name = "TRAFFIC KNOCK: WHO TOUCHES", when = LabWhen.Now,
-                look = "City races: a traffic car knocked while a racer presses on it shrugs it off; it is not wrecked in the name of what it brushed before.",
+                look = "City races: a traffic car knocked while a racer presses on it shrugs it off and, pushed from behind, drives on.",
                 env = new[] { "PSX_TRAFFIC_KNOCK_BY_TOUCH" }, members = new[] { "TrafficSystem.KnockByTouchOn" },
             });
             Register(new LabRow
