@@ -1266,6 +1266,9 @@ namespace PSXRacing.City
                                     // overlapping its host, as OSM draws 80's U-turn lanes), and X's centre on that side of H's centre
                                     var hc = H.C[Mathf.Clamp(Mathf.RoundToInt(st / Step), 0, H.C.Count - 1)];
                                     var hb = hf[Mathf.Clamp(Mathf.RoundToInt(st / Step), 0, hf.Count - 1)];
+                                    // (road-surface stage 1) a lane runs the SAME WAY as its host (a measured host is wide at its
+                                    // node: the opposite carriageway's first metres lay "inside its ribbon" and merged as a bay)
+                                    if (Vector2.Dot(Tangent(X.C, q), Tangent(H.C, Mathf.Clamp(Mathf.RoundToInt(st / Step), 0, H.C.Count - 1))) < 0.5f) break;
                                     var outw = (hb - hc).normalized; float halfH = (hb - hc).magnitude;
                                     float gap = Vector2.Dot(xf[q] - hb, outw);
                                     if (gap > BayGapM || gap < -halfH || Vector2.Dot(X.C[q] - hc, outw) <= 0.5f) break;

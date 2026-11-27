@@ -1124,7 +1124,11 @@ namespace PSXRacing.City
             st.junctions++;
             // the stop bars: every signal approach and every STOP (a yield
             // has the road paint's yield line)
-            foreach (var a in j.approaches) { if (!j.signal && a.ctl != 2) continue; StopBar(a); st.stopBars++; }
+            // (road-surface stage 1) a junction drawn as one MEASURED surface: no stop bar is painted at the rule's place (the
+            // control trim still stops the traffic there); a bar at the measured place needs the lanes' measure (HANDOFF.md)
+            bool measured = false;
+            if (CityMeshes.RoadSurfaceOn && j.nodes != null) foreach (int jn in j.nodes) measured |= JunctionSurfaces.AtNode(jn) != null;
+            foreach (var a in j.approaches) { if (measured || (!j.signal && a.ctl != 2)) continue; StopBar(a); st.stopBars++; }
             if (!j.signal)
             {
                 foreach (var a in j.approaches)
