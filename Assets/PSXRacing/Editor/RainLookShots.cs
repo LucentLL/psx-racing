@@ -94,6 +94,44 @@ namespace PSXRacing.EditorTools
                     EditorSceneManager.OpenScene(scenes[s].path);
                     var path = Object.FindFirstObjectByType<TrackPath>();
                     sb.AppendLine($"== {id} ({scenes[s].path}), road width {TrackCatalog.At(vi).roadWidth} m, RoadVTile {CityMeshes.RoadVTile} m");
+                    // EVERY mesh drawn with a leaf-carrying road material: per triangle, metres per U and per V unit
+                    // (the UV gradient solved), within 80 m of the course's first point and everywhere
+                    if (path != null)
+                    {
+                        var p0w = path.GetPoint(0);
+                        foreach (var mr in Object.FindObjectsByType<MeshRenderer>(FindObjectsInactive.Include))
+                        {
+                            var mfx = mr.GetComponent<MeshFilter>();
+                            if (mfx == null || mfx.sharedMesh == null) continue;
+                            var mats = mr.sharedMaterials; var mesh = mfx.sharedMesh;
+                            for (int sm = 0; sm < mesh.subMeshCount && sm < mats.Length; sm++)
+                            {
+                                var mat = mats[sm];
+                                if (mat == null || !mat.HasProperty("_RoadLeaves") || mat.GetVector("_RoadLeaves").x < 0.5f) continue;
+                                var vv = mesh.vertices; var uu = mesh.uv; var tri = mesh.GetTriangles(sm); var trf = mr.transform;
+                                if (uu.Length != vv.Length) continue;
+                                var nearV = new System.Collections.Generic.List<float>(); var nearU = new System.Collections.Generic.List<float>();
+                                var allV = new System.Collections.Generic.List<float>();
+                                for (int t = 0; t + 2 < tri.Length; t += 3)
+                                {
+                                    Vector3 a = trf.TransformPoint(vv[tri[t]]), b2 = trf.TransformPoint(vv[tri[t + 1]]), c = trf.TransformPoint(vv[tri[t + 2]]);
+                                    Vector2 ua = uu[tri[t]], ub = uu[tri[t + 1]], uc = uu[tri[t + 2]];
+                                    Vector3 e1 = b2 - a, e2 = c - a; Vector2 d1 = ub - ua, d2 = uc - ua;
+                                    float det = d1.x * d2.y - d2.x * d1.y;
+                                    if (Mathf.Abs(det) < 1e-9f) continue;
+                                    Vector3 dPdu = (e1 * d2.y - e2 * d1.y) / det, dPdv = (e2 * d1.x - e1 * d2.x) / det;
+                                    float mv = dPdv.magnitude, mu = dPdu.magnitude;
+                                    allV.Add(mv);
+                                    if (((a + b2 + c) / 3f - p0w).magnitude < 80f) { nearV.Add(mv); nearU.Add(mu); }
+                                }
+                                nearV.Sort(); nearU.Sort(); allV.Sort();
+                                string Q(System.Collections.Generic.List<float> l) => l.Count == 0 ? "-" : $"min {l[0]:0.00} median {l[l.Count / 2]:0.00} max {l[l.Count - 1]:0.00} ({l.Count} tris)";
+                                sb.AppendLine($"  {mr.gameObject.name}/{mesh.name} submesh {sm} ({mat.name}, _RoadLeaves {mat.GetVector("_RoadLeaves")}):");
+                                sb.AppendLine($"    within 80 m of the course start: metres per V {Q(nearV)}; metres per U {Q(nearU)}");
+                                sb.AppendLine($"    whole: metres per V {Q(allV)}");
+                            }
+                        }
+                    }
                     foreach (var mf in Object.FindObjectsByType<MeshFilter>(FindObjectsInactive.Include))
                     {
                         var m = mf.sharedMesh;
@@ -217,6 +255,14 @@ namespace PSXRacing.EditorTools
                     standPos = path.GetPoint(i0) + side * 1.6f + Vector3.up * 0.45f;   // the right-hand lane
                     var tg = path.GetTangent(i0); tg.y = 0f;
                     standRot = Quaternion.LookRotation(tg.normalized, Vector3.up);
+                    car.ResetTo(standPos, standRot, seated: true);
+                    standSet = true;
+                }
+                // (round 2) RL_TURN=1: where the grid put the car, turned to face back past the start line
+                if (RainLookShots.Env("RL_TURN", "0") == "1")
+                {
+                    standPos = car.transform.position + Vector3.up * 0.3f;
+                    standRot = Quaternion.LookRotation(-new Vector3(car.transform.forward.x, 0f, car.transform.forward.z).normalized, Vector3.up);
                     car.ResetTo(standPos, standRot, seated: true);
                     standSet = true;
                 }

@@ -3444,19 +3444,19 @@ Shader "PSX/Lit"
                 // by a RawImage that blends by alpha: the texel's, as ever.
                 // (rainlook round 2, tools only: Editor/RainLookShots.cs) THE ID PASS: _PSXIdMask 1 draws
                 // r = foliage (the foliage light, _LeafVivid.z), g = paved ground (wet-able, facing up, not a
-                // cutout), b = any PSX/Lit surface; never set in the game (a uniform branch, 0)
+                // cutout), b = any PSX/Lit surface (alpha 1: the leaves draw alpha-to-coverage); never set in the game (a uniform branch, 0)
                 // 2: the light on THIS pixel, halved (r the sun as shadowed, g the sky and ambient as kept, b the
                 // lamps and beams), 3: r _Emission, g the albedo's luminance, b the exposure / 4
                 if (_PSXIdMask > 2.5)
-                    return fixed4(saturate(_Emission), dot(tex.rgb, float3(0.2126, 0.7152, 0.0722)), expo * 0.25, 0.0);
+                    return fixed4(saturate(_Emission), dot(tex.rgb, float3(0.2126, 0.7152, 0.0722)), expo * 0.25, 1.0);
                 if (_PSXIdMask > 1.5)
                 {
                     float3 lw = float3(0.2126, 0.7152, 0.0722);
                     return fixed4(dot(sunIn * sunVis, lw) * expo * 0.5, dot(ambIn * skyKeep, lw) * expo * 0.5,
-                                  dot((headD * beamGain + lampD * lampGain) * roadN, lw) * expo * 0.5, 0.0);
+                                  dot((headD * beamGain + lampD * lampGain) * roadN, lw) * expo * 0.5, 1.0);
                 }
                 if (_PSXIdMask > 0.5)
-                    return fixed4(_LeafVivid.z > 0.5 ? 1.0 : 0.0, (N.y > 0.85 && _Wet > 0.001 && _Cutoff < 0.001) ? 1.0 : 0.0, 1.0, 0.0);
+                    return fixed4(_LeafVivid.z > 0.5 ? 1.0 : 0.0, (N.y > 0.85 && _Wet > 0.001 && _Cutoff < 0.001) ? 1.0 : 0.0, 1.0, 1.0);
                 return fixed4(col, _PSXEmitWrite > 0.5 ? emit : tex.a);
             }
             ENDCG
