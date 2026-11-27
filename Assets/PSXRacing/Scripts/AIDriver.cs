@@ -1390,7 +1390,9 @@ namespace PSXRacing
             }
 
             // ---- give way to whatever is about to be hit ----
+            if (CostOn) avoidSw.Restart();
             UpdateAvoidance(dt, out float throttleLift, out float trafficBrake);
+            if (CostOn) { AvoidMs += avoidSw.Elapsed.TotalMilliseconds; AvoidTicks++; }
             DebugLift = throttleLift;
             DebugTrafficBrake = trafficBrake;
 
@@ -1566,7 +1568,7 @@ namespace PSXRacing
         /// and pretending otherwise would have it dive for gaps it cannot make.
         /// The goal is only that a car ahead stops being furniture.
         /// </summary>
-        struct Obs { public float z, lat, closing, half, want; public bool oncoming, held; public Rigidbody rb; }
+        struct Obs { public float z, lat, closing, half, want; public bool oncoming, held, traffic; public Rigidbody rb; }
         /// <summary>The car this racer is passing and the side it chose (-1
         /// left, +1 right): kept while that side stays clear. Chosen afresh
         /// every tick, the side flipped when the NEXT car's lines moved - at
@@ -2052,8 +2054,155 @@ namespace PSXRacing
         float LookFor(float closing) =>
             Mathf.Clamp(Mathf.Max(closing, 0f) * Mathf.Max(closing, 0f) / (2f * BrakeDecelNow * PlanBrakeShare) + 30f, 110f, 260f);
 
+        // ---- cityai round 6 (11-26): THE TRYON STANDSTILL ------------------------------------------------------------
+        /// <summary>
+        /// ROUND A STANDING CAR AT A CRAWL (PSX_AI_ROUND_STANDING, LAB row RIVALS GO ROUND STOPPED CARS; 0 = round 5).
+        /// The left line round a car over the centre line of a two-way road goes through the PASS WINDOW, which judges a
+        /// pass made at speed: its sight ends at the next junction zone (a car turning in at 8 m/s), a queue beyond the car
+        /// adds to its length (over 6.5 s it is "long"), and a pass given up waits 1.5 s. Behind a car that STANDS (a
+        /// wreck, a stopped traffic car, a rival held behind one) within 80 m of a junction that window never opens: the
+        /// field stood behind a wreck on South Tryon's two-lane block before West 3rd Street for 40-70 s, each car until
+        /// its recovery clock set it on (PC79 exe, seed 0). A driver goes round a broken-down car at a walk when nothing
+        /// is coming. So: behind a car under <see cref="RoundBlockMps"/>, this car under <see cref="RoundMineMps"/>, the
+        /// left line opens when the whole crawl fits: its run to a length and <see cref="RoundPastM"/> past the head of the
+        /// standing queue (at most <see cref="RoundMaxRunM"/>), at <see cref="RoundMps"/> at most, and EVERY car of the
+        /// oncoming stream by where it is along the road: a moving one reaches the run's far end no sooner than the crawl
+        /// and the swing back plus <see cref="RoundStartGapS"/> (to go on: <see cref="RoundKeepGapS"/>); one standing in
+        /// the run shuts it; one standing beyond it is taken to pull away at <see cref="RoundQueuePullMps2"/>. No sight
+        /// term: race traffic drives the route's own strip, every car of it is known, and none is born within 6 s of a
+        /// racer. While it is over the line it holds the crawl speed, and the file-in brake (round 4) leaves it alone.
+        /// </summary>
+        public static bool RoundStandingOn = System.Environment.GetEnvironmentVariable("PSX_AI_ROUND_STANDING") != "0";
+        const float RoundBlockMps = 4.5f, RoundMineMps = 9f, RoundMps = 8f, RoundAccel = 2f, RoundPastM = 3f, RoundMaxRunM = 60f;
+        const float RoundStartGapS = 2f, RoundKeepGapS = 0.6f, RoundQueuePullMps2 = 2.5f, RoundQueueGapM = 14f, RoundJudgeEveryS = 0.1f;
+        /// <summary>ON ITS TAIL: a traffic car's centre nearer than this ahead (m; nose to tail is 4.5-4.9) is the car to
+        /// deal with until it is this far off again.</summary>
+        const float TailNearM = 7f, TailFarM = 11f;
+        /// <summary>(cityai round 6) PSX_AI_NO_TAIL_PUSH (LAB row RIVALS OFF TRAFFIC TAILS; 0 = round 5).</summary>
+        public static bool NoTailPushOn = System.Environment.GetEnvironmentVariable("PSX_AI_NO_TAIL_PUSH") != "0";
+        Rigidbody tailRb;
+        /// <summary>Seconds held behind the slow car before the crawl round it may start.</summary>
+        const float RoundAfterS = 1f;
+        float roundHeld;
+        /// <summary>STANDING, AT MOST THIS LONG (s): a racing car under 1 m/s for this long, whatever holds it, is set on
+        /// by the recovery (a clear station up its own road, in its lane). The waiting clocks gave a held car 20 s
+        /// (stuck) or 40 s (under 12 m of road made). With <see cref="RoundStandingOn"/> only. And the clear
+        /// road behind (m) a car nose to tail with a standing one needs to back off it (7 m otherwise).</summary>
+        const float RoundHeldMaxS = 8f, RoundBackBehindM = 3.5f;
+        Rigidbody roundTarget, roundPassRb; bool roundCommitted, roundOk; float roundAt = -99f, roundPassUntil = -99f, standHeld;
+        /// <summary>Cost meter (the dev tour's &amp;ab6): the avoidance's own time per rival tick, and the crawl judgement's.</summary>
+        public static bool CostOn; public static double AvoidMs, RoundJudgeMs; public static long AvoidTicks, RoundJudges;
+        static readonly System.Diagnostics.Stopwatch avoidSw = new System.Diagnostics.Stopwatch(), roundSw = new System.Diagnostics.Stopwatch();
+        /// <summary>For the harness: crawls round a standing car begun, why the last one was refused, recoveries by the held clock.</summary>
+        public int DebugRounds { get; private set; }
+        public string DebugRoundWhy { get; private set; } = "";
+        public static int RoundsBegun, RoundHeldRecoveries;
+        public static readonly System.Collections.Generic.Dictionary<string, int> RoundRefused = new System.Collections.Generic.Dictionary<string, int>();
+
+        /// <summary>May this car start (or, committed, go on) round the standing car <paramref name="target"/>
+        /// (<paramref name="z"/> m ahead, <paramref name="tLat"/> m right of the line) on <paramref name="line"/>?</summary>
+        bool RoundStandingOpen(Rigidbody target, float z, float tLat, float theirSpeed, float line, bool committed)
+        {
+            if (target == roundTarget && committed == roundCommitted && Time.time - roundAt < RoundJudgeEveryS) return roundOk;
+            string why = "open";
+            if (CostOn) roundSw.Restart();
+            bool ok = RoundStandingCore(target, z, tLat, theirSpeed, line, committed, ref why);
+            if (CostOn) { RoundJudgeMs += roundSw.Elapsed.TotalMilliseconds; RoundJudges++; }
+            roundTarget = target; roundCommitted = committed; roundAt = Time.time; roundOk = ok; DebugRoundWhy = why;
+            if (!ok) { RoundRefused.TryGetValue(why, out int k); RoundRefused[why] = k + 1; }
+            return ok;
+        }
+        bool RoundStandingCore(Rigidbody target, float z, float tLat, float theirSpeed, float line, bool committed, ref string why)
+        {
+            var ts = TrafficSystem.Instance;
+            var rm = RaceManager.Instance;
+            if (ts == null || path == null) { why = "no traffic system"; return false; }
+            float mine = Mathf.Max(car.forwardSpeed, 0f);
+            float vb = Mathf.Max(theirSpeed, 0f);
+            // THE STANDING QUEUE beyond it, in its lane: the crawl takes all of it (the lane past its head is the room back)
+            float headZ = z, headLat = tLat;
+            int n = ts.Obstacles.Count, m = rm != null ? rm.allCars.Count : 0;
+            for (int pass = 0; pass < 6; pass++)
+            {
+                float bestZ = float.PositiveInfinity, bestLat = headLat;
+                for (int i = 0; i < n + m; i++)
+                {
+                    Rigidbody rb; Vector3 pos;
+                    if (i < n) { rb = ts.Obstacles[i]; if (rb == null) continue; pos = rb.position; }
+                    else { var c = rm.allCars[i - n]; if (c == null || c == car || c.Body == null || !c.gameObject.activeInHierarchy) continue; rb = c.Body; pos = c.transform.position; }
+                    if (rb == target) continue;
+                    Vector3 lo = transform.InverseTransformPoint(pos);
+                    if (lo.z <= headZ + 0.5f || lo.z > headZ + RoundQueueGapM + PassCarLenM || Mathf.Abs(lo.y) > 4f) continue;
+                    if (rb.linearVelocity.sqrMagnitude > RoundBlockMps * RoundBlockMps) continue;       // moving off: not part of what stands
+                    int qi = RoadIndexNear(pos);
+                    float lat = Vector3.Dot(pos - path.GetPoint(qi), RightAt(qi));
+                    if (Mathf.Abs(lat - headLat) > 2.2f) continue;
+                    if (lo.z < bestZ) { bestZ = lo.z; bestLat = lat; }
+                }
+                if (float.IsPositiveInfinity(bestZ)) break;
+                headZ = bestZ; headLat = bestLat;
+            }
+            // ITS RUN AND ITS TIME: to a length and the air past the head, gaining RoundAccel up to the crawl speed
+            float relDist = Mathf.Max(headZ, 0f) + PassCarLenM + RoundPastM;
+            float vCap = Mathf.Max(RoundMps, vb + 4f);
+            float v0 = Mathf.Clamp(mine - vb, 0f, vCap - vb), vMaxR = vCap - vb;
+            float t1 = (vMaxR - v0) / RoundAccel, d1 = v0 * t1 + 0.5f * RoundAccel * t1 * t1;
+            float t = d1 >= relDist ? (-v0 + Mathf.Sqrt(v0 * v0 + 2f * RoundAccel * relDist)) / RoundAccel : t1 + (relDist - d1) / vMaxR;
+            float runM = relDist + vb * t;
+            if (runM > RoundMaxRunM) { why = "long"; return false; }
+            float tOcc = t + PassSwingS;
+            float need = tOcc + (committed ? RoundKeepGapS : RoundStartGapS);
+            // EVERY CAR OF THE ONCOMING STREAM, by where it is along this road
+            float myS = nearestIdx * path.spacing + Vector3.Dot(transform.position - path.GetPoint(nearestIdx), path.GetTangent(nearestIdx));
+            float total = path.TotalLength;
+            for (int i = 0; i < n; i++)
+            {
+                var rb = ts.Obstacles[i];
+                if (rb == null || rb == target) continue;
+                float ahead = ts.ObstacleS.Count == n ? AheadOnRoad(ts, i, myS) : transform.InverseTransformPoint(rb.position).z;
+                if (ahead > 1e5f) continue;
+                if (!path.HasEnds) { if (ahead > total * 0.5f) ahead -= total; else if (ahead < -total * 0.5f) ahead += total; }
+                if (ahead < -3f || ahead > runM + 400f) continue;
+                int oi = RoadIndexNear(rb.position);
+                float lat = Vector3.Dot(rb.position - path.GetPoint(oi), RightAt(oi));
+                float half = i < ts.ObstacleHalfW.Count ? ts.ObstacleHalfW[i] : 1f;
+                float along = Vector3.Dot(rb.linearVelocity, path.GetTangent(oi));
+                bool otherStream = i < ts.ObstacleDir.Count && ts.ObstacleDir[i] < 0;
+                bool nearLine = Mathf.Abs(lat - line) <= half + MyHalfW + PassLaneBufM;      // in the line, or near enough to move into it
+                bool inLine = Mathf.Abs(lat - line) < half + MyHalfW + 0.5f;
+                // the standing queue's own cars (on the passed car's side of the line, clear of this car's width) are
+                // beside the line: each is taken as it comes up. The pass window counted them as standing IN its line
+                // (its 0.5 m buffer is wider than the air a pass leaves), so a queue of two never opened it.
+                if (inLine && (lat - line) * (tLat - line) > 0f && Mathf.Abs(lat - line) >= half + MyHalfW + 0.05f) inLine = false;
+                if (rb.useGravity)
+                {
+                    // a wreck resting in the line within the run
+                    if (inLine && ahead < runM) { why = "wreck in the line"; return false; }
+                }
+                else if (along < -1f)
+                {
+                    if (!nearLine) continue;
+                    if (ahead < runM || (ahead - runM) / -along < need) { why = "oncoming"; return false; }
+                }
+                else if (otherStream)
+                {
+                    if (!nearLine) continue;
+                    // standing (a queue, a car held for a racer): in the run it shuts it; beyond, it may pull away
+                    if (ahead < runM + 6f) { why = "standing oncoming"; return false; }
+                    if (Mathf.Sqrt(2f * (ahead - runM) / RoundQueuePullMps2) < need) { why = "oncoming queue"; return false; }
+                }
+                else if (inLine && ahead < runM) { why = "car in the line"; return false; }   // going this way, stopped out in the other lane
+            }
+            return true;
+        }
+
+        /// <summary>(cityai round 6) dev trace only: the car in the way this tick, the two lines round it and why each is shut.</summary>
+        public static bool TraceOn;
+        [System.NonSerialized] public string DebugBlock = "";   // not a serialized field: nothing in a scene or prefab changes
+        public string DebugState => $"stand {standBlockZ:0.0} back {backPhase} tries {backTries} stuck {stuckTimer:0.0} crawl {crawlTimer:0.0} wait {waitHold:0.0} solid {(responder != null && responder.InSolidContact ? 1 : 0)} jz {(InJunctionZone ? 1 : 0)} sight {sightM:0}/{sightWhy} free {lastFreeSpeed:0.0} round {DebugRoundWhy} held {standHeld:0.0} rec {LastRecoveryWhy}";
         void UpdateAvoidance(float dt, out float throttleLift, out float trafficBrake)
         {
+            if (TraceOn) DebugBlock = "";
             throttleLift = 0f;
             trafficBrake = 0f;
             standBlockZ = float.PositiveInfinity;
@@ -2111,7 +2260,7 @@ namespace PSXRacing
             FilingIn = false;
             // only with a car really coming (not the pass window's short-sight limit), and only while moving: at a
             // crawl it lifts nothing, so a stopped car can still steer back in (H6 seed 0: five rivals stood 20 s 'file in')
-            if (PackFileInOn && oncomingGuard && car.forwardSpeed > FileInMinMps && path != null)
+            if (PackFileInOn && oncomingGuard && car.forwardSpeed > FileInMinMps && path != null && !(RoundStandingOn && Time.time < roundPassUntil))
             {
                 fileInSw.Restart(); FileInLooks++;
                 Vector3 prr = Vector3.Cross(Vector3.up, path.GetTangent(nearestIdx)).normalized;
@@ -2322,11 +2471,13 @@ namespace PSXRacing
                     bool otherStream = i < nTraffic && i < traffic.ObstacleDir.Count && traffic.ObstacleDir[i] < 0;
                     float wantPass = i >= nTraffic ? stoppedWant[i - nTraffic] : 0f;
                     obs.Add(new Obs { z = local.z, lat = lat, closing = closing, half = oh, oncoming = along < -1f || otherStream, rb = rb,
-                                      want = wantPass, held = wantPass > 0f });
+                                      want = wantPass, held = wantPass > 0f, traffic = i < nTraffic });
                 }
 
                 // The one to deal with: the nearest ahead, in this corridor.
                 int block = -1, passBlock = -1;
+                bool sawSlowBlock = false;   // (round 6) held behind a slow car this tick
+                Rigidbody tailSeen = null;
                 for (int i = 0; i < obs.Count; i++)
                 {
                     var o = obs[i];
@@ -2347,7 +2498,18 @@ namespace PSXRacing
                     // put it back (owner, 2026-11-02: "cars just stop and never
                     // reverse to make room to drive around").
                     bool bothStand = mySpeed < StandBlockMps && o.rb != null && o.rb.linearVelocity.sqrMagnitude < 1f;
-                    if (o.closing <= 0.3f && !bothStand && !o.held) continue;
+                    // (round 6) and a TRAFFIC car crawling just ahead of this one at a crawl: it flickered between the block
+                    // and nothing every tick (full throttle, brake, full throttle) and no line round it was held. Not a
+                    // rival: the grid pulls away together at these speeds.
+                    bool slowPair = RoundStandingOn && o.traffic && mySpeed < RoundMineMps && o.z < 25f && o.rb != null && !o.oncoming &&
+                                    o.rb.linearVelocity.sqrMagnitude < RoundBlockMps * RoundBlockMps;
+                    // (round 6) and a traffic car this car is ON THE TAIL OF: at a matched speed nothing was closing, so it
+                    // was nobody's block and the rival sat on the throttle against its tail for seconds (10.2 m/s, the
+                    // traffic car's own bend speed, through the West 3rd Street junction: the knock that wrecked it)
+                    bool onTail = NoTailPushOn && o.traffic && !o.oncoming && o.rb != null &&
+                                  (o.z < TailNearM || (o.rb == tailRb && o.z < TailFarM));
+                    if (onTail) tailSeen = o.rb;
+                    if (o.closing <= 0.3f && !bothStand && !o.held && !slowPair && !onTail) continue;
                     if (block < 0 || o.z < obs[block].z) block = i;
                     if (o.rb != null && o.rb == passRb) passBlock = i;
                 }
@@ -2379,15 +2541,17 @@ namespace PSXRacing
                     // Blue Ridge, Blowing Rock: every head-on measured).
                     if (bo.oncoming) air = Mathf.Max(air, OncomingMeetAirM);
                     // THE PASS WINDOW (aipass): the left line over the centreline of a two-way road only through it
-                    bool overLeftNow = false, winLeftNow = false;
+                    bool overLeftNow = false, winLeftNow = false, roundNow = false;
+                    string clearWhy = "";
                     bool Clear(float line, bool isLeft = false)
                     {
+                        clearWhy = "";
                         // On the tarmac - or, on the right, the paved verge.
-                        if (line < -tarmacEdge || line > vergeEdge) return false;
-                        if (isLeft && overLeftNow) { if (!winLeftNow) return false; }
+                        if (line < -tarmacEdge || line > vergeEdge) { clearWhy = "off-road"; return false; }
+                        if (isLeft && overLeftNow) { if (!winLeftNow) { clearWhy = "window"; return false; } }
                         // Not over our own lane's inner edge with anything
                         // coming (leftLimit): that pass waits, and we follow.
-                        else if (line - lineOffset < leftLimit) return false;
+                        else if (line - lineOffset < leftLimit) { clearWhy = "left-limit"; return false; }
                         for (int i = 0; i < obs.Count; i++)
                         {
                             if (i == block) continue;
@@ -2397,7 +2561,7 @@ namespace PSXRacing
                             // comes to us while we go to it. Anything within
                             // the pass, meeting point included, blocks the line.
                             float meet = o.oncoming ? o.z * mySpeed / Mathf.Max(mySpeed + Mathf.Abs(o.closing - mySpeed), 1f) : o.z;
-                            if (meet > -3f && meet < passEnd + (o.oncoming ? 25f : 0f)) return false;
+                            if (meet > -3f && meet < passEnd + (o.oncoming ? 25f : 0f)) { if (TraceOn) clearWhy = "car:" + (o.rb != null ? o.rb.name : "?") + "@" + o.z.ToString("0"); return false; }
                         }
                         return true;
                     }
@@ -2415,12 +2579,27 @@ namespace PSXRacing
                         winLeftNow = PassWindowOpen(bo.rb, bo.z, theirs, Mathf.Max(bo.want, lastFreeSpeed - theirs), left, committedB);
                         // a pass this car was swinging out for, given up: back in, and a wait before the next try
                         if (!winLeftNow && committedB) passRetryAt = Time.time + PassRetryS;
+                        // (round 6) ROUND A STANDING CAR AT A CRAWL: the window above is for a pass at speed. Only once
+                        // this car has been held behind it for RoundAfterS (the grid pulling away is not a queue).
+                        if (RoundStandingOn && bo.rb != null && mySpeed < RoundMineMps &&
+                            bo.rb.linearVelocity.sqrMagnitude < RoundBlockMps * RoundBlockMps)
+                        {
+                            sawSlowBlock = true; roundHeld += dt;
+                            bool mineAlready = roundPassRb == bo.rb && Time.time < roundPassUntil;
+                            if (!winLeftNow && (roundHeld >= RoundAfterS || mineAlready))
+                            {
+                                winLeftNow = RoundStandingOpen(bo.rb, bo.z, bo.lat, theirs, left, mineAlready);
+                                roundNow = winLeftNow;
+                            }
+                        }
                     }
                     // ...and nothing SOLID down it either: a city route's
                     // "road" can be both carriageways with a median between,
                     // and a racer passed a spun rival at 120 km/h along the
                     // median's barrier, into it (UptownLoop).
-                    bool leftOk = Clear(left, true) && ShoulderClear(left, passEnd);
+                    bool leftOk = Clear(left, true);
+                    string whyL = clearWhy;
+                    if (leftOk && !ShoulderClear(left, passEnd)) { leftOk = false; whyL = "shoulder"; }
                     // THE RIGHT-HAND SIDE, on the shoulder where the tarmac runs
                     // out: only past a car going OUR way (a car coming at us in
                     // our lane is dodged, not passed, and the tarmac is enough
@@ -2428,15 +2607,16 @@ namespace PSXRacing
                     // car's width - Clear() holds the line to vergeEdge - and
                     // only with nothing solid standing on it.
                     bool rightOnVerge = right > tarmacEdge;
-                    bool rightOk = Clear(right) &&
-                                   (!rightOnVerge || (!bo.oncoming && ShoulderClear(right, passEnd)));
+                    bool rightOk = Clear(right);
+                    string whyR = clearWhy;
+                    if (rightOk && rightOnVerge && !(!bo.oncoming && ShoulderClear(right, passEnd))) { rightOk = false; whyR = "verge-shoulder"; }
                     // CROSSING ITS NOSE: a line on the far side of the car
                     // from where this racer is, taken only if the move across
                     // is done well before the car is reached.
                     float tReach = Mathf.Max(bo.z - 4.5f, 0f) / Mathf.Max(bo.closing, 0.3f);
                     float sideNow = myLat - bo.lat;
-                    if (leftOk && sideNow > 0.3f && Mathf.Abs(left - myLat) / LateralRateMps > tReach * 0.6f) leftOk = false;
-                    if (rightOk && sideNow < -0.3f && Mathf.Abs(right - myLat) / LateralRateMps > tReach * 0.6f) rightOk = false;
+                    if (leftOk && sideNow > 0.3f && Mathf.Abs(left - myLat) / LateralRateMps > tReach * 0.6f) { leftOk = false; whyL = "nose"; }
+                    if (rightOk && sideNow < -0.3f && Mathf.Abs(right - myLat) / LateralRateMps > tReach * 0.6f) { rightOk = false; whyR = "nose"; }
                     float pick = float.NaN;
                     // The side already chosen for THIS car, while it is clear.
                     if (passRb != null && passRb == bo.rb && passSide != 0 && (passSide < 0 ? leftOk : rightOk))
@@ -2448,6 +2628,12 @@ namespace PSXRacing
                     if (!float.IsNaN(pick))
                     {
                         passApproved = overLeftNow && winLeftNow && pick == left;
+                        if (roundNow && pick == left)
+                        {
+                            // (round 6) the crawl is this car's until it is by: held through the moment it is level
+                            if (roundPassRb != bo.rb || Time.time > roundPassUntil) { DebugRounds++; RoundsBegun++; }
+                            roundPassRb = bo.rb; roundPassUntil = Time.time + 1.5f;
+                        }
                         DebugPassSide = pick < bo.lat ? -1 : 1;
                         // the harness's pass: a candidate until the car has really moved out for it (end of tick)
                         candPass = bo.rb; candSide = DebugPassSide; candHeld = bo.held;
@@ -2459,6 +2645,10 @@ namespace PSXRacing
                     }
                     else { passRb = null; passSide = 0; }
                     standPick = pick;
+                    if (TraceOn)
+                        DebugBlock = $"{(bo.rb != null ? bo.rb.name : "?")} z {bo.z:0.0} lat {bo.lat:0.0} cl {bo.closing:0.0} v {(bo.rb != null ? bo.rb.linearVelocity.magnitude : 0f):0.0}{(bo.oncoming ? " onc" : "")}{(bo.held ? " held" : "")}" +
+                                     $" | me {myLat:0.0} | L {left:0.0} {(leftOk ? "ok" : "no:" + whyL)} R {right:0.0} {(rightOk ? "ok" : "no:" + whyR)}" +
+                                     $" | win {(overLeftNow ? (winLeftNow ? "open" : "shut:" + LastPassWhy + " " + LastPassMargin.ToString("0.0")) : "n/a")} | pick {pick:0.0} | lim {leftLimit:0.0} tarmac {tarmacEdge:0.0} verge {vergeEdge:0.0}";
 
                     // Time to be beside it versus time to reach it: if the
                     // move will not be made in time, brake for the gap too.
@@ -2531,6 +2721,14 @@ namespace PSXRacing
                         if (gap < need * 1.5f) throttleLift = 1f;
                         Why("follow", throttleLift, trafficBrake);
                     }
+                }
+                if (!sawSlowBlock) roundHeld = Mathf.Max(0f, roundHeld - dt * 2f);
+                tailRb = tailSeen;
+                // (round 6) over the line round a standing car: at the crawl speed, no faster
+                if (RoundStandingOn && Time.time < roundPassUntil && mySpeed > RoundMps)
+                {
+                    throttleLift = Mathf.Max(throttleLift, Mathf.Clamp01(0.4f + (mySpeed - RoundMps) * 0.3f));
+                    Why("round-crawl", throttleLift, trafficBrake);
                 }
                 // ANYTHING IN THE WAY, whatever the plan: a car in this car's
                 // path - where it IS, not where its line is - that it will not
@@ -2673,6 +2871,13 @@ namespace PSXRacing
             {
                 DebugLeftLimit = float.NegativeInfinity;
                 leftLimit = float.NegativeInfinity;
+            }
+            // (round 6) level with the standing car it is going round (no car is 'ahead' for those 4 m): on and by
+            else if (RoundStandingOn && alongsideHold && Time.time < roundPassUntil)
+            {
+                DebugLeftLimit = float.NegativeInfinity;
+                leftLimit = float.NegativeInfinity;
+                roundPassUntil = Mathf.Max(roundPassUntil, Time.time + 0.5f);
             }
             // ...and with traffic on the road, PREFER THE RIGHT LANE: over the line with no pass that holds (the follow
             // held the car where it was - out in the other lane - for up to 19 s), back to its own lane. Not off a
@@ -2894,7 +3099,11 @@ namespace PSXRacing
             junctionStand = JunctionWaitOn && InJunctionZone && standing ? junctionStand + dt : 0f;
             if (JunctionWaitOn && InJunctionZone && junctionStand < 4f) backStand = 0f;
             backPinned = standing && responder != null && responder.InSolidContact && ObstacleAhead() ? backPinned + dt : 0f;
-            if ((backStand > BackUpAfterS || backPinned > BackUpPinnedS) && backTries < BackUpTries && BehindClear(BackUpBehindM))
+            // (round 6) nose to tail with a standing car and a queue behind: 7 m of clear road behind was never there (the
+            // cars behind stand 10 m off), so the car pressed on a wreck's corner stood on the throttle until its
+            // recovery. It backs into the room there is (the reverse stops 2.5 m short of the car behind).
+            float behindNeed = RoundStandingOn && standBlockZ < 2f * CarHalfLenM + 2.5f ? RoundBackBehindM : BackUpBehindM;
+            if ((backStand > BackUpAfterS || backPinned > BackUpPinnedS) && backTries < BackUpTries && BehindClear(behindNeed))
             {
                 // The side to go round on: the clear line, else away from it.
                 Vector3 r = Vector3.Cross(Vector3.up, path.GetTangent(nearestIdx)).normalized;
@@ -2993,11 +3202,18 @@ namespace PSXRacing
             { crawlIdx = nearestIdx; crawlTimer = 0f; }
             else crawlTimer += waiting ? dt * WaitingClockRate : dt;
 
+            // (round 6) NEVER UNDER 1 m/s FOR LONGER THAN RoundHeldMaxS, whatever holds it (a standing car, a jam, a
+            // pile-up, a back-up that gets nowhere): the waiting clocks gave a held car 20 s (stuck) or 40 s (under 12 m
+            // of road made), and a creep of a metre started them again. One clock, no pauses.
+            if (RoundStandingOn && speed < 1f) standHeld += dt; else standHeld = 0f;
+            bool heldOut = RoundStandingOn && standHeld > RoundHeldMaxS;
             if (Retired) return;
-            if (stuckTimer > limit || wrongWayTimer > WrongWaySeconds || crawlTimer > CrawlSeconds)
+            if (stuckTimer > limit || wrongWayTimer > WrongWaySeconds || crawlTimer > CrawlSeconds || heldOut)
             {
                 LastRecoveryWhy = stuckTimer > limit ? (pinned ? "pinned" : "stuck")
-                                : wrongWayTimer > WrongWaySeconds ? "wrong way" : "crawling";
+                                : wrongWayTimer > WrongWaySeconds ? "wrong way" : heldOut ? "held" : "crawling";
+                if (heldOut && LastRecoveryWhy == "held") RoundHeldRecoveries++;
+                standHeld = 0f;
                 stuckTimer = 0f;
                 wrongWayTimer = 0f;
                 crawlTimer = 0f;

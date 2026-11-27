@@ -418,6 +418,30 @@ namespace PSXRacing
             });
             Register(new LabRow
             {
+                id = "rivalsroundstopped", group = LabGroup.Traffic, name = "RIVALS ROUND STOPPED CARS", when = LabWhen.Now,
+                look = "City races: a rival behind a stopped car or wreck goes round it at a crawl when nothing is coming, and is never held over 8 s.",
+                env = new[] { "PSX_AI_ROUND_STANDING" }, members = new[] { "AIDriver.RoundStandingOn" },
+            });
+            Register(new LabRow
+            {
+                id = "trafficnosein", group = LabGroup.Traffic, name = "TRAFFIC NOSES IN, LANE END", when = LabWhen.Now,
+                look = "City races: a car waiting where its lane ends takes a shorter gap the longer it waits, and never rests across two lanes.",
+                env = new[] { "PSX_TRAFFIC_LANE_END_NOSE" }, members = new[] { "TrafficSystem.LaneEndNoseOn" },
+            });
+            Register(new LabRow
+            {
+                id = "trafficknockbytouch", group = LabGroup.Traffic, name = "TRAFFIC KNOCK: WHO TOUCHES", when = LabWhen.Now,
+                look = "City races: a traffic car knocked while a racer presses on it shrugs it off; it is not wrecked in the name of what it brushed before.",
+                env = new[] { "PSX_TRAFFIC_KNOCK_BY_TOUCH" }, members = new[] { "TrafficSystem.KnockByTouchOn" },
+            });
+            Register(new LabRow
+            {
+                id = "rivalsofftails", group = LabGroup.Traffic, name = "RIVALS OFF TRAFFIC TAILS", when = LabWhen.Now,
+                look = "City races: a rival nose to tail with a traffic car at its speed lifts and drops back; it does not push it along.",
+                env = new[] { "PSX_AI_NO_TAIL_PUSH" }, members = new[] { "AIDriver.NoTailPushOn" },
+            });
+            Register(new LabRow
+            {
                 id = "turnsahead", group = LabGroup.Traffic, name = "RIVAL TURNS LAID AHEAD", when = LabWhen.NextLoad,
                 look = "City races: every junction turn near the route is laid at load; a new one mid-race costs a slice a frame.",
                 env = new[] { "PSX_CP_TURNS_WARMALL", "PSX_CP_TURNS_DEFER" }, members = new[] { "RacingTurns.WarmAllTurns", "RacingTurns.DeferOn" },
