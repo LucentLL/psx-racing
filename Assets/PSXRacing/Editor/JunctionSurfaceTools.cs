@@ -54,6 +54,10 @@ namespace PSXRacing.EditorTools
                     foreach (int ei in edges.OrderBy(x => x))
                     {
                         var e = map.edges[ei];
+                        // (road survey stage 3) the branch clip and through pairing at each end
+                        sb.Append(string.Format(inv, "  e{0}: branchA {1} branchB {2}; at a: through {3}/{4}; at b: through {5}/{6}
+", ei, trims.branchA[ei], trims.branchB[ei],
+                            trims.throughA[e.a], trims.throughB[e.a], trims.throughA[e.b], trims.throughB[e.b]));
                         var ext = new List<string>();
                         for (float s = 0f; s <= e.length + 1e-3f; s += 5f) { LineModel.Extents(e, s, out float eM, out float eP); ext.Add(string.Format(inv, "{0:0}:{1:0.00}/{2:0.00}", s, eP, eM)); }
                         sb.Append(string.Format(inv, "edge {0} a {1} b {2} cls {3} lanes {4} oneway {5} link {6} len {7:0.00} atA {8:0.00} atB {9:0.00} name '{10}' ext(s:left/right) {11} pts {12}\n",
