@@ -233,7 +233,7 @@ namespace PSXRacing.City
             for (int i = 0; i < r.arms.Count; i++)
             {
                 var a = r.arms[i];
-                b.rowOf[a.id] = 0.5f * (r.sR[i] + r.sL[i]);
+                b.rowOf[a.id] = Mathf.Abs(r.sR[i] - r.sL[i]) > 0.2f ? Mathf.Min(r.sR[i], r.sL[i]) : 0.5f * (r.sR[i] + r.sL[i]);
                 float w = (r.rowL[i] - r.rowR[i]).magnitude;
                 if (w > widest) { widest = w; b.mainEdge = a.id; var e = map.edges[a.id]; b.mainNode = b.nodes.Contains(e.a) ? e.a : e.b; }
             }

@@ -198,6 +198,7 @@ namespace PSXRacing.EditorTools
                 log.Append(string.Format(inv, "cost: {0} tiles, {1:0} triangles, {2:0} vertices, {3:0.0} submeshes (draws) a tile; build {4:0} ms a tile\n",
                     cache.Count, cache.Count > 0 ? sumT / (double)cache.Count : 0, cache.Count > 0 ? sumV / (double)cache.Count : 0, cache.Count > 0 ? sumD / (double)cache.Count : 0, built > 0 ? buildMs / built : 0));
                 log.Append($"rays: {raysCast} cast, {raysEscaped} met nothing, {raysUnder} of them went under the land, {raysBack} met a face from behind first (SEETHRU hits)\n");
+                if (backNotes.Count > 0) File.WriteAllText(Path.Combine(root, $"city_islandgate_{tag}_back.tsv"), "x\tz\ty\tmesh\tnormal\teye\n" + string.Join("\n", backNotes) + "\n");
                 log.Append(arcLine.ToString()); arcLine.Clear();
                 log.Append(string.Format(inv, "TOTAL | RAISED {0} SEETHRU {1} OVERLAY {2} LINEUNDER {3} HOLES {4} LAYERS {5} STEP {6}\n", totals[0], totals[1], totals[2], totals[3], totals[4], totals[5], totals[6]));
                 log.Append(string.Format(inv, "tiles built {0}, {1:0} ms a tile; islands {2} ({3:0} m2), tips paved {4} cells, overlays out {5}, inside out {6}, poke verts {7}, skipped at a border {8}, too big {9}; median runs filled {10} sections, dropped {11} runs; {12:0} s\n",
@@ -418,6 +419,8 @@ namespace PSXRacing.EditorTools
         }
 
         static int raysCast, raysEscaped, raysUnder, raysBack;
+        /// <summary>(road-surface round 2) Each see-through hit: where, which mesh, its normal, the eye.</summary>
+        static readonly List<string> backNotes = new List<string>();
         static readonly float[] Heights = { 0.6f, 1.1f, 1.8f };
         static readonly float[] Pitches = { -2f, -4f, -7f, -12f, -20f, -35f };
 
@@ -446,6 +449,7 @@ namespace PSXRacing.EditorTools
                             raysBack++;
                             long kb = Key(Mathf.FloorToInt(hb.point.x / CityMeshes.TileSize), Mathf.FloorToInt(hb.point.z / CityMeshes.TileSize));
                             if (cache.TryGetValue(kb, out var thb)) thb.hits[1].Add(hb.point);
+                            if (backNotes.Count < 400) backNotes.Add(string.Format(CultureInfo.InvariantCulture, "{0:0.0}\t{1:0.0}\t{2:0.00}\t{3}\tn=({4:0.00},{5:0.00},{6:0.00})\tfrom ({7:0.0},{8:0.0})", hb.point.x, hb.point.z, hb.point.y, hb.collider != null ? hb.collider.name : "?", hb.normal.x, hb.normal.y, hb.normal.z, o.x, o.z));
                             continue;
                         }
                         if (Physics.Raycast(o, dir, 120f)) continue;

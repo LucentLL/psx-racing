@@ -131,7 +131,8 @@ namespace PSXRacing.City
                 }
                 // an inside edge stops its lines at its stop line
                 float sStop = em != null && JunctionMeasures.PicksOn ? em.stop : float.NaN;
-                float sEnd = inside && !float.IsNaN(sStop) ? Mathf.Min(s1, sStop) : s1;
+                bool toStop = !inside && !float.IsNaN(sStop) && js.nodes.Contains(e.b) && sStop > s0;
+                float sEnd = (inside || toStop) && !float.IsNaN(sStop) ? Mathf.Min(s1, sStop) : s1;
                 bool kerbR = em == null || em.kindR == 0, paintL = em != null && em.kindL == 2;
                 for (int idx = 0; idx <= f.nRule; idx++)
                 {
@@ -164,7 +165,7 @@ namespace PSXRacing.City
                         continue;
                     }
                     // an arm's broken lines inside the junction are the through pairing's (row to row)
-                    if (!inside && kind == JunctionMeasures.LkBroken) continue;
+                    if (!inside && !toStop && kind == JunctionMeasures.LkBroken) continue;
                     if (kind == JunctionMeasures.LkYellow2) { RsLine(tm.origin, e, a, b, s => Lat(s) - 0.12f, true, false); RsLine(tm.origin, e, a, b, s => Lat(s) + 0.12f, true, false); }
                     else RsLine(tm.origin, e, a, b, Lat, kind == JunctionMeasures.LkYellow || (kind == JunctionMeasures.LkEdge && idx == f.nRule), kind == JunctionMeasures.LkBroken);
                 }
