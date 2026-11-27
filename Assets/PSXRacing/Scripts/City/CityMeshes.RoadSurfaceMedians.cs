@@ -73,6 +73,14 @@ namespace PSXRacing.City
                     int ei = q == 0 ? ns.a : ns.b;
                     var f = JunctionMeasures.FitOf(ei);
                     if (f == null || !f.oneway || !js.rowOf.TryGetValue(ei, out float row)) continue;
+                    // the junction's land ends on the line between the two arms' rows: both halves start at the nearer row
+                    // (they lap the junction's own land, of the same kind), never nearer than the nose's own flank
+                    if (js.rowOf.TryGetValue(q == 0 ? ns.b : ns.a, out float rowOther) && rowOther < row)
+                    {
+                        float flank = 0f;
+                        foreach (var cn in js.res.corners) if (cn.a == ns.a && cn.b == ns.b) flank = q == 0 ? cn.sA : cn.sB;
+                        row = Mathf.Max(flank + 0.5f, rowOther - 0.5f);
+                    }
                     if (!set.edges.TryGetValue(ei, out var em) || em.kindL != 0) continue;
                     var e = map.edges[ei]; bool atA = js.nodes.Contains(e.a);
                     bool paved = ns.kind == 1;

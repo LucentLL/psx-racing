@@ -49,6 +49,9 @@ namespace PSXRacing.City
             /// measure is its middle (pavement goes on beyond), its doubled yellow line lies shoulderL metres inside and
             /// the strip between is hatched; 3 a lane line only (pavement goes on beyond it, no hatch).</summary>
             public byte kindL, kindR; public float shoulderL, shoulderR;
+            /// <summary>(round 2) A side's measure ENDS at this station (NaN: no end): beyond it that side is the rule's at
+            /// once, no blend (where a merge zone's aux lane takes over from a lane line).</summary>
+            public float untilL = float.NaN, untilR = float.NaN;
             /// <summary>(round 2) LANE PICKS: see JunctionMeasures.Fit.cs.</summary>
             public List<LineM> lines = new List<LineM>();
             /// <summary>(round 2, hand file) Turn arrows: (station of the head, offset of the lane's middle, -1 left / +1 right).</summary>
@@ -87,7 +90,7 @@ namespace PSXRacing.City
 
         public sealed class NoseM { public int a, b; public Vector2 capA, capB; public float r = 1.2f; public int kind; }
         public sealed class ReturnM { public int a, b; public float r; }
-        public sealed class PavedM { public int a, b; public bool open; public float at; public List<Vector2> pts = new List<Vector2>(); }
+        public sealed class PavedM { public int a, b; public bool open, squareB; public float at; public List<Vector2> pts = new List<Vector2>(); }
         public sealed class IslandM { public List<Vector2> pts = new List<Vector2>(); public List<float> r = new List<float>(); public int kind = 1; public float kerb = 0.15f; }
         public sealed class JunctionM
         {
@@ -146,6 +149,7 @@ namespace PSXRacing.City
         /// <summary>The text form (one item a line, '#' comments):
         ///   provider hand|survey
         ///   edge ID [blend M] [hold a|b|ab] [shift M] [lanes N] [left kerb|shoulder M|paint M|line] [right kerb|shoulder M|line]
+        ///           [leftuntil S] [rightuntil S]
         ///                                               then lines:  s STATION LEFT RIGHT   ('-' = no measure on that side)
         ///                                                            line INDEX broken|solid|yellow2|yellow|edge|none [paint] [hatch]
         ///                                                            p STATION OFFSET   (rows of the line above)
@@ -154,7 +158,8 @@ namespace PSXRacing.City
         ///   junction NAME nodes N N ...  then lines:  nose A B X1 Z1 X2 Z2 r M kind grass|concrete
         ///                                             return A B r M
         ///                                             island kind concrete|grass kerb M pts X,Z,R X,Z,R ...
-        ///                                             paved A B open at M | paved A B pts X,Z X,Z ... (a corner paved up to a line)
+        ///                                             paved A B open at M [onb] | paved A B pts X,Z X,Z ... (a corner paved up to a line;
+        ///                                                 onb: the cut stands square across B at M along B - a merge's host)
         ///                                             row EDGE M (the edge's end row at least M out)
         ///                                             drop EDGE      join N N</summary>
         public static Set Parse(string text)
@@ -180,6 +185,8 @@ namespace PSXRacing.City
                             else if (t[i] == "hold") { e.holdA = t[i + 1].Contains("a"); e.holdB = t[i + 1].Contains("b"); }
                             else if (t[i] == "shift") e.shift = F(t[i + 1]);
                             else if (t[i] == "lanes") e.lanes = int.Parse(t[i + 1], inv);
+                            else if (t[i] == "leftuntil") e.untilL = F(t[i + 1]);
+                            else if (t[i] == "rightuntil") e.untilR = F(t[i + 1]);
                             else if (t[i] == "left" || t[i] == "right")
                             {
                                 // left|right kerb | shoulder M | paint M | line
@@ -235,7 +242,7 @@ namespace PSXRacing.City
                         // paved A B open at M   |   paved A B pts X,Z X,Z ...
                         if (j == null) break;
                         { var pv = new PavedM { a = int.Parse(t[1], inv), b = int.Parse(t[2], inv) }; int i = 3;
-                          for (; i < t.Length && t[i] != "pts"; i++) { if (t[i] == "open") pv.open = true; else if (t[i] == "at" && i + 1 < t.Length) { pv.at = F(t[i + 1]); i++; } }
+                          for (; i < t.Length && t[i] != "pts"; i++) { if (t[i] == "open") pv.open = true; else if (t[i] == "onb") pv.squareB = true; else if (t[i] == "at" && i + 1 < t.Length) { pv.at = F(t[i + 1]); i++; } }
                           for (i++; i < t.Length; i++) { var c = t[i].Split(','); pv.pts.Add(new Vector2(F(c[0]), F(c[1]))); }
                           j.paved.Add(pv); }
                         break;
@@ -279,6 +286,8 @@ namespace PSXRacing.City
             if (s < sMin) w = m.holdA ? 1f : 1f - Mathf.SmoothStep(0f, 1f, (sMin - s) / Mathf.Max(1f, Mathf.Min(m.blend, sMin - 0.5f)));
             else if (s > sMax) w = m.holdB ? 1f : 1f - Mathf.SmoothStep(0f, 1f, (s - sMax) / Mathf.Max(1f, Mathf.Min(m.blend, edgeLength - 0.5f - sMax)));
             else w = 1f;
+            float until = left ? m.untilL : m.untilR;
+            if (!float.IsNaN(until) && s > until) w = 0f;
             return true;
         }
 
@@ -310,6 +319,8 @@ namespace PSXRacing.City
                     float sign = armLeft ? 1f : -1f;
                     float rule = Vector2.Dot(border[k] - arm.C[k], left) * sign;
                     float w = d <= dFar ? 1f : 1f - Mathf.SmoothStep(0f, 1f, (d - dFar) / blend);
+                    float until = edgeLeft ? m.untilL : m.untilR;
+                    if (!float.IsNaN(until) && s > until) w = 0f;
                     border[k] = arm.C[k] + left * (sign * Mathf.Lerp(rule, off, w));
                 }
                 if (armLeft) arm.measL = true; else arm.measR = true;
@@ -326,7 +337,7 @@ namespace PSXRacing.City
             if (j == null) return m;
             foreach (var ns in j.noses) m.noses.Add(new JunctionOutline.Nose { a = ns.a, b = ns.b, capA = ns.capA - origin, capB = ns.capB - origin, r = ns.r, kind = ns.kind });
             foreach (var rt in j.returns) m.returns.Add(new JunctionOutline.Return { a = rt.a, b = rt.b, r = rt.r });
-            foreach (var pv in j.paved) { var q = new JunctionOutline.Paved { a = pv.a, b = pv.b, open = pv.open, at = pv.at }; foreach (var p in pv.pts) q.pts.Add(p - origin); m.paved.Add(q); }
+            foreach (var pv in j.paved) { var q = new JunctionOutline.Paved { a = pv.a, b = pv.b, open = pv.open, at = pv.at, squareB = pv.squareB }; foreach (var p in pv.pts) q.pts.Add(p - origin); m.paved.Add(q); }
             foreach (var kv in j.rows) m.rows[kv.Key] = kv.Value;
             foreach (var im in j.islands)
             {

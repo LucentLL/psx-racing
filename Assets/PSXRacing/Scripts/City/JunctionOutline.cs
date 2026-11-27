@@ -73,7 +73,7 @@ namespace PSXRacing.City
         /// open: the two arms run on as one pavement (a painted median or a painted triangle between converging arms):
         /// no corner, their rows on one cut line 'at' metres out. Else: the pavement's limit is the line through pts
         /// (from a's border to b's, e.g. across the mouth of a street the map lacks), a kerb along it.</summary>
-        public sealed class Paved { public int a, b; public bool open; public float at; public List<Vector2> pts = new List<Vector2>(); }
+        public sealed class Paved { public int a, b; public bool open, squareB; public float at; public List<Vector2> pts = new List<Vector2>(); }
         public sealed class Measures
         {
             public List<Paved> paved = new List<Paved>();
@@ -92,6 +92,9 @@ namespace PSXRacing.City
             /// <summary>(round 2) A corner paved up to a measured line between two arms of ONE road going on (the mouth
             /// of a street the map lacks): the road's lanes and lines carry across as at a through corner.</summary>
             public bool through;
+            /// <summary>(round 2) A measured abreast corner whose cut stands square across the RIGHT arm (b) at sA metres
+            /// along it (a merge's host: the ramp ends on its host's cross-line).</summary>
+            public bool cutB;
         }
         public sealed class Result
         {
@@ -265,7 +268,7 @@ namespace PSXRacing.City
                 if (reach[(i + 1) % n] > 0f) { int kr = Mathf.Min(b.C.Count - 1, Mathf.CeilToInt(reach[(i + 1) % n] / Step)); Project(a.C, b.C[kr], out _, out float sr); s0 = Mathf.Max(s0, sr); }
                 var bl = res.corners[(i + 1) % n];   // b's left corner: its station on b, carried across to a
                 if (bl.sA > 0f) { int kb = Mathf.Min(b.C.Count - 1, Mathf.CeilToInt(bl.sA / Step) + 2); Project(a.C, b.C[kb], out _, out float sa2); s0 = Mathf.Max(s0, sa2 + Step); }
-                bool cut = AbreastLine(a, b, s0, c);
+                bool cut = c.cutB ? AbreastLineB(a, b, c.sA, c) : AbreastLine(a, b, s0, c);
                 // (road-surface stage 1; spot 77) no room for the cut because b's own kerb return runs far along it (the class
                 // radius at an acute corner: r 12 m took 28.7 m of a 35 m arm): that return is shrunk (x 0.7, at most four
                 // times; never a measured one) until the row fits beyond its tangent point
@@ -472,7 +475,7 @@ namespace PSXRacing.City
             {
                 foreach (var pv in meas.paved) if (pv.a == A.id && pv.b == B.id)
                 {
-                    if (pv.open) { c.shape = "abreast"; c.sA = pv.at; c.note = "paved to a measured line"; return c; }
+                    if (pv.open) { c.shape = "abreast"; c.sA = pv.at; c.cutB = pv.squareB; c.note = "paved to a measured line"; return c; }
                     if (PavedCorner(A, B, pv, c)) { c.through = Mathf.Abs(Mathf.DeltaAngle(A.head, B.head)) >= ThroughDeg; return c; }
                     c.shape = "paved-not-found"; c.note = "the measured line does not start and end on the two borders"; c.tA = A.L[0]; c.tB = B.R[0]; return c;
                 }
@@ -555,6 +558,26 @@ namespace PSXRacing.City
                 if (sb < MinRowM) continue;
                 c.lineP = A.C[k]; c.lineD = nrm;
                 if (Vector2.Dot(pb - pa, nrm) < 0f) { var m = 0.5f * (pa + pb); pa = m; pb = m; }
+                c.tA = pa; c.tB = pb; c.sA = sa; c.sB = sb;
+                c.pts.Clear(); c.pts.Add(pa); if ((pb - pa).sqrMagnitude > 1e-6f) c.pts.Add(pb);
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>(round 2) The abreast cut square across the RIGHT arm B at station s0 along it (or the first beyond it
+        /// that crosses both of A's borders).</summary>
+        static bool AbreastLineB(Arm A, Arm B, float s0, Corner c)
+        {
+            for (int k = Mathf.CeilToInt(s0 / Step); k < B.C.Count; k++)
+            {
+                var t = Tangent(B.C, k); var nrm = new Vector2(-t.y, t.x);
+                if (!LineCross(B.R, B.C[k], nrm, B.R[k], out var pb, out float sb)) continue;
+                if (!LineCross(A.L, B.C[k], nrm, B.R[k], out var pa, out float sa)) continue;
+                if (!LineCross(A.R, B.C[k], nrm, B.R[k], out _, out _)) continue;
+                c.lineP = B.C[k]; c.lineD = nrm;
+                // B's left is along +nrm: A's left border beyond B's right border on that side = the two overlap
+                if (Vector2.Dot(pa - pb, nrm) > 0f) { var m = 0.5f * (pa + pb); pa = m; pb = m; }
                 c.tA = pa; c.tB = pb; c.sA = sa; c.sB = sb;
                 c.pts.Clear(); c.pts.Add(pa); if ((pb - pa).sqrMagnitude > 1e-6f) c.pts.Add(pb);
                 return true;

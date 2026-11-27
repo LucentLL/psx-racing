@@ -113,7 +113,7 @@ namespace PSXRacing.City
             for (int k = 0; k < n; k++)
             {
                 float s = Mathf.Min(k * FeedStepM, e.length);
-                float w = oneway ? wR[k] : Mathf.Min(wL[k], wR[k]);
+                float w = oneway ? Mathf.Max(wR[k], wL[k]) : Mathf.Min(wL[k], wR[k]);
                 f.wgt[k] = w; any |= w > 0f;
                 var pt = e.PointAt(s); var t = e.TangentAt(s); var left = new Vector2(-t.y, t.x);
                 float auxP = LineModel.AuxWidth(e, s, 1), auxM = LineModel.AuxWidth(e, s, -1);
@@ -123,6 +123,9 @@ namespace PSXRacing.City
                 // keeps its place against the median only if it fits beside the lanes (below)
                 float lim = mL[k] - gL;
                 f.leftPave[k] = mL[k] - gL; f.leftRaw[k] = mL[k]; f.rightRaw[k] = -mR[k];
+                // the outer edge not measured here (the rule's: a merge's aux lane, an unmeasured side) but the median
+                // edge is: the map's lanes at the rule's width, laid from the MEDIAN side
+                if (oneway && wR[k] < 0.5f && wL[k] >= 0.5f) A[k] = lim - cap * RoadProfiles.LaneM;
                 if (set != null) lim = Mathf.Min(lim, IslandFrom(set, pt, left, A[k] + 1.5f, mL[k]));
                 clear[k] = lim - A[k];
             }
@@ -201,6 +204,8 @@ namespace PSXRacing.City
                 if (f.oneway)
                 {
                     if (kind == LineModel.KEdgeP) fit = f.Lerp(f.edgeP, s);
+                    // the right edge line rides a rule's aux lane (a merge) out, as the rule's does
+                    else if (kind == LineModel.KEdgeM) fit = f.Bnd(0, s) - LineModel.AuxLineShift(e, s, -1);
                     else
                     {
                         int idx = Mathf.Clamp(Mathf.RoundToInt(tm / RoadProfiles.LaneM), 0, f.nRule);
