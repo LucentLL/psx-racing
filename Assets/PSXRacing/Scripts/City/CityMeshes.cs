@@ -1196,7 +1196,7 @@ namespace PSXRacing.City
                              Vector2 ua, Vector2 ub, Vector2 uc, Vector2 ud)
             {
                 // (road-surface stage 1) one owner per surface: nothing of another method inside a junction's outline
-                if ((RsMaskOn && RsMasked((a + b + c + d) * 0.25f)) || (RsPaintMaskOn && rsPaintLines.Count > 0 && RsSoft(this) && RsOnPaint((a + b + c + d) * 0.25f))) { RsMaskedTris += 2; return; }
+                if ((RsMaskOn && RsMasked((a + b + c + d) * 0.25f)) || (RsPaintMaskOn && rsPaintLines.Count + rsShoulderLines.Count > 0 && RsSoft(this) && RsOnPaint((a + b + c + d) * 0.25f, ReferenceEquals(this, kerbBucket)))) { RsMaskedTris += 2; return; }
                 int i = v.Count;
                 v.Add(a); v.Add(b); v.Add(c); v.Add(d);
                 uv.Add(ua); uv.Add(ub); uv.Add(uc); uv.Add(ud);
@@ -1210,7 +1210,7 @@ namespace PSXRacing.City
 
             public void Tri(Vector3 a, Vector3 b, Vector3 c, Vector2 ua, Vector2 ub, Vector2 uc)
             {
-                if ((RsMaskOn && RsMasked((a + b + c) * (1f / 3f))) || (RsPaintMaskOn && rsPaintLines.Count > 0 && RsSoft(this) && RsOnPaint((a + b + c) * (1f / 3f)))) { RsMaskedTris++; return; }
+                if ((RsMaskOn && RsMasked((a + b + c) * (1f / 3f))) || (RsPaintMaskOn && rsPaintLines.Count + rsShoulderLines.Count > 0 && RsSoft(this) && RsOnPaint((a + b + c) * (1f / 3f), ReferenceEquals(this, kerbBucket)))) { RsMaskedTris++; return; }
                 int i = v.Count;
                 v.Add(a); v.Add(b); v.Add(c);
                 uv.Add(ua); uv.Add(ub); uv.Add(uc);

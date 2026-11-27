@@ -47,10 +47,11 @@ namespace PSXRacing.City
         /// median's middle, a lane line with pavement beyond). The rule's kerb, verge and median pieces within
         /// RsPaintMaskM of one are not laid (the two ribbons lap there: one pavement).</summary>
         static readonly List<Vector2[]> rsPaintLines = new List<Vector2[]>(8);
+        static readonly List<Vector2[]> rsShoulderLines = new List<Vector2[]>(8);
         const float RsPaintMaskM = 0.9f;
         static void RsPaintLinesFor(CityMap map, Vector2 min, Vector2 max)
         {
-            rsPaintLines.Clear();
+            rsPaintLines.Clear(); rsShoulderLines.Clear();
             var set = JunctionMeasures.Current;
             if (map == null || set == null || JunctionMeasures.Fits.Count == 0) return;
             foreach (var f in JunctionMeasures.Fits.Values)
@@ -60,7 +61,7 @@ namespace PSXRacing.City
                 for (int side = 0; side < 2; side++)
                 {
                     byte kd = side == 0 ? em.kindL : em.kindR;
-                    if (kd != 2 && kd != 3) continue;
+                    if (kd == 0) continue;
                     var pts = new List<Vector2>(64); bool near = false;
                     for (float s = 0f; ; s += 2f)
                     {
@@ -73,18 +74,19 @@ namespace PSXRacing.City
                         }
                         if (s >= e.length) break;
                     }
-                    if (near && pts.Count >= 2) rsPaintLines.Add(pts.ToArray());
+                    if (near && pts.Count >= 2) (kd == 1 ? rsShoulderLines : rsPaintLines).Add(pts.ToArray());
                 }
             }
         }
-        static bool RsOnPaint(Vector3 localCentre)
+        static bool RsOnPaint(Vector3 localCentre, bool kerb = false)
         {
             if (rsOwn) return false;
             var w = new Vector2(localCentre.x + rsOrigin.x, localCentre.z + rsOrigin.z);
             float r2 = RsPaintMaskM * RsPaintMaskM;
-            for (int i = 0; i < rsPaintLines.Count; i++)
+            int np = rsPaintLines.Count, n = np + (kerb ? rsShoulderLines.Count : 0);
+            for (int i = 0; i < n; i++)
             {
-                var pl = rsPaintLines[i];
+                var pl = i < np ? rsPaintLines[i] : rsShoulderLines[i - np];
                 for (int k = 0; k + 1 < pl.Length; k++)
                 {
                     var a = pl[k]; var ab = pl[k + 1] - a; float l2 = ab.sqrMagnitude;
@@ -283,7 +285,17 @@ namespace PSXRacing.City
                     // (round 2) two arms abreast (a corner paved up to a line): the piece of their cut line between
                     // their rows is open pavement, no kerb
                     if (corner != null && corner.shape == "abreast") continue;
-                    EmitRsRun(map, trims, tm, js, cp, cy, median, corner);
+                    // (round 2) THE EDGE KIND: a run between two sides the measure calls a shoulder has no kerb
+                    bool flush = false;
+                    if (corner != null && !median)
+                    {
+                        var mset = JunctionMeasures.Current;
+                        JunctionOutline.Arm armA = null, armB = null;
+                        foreach (var ar in r.arms) { if (ar.id == corner.a) armA = ar; if (ar.id == corner.b) armB = ar; }
+                        if (mset != null && armA != null && armB != null && mset.edges.TryGetValue(corner.a, out var ma) && mset.edges.TryGetValue(corner.b, out var mb))
+                            flush = (armA.fromA ? ma.kindL : ma.kindR) == 1 && (armB.fromA ? mb.kindR : mb.kindL) == 1;
+                    }
+                    EmitRsRun(map, trims, tm, js, cp, cy, median, corner, flush);
                 }
             }
 
@@ -311,8 +323,23 @@ namespace PSXRacing.City
 
         /// <summary>One free run of the outline (anticlockwise: the land on its right): the kerb's face and top on the run's
         /// own vertices (thinned on straights), then the verge (open ground) or the median's land closed against it.</summary>
-        static void EmitRsRun(CityMap map, Trims trims, TileMeshes tm, JunctionSurfaces.Built js, List<Vector2> cp, List<float> cy, bool median, JunctionOutline.Corner corner)
+        static void EmitRsRun(CityMap map, Trims trims, TileMeshes tm, JunctionSurfaces.Built js, List<Vector2> cp, List<float> cy, bool median, JunctionOutline.Corner corner, bool flush = false)
         {
+            if (flush)
+            {
+                // a shoulder: no kerb; the open ground starts at the pavement's own edge, at its height
+                var o0 = tm.origin; var org0 = js.origin;
+                Vector3 W0(Vector2 p, float y) => new Vector3(p.x + org0.x - o0.x, y, p.y + org0.y - o0.z);
+                var kp = RsThin(cp, cy);
+                for (int k = 0; k + 1 < kp.Count; k++)
+                {
+                    var a = cp[kp[k]]; var b = cp[kp[k + 1]]; var d0 = b - a; float l0 = d0.magnitude; if (l0 < 1e-4f) continue;
+                    var n0 = new Vector2(d0.y, -d0.x) / l0;
+                    if (groundLog != null) groundTag = $"road-surface shoulder {js.name}";
+                    EmitVergeLine(map, trims, tm, W0(a, cy[kp[k]]), W0(b, cy[kp[k + 1]]), n0, n0, 0.3f);
+                }
+                return;
+            }
             var r = js.res; var o = tm.origin; var org = js.origin;
             Vector3 W(Vector2 p, float y) => new Vector3(p.x + org.x - o.x, y, p.y + org.y - o.z);
             var keep = RsThin(cp, cy); int m = keep.Count; if (m < 2) return;
