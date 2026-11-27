@@ -161,8 +161,13 @@ namespace PSXRacing.City
                 var travel = -OutDir(A, nA);
                 var rel = (c.pts.Count > 0 ? c.pts[c.pts.Count / 2] + org : map.nodes[nA]) - map.nodes[nA];
                 bool closedLeft = travel.x * rel.y - travel.y * rel.x > 0f;
-                RsThroughLines += ThroughPair(map, trims, A, nA, B, nB, closedLeft ? false : otherOpen, closedLeft ? otherOpen : false, tm.origin, false, null);
+                // (round 2) paired in the world; no edge line across (the measured kerb runs there)
+                bool ne0 = tpNoEdges; tpNoEdges = true; tpWorldTol = 1.3f;
+                try { RsThroughLines += ThroughPair(map, trims, A, nA, B, nB, closedLeft ? false : otherOpen, closedLeft ? otherOpen : false, tm.origin, false, null); }
+                finally { tpNoEdges = ne0; tpWorldTol = 0f; }
             }
+            // (round 2) the junction's own paint: lines along islands, an inside edge's lanes, picks (RoadSurfacePaint.cs)
+            RsPaint(map, trims, tm, js);
             int t0 = bk.t.Count;
             if (throughStrips.Count > 0)
             {
@@ -222,6 +227,9 @@ namespace PSXRacing.City
                         foreach (var p in cp) { float d = (p - m).magnitude; if (d < bd) { bd = d; corner = c; } }
                     }
                     bool median = corner != null && (corner.shape == "connector" || corner.shape == "nose");
+                    // (round 2) two arms abreast (a corner paved up to a line): the piece of their cut line between
+                    // their rows is open pavement, no kerb
+                    if (corner != null && corner.shape == "abreast") continue;
                     EmitRsRun(map, trims, tm, js, cp, cy, median, corner);
                 }
             }

@@ -50,6 +50,10 @@ namespace PSXRacing.City
             public byte kindL, kindR; public float shoulderL, shoulderR;
             /// <summary>(round 2) LANE PICKS: see JunctionMeasures.Fit.cs.</summary>
             public List<LineM> lines = new List<LineM>();
+            /// <summary>(round 2, hand file) Turn arrows: (station of the head, offset of the lane's middle, -1 left / +1 right).</summary>
+            public List<Vector3> arrows = new List<Vector3>();
+            /// <summary>(round 2, hand file) The stop line's station (NaN: none).</summary>
+            public float stop = float.NaN;
         }
         public const byte LkBroken = 0, LkSolid = 1, LkYellow2 = 2, LkEdge = 3, LkNone = 4, LkYellow = 5;
 
@@ -75,11 +79,13 @@ namespace PSXRacing.City
 
         public sealed class NoseM { public int a, b; public Vector2 capA, capB; public float r = 1.2f; public int kind; }
         public sealed class ReturnM { public int a, b; public float r; }
+        public sealed class PavedM { public int a, b; public bool open; public float at; public List<Vector2> pts = new List<Vector2>(); }
         public sealed class IslandM { public List<Vector2> pts = new List<Vector2>(); public List<float> r = new List<float>(); public int kind = 1; public float kerb = 0.15f; }
         public sealed class JunctionM
         {
             public string name = ""; public List<int> nodes = new List<int>();
             public List<NoseM> noses = new List<NoseM>(); public List<ReturnM> returns = new List<ReturnM>(); public List<IslandM> islands = new List<IslandM>();
+            public List<PavedM> paved = new List<PavedM>();
             public List<int> drop = new List<int>(); public List<(int a, int b)> join = new List<(int, int)>();
             public Dictionary<int, float> rows = new Dictionary<int, float>();   // per edge: its end row at least this far out
         }
@@ -135,9 +141,12 @@ namespace PSXRacing.City
         ///                                               then lines:  s STATION LEFT RIGHT   ('-' = no measure on that side)
         ///                                                            line INDEX broken|solid|yellow2|yellow|edge|none [paint]
         ///                                                            p STATION OFFSET   (rows of the line above)
+        ///                                                            arrow STATION OFFSET left|right
+        ///                                                            stop STATION
         ///   junction NAME nodes N N ...  then lines:  nose A B X1 Z1 X2 Z2 r M kind grass|concrete
         ///                                             return A B r M
         ///                                             island kind concrete|grass kerb M pts X,Z,R X,Z,R ...
+        ///                                             paved A B open at M | paved A B pts X,Z X,Z ... (a corner paved up to a line)
         ///                                             row EDGE M (the edge's end row at least M out)
         ///                                             drop EDGE      join N N</summary>
         public static Set Parse(string text)
@@ -182,6 +191,11 @@ namespace PSXRacing.City
                     case "p":
                         if (ln != null) ln.st.Add(new Vector2(F(t[1]), F(t[2])));
                         break;
+                    case "stop": if (e != null) e.stop = F(t[1]); break;
+                    case "arrow":
+                        // arrow STATION OFFSET left|right
+                        if (e != null) e.arrows.Add(new Vector3(F(t[1]), F(t[2]), t.Length > 3 && t[3] == "right" ? 1f : -1f));
+                        break;
                     case "s":
                         if (e == null) break;
                         e.st.Add(new Station { s = F(t[1]), left = t[2] == "-" ? float.NaN : F(t[2]), right = t[3] == "-" ? float.NaN : F(t[3]) }); break;
@@ -207,6 +221,14 @@ namespace PSXRacing.City
                           for (; i + 1 < t.Length && t[i] != "pts"; i += 2) { if (t[i] == "kind") im.kind = Kind(t[i + 1]); else if (t[i] == "kerb") im.kerb = F(t[i + 1]); }
                           for (i++; i < t.Length; i++) { var c = t[i].Split(','); im.pts.Add(new Vector2(F(c[0]), F(c[1]))); im.r.Add(c.Length > 2 ? F(c[2]) : 0.5f); }
                           if (im.pts.Count >= 3) j.islands.Add(im); }
+                        break;
+                    case "paved":
+                        // paved A B open at M   |   paved A B pts X,Z X,Z ...
+                        if (j == null) break;
+                        { var pv = new PavedM { a = int.Parse(t[1], inv), b = int.Parse(t[2], inv) }; int i = 3;
+                          for (; i < t.Length && t[i] != "pts"; i++) { if (t[i] == "open") pv.open = true; else if (t[i] == "at" && i + 1 < t.Length) { pv.at = F(t[i + 1]); i++; } }
+                          for (i++; i < t.Length; i++) { var c = t[i].Split(','); pv.pts.Add(new Vector2(F(c[0]), F(c[1]))); }
+                          j.paved.Add(pv); }
                         break;
                     case "row": if (j != null) j.rows[int.Parse(t[1], inv)] = F(t[2]); break;
                     case "drop": if (j != null) j.drop.Add(int.Parse(t[1], inv)); break;
@@ -295,6 +317,7 @@ namespace PSXRacing.City
             if (j == null) return m;
             foreach (var ns in j.noses) m.noses.Add(new JunctionOutline.Nose { a = ns.a, b = ns.b, capA = ns.capA - origin, capB = ns.capB - origin, r = ns.r, kind = ns.kind });
             foreach (var rt in j.returns) m.returns.Add(new JunctionOutline.Return { a = rt.a, b = rt.b, r = rt.r });
+            foreach (var pv in j.paved) { var q = new JunctionOutline.Paved { a = pv.a, b = pv.b, open = pv.open, at = pv.at }; foreach (var p in pv.pts) q.pts.Add(p - origin); m.paved.Add(q); }
             foreach (var kv in j.rows) m.rows[kv.Key] = kv.Value;
             foreach (var im in j.islands)
             {

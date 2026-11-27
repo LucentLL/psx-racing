@@ -575,6 +575,13 @@ namespace PSXRacing.EditorTools
                     bool surf = CityMeshes.RoadSurfaceOn;
                     if (surf && JunctionMeasures.LaneCentres(e, s, fitLanes, out float bLo, out float bHi))
                     {
+                        // inside its junction only the lanes that go on across it (a turn lane whose exit the map lacks
+                        // ends at the row)
+                        if (fitLanes.Count > 1 && JunctionSurfaces.CarriedAt(e, s, out int k0, out int k1) && k1 < fitLanes.Count)
+                        {
+                            float lw = fitLanes[1] - fitLanes[0];
+                            bLo = fitLanes[k0] - 0.5f * lw; bHi = fitLanes[k1] + 0.5f * lw;
+                        }
                         lo = bLo + 0.3f;
                         float aux = LineModel.AuxWidth(e, s, 1);
                         if (aux > 2f) { gapLo = bHi - 0.3f; gapHi = (eP - e.shl) - aux + 0.3f; }
@@ -585,7 +592,8 @@ namespace PSXRacing.EditorTools
                     {
                         if (l > gapLo && l < gapHi) continue;
                         var q = pt + left * l;
-                        if (surf && JunctionSurfaces.OnIsland(q)) continue;
+                        // (a cell is 0.5 m: a sample within 0.4 m of the island's kerb reads the island's cell)
+                        if (surf && JunctionSurfaces.OnIsland(q, 0.4f)) continue;
                         int i = Mathf.FloorToInt((q.x - o.x - m0) / Cell), j = Mathf.FloorToInt((q.y - o.z - m0) / Cell);
                         if (i < 0 || j < 0 || i >= N || j >= N) continue;
                         if (q.x < o.x || q.y < o.z || q.x >= o.x + CityMeshes.TileSize || q.y >= o.z + CityMeshes.TileSize) continue;

@@ -408,7 +408,12 @@ namespace PSXRacing.City
         {
             // roads pass L5 (plan A9): a ramp between its nose and its node
             // drives the host's aux lane (the ramp's own ribbon ends at N)
-            if (CityMeshes.ZoneLanePoint(e, s, out var zp)) return zp;
+            if (CityMeshes.ZoneLanePoint(e, s, out var zp))
+            {
+                // (road-surface round 2) a bay inside its junction: its own line through the opening
+                if (CityMeshes.RoadSurfaceOn && JunctionSurfaces.BayLane(e, s, zp, out var bp)) return bp;
+                return zp;
+            }
             return OwnLanePoint(e, s);
         }
 

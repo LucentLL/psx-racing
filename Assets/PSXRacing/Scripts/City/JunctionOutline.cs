@@ -69,8 +69,14 @@ namespace PSXRacing.City
         public sealed class Island { public List<Vector2> pts = new List<Vector2>(); public List<float> r = new List<float>(); public int kind = 1; public float kerb = 0.15f; }
         /// <summary>A MEASURED KERB RETURN between arm a's left border and arm b's right border.</summary>
         public sealed class Return { public int a, b; public float r; }
+        /// <summary>(round 2) A corner PAVED UP TO A MEASURED LINE between arm a's left border and arm b's right border.
+        /// open: the two arms run on as one pavement (a painted median or a painted triangle between converging arms):
+        /// no corner, their rows on one cut line 'at' metres out. Else: the pavement's limit is the line through pts
+        /// (from a's border to b's, e.g. across the mouth of a street the map lacks), a kerb along it.</summary>
+        public sealed class Paved { public int a, b; public bool open; public float at; public List<Vector2> pts = new List<Vector2>(); }
         public sealed class Measures
         {
+            public List<Paved> paved = new List<Paved>();
             public List<Nose> noses = new List<Nose>(); public List<Island> islands = new List<Island>(); public List<Return> returns = new List<Return>();
             /// <summary>Per arm (its id): its end row stands at least this far out - where the junction's own land (a
             /// measured median end) takes over from the ribbon's median.</summary>
@@ -454,6 +460,12 @@ namespace PSXRacing.City
             // (road-surface stage 1) MEASURED: a median end (its cap line and radius) or a kerb return's radius
             if (meas != null)
             {
+                foreach (var pv in meas.paved) if (pv.a == A.id && pv.b == B.id)
+                {
+                    if (pv.open) { c.shape = "abreast"; c.sA = pv.at; c.note = "paved to a measured line"; return c; }
+                    if (PavedCorner(A, B, pv, c)) return c;
+                    c.shape = "paved-not-found"; c.note = "the measured line does not start and end on the two borders"; c.tA = A.L[0]; c.tB = B.R[0]; return c;
+                }
                 foreach (var ns in meas.noses) if (ns.a == A.id && ns.b == B.id)
                 {
                     if (MeasuredNose(A, B, ns, c)) return c;
@@ -667,6 +679,31 @@ namespace PSXRacing.City
                     return true;
                 }
             return false;
+        }
+
+        /// <summary>(round 2) A corner paved up to a measured line: a smooth curve through its points (the 1 cm / 6
+        /// degree rule), its two ends on the borders (within a metre: moved onto them).</summary>
+        static bool PavedCorner(Arm A, Arm B, Paved pv, Corner c)
+        {
+            var P = pv.pts; int n = P.Count; if (n < 2) return false;
+            var X = new List<Vector2>(); var seg = new List<Vector2>();
+            for (int i = 0; i + 1 < n; i++)
+            {
+                Vector2 m0 = i == 0 ? P[1] - P[0] : 0.5f * (P[i + 1] - P[i - 1]), m1 = i == n - 2 ? P[n - 1] - P[n - 2] : 0.5f * (P[i + 2] - P[i]);
+                // a Catmull-Rom tangent is per unit of parameter over TWO spans: scale to this span
+                float span = (P[i + 1] - P[i]).magnitude;
+                if (i > 0) m0 *= 2f * span / Mathf.Max(1e-3f, (P[i + 1] - P[i - 1]).magnitude);
+                if (i < n - 2) m1 *= 2f * span / Mathf.Max(1e-3f, (P[i + 2] - P[i]).magnitude);
+                Hermite(P[i], m0, P[i + 1], m1, seg);
+                for (int q = i == 0 ? 0 : 1; q < seg.Count; q++) X.Add(seg[q]);
+            }
+            Project(A.L, X[0], out var fa, out float sa); Project(B.R, X[X.Count - 1], out var fb, out float sb);
+            if ((fa - X[0]).magnitude > 1f || (fb - X[X.Count - 1]).magnitude > 1f) return false;
+            X[0] = fa; X[X.Count - 1] = fb;
+            c.shape = "arc"; c.note = "paved to a measured line"; c.r = 0f;
+            c.tA = fa; c.sA = sa; c.tB = fb; c.sB = sb;
+            c.pts.Clear(); c.pts.AddRange(X); Dedupe(c.pts);
+            return true;
         }
 
         public const float IslandRowM = 2f;   // a row stands this far beyond an island's end

@@ -78,6 +78,9 @@ namespace PSXRacing.City
             return best;
         }
 
+        /// <summary>Does a measured island's edge cross the section at pt between the offsets lo and hi?</summary>
+        public static bool IslandNear(Set set, Vector2 pt, Vector2 left, float lo, float hi) => set != null && !float.IsPositiveInfinity(IslandFrom(set, pt, left, lo, hi));
+
         /// <summary>The lanes of a measured edge: called by FeedLineModel with the edge's measured sides per station
         /// (mL / mR: the pavement's left / right offset, wL / wR: the measure's weight there, 0 where a side is the
         /// rule's). Returns the shift ease's samples (the lanes' centre off the rule's), null when the edge is not fitted.</summary>
@@ -192,8 +195,23 @@ namespace PSXRacing.City
                 ln.lat = Mathf.Lerp(ln.lat - shift, fit, wg);
                 into[w++] = ln;
             }
-            into.RemoveRange(w, into.Count - w);
-            into.Sort((a, b) => a.lat.CompareTo(b.lat));
+            into.RemoveRange(w, into.Count - w);   // (kept in the layout's order: the ribbon pairs two sections' lines by it)
+        }
+
+        /// <summary>The ribbon's hook (CityMeshes.DrawnLines): a KERBED measured side paints no edge line at the kerb
+        /// (the measure's edge kind; a line the fit laid well inside, along a buffer, stays).</summary>
+        public static void DropKerbEdgeLines(CityMap.Edge e, float s, LineModel.Layout lay, List<LineModel.LineAt> into)
+        {
+            var f = FitOf(e.index);
+            if (f == null || f.Lerp(f.wgt, s) < 0.5f) return;
+            var set = Current; EdgeM em = null;
+            if (set == null || !set.edges.TryGetValue(e.index, out em)) return;
+            for (int q = into.Count - 1; q >= 0; q--)
+            {
+                byte kind = lay.kind[into[q].k];
+                if (kind == LineModel.KEdgeP && em.kindL == 0 && (!f.oneway || f.Lerp(f.leftPave, s) - into[q].lat < 0.6f)) into.RemoveAt(q);
+                else if (kind == LineModel.KEdgeM && em.kindR == 0) into.RemoveAt(q);
+            }
         }
 
         /// <summary>The lanes of an edge at s as the fit lays them (their centres, offsets from the map line, right to

@@ -61,6 +61,10 @@ namespace PSXRacing.City
         static readonly HashSet<int> tpUsedB = new HashSet<int>();
         /// <summary>Round 4: while CrossingLines draws a fan holding a junction-complex link.</summary>
         static bool tpNoEdges;
+        /// <summary>(road-surface round 2) Over 0: ThroughPair pairs two arms' lines where one, carried straight on, comes
+        /// within this of the other in the WORLD (measured arms' lanes sit on their kerbs, not at a fixed place off their
+        /// map lines).</summary>
+        static float tpWorldTol;
 
         static void ReleaseStrips()
         {
@@ -167,7 +171,15 @@ namespace PSXRacing.City
                 if (edgeA && tpNoEdges) continue;   // round 4: no edge line across a median crossing
                 // an edge line on the side a street opens on is broken there
                 if (gaps == null && edgeA && ((leftA > 0f && sideLeft) || (leftA < 0f && sideRight))) { if (count) ThroughStats.nearEdgesDropped++; continue; }
-                int match = -1; float bestD = 0.3f;
+                int match = -1; float bestD = tpWorldTol > 0f ? tpWorldTol : 0.3f;
+                // (road-surface round 2) where the line, carried straight on, meets B's section (its lateral there)
+                float expB = float.NaN;
+                if (tpWorldTol > 0f)
+                {
+                    var p0 = pA + rA * la.lat; var tn = tA.normalized;
+                    float den = rB.x * tn.y - rB.y * tn.x;
+                    if (Mathf.Abs(den) > 1e-4f) expB = ((p0.x - pB.x) * tn.y - (p0.y - pB.y) * tn.x) / den;
+                }
                 for (int j = 0; j < tpLinesB.Count; j++)
                 {
                     if (tpUsedB.Contains(j)) continue;
@@ -176,7 +188,7 @@ namespace PSXRacing.City
                     bool edgeB = kb == LineModel.KEdgeP || kb == LineModel.KEdgeM;
                     if (edgeA != edgeB || (!edgeA && ka != kb)) continue;
                     float leftB = sgnB > 0f ? lb.lat : -lb.lat;
-                    float d = Mathf.Abs(leftA - leftB);
+                    float d = float.IsNaN(expB) ? Mathf.Abs(leftA - leftB) : Mathf.Abs(expB - lb.lat);
                     if (d < bestD) { bestD = d; match = j; }
                 }
                 if (match < 0) continue;

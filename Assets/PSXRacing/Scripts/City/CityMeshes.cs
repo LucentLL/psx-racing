@@ -4483,6 +4483,7 @@ namespace PSXRacing.City
         {
             LineModel.LinesAt(e, c.s, into);
             if (IsJcl(e)) { into.Clear(); return; }   // Five Points round 4: no lines inside a junction complex
+            if (RoadSurfaceOn) JunctionMeasures.DropKerbEdgeLines(e, c.s, lay, into);   // (road-surface round 2) the measure's edge kind
             // (cityinteg 11-11) a curbed side paints no edge line (Curbs2.cs CurbNoEdgeLines)
             if (noEdge != 0)
             {

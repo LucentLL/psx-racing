@@ -27,6 +27,12 @@ namespace PSXRacing.City
             /// <summary>THE LANE CHECK (JunctionOutline.LaneCheck): the rule's ribbons (lanes, paint, traffic) that stand
             /// off the measured pavement inside the junction - the measure moved the kerb, not the lanes (one line an edge).</summary>
             public List<string> laneConflicts = new List<string>();
+            /// <summary>(round 2) A bay merged into its host: metres out from the node where it becomes the host's lane
+            /// (nearer the node it runs on its own line, the link through the opening).</summary>
+            public Dictionary<int, float> bayFrom = new Dictionary<int, float>();
+            /// <summary>(round 2) Per fitted arm: the lanes (from the right, first..last) that have a receiving lane on its
+            /// through partner; the others end at the row (a turn lane whose exit the map lacks).</summary>
+            public Dictionary<int, (int lo, int hi)> carried = new Dictionary<int, (int, int)>();
             public double ms;
             public bool Solved => res != null && res.refused == null;
             public Vector2 min, max;   // the outline's box, about origin
@@ -206,6 +212,11 @@ namespace PSXRacing.City
             var ruleL = new Dictionary<int, List<Vector2>>(); var ruleR = new Dictionary<int, List<Vector2>>();
             foreach (var x in arms) { ruleL[x.id] = new List<Vector2>(x.L); ruleR[x.id] = new List<Vector2>(x.R); }
             b.log.AddRange(JunctionOutline.MergeBays(arms, links));
+            foreach (string ln in b.log)
+            {
+                var mt = System.Text.RegularExpressions.Regex.Match(ln, "^arm ([0-9]+) is a lane of arm [0-9]+ on its [a-z]+ from ([0-9.]+) m");
+                if (mt.Success) b.bayFrom[int.Parse(mt.Groups[1].Value)] = float.Parse(mt.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture);
+            }
             // the measures AFTER the bays: a measured border is the pavement's own edge (bays included) and blends back,
             // where the measure ends, to the host's border with its bay
             // (an edge the LINE MODEL carries has the measure in LineModel.Extents already: its ribbon, lanes and paint too)
@@ -244,10 +255,87 @@ namespace PSXRacing.City
                 if (at >= 0f && best < 6f) { b.rowOf[x.id] = at; b.log.Add($"bay e{x.id}'s ribbon ends {at:0.0} m out (at its host's row)"); }
                 else { r.refused = $"bay e{x.id}: its line crosses no row of the junction"; return; }
             }
+            Carried(map, b);
             // THE LANE CHECK (not a refusal in stage 1: reported): every LANE the line model lays on the junction's edges
             // (the lines traffic, the AI and the paint follow), from each node out to the row, against the solved pavement
             foreach (var x in before) LaneCheck(map, b, x.id, b.rowOf.TryGetValue(x.id, out float st) ? st - 1f : 0f);
             foreach (int ei in b.inside) LaneCheck(map, b, ei, float.MaxValue);
+        }
+
+        /// <summary>(round 2) Which lanes of a fitted arm go on across the junction: those that, carried straight on from
+        /// the arm's node end, come within half a lane of a lane of its through partner (the arm a through corner joins
+        /// it to). A lane with none ends at the row: a turn lane whose exit the map lacks (logged, a MAP cause).</summary>
+        static void Carried(CityMap map, Built b)
+        {
+            var r = b.res; int na = r.arms.Count;
+            var la = new List<float>(8); var lb = new List<float>(8);
+            for (int i = 0; i < na && na >= 2; i++)
+            {
+                var c = r.corners[i];
+                if (c.shape != "through" && c.shape != "through-taper") continue;
+                for (int pass = 0; pass < 2; pass++)
+                {
+                    var A = map.edges[r.arms[pass == 0 ? i : (i + 1) % na].id]; var B = map.edges[r.arms[pass == 0 ? (i + 1) % na : i].id];
+                    if (b.carried.ContainsKey(A.index)) continue;
+                    // one NAMED road going on (a split's approach and its slip are a through corner too: the approach's
+                    // other lanes go on along a link inside the junction)
+                    if (string.IsNullOrEmpty(A.name) || A.name != B.name) continue;
+                    float sA = b.nodes.Contains(A.a) ? 0f : A.length, sB = b.nodes.Contains(B.a) ? 0f : B.length;
+                    if (!JunctionMeasures.LaneCentres(A, sA, la, out _, out _) || !JunctionMeasures.LaneCentres(B, sB, lb, out _, out _)) continue;
+                    var tA = A.TangentAt(sA); var nA = new Vector2(-tA.y, tA.x); var tB = B.TangentAt(sB); var nB = new Vector2(-tB.y, tB.x);
+                    var pA = A.PointAt(sA); var pB = B.PointAt(sB);
+                    int lo = -1, hi = -1;
+                    for (int k = 0; k < la.Count; k++)
+                    {
+                        var p0 = pA + nA * la[k];
+                        float den = nB.x * tA.y - nB.y * tA.x;
+                        if (Mathf.Abs(den) < 1e-4f) continue;
+                        float v = ((p0.x - pB.x) * tA.y - (p0.y - pB.y) * tA.x) / den;
+                        bool got = false;
+                        foreach (float q in lb) got |= Mathf.Abs(q - v) < 1.83f;
+                        if (got) { if (lo < 0) lo = k; hi = k; }
+                    }
+                    if (lo < 0) continue;
+                    b.carried[A.index] = (lo, hi);
+                    if (lo > 0 || hi < la.Count - 1)
+                        b.log.Add($"e{A.index}: lanes {lo + 1}-{hi + 1} of {la.Count} (from the right) go on across to e{B.index} ({lb.Count} lanes); the other{(la.Count - (hi - lo + 1) > 1 ? "s end" : " ends")} at the row (a turn lane whose exit is not in the map)");
+                }
+            }
+        }
+
+        /// <summary>(round 2) Inside a solved junction (between its row and its node), the lanes of a fitted arm that go on
+        /// across it (indices from the right); false: not such a place (every lane counts).</summary>
+        public static bool CarriedAt(CityMap.Edge e, float s, out int lo, out int hi)
+        {
+            lo = hi = 0;
+            if (all.Count == 0) return false;
+            foreach (var b in all)
+            {
+                if (!b.Solved || !b.carried.TryGetValue(e.index, out var c) || !b.rowOf.TryGetValue(e.index, out float row)) continue;
+                float d = b.nodes.Contains(e.a) ? s : e.length - s;
+                if (d > row) return false;
+                lo = c.lo; hi = c.hi; return true;
+            }
+            return false;
+        }
+
+        /// <summary>(round 2) A BAY'S LANE INSIDE ITS JUNCTION: on its own line (the link through the opening) out to
+        /// where it becomes its host's lane, then over BayBlendM onto the host's bay lane (zonePt: the line model's).</summary>
+        public const float BayBlendM = 10f;
+        public static bool BayLane(CityMap.Edge e, float s, Vector2 zonePt, out Vector2 p)
+        {
+            p = zonePt;
+            if (all.Count == 0) return false;
+            foreach (var b in all)
+            {
+                if (!b.Solved || !b.bayFrom.TryGetValue(e.index, out float from)) continue;
+                float d = b.nodes.Contains(e.a) ? s : e.length - s;
+                if (d >= from + BayBlendM) return false;
+                var own = LineModel.OwnLanePoint(e, s);
+                p = Vector2.Lerp(own, zonePt, Mathf.SmoothStep(0f, 1f, (d - from) / BayBlendM));
+                return true;
+            }
+            return false;
         }
 
         /// <summary>Half a car and a hand: a lane's centre nearer than this to a kerb (or on land) cannot be driven as laid.</summary>
@@ -269,8 +357,10 @@ namespace PSXRacing.City
                 // (round 2) a fitted edge: the lanes the fit lays
                 if (lanes > 1 && JunctionMeasures.LaneCentres(e, s, fitLanes, out _, out _))
                 {
+                    bool some = b.carried.TryGetValue(ei, out var cr);
                     for (int k = 0; k < fitLanes.Count; k++)
                     {
+                        if (some && (k < cr.lo || k > cr.hi)) continue;   // ends at the row: not a lane inside the junction
                         var p = e.PointAt(s) + left * fitLanes[k];
                         float cl = JunctionOutline.Clearance(b.res, p - b.origin);
                         if (cl < worst) { worst = cl; at = p; worstLane = k; }
