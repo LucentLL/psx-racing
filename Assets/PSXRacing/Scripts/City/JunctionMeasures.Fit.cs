@@ -118,14 +118,17 @@ namespace PSXRacing.City
                 var pt = e.PointAt(s); var t = e.TangentAt(s); var left = new Vector2(-t.y, t.x);
                 float auxP = LineModel.AuxWidth(e, s, 1), auxM = LineModel.AuxWidth(e, s, -1);
                 // (a right side measured as a LANE LINE is the lanes' own edge: the rule's aux lane lies beyond it)
-                A[k] = -mR[k] + gR + (em.kindR == 3 ? 0f : auxM);
+                byte kR = KindAt(em, false, s);
+                A[k] = -mR[k] + (kR == 1 ? em.shoulderR : 0f) + (kR == 3 ? 0f : auxM);
                 // THE MAP'S LANES FIRST: the clear width runs to the median (or an island); a bay the rule lays there
                 // keeps its place against the median only if it fits beside the lanes (below)
                 float lim = mL[k] - gL;
                 f.leftPave[k] = mL[k] - gL; f.leftRaw[k] = mL[k]; f.rightRaw[k] = -mR[k];
                 // the outer edge not measured here (the rule's: a merge's aux lane, an unmeasured side) but the median
                 // edge is: the map's lanes at the rule's width, laid from the MEDIAN side
-                if (oneway && wR[k] < 0.5f && wL[k] >= 0.5f) A[k] = lim - cap * RoadProfiles.LaneM;
+                // (and beyond a break of the outer side - a merge lane has joined: the through lanes keep their place
+                // against the median, the merge lane takes the rest)
+                if (oneway && wL[k] >= 0.5f && (wR[k] < 0.5f || (!float.IsNaN(em.untilR) && s > em.untilR))) A[k] = lim - cap * RoadProfiles.LaneM;
                 if (set != null) lim = Mathf.Min(lim, IslandFrom(set, pt, left, A[k] + 1.5f, mL[k]));
                 clear[k] = lim - A[k];
             }
@@ -235,8 +238,8 @@ namespace PSXRacing.City
             for (int q = into.Count - 1; q >= 0; q--)
             {
                 byte kind = lay.kind[into[q].k];
-                if (kind == LineModel.KEdgeP && em.kindL == 0 && (!f.oneway || f.Lerp(f.leftPave, s) - into[q].lat < 0.6f)) into.RemoveAt(q);
-                else if (kind == LineModel.KEdgeM && em.kindR == 0) into.RemoveAt(q);
+                if (kind == LineModel.KEdgeP && KindAt(em, true, s) == 0 && (!f.oneway || f.Lerp(f.leftPave, s) - into[q].lat < 0.6f)) into.RemoveAt(q);
+                else if (kind == LineModel.KEdgeM && KindAt(em, false, s) == 0) into.RemoveAt(q);
             }
         }
 

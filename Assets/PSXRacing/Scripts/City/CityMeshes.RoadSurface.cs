@@ -66,7 +66,7 @@ namespace PSXRacing.City
                     for (float s = 0f; ; s += 2f)
                     {
                         float sc = Mathf.Min(s, e.length);
-                        if (f.Lerp(f.wgt, sc) >= 0.5f)
+                        if (f.Lerp(f.wgt, sc) >= 0.5f && JunctionMeasures.KindAt(em, side == 0, sc) == kd)
                         {
                             var t = e.TangentAt(sc); var q = e.PointAt(sc) + new Vector2(-t.y, t.x) * (side == 0 ? f.Lerp(f.leftRaw, sc) : f.Lerp(f.rightRaw, sc));
                             pts.Add(q);

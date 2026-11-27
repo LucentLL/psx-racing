@@ -49,8 +49,9 @@ namespace PSXRacing.City
             /// measure is its middle (pavement goes on beyond), its doubled yellow line lies shoulderL metres inside and
             /// the strip between is hatched; 3 a lane line only (pavement goes on beyond it, no hatch).</summary>
             public byte kindL, kindR; public float shoulderL, shoulderR;
-            /// <summary>(round 2) A side's measure ENDS at this station (NaN: no end): beyond it that side is the rule's at
-            /// once, no blend (where a merge zone's aux lane takes over from a lane line).</summary>
+            /// <summary>(round 2) A side's measure BREAKS at this station (NaN: no break): the stations up to it and those
+            /// beyond it are two measures with no curve between (where a merge lane joins: a lane LINE up to it, the far
+            /// KERB beyond). Beyond it the side's kind is kerb; with no station beyond it the side is the rule's at once.</summary>
             public float untilL = float.NaN, untilR = float.NaN;
             /// <summary>(round 2) LANE PICKS: see JunctionMeasures.Fit.cs.</summary>
             public List<LineM> lines = new List<LineM>();
@@ -261,7 +262,8 @@ namespace PSXRacing.City
         {
             v = 0f; sMin = sMax = 0f;
             var xs = new List<float>(); var ys = new List<float>();
-            foreach (var st in m.st) { float y = left ? st.left : st.right; if (!float.IsNaN(y)) { xs.Add(st.s); ys.Add(y); } }
+            float brk = left ? m.untilL : m.untilR; bool hasBrk = !float.IsNaN(brk), beyond = hasBrk && s > brk;
+            foreach (var st in m.st) { float y = left ? st.left : st.right; if (!float.IsNaN(y) && (!hasBrk || (st.s > brk) == beyond)) { xs.Add(st.s); ys.Add(y); } }
             int n = xs.Count; if (n == 0) return false;
             sMin = xs[0]; sMax = xs[n - 1];
             if (s <= xs[0]) { v = ys[0]; return true; }
@@ -286,9 +288,15 @@ namespace PSXRacing.City
             if (s < sMin) w = m.holdA ? 1f : 1f - Mathf.SmoothStep(0f, 1f, (sMin - s) / Mathf.Max(1f, Mathf.Min(m.blend, sMin - 0.5f)));
             else if (s > sMax) w = m.holdB ? 1f : 1f - Mathf.SmoothStep(0f, 1f, (s - sMax) / Mathf.Max(1f, Mathf.Min(m.blend, edgeLength - 0.5f - sMax)));
             else w = 1f;
-            float until = left ? m.untilL : m.untilR;
-            if (!float.IsNaN(until) && s > until) w = 0f;
             return true;
+        }
+
+        /// <summary>(round 2) The kind of a side at a station: the measure's, or kerb beyond the side's break.</summary>
+        public static byte KindAt(EdgeM m, bool left, float s)
+        {
+            float brk = left ? m.untilL : m.untilR;
+            if (!float.IsNaN(brk) && s > brk) return 0;
+            return left ? m.kindL : m.kindR;
         }
 
         /// <summary>An arm's borders from an edge measure. The arm is sampled every JunctionOutline.Step out from the
@@ -313,14 +321,15 @@ namespace PSXRacing.City
                 for (int k = 0; k < n; k++)
                 {
                     float d = k * step, s = fwd ? d : edgeLength - d;
-                    Side(m, edgeLeft, s, out float off, out _, out _);
+                    bool sideOk = Side(m, edgeLeft, s, out float off, out _, out _);
                     var t = (arm.C[Mathf.Min(k + 1, n - 1)] - arm.C[Mathf.Max(k - 1, 0)]).normalized;
                     var left = new Vector2(-t.y, t.x);
                     float sign = armLeft ? 1f : -1f;
                     float rule = Vector2.Dot(border[k] - arm.C[k], left) * sign;
                     float w = d <= dFar ? 1f : 1f - Mathf.SmoothStep(0f, 1f, (d - dFar) / blend);
                     float until = edgeLeft ? m.untilL : m.untilR;
-                    if (!float.IsNaN(until) && s > until) w = 0f;
+                    if (!float.IsNaN(until) && s > until) w = sideOk ? 1f : 0f;
+                    if (!sideOk) w = 0f;
                     border[k] = arm.C[k] + left * (sign * Mathf.Lerp(rule, off, w));
                 }
                 if (armLeft) arm.measL = true; else arm.measR = true;

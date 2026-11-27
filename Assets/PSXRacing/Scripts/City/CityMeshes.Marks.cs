@@ -1013,6 +1013,9 @@ namespace PSXRacing.City
             const float bar = 0.6f, gap = 0.6f, edgeIn = 0.3f;
             foreach (var cw in CitySignals.Crosswalks(map, t))
             {
+                // (road-surface round 2) a measured junction's marks are the measure's (the rule's stop bars stand down
+                // there too: CitySignals.Furnish); a crosswalk pick is not in the socket yet
+                if (RoadSurfaceOn && JunctionSurfaces.MeasuredNode(cw.node)) continue;
                 var e = map.edges[cw.edge];
                 float sLo = Mathf.Min(cw.sNear, cw.sFar), sHi = Mathf.Max(cw.sNear, cw.sFar);
                 LineModel.Extents(e, 0.5f * (sLo + sHi), out float eM, out float eP);
