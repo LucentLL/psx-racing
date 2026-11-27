@@ -1,3 +1,35 @@
+# ROAD SURVEY, STAGE 2 (agent "survey", 11-27 afternoon; branch `road-survey`; NOT pushed by me, NOT merged)
+
+**State: A+B MET (60 test junctions + 80, 81, Wendover through RunMeasured; 45 of 63 clean, 13 refused, 2 solved with a
+failed check). C MET (10 sheets OLD | NEW | COUNTY). D MET.** No solver / generator change; nothing under
+Assets/PSXRacing/Scripts/City edited; Resources/charlotte_measures.bytes untouched. Proof: scratch `survey\proof2\`.
+- KERB FACE (the ruling): kerbed side = survey - 0.15 m; shoulder side = survey as is, kind `shoulder M` (M = the profile's
+  shoulder). Kerb kind test `stage2.py` KK1-KK4: sidewalk within 3 m (KK1) 18,265 sides; town local (KK2) 3,820; State
+  edge wanders over 0.211 m (KK3, shoulder) 1,266; State edge as smooth as a kerb (KK3s, weak) 5,522; NOT CALLED 22,239
+  of 51,112 (44 %: town -> kerb 5,664, State -> shoulder 16,575). The default misfires at spot 80's west kerb (State,
+  curbed, no sidewalk -> shoulder): at 80 / 81 the hand file's photo-read kinds are kept. NCDOT's road characteristics
+  table would settle the State sides and the median kinds.
+- Test set (`testset.csv`, spread by farthest-point sampling, none within 400 m of the owner's spots): 17 arterial x
+  arterial with a grass median (only 17 qualify, 8 of them from the looser list: corners that do not fit stay the rule's),
+  20 arterial x local, 10 slip / link corners, 10 local x local; + s80, s81 (survey kerbs under the hand islands, noses,
+  paved corners, picks) + Wendover (kerbs only).
+- SOLVE (`solve_table.txt`, EDITOR RunMeasured, m1): clean 45 (A 13/17, B 19/20, C 4/10, D 9/10), refused 13, faults 2;
+  lane check (FIT only) clear at 59, one conflict (t15). Refusal classes: R1 measured return radius does not fit the
+  borders 8 (6 of the 10 slip corners: radii 16-63 m); R2 no fillet down to 0.12 x class radius 1 (t55); R3 outline
+  crosses itself at a measured nose 1 (t16); R4 shallow split crossing (Wendover) 1; R5 bay crosses no row 1 (t20);
+  R6 the HAND paved corner no longer lies on the survey borders 1 (s80: its points were read on the hand kerbs, 0.3-0.45
+  m inside the kerb face); faults: F1 kink at the paved corner (s81), F2 an arm's lane off the road (t15, Uptown grid).
+- SPOT TABLE (`spot_table.txt`, 47 solved, OLD = PSX_CITY_ROADSURFACE=0): sums old|new RAISED 249|283, SEETHRU 77|122,
+  OVERLAY 79|81, LINEUNDER 2|10, HOLES 10|20, LAYERS 21|33, STEP 137|51, KINK 1046|201. 14 junctions better (no gate
+  worse), 33 mixed: SEETHRU worse at 24, RAISED at 12. Not fit for a city bake as it stands.
+- D (`shallow_splits.txt`): 649 shallow pairs (under 12 deg, rule ribbons overlapping over 1 m for over 20 m) at 645
+  nodes: 410 splits, 239 merges; motorway+link 413, primary+link 95, trunk+link 76, secondary+link 45; only 9 without a
+  link (Wendover one of 4 trunk). The survey shows one pavement between the two at 552. The line model's gore split
+  (LineModel.GoreSplitOn) is OFF in this build (GORESPLIT 0 in the frame log).
+- Not verified: no photo checked for the 60 test junctions; SEETHRU / RAISED rises not traced to their pieces; the
+  sheets' fault circle at s81 is placed by eye (the solver's kink is in its local frame); KK thresholds not tested
+  against photos; t06 and t38 are 46 m apart (two measured junctions side by side).
+
 # ROAD SURVEY, STAGE 1 (agent "survey", 11-27; branch `road-survey` from mountain-nm 477ee277; NOT pushed, NOT merged)
 
 **State: A (the tool) MET. B (ground truth at 80 / 81) NOT MET: 35 of 66 kerb readings within 0.5 m. C (city scorecard) MET.**
