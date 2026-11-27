@@ -178,7 +178,9 @@ namespace PSXRacing.City
                 if (k == null || RuntimeOnly.Contains(k)) continue;
                 bool gen = false;
                 foreach (var p in GeneratorPrefixes) if (k.StartsWith(p, System.StringComparison.Ordinal)) { gen = true; break; }
-                if (gen) l.Add(k + "=" + kv.Value);
+                // (road-surface stage 1) the measures file is generator DATA: its content is in the signature, not only
+                // its path (JunctionMeasures.ContentTag)
+                if (gen) l.Add(k + "=" + kv.Value + (k == "PSX_CITY_MEASURES" ? "#" + JunctionMeasures.ContentTag(kv.Value as string) : ""));
             }
             if (l.Count == 0) return "-";
             l.Sort(System.StringComparer.Ordinal);

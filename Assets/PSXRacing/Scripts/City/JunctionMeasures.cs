@@ -85,6 +85,20 @@ namespace PSXRacing.City
         }
         public static void Reset() { loaded = false; current = null; }
 
+        /// <summary>A measures file's content as 8 hex digits (FNV-1a), "none" when it cannot be read: the tile bake's
+        /// signature carries it (CityTileCache.Settings).</summary>
+        public static string ContentTag(string path)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(path) || !System.IO.File.Exists(path)) return "none";
+                uint h = 2166136261u;
+                foreach (byte b in System.IO.File.ReadAllBytes(path)) { h ^= b; h *= 16777619u; }
+                return h.ToString("x8");
+            }
+            catch (System.Exception) { return "none"; }
+        }
+
         /// <summary>The text form (one item a line, '#' comments):
         ///   provider hand|survey
         ///   edge ID [blend M] [hold a|b|ab] [shift M]   then lines:  s STATION LEFT RIGHT   ('-' = no measure on that side)

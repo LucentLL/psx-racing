@@ -3093,6 +3093,9 @@ namespace PSXRacing.City
                     int n = end == 0 ? L.a : L.b;
                     int hostIdx = end == 0 ? trims.branchA[ei] : trims.branchB[ei];
                     if (hostIdx < 0) continue;
+                    // (road-surface stage 1) a branch that leaves its host AT a node of a junction drawn as one surface: the
+                    // junction's outline owns the gore and the clipped stretch (EmitBranch lays its pieces without the mask)
+                    if (RoadSurfaceOn && JunctionSurfaces.AtNode(n) != null) continue;
                     // the medians pass round 2: a refuge island's two carriageways
                     // are not a branch and its host - their pavements meet on the
                     // island's axis at the nose and part around it; the gore

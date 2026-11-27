@@ -36,6 +36,17 @@ namespace PSXRacing.City
         public static IReadOnlyList<Built> All => all;
         public static void Reset() { forMap = null; all = new List<Built>(); byNode = new Dictionary<int, Built>(); }
 
+        /// <summary>Is the node one of a junction the measures name (and, once the junctions are solved, one that solved)?
+        /// For readers that run where nothing is solved (a baked tile's furniture).</summary>
+        public static bool MeasuredNode(int n)
+        {
+            if (forMap != null) return AtNode(n) != null;
+            var set = JunctionMeasures.Current;
+            if (set == null) return false;
+            foreach (var j in set.junctions) if (j.nodes.Contains(n)) return true;
+            return false;
+        }
+
         /// <summary>The junction that owns a node as one surface (null: the old fan).</summary>
         public static Built AtNode(int n) => byNode.TryGetValue(n, out var b) && b.Solved ? b : null;
 
