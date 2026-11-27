@@ -252,7 +252,27 @@ namespace PSXRacing.City
                 if (reach[(i + 1) % n] > 0f) { int kr = Mathf.Min(b.C.Count - 1, Mathf.CeilToInt(reach[(i + 1) % n] / Step)); Project(a.C, b.C[kr], out _, out float sr); s0 = Mathf.Max(s0, sr); }
                 var bl = res.corners[(i + 1) % n];   // b's left corner: its station on b, carried across to a
                 if (bl.sA > 0f) { int kb = Mathf.Min(b.C.Count - 1, Mathf.CeilToInt(bl.sA / Step) + 2); Project(a.C, b.C[kb], out _, out float sa2); s0 = Mathf.Max(s0, sa2 + Step); }
-                if (!AbreastLine(a, b, s0, c)) { c.shape = "abreast-not-found"; res.refused ??= $"corner {c.a}/{c.b}: abreast arms with no cut line across both"; }
+                bool cut = AbreastLine(a, b, s0, c);
+                // (road-surface stage 1; spot 77) no room for the cut because b's own kerb return runs far along it (the class
+                // radius at an acute corner: r 12 m took 28.7 m of a 35 m arm): that return is shrunk (x 0.7, at most four
+                // times; never a measured one) until the row fits beyond its tangent point
+                if (!cut && bl.shape == "arc" && bl.note != "measured")
+                {
+                    var after = A[(i + 2) % n];
+                    float r2 = bl.r;
+                    for (int t = 0; t < 4 && !cut; t++)
+                    {
+                        r2 *= 0.7f;
+                        var c2 = new Corner { a = bl.a, b = bl.b, deg = bl.deg };
+                        if (!Fillet(b.L, after.R, r2, c2)) break;
+                        c2.shape = "arc"; c2.note = $"shrunk from r {bl.r:0.0} for the abreast row";
+                        float s2 = Mathf.Max(c.sA, Mathf.Max(MinRowM, res.corners[(i - 1 + n) % n].sB));
+                        s2 = Mathf.Max(s2, reach[i]);
+                        int kb2 = Mathf.Min(b.C.Count - 1, Mathf.CeilToInt(c2.sA / Step) + 2); Project(a.C, b.C[kb2], out _, out float sa3); s2 = Mathf.Max(s2, sa3 + Step);
+                        if (AbreastLine(a, b, s2, c)) { cut = true; res.corners[(i + 1) % n] = c2; }
+                    }
+                }
+                if (!cut) { c.shape = "abreast-not-found"; res.refused ??= $"corner {c.a}/{c.b}: abreast arms with no cut line across both"; }
             }
             var noseRow = new bool[n];
             for (int pass = 0; pass < 2; pass++)

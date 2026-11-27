@@ -175,15 +175,38 @@ namespace PSXRacing.City
                 if (at >= 0f && best < 6f) { b.rowOf[x.id] = at; b.log.Add($"bay e{x.id}'s ribbon ends {at:0.0} m out (at its host's row)"); }
                 else { r.refused = $"bay e{x.id}: its line crosses no row of the junction"; return; }
             }
-            // THE LANE CHECK (not a refusal in stage 1: reported): every ribbon as the rule draws it against the pavement
-            foreach (var x in before) LaneCheck(b, "e" + x.id, ruleL[x.id], ruleR[x.id], b.rowOf.TryGetValue(x.id, out float st) ? st - 1f : 0f);
-            foreach (var lk in links) if (b.inside.Contains(lk.id)) LaneCheck(b, "link e" + lk.id, lk.L, lk.R, float.MaxValue);
+            // THE LANE CHECK (not a refusal in stage 1: reported): every LANE the line model lays on the junction's edges
+            // (the lines traffic, the AI and the paint follow), from each node out to the row, against the solved pavement
+            foreach (var x in before) LaneCheck(map, b, x.id, b.rowOf.TryGetValue(x.id, out float st) ? st - 1f : 0f);
+            foreach (int ei in b.inside) LaneCheck(map, b, ei, float.MaxValue);
         }
 
-        static void LaneCheck(Built b, string what, List<Vector2> L, List<Vector2> R, float upTo)
+        /// <summary>Half a car and a hand: a lane's centre nearer than this to a kerb (or on land) cannot be driven as laid.</summary>
+        public const float LaneClearM = 1.1f;
+        static void LaneCheck(CityMap map, Built b, int ei, float upTo)
         {
-            JunctionOutline.LaneCheck(b.res, L, R, upTo, out float run, out float worst, out var at);
-            if (run >= 1f) b.laneConflicts.Add($"{what}: {run:0.0} m of the rule's ribbon (its lanes) off the measured pavement, by up to {-worst:0.00} m at ({at.x + b.origin.x:0.0}, {at.y + b.origin.y:0.0})");
+            var e = map.edges[ei];
+            bool atA = b.nodes.Contains(e.a), atB = b.nodes.Contains(e.b);
+            int lanes = Mathf.Max(1, e.lanes);
+            float lw = Mathf.Max(2.5f, (e.width - e.shl - e.shr) / lanes);
+            float run = 0f, worst = float.MaxValue; Vector2 at = Vector2.zero; int worstLane = 0;
+            for (float d = 0f; d <= Mathf.Min(upTo, e.length) + 1e-3f; d += JunctionOutline.Step)
+            {
+                float s = atA ? d : e.length - d;   // out from the junction's node (an inside link: its whole length)
+                if (atA && atB) s = d;
+                var t = e.TangentAt(s); var left = new Vector2(-t.y, t.x);
+                bool off = false;
+                for (int k = 0; k < lanes; k++)
+                {
+                    // a one-lane edge: the traffic's own point (a bay drives its host's aux lane: LineModel.LanePoint)
+                    var p = lanes == 1 ? LineModel.LanePoint(e, s) : e.PointAt(s) + left * (LineModel.LaneCentre(e, s) + (k - 0.5f * (lanes - 1)) * lw);
+                    float cl = JunctionOutline.Clearance(b.res, p - b.origin);
+                    if (cl < worst) { worst = cl; at = p; worstLane = k; }
+                    off |= cl < LaneClearM;
+                }
+                if (off) run += JunctionOutline.Step;
+            }
+            if (run >= 1f) b.laneConflicts.Add($"e{ei}: {run:0.0} m where a lane's centre is within {LaneClearM} m of a kerb or on land, worst {worst:+0.00;-0.00} m (lane {worstLane + 1} of {lanes} from the right) at ({at.x:0.0}, {at.y:0.0})");
         }
     }
 }

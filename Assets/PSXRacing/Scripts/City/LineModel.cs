@@ -88,6 +88,10 @@ namespace PSXRacing.City
             /// lane: the lanes, the lines and traffic never see it) - the
             /// centre lane's space beside the island.</summary>
             public float[] prof; public float profD0, profDs; public bool widen;
+            /// <summary>Road-surface stage 1 (JunctionMeasures.FeedLineModel): a MEASURED edge's profile ease. Its widen
+            /// is SUMMED on its side (it is what is left to the measured pavement edge after everything the rule
+            /// widens or trims there, aux lanes included; it may be negative), pavement only; no island's.</summary>
+            public bool measure;
         }
 
         /// <summary>The tag of the eases one mitred join makes on its wide
@@ -269,10 +273,12 @@ namespace PSXRacing.City
             if (ePlus == 0f && eMinus == 0f) { ePlus = eMinus = e.width * 0.5f; return; }
             var ez = e.lmEase;
             if (ez == null) return;
-            float rp = 0f, rm = 0f, sh = 0f, ap = 0f, am = 0f, np = 0f, nm = 0f;
+            float rp = 0f, rm = 0f, sh = 0f, ap = 0f, am = 0f, np = 0f, nm = 0f, mp = 0f, mm = 0f;
             for (int i = 0; i < ez.Length; i++)
             {
                 if (ez[i].relay) continue;
+                // (road-surface stage 1) a measured edge's widen: summed, pavement only
+                if (ez[i].measure && ez[i].widen) { if (pave) { float w = Reduction(e, ez[i], s); if (ez[i].side > 0) mp += w; else mm += w; } continue; }
                 if (ez[i].aux || ez[i].widen)
                 {
                     if (!pave) continue;
@@ -290,7 +296,7 @@ namespace PSXRacing.City
                 if (ez[i].side > 0) { if (r > rp) rp = r; } else if (r > rm) rm = r;
             }
             ePlus -= rp - sh; eMinus -= rm + sh;
-            ePlus += ap + np; eMinus += am + nm;
+            ePlus += ap + np + mp; eMinus += am + nm + mm;
         }
 
         /// <summary>The pavement's extents with no aux lane (roads pass L5):

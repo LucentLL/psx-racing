@@ -38,7 +38,12 @@ namespace PSXRacing.City
                 if (e.a == e.b || e.length < 2f) continue;
                 int n = Mathf.CeilToInt(e.length / FeedStepM) + 1;
                 var sh = new float[n]; var wp = new float[n]; var wm = new float[n];
-                bool anyL = SideAt(em, true, 0f, out _, out _), anyR = SideAt(em, false, 0f, out _, out _);
+                bool anyL = Side(em, true, 0f, out _, out float l0, out float l1), anyR = Side(em, false, 0f, out _, out float r0, out float r1);
+                // THE SHIFT comes from the stations BOTH sides carry (c0..c1) and is HELD from there to a held end: toward
+                // the junction the rule's own extents change (a bay lane leaves, a mouth opens) and the lanes must not
+                // swerve after them; the widen takes whatever the pavement's edges do there
+                float c0 = Mathf.Max(l0, r0), c1 = Mathf.Min(l1, r1);
+                if (c0 > c1) c0 = c1 = 0.5f * (c0 + c1);
                 float maxS = 0f, maxW = 0f;
                 for (int k = 0; k < n; k++)
                 {
@@ -47,17 +52,26 @@ namespace PSXRacing.City
                     float mL = eP, mR = eM;
                     if (anyL && SideAt(em, true, s, out float oL, out float wL, e.length)) mL = Mathf.Lerp(eP, oL, wL);
                     if (anyR && SideAt(em, false, s, out float oR, out float wR, e.length)) mR = Mathf.Lerp(eM, oR, wR);
-                    float S = anyL && anyR ? 0.5f * ((mL - mR) - (eP - eM)) : 0f;
+                    float S = 0f;
+                    if (anyL && anyR)
+                    {
+                        float sc = Mathf.Clamp(s, c0, c1);
+                        LineModel.Extents(e, sc, out float cM, out float cP);
+                        Side(em, true, sc, out float cL, out _, out _); Side(em, false, sc, out float cR, out _, out _);
+                        float ws = s < c0 ? (em.holdA ? 1f : 1f - Mathf.SmoothStep(0f, 1f, (c0 - s) / Mathf.Max(1f, Mathf.Min(em.blend, c0 - 0.5f))))
+                                 : s > c1 ? (em.holdB ? 1f : 1f - Mathf.SmoothStep(0f, 1f, (s - c1) / Mathf.Max(1f, Mathf.Min(em.blend, e.length - 0.5f - c1)))) : 1f;
+                        S = 0.5f * ((cL - cR) - (cP - cM)) * ws;
+                    }
                     sh[k] = S; wp[k] = mL - (eP + S); wm[k] = mR - (eM - S);
                     maxS = Mathf.Max(maxS, Mathf.Abs(S)); maxW = Mathf.Max(maxW, Mathf.Max(Mathf.Abs(wp[k]), Mathf.Abs(wm[k])));
                 }
                 long tag = -(7000000L + em.edge);
                 var add = new List<LineModel.Ease>(3);
-                if (maxS > 0.01f) add.Add(new LineModel.Ease { shift = true, fromA = true, dw = 1f, len = e.length + 1f, d0 = 0f, prof = sh, profD0 = 0f, profDs = FeedStepM, tag = tag });
+                if (maxS > 0.01f) add.Add(new LineModel.Ease { shift = true, measure = true, fromA = true, dw = 1f, len = e.length + 1f, d0 = 0f, prof = sh, profD0 = 0f, profDs = FeedStepM, tag = tag });
                 if (maxW > 0.01f)
                 {
-                    add.Add(new LineModel.Ease { widen = true, side = 1, fromA = true, dw = 1f, len = e.length + 1f, d0 = 0f, prof = wp, profD0 = 0f, profDs = FeedStepM, tag = tag });
-                    add.Add(new LineModel.Ease { widen = true, side = -1, fromA = true, dw = 1f, len = e.length + 1f, d0 = 0f, prof = wm, profD0 = 0f, profDs = FeedStepM, tag = tag });
+                    add.Add(new LineModel.Ease { widen = true, measure = true, side = 1, fromA = true, dw = 1f, len = e.length + 1f, d0 = 0f, prof = wp, profD0 = 0f, profDs = FeedStepM, tag = tag });
+                    add.Add(new LineModel.Ease { widen = true, measure = true, side = -1, fromA = true, dw = 1f, len = e.length + 1f, d0 = 0f, prof = wm, profD0 = 0f, profDs = FeedStepM, tag = tag });
                 }
                 if (add.Count == 0) continue;
                 var ez = e.lmEase; var all = new List<LineModel.Ease>((ez?.Length ?? 0) + add.Count);
