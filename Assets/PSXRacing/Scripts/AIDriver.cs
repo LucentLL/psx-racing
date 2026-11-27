@@ -2690,7 +2690,11 @@ namespace PSXRacing
                         // past its tail (gap under 0) the time to reach it was negative, so a car going by at a crawl got the
                         // brake and six tenths off the throttle and crept the car's length at 0.3 m/s (the Viper beside the
                         // staged wreck, seed 0: 7 s for 3 m, then its recovery).
-                        if (RoundStandingOn && lateralLeft <= 0f) tHit = 1e3f;
+                        // ...and nose past its tail with the two bodies clear of each other across the road (short of the
+                        // pass's air by centimetres): the same. With RIVALS OFF TRAFFIC TAILS the car alongside is the block at
+                        // any closing, and a rival 0.15 m short of its line hovered at the car's tail on 40 % throttle
+                        // (Tryon seed 3, the Skyline beside an SUV at 22-26 s: the field lost 170 m in the first 30 s).
+                        if (RoundStandingOn && (lateralLeft <= 0f || (gap <= 0f && lateralLeft <= air - 0.05f))) tHit = 1e3f;
                         if (tHit < tSide * 1.3f) trafficBrake = Mathf.Max(trafficBrake, stopBrake);
                         Why("pass-late", throttleLift, trafficBrake);
                         // A lift only while the move is MARGINAL - from twice
