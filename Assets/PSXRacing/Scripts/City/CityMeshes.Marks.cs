@@ -90,6 +90,9 @@ namespace PSXRacing.City
         /// trims, after the merge zones).</summary>
         public static void EnsureMarks(CityMap map, Trims t)
         {
+            // (road-surface stage 1) the marks keep the CONTROL trim (stop lines, arrows and crosswalks stay where the
+            // traffic stops), whichever trims the caller builds its ribbons on
+            if (t != null && t.control != null) t = t.control;
             if (marksMap == map && marksTrims == t) return;
             marksMap = map; marksTrims = t;
             EnsureJcl(map);   // Five Points round 4: short links inside a junction complex

@@ -46,6 +46,7 @@ namespace PSXRacing.City
             // it (the measure is the pavement's own edge, bays included); the arm's row lies at or beyond measEnd, where
             // the border is the rule's again (the ribbon's own width)
             public bool measL, measR; public float measEnd;
+            public bool fromA; public float edgeLength;   // the caller's: the arm leaves its edge's a end; the edge's length
             internal float ang, head;
             public float YAt(float s)
             {
@@ -1272,8 +1273,9 @@ namespace PSXRacing.City
                             }
                             var w0 = nb[k0] - hf[k0];
                             for (int k = 0; k < k0; k++) nb[k] = hf[k] + w0;
-                            // (road-surface stage 1) a MEASURED host border already holds the bay (the pavement's own edge)
-                            if (side == 0) { if (!H.measR) H.R = nb; } else { if (!H.measL) H.L = nb; }
+                            // (road-surface stage 1: measures are applied AFTER the bays are merged, so a measure blends back to
+                            // the host's border WITH its bay - the pavement the ribbons draw beyond the row)
+                            if (side == 0) H.R = nb; else H.L = nb;
                             // X's crossing before it comes alongside: a link (when it has any length)
                             if (s0 >= 2)
                             {
@@ -1374,6 +1376,39 @@ namespace PSXRacing.City
             for (int k = 0; k <= n; k++) { var p = a + d * (len * k / n); lk.L.Add(p + left * half); lk.R.Add(p - left * half); }
             return lk;
         }
+        /// <summary>(road-surface stage 1) How far a point stands from the pavement's edge (the outline or an island):
+        /// positive on the pavement, negative on land (off the outline or on an island). The LANE CHECK: a map line that
+        /// traffic and paint follow must keep half a lane of it; a measured kerb does not move the map's line.</summary>
+        public static float Clearance(Result r, Vector2 p)
+        {
+            float d2 = SegDist2(r.outline, p);
+            foreach (var h in r.holes) d2 = Mathf.Min(d2, SegDist2(h, p));
+            float d = Mathf.Sqrt(d2);
+            return Covers(r, p) ? d : -d;
+        }
+
+        /// <summary>(road-surface stage 1) THE LANE CHECK of one ribbon as the RULE draws it (its two borders from the line
+        /// model: the lanes, the paint and the traffic follow them) against the solved pavement, from the junction out to
+        /// 'upTo' metres: how many metres of it have a point 0.6 m inside either border, or its middle, off the pavement
+        /// (on land or on an island), and the worst depth. A measured kerb does not move the line model's lanes.</summary>
+        public static void LaneCheck(Result r, List<Vector2> L, List<Vector2> R, float upTo, out float runM, out float worst, out Vector2 at)
+        {
+            runM = 0f; worst = float.MaxValue; at = Vector2.zero;
+            for (int k = 0; k < L.Count && k < R.Count && k * Step <= upTo; k++)
+            {
+                var d = L[k] - R[k]; float w = d.magnitude; if (w < 0.5f) continue; d /= w;
+                float inset = Mathf.Min(0.6f, 0.4f * w); bool off = false;
+                for (int q = 0; q < 3; q++)
+                {
+                    var p = q == 0 ? R[k] + d * inset : q == 1 ? R[k] + d * (0.5f * w) : L[k] - d * inset;
+                    float cl = Clearance(r, p);
+                    if (cl < worst) { worst = cl; at = p; }
+                    off |= cl < 0f;
+                }
+                if (off) runM += Step;
+            }
+        }
+
         /// <summary>Is a point inside the outline and outside every hole?</summary>
         public static bool Covers(Result r, Vector2 p)
         {

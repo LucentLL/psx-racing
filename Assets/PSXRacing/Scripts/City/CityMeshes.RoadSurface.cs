@@ -22,12 +22,19 @@ namespace PSXRacing.City
         public const float RsKerbH = 0.15f, RsKerbW = 0.15f;
         public static int RsJunctions, RsTris, RsKerbTris, RsLandTris; public static double RsBuildMs; public static float RsKerbM;
 
-        /// <summary>The rows of every solved junction as the arms' ribbon trims (after the rules' trims are final).</summary>
-        static Trims RoadSurfaceTrims(CityMap map, Trims t)
+        static Trims surfFrom, surfTrims;
+        /// <summary>The tile build's trims: the rules' (control) trims with the rows of every solved junction as its
+        /// arms' ribbon trims. The rules' trims themselves when the switch is off or no junction is solved. Cached per
+        /// control trims.</summary>
+        public static Trims SurfaceTrims(CityMap map, Trims rule)
         {
-            if (!RoadSurfaceOn || t == null) return t;
-            float[] a0 = (float[])t.atA.Clone(), b0 = (float[])t.atB.Clone();
-            var built = JunctionSurfaces.Ensure(map, (e, node) => e.a == node ? a0[e.index] : b0[e.index]);
+            if (!RoadSurfaceOn || rule == null) return rule;
+            if (rule.control != null) return rule;   // surface trims already
+            if (ReferenceEquals(surfFrom, rule) && surfTrims != null) return surfTrims;
+            var built = JunctionSurfaces.Ensure(map, (e, node) => e.a == node ? rule.atA[e.index] : rule.atB[e.index]);
+            var t = rule;
+            bool any = false; foreach (var b in built) any |= b.Solved;
+            if (any) t = rule.CloneForSurface();
             foreach (var b in built)
             {
                 if (!b.Solved) continue;
@@ -38,6 +45,7 @@ namespace PSXRacing.City
                 }
                 foreach (int ei in b.inside) { var e = map.edges[ei]; t.atA[e.index] = e.length; t.atB[e.index] = 0f; }
             }
+            surfFrom = rule; surfTrims = t;
             return t;
         }
 

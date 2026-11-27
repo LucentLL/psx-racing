@@ -1358,6 +1358,11 @@ namespace PSXRacing.City
             /// <summary>Ribbon trim at each end of each edge: the ribbon runs
             /// from atA to length - atB, the fan patch covers the rest.</summary>
             public float[] atA, atB;
+            /// <summary>(road-surface stage 1) Set on the tile build's SURFACE trims (CityMeshes.SurfaceTrims: a junction
+            /// solved as one surface ends its arms' ribbons on its rows): the rules' trims they were made from - the
+            /// CONTROL trim that traffic, signals, stop lines and marks keep. Null on the rules' own trims.</summary>
+            public Trims control;
+            public Trims CloneForSurface() { var c = (Trims)MemberwiseClone(); c.atA = (float[])atA.Clone(); c.atB = (float[])atB.Clone(); c.control = this; return c; }
             /// <summary>RETIRED with the symmetric taper (WP-11b): the line
             /// model's one-sided eases (<see cref="LineModel"/>) replace them.
             /// Kept, at the plain half width and no taper, for readers that
@@ -1598,11 +1603,7 @@ namespace PSXRacing.City
             return inside ? dMin : -dMin;
         }
 
-        /// <summary>(road-surface stage 1) The rules' trims, then every solved junction's end rows as its arms' ribbon
-        /// trims (CityMeshes.RoadSurface.cs; PSX_CITY_ROADSURFACE).</summary>
-        public static Trims ComputeTrims(CityMap map) => RoadSurfaceTrims(map, ComputeTrimsRules(map));
-
-        static Trims ComputeTrimsRules(CityMap map)
+        public static Trims ComputeTrims(CityMap map)
         {
             mitreFanEdge = null;
             MitreFanCount = 0; MitreFanAt.Clear(); MitreFanUnclipped = 0; CrossoverFans = 0;
@@ -2350,6 +2351,8 @@ namespace PSXRacing.City
         {
             var min = new Vector2(tx * TileSize, tz * TileSize);
             var max = min + new Vector2(TileSize, TileSize);
+            // (road-surface stage 1) the tile is built on the SURFACE trims; every other reader keeps the control trims
+            trims = SurfaceTrims(map, trims);
 
             foreach (var b in buckets) b.Clear();
             barrierBucket.Clear();

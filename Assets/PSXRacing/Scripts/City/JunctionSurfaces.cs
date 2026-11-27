@@ -24,6 +24,9 @@ namespace PSXRacing.City
             public HashSet<int> inside = new HashSet<int>();
             public List<string> log = new List<string>();
             public int mainEdge = -1, mainNode = -1;
+            /// <summary>THE LANE CHECK (JunctionOutline.LaneCheck): the rule's ribbons (lanes, paint, traffic) that stand
+            /// off the measured pavement inside the junction - the measure moved the kerb, not the lanes (one line an edge).</summary>
+            public List<string> laneConflicts = new List<string>();
             public double ms;
             public bool Solved => res != null && res.refused == null;
         }
@@ -56,7 +59,7 @@ namespace PSXRacing.City
                 b.ms = sw.Elapsed.TotalMilliseconds;
                 all.Add(b);
                 foreach (int n in b.nodes) byNode[n] = b;
-                Debug.Log($"[JunctionSurfaces] {b.name} (nodes {string.Join(" ", b.nodes.OrderBy(x => x))}): {(b.Solved ? "solved" : "REFUSED: " + b.res.refused + " (the old fan stays)")}; provider {set.provider}; {b.res.outline.Count} outline vertices, {b.res.holes.Count} islands, {b.res.tris.Count / 3} triangles; solve {b.res.solveMs:0.0} ms, fill {b.res.fillMs:0.0} ms, in all {b.ms:0.0} ms; rows {string.Join(", ", b.rowOf.Select(kv => "e" + kv.Key + " " + kv.Value.ToString("0.0")))}; {string.Join("; ", b.log)}");
+                Debug.Log($"[JunctionSurfaces] {b.name} (nodes {string.Join(" ", b.nodes.OrderBy(x => x))}): {(b.Solved ? "solved" : "REFUSED: " + b.res.refused + " (the old fan stays)")}; provider {set.provider}; {b.res.outline.Count} outline vertices, {b.res.holes.Count} islands, {b.res.tris.Count / 3} triangles; solve {b.res.solveMs:0.0} ms, fill {b.res.fillMs:0.0} ms, in all {b.ms:0.0} ms; rows {string.Join(", ", b.rowOf.Select(kv => "e" + kv.Key + " " + kv.Value.ToString("0.0")))}; {string.Join("; ", b.log)}; LANE CHECK: {(b.laneConflicts.Count == 0 ? "clear" : string.Join("; ", b.laneConflicts))}");
             }
             return all;
         }
@@ -64,7 +67,7 @@ namespace PSXRacing.City
         /// <summary>A cluster's arms (edges with one end in it: the line model's borders out to maxOut metres or to the far
         /// end's trim, centre and profile heights), with the measured offsets applied, and its links (both ends in it).
         /// About 'origin' (the cluster's first node): absolute metres lose half a millimetre in float.</summary>
-        public static void BuildCluster(CityMap map, HashSet<int> cluster, JunctionMeasures.Set set, ICollection<int> drop, System.Func<CityMap.Edge, int, float> farTrim,
+        public static void BuildCluster(CityMap map, HashSet<int> cluster, ICollection<int> drop, System.Func<CityMap.Edge, int, float> farTrim,
                                         out List<JunctionOutline.Arm> arms, out List<JunctionOutline.Link> links, out Vector2 origin, float maxOut = 80f)
         {
             arms = new List<JunctionOutline.Arm>(); links = new List<JunctionOutline.Link>();
@@ -92,8 +95,8 @@ namespace PSXRacing.City
                         continue;
                     }
                     // radius by class: 15 link / 12 arterial / 9 collector / 6 local (the rule; a measured return replaces it)
-                    var arm = new JunctionOutline.Arm { id = ei, oneway = e.oneway, name = e.name ?? "", radius = e.link ? 15f : e.cls >= 3 ? 12f : e.cls >= 1 ? 9f : 6f, Y = new List<float>() };
                     bool fwd = e.a == n;
+                    var arm = new JunctionOutline.Arm { id = ei, oneway = e.oneway, name = e.name ?? "", radius = e.link ? 15f : e.cls >= 3 ? 12f : e.cls >= 1 ? 9f : 6f, Y = new List<float>(), fromA = fwd, edgeLength = e.length };
                     float far = farTrim != null ? Mathf.Max(0f, farTrim(e, fwd ? e.b : e.a)) : 0f;
                     float outTo = Mathf.Min(Mathf.Max(e.length - far, 2f), maxOut);
                     for (float d = 0f; d <= outTo + 1e-3f; d += JunctionOutline.Step)
@@ -106,16 +109,21 @@ namespace PSXRacing.City
                         arm.C.Add(p); arm.L.Add(p + left * (fwd ? eP : eM)); arm.R.Add(p - left * (fwd ? eM : eP)); arm.Y.Add(e.YAt(s));
                     }
                     if (arm.C.Count < 4) continue;
-                    if (set != null && set.edges.TryGetValue(ei, out var em)) JunctionMeasures.ApplyToArm(arm, fwd, e.length, em);
                     arms.Add(arm);
                 }
         }
 
         static void Solve(CityMap map, JunctionMeasures.Set set, JunctionMeasures.JunctionM jm, Built b, System.Func<CityMap.Edge, int, float> farTrim)
         {
-            BuildCluster(map, b.nodes, set, jm.drop, farTrim, out var arms, out var links, out b.origin);
+            BuildCluster(map, b.nodes, jm.drop, farTrim, out var arms, out var links, out b.origin);
             var before = new List<JunctionOutline.Arm>(arms);
+            // the rule's own ribbons (before bays merge and measures apply): the lane check's
+            var ruleL = new Dictionary<int, List<Vector2>>(); var ruleR = new Dictionary<int, List<Vector2>>();
+            foreach (var x in arms) { ruleL[x.id] = new List<Vector2>(x.L); ruleR[x.id] = new List<Vector2>(x.R); }
             b.log.AddRange(JunctionOutline.MergeBays(arms, links));
+            // the measures AFTER the bays: a measured border is the pavement's own edge (bays included) and blends back,
+            // where the measure ends, to the host's border with its bay
+            foreach (var arm in arms) if (set.edges.TryGetValue(arm.id, out var em)) JunctionMeasures.ApplyToArm(arm, arm.fromA, arm.edgeLength, em);
             var r = b.res = JunctionOutline.Solve(arms, null, links, JunctionMeasures.ToSolver(set, jm, b.origin));
             foreach (var lk in links) if (map.edges[lk.id].a != map.edges[lk.id].b && b.nodes.Contains(map.edges[lk.id].a) && b.nodes.Contains(map.edges[lk.id].b)) b.inside.Add(lk.id);
             if (r.refused != null || r.rowR == null) return;
@@ -150,6 +158,15 @@ namespace PSXRacing.City
                 if (at >= 0f && best < 6f) { b.rowOf[x.id] = at; b.log.Add($"bay e{x.id}'s ribbon ends {at:0.0} m out (at its host's row)"); }
                 else { r.refused = $"bay e{x.id}: its line crosses no row of the junction"; return; }
             }
+            // THE LANE CHECK (not a refusal in stage 1: reported): every ribbon as the rule draws it against the pavement
+            foreach (var x in before) LaneCheck(b, "e" + x.id, ruleL[x.id], ruleR[x.id], b.rowOf.TryGetValue(x.id, out float st) ? st - 1f : 0f);
+            foreach (var lk in links) if (b.inside.Contains(lk.id)) LaneCheck(b, "link e" + lk.id, lk.L, lk.R, float.MaxValue);
+        }
+
+        static void LaneCheck(Built b, string what, List<Vector2> L, List<Vector2> R, float upTo)
+        {
+            JunctionOutline.LaneCheck(b.res, L, R, upTo, out float run, out float worst, out var at);
+            if (run >= 1f) b.laneConflicts.Add($"{what}: {run:0.0} m of the rule's ribbon (its lanes) off the measured pavement, by up to {-worst:0.00} m at ({at.x + b.origin.x:0.0}, {at.y + b.origin.y:0.0})");
         }
     }
 }
