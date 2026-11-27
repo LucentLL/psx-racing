@@ -365,7 +365,7 @@ namespace PSXRacing.EditorTools
                 var pNew = Grab(); File.WriteAllBytes(b + "_NEW.png", pNew);
                 // (round 2) THE ID PASS (PSX/Lit _PSXIdMask): r foliage, g paved ground, b any PSX/Lit surface
                 Shader.SetGlobalFloat("_PSXIdMask", 1f); yield return Settle();
-                { var prev = RenderTexture.active; RenderTexture.active = full; tex.ReadPixels(new Rect(0, 0, W, H), 0, 0, false); tex.Apply(false); RenderTexture.active = prev;
+                { var prev = RenderTexture.active; RenderTexture.active = Pic(); tex.ReadPixels(new Rect(0, 0, W, H), 0, 0, false); tex.Apply(false); RenderTexture.active = prev;
                   File.WriteAllBytes(b + "_ID.png", tex.EncodeToPNG()); }
                 if (RainLookShots.Env("RL_DIAG", "0") == "1")
                     foreach (var (mode, suffix) in new[] { (2f, "_LIGHT"), (3f, "_EMIT") })
@@ -374,7 +374,7 @@ namespace PSXRacing.EditorTools
                             // NEW, then the duskleaves row alone OLD
                             foreach (var r in rows) if (r.id == "duskleaves") LabSwitches.Set(r, pass == 0, false);
                             Shader.SetGlobalFloat("_PSXIdMask", mode); yield return Settle();
-                            var prev = RenderTexture.active; RenderTexture.active = full; tex.ReadPixels(new Rect(0, 0, W, H), 0, 0, false); tex.Apply(false); RenderTexture.active = prev;
+                            var prev = RenderTexture.active; RenderTexture.active = Pic(); tex.ReadPixels(new Rect(0, 0, W, H), 0, 0, false); tex.Apply(false); RenderTexture.active = prev;
                             File.WriteAllBytes(b + suffix + (pass == 0 ? "_NEW" : "_OLD") + ".png", tex.EncodeToPNG());
                         }
                 SetAll(true);
