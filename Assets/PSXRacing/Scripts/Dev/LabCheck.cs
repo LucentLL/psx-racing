@@ -99,8 +99,12 @@ namespace PSXRacing
             rep.AppendLine("row | when | state -> flipped | base noise mean/share% | flipped mean/share% | back mean/share% | verdict");
             int pass = 0, fail = 0, nochange = 0;
             Application.logMessageReceived += OnLog;
+            // PSX_LAB_ONLY=id,id: only those rows (a round's own rows, quickly)
+            var only = System.Environment.GetEnvironmentVariable("PSX_LAB_ONLY");
+            var onlySet = string.IsNullOrEmpty(only) ? null : new HashSet<string>(only.Split(','));
             foreach (var r in LabSwitches.Rows())
             {
+                if (onlySet != null && !onlySet.Contains(r.id)) continue;
                 string head = $"{r.id,-12} | {r.when,-8} | ";
                 if (r.when == LabWhen.BuiltIn) { rep.AppendLine(head + "- | - | - | - | BUILT IN (not flipped)"); continue; }
                 if (r.EnvHeld) { rep.AppendLine(head + r.StateWord(r.Chosen) + " | - | - | - | LOCKED by a variable (not flipped)"); continue; }

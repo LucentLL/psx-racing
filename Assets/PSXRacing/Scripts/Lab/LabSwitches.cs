@@ -198,6 +198,13 @@ namespace PSXRacing
                 newValues = new[] { false },
                 apply = () => { foreach (var g in UnityEngine.Object.FindObjectsByType<RouteMapGraphic>(FindObjectsInactive.Exclude)) g.SetVerticesDirty(); },
             });
+            // roadevents (11-26): the start gates' fade
+            Register(new LabRow
+            {
+                id = "gatefade", group = LabGroup.World, name = "RACE GATES FADE IN", when = LabWhen.Now,
+                look = "Start gates in Charlotte grow out of the distance instead of switching on at 450 m.",
+                env = new[] { "PSX_GATEFADE" }, members = new[] { "CityRaceStarts.FadeIn" },
+            });
             Register(new LabRow
             {
                 id = "fall2", group = LabGroup.World, name = "FALL COLOURS 2", when = LabWhen.BuiltIn,

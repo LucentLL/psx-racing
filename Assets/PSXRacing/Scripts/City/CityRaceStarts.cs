@@ -22,7 +22,19 @@ namespace PSXRacing.City
     ///
     /// Built from glowing quads in PSX/Glow (the lamps' shader) and the menu
     /// font's own glyphs, so nothing here needs an asset: a few dozen quads
-    /// per gate, switched off past 450 m.
+    /// per gate.
+    ///
+    /// GROWN OUT OF THE DISTANCE (roadevents, 2026-11-26; the owner's rule:
+    /// nothing may switch on as you drive, lights only by a fade). A gate's
+    /// light rises from nothing at <see cref="FadeFarM"/> to full at
+    /// <see cref="FadeNearM"/> of the eye, every frame: PSX/Glow is additive,
+    /// so its _Strength scaled through a property block on each of the gate's
+    /// renderers (the materials are shared) scales the light it adds - and the
+    /// emitter mask it writes to alpha, which the halation reads (scaling
+    /// _Color alone would leave a dark gate's mask at full). The
+    /// root is switched off only while that light is 0, where the switch
+    /// draws nothing. PSX_GATEFADE=0 / the LAB row RACE GATES FADE IN OLD:
+    /// the old switch at 450 m, polled five times a second.
     /// </summary>
     public class CityRaceStarts : MonoBehaviour
     {
@@ -51,8 +63,13 @@ namespace PSXRacing.City
 
         /// <summary>Close enough to the line, and slow enough, to be offered it.</summary>
         const float OfferM = 16f, OfferKmh = 32f;
-        /// <summary>Gates past this are switched off.</summary>
+        /// <summary>Gates past this are switched off (the old switch).</summary>
         const float ShowM = 450f;
+        /// <summary>The fade: no light at FadeFarM of the eye, full at FadeNearM.</summary>
+        public const float FadeFarM = 450f, FadeNearM = 300f;
+        /// <summary>The fade (the LAB's RACE GATES FADE IN); false = the old
+        /// switch at 450 m. PSX_GATEFADE=0 for the old.</summary>
+        public static bool FadeIn = System.Environment.GetEnvironmentVariable("PSX_GATEFADE") != "0";
         /// <summary>DRIVE TO THE START puts the car this far short of the line.</summary>
         const float ApproachM = 70f;
 
@@ -79,6 +96,7 @@ namespace PSXRacing.City
         void OnDestroy()
         {
             Gates.Clear();
+            Looks.Clear();
             Prompt = null;
             AtStart = false;
         }
@@ -86,6 +104,7 @@ namespace PSXRacing.City
         void Build()
         {
             Gates.Clear();
+            Looks.Clear();
             var map = world.Map;
             for (int i = 0; i < TrackCatalog.Count; i++)
             {
@@ -97,6 +116,7 @@ namespace PSXRacing.City
                 var g = new Gate { venue = i, plan = p, heading = h, y = y, name = Plain(t.name) };
                 MakeGate(ref g, t);
                 Gates.Add(g);
+                Looks.Add(LookOf(g.root));
             }
             Debug.Log("[RaceStarts] " + Gates.Count + " gates in free roam");
         }
@@ -363,19 +383,7 @@ namespace PSXRacing.City
             var cam = Camera.main;
             var me = new Vector2(player.transform.position.x, player.transform.position.z);
 
-            // Show/fade a few times a second: four gates, no need for more.
-            poll -= Time.unscaledDeltaTime;
-            if (poll <= 0f)
-            {
-                poll = 0.2f;
-                var eye = cam != null ? cam.transform.position : player.transform.position;
-                foreach (var g in Gates)
-                {
-                    float d = Vector2.Distance(new Vector2(eye.x, eye.z), g.plan);
-                    bool on = d < ShowM;
-                    if (g.root.gameObject.activeSelf != on) g.root.gameObject.SetActive(on);
-                }
-            }
+            ShowGates(cam != null ? cam.transform.position : player.transform.position);
 
             if (PauseMenu.IsOpen) return;
             var mode = CityMode.Instance;
@@ -396,6 +404,213 @@ namespace PSXRacing.City
             AtStart = true;
             Prompt = UseControlName() + " - START  " + gate.name;
             if (UsePressed()) Launch(gate.venue);
+        }
+
+        // ------------------------------------------------------------------
+        //  showing: the fade (or the old switch)
+        // ------------------------------------------------------------------
+        /// <summary>A gate's renderers, their materials' own strengths and the
+        /// light it shows now (0..1; -1 not yet written).</summary>
+        public sealed class Look
+        {
+            public Renderer[] rends;
+            public float[] baseStr;
+            public float k = -1f;
+        }
+
+        /// <summary>One per gate, beside <see cref="Gates"/>.</summary>
+        public static readonly List<Look> Looks = new List<Look>();
+        static MaterialPropertyBlock block;
+        static readonly int StrengthId = Shader.PropertyToID("_Strength");
+        bool wasFade;
+
+        static Look LookOf(Transform root)
+        {
+            var l = new Look { rends = root != null ? root.GetComponentsInChildren<Renderer>(true) : new Renderer[0] };
+            l.baseStr = new float[l.rends.Length];
+            for (int i = 0; i < l.rends.Length; i++)
+            {
+                var m = l.rends[i].sharedMaterial;
+                l.baseStr[i] = m != null && m.HasProperty(StrengthId) ? m.GetFloat(StrengthId) : 1f;
+            }
+            return l;
+        }
+
+        /// <summary>The fade's light at <paramref name="d"/> metres from the
+        /// eye: 0 at FadeFarM, 1 at FadeNearM, eased at both ends.</summary>
+        public static float FadeAt(float d)
+        {
+            float t = Mathf.Clamp01((FadeFarM - d) / (FadeFarM - FadeNearM));
+            return t * t * (3f - 2f * t);
+        }
+
+        /// <summary>Write a gate's light: each renderer's strength (its light
+        /// and its emitter mask) scaled through its property block (1 = no block: the materials as they
+        /// are, exactly the old picture).</summary>
+        static void SetLight(Look l, float k)
+        {
+            if (l == null || (l.k >= 0f && l.k == k)) return;
+            l.k = k;
+            if (block == null) block = new MaterialPropertyBlock();
+            for (int i = 0; i < l.rends.Length; i++)
+            {
+                var r = l.rends[i];
+                if (r == null) continue;
+                if (k >= 1f) { r.SetPropertyBlock(null); continue; }
+                block.Clear();
+                block.SetFloat(StrengthId, l.baseStr[i] * k);
+                r.SetPropertyBlock(block);
+            }
+        }
+
+        /// <summary>Tools: time <see cref="ShowGates"/> into <see cref="ClockTicks"/>
+        /// (Stopwatch ticks; the gate check's cost A/B).</summary>
+        public static bool Clocked;
+        public static long ClockTicks;
+
+        void ShowGates(Vector3 eye)
+        {
+            if (!Clocked) { ShowGatesNow(eye); return; }
+            long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+            ShowGatesNow(eye);
+            ClockTicks += System.Diagnostics.Stopwatch.GetTimestamp() - t0;
+        }
+
+        void ShowGatesNow(Vector3 eye)
+        {
+            var e2 = new Vector2(eye.x, eye.z);
+            if (FadeIn)
+            {
+                // every frame: a handful of gates, a distance and a block each
+                wasFade = true;
+                for (int i = 0; i < Gates.Count && i < Looks.Count; i++)
+                {
+                    var g = Gates[i];
+                    float k = FadeAt(Vector2.Distance(e2, g.plan));
+                    bool on = k > 0f;
+                    // the light first, then the switch: a root comes on at its own (near 0) light
+                    SetLight(Looks[i], k);
+                    if (g.root.gameObject.activeSelf != on) g.root.gameObject.SetActive(on);
+                }
+                return;
+            }
+            // THE OLD SWITCH: a few times a second, full light inside ShowM
+            if (wasFade) { wasFade = false; poll = 0f; foreach (var l in Looks) SetLight(l, 1f); }
+            poll -= Time.unscaledDeltaTime;
+            if (poll > 0f) return;
+            poll = 0.2f;
+            foreach (var g in Gates)
+            {
+                float d = Vector2.Distance(e2, g.plan);
+                bool on = d < ShowM;
+                if (g.root.gameObject.activeSelf != on) g.root.gameObject.SetActive(on);
+            }
+        }
+
+        // ---- the light-pop meter's view (Dev/LightPopMeter.cs: the gate cause) ----
+        /// <summary>Gate <paramref name="i"/>'s state now: its root switched on, its light.</summary>
+        public static bool MeterRead(int i, out bool active, out float k)
+        {
+            active = false; k = 0f;
+            if (i < 0 || i >= Gates.Count || i >= Looks.Count || Gates[i].root == null) return false;
+            active = Gates[i].root.gameObject.activeSelf;
+            k = Looks[i].k < 0f ? 1f : Looks[i].k;
+            return true;
+        }
+
+        /// <summary>Put gate <paramref name="i"/> to a state (the meter's
+        /// frame-before render, then back).</summary>
+        public static void MeterWrite(int i, bool active, float k)
+        {
+            if (i < 0 || i >= Gates.Count || i >= Looks.Count || Gates[i].root == null) return;
+            SetLight(Looks[i], k);
+            if (Gates[i].root.gameObject.activeSelf != active) Gates[i].root.gameObject.SetActive(active);
+        }
+
+        /// <summary>Gate <paramref name="i"/>'s renderers (the meter collects them).</summary>
+        public static Renderer[] MeterRenderers(int i) => i >= 0 && i < Looks.Count ? Looks[i].rends : null;
+
+        // ---- the road into a gate (tools: the gate approach, the LAB check's stand) ----
+        /// <summary>
+        /// The road leading into gate <paramref name="gi"/>, about
+        /// <paramref name="lengthM"/> metres of it, far end first, ending at
+        /// the line: from the gate's own street backwards, at each node the
+        /// street that carries on straightest (a turn of up to 100 degrees
+        /// where nothing goes straight on; a one-way only the way it is driven), a quarter of the road right of the
+        /// centre line on a two-way. A point every 2 m at the road's solved
+        /// height. Shorter when the street ends.
+        /// </summary>
+        public static List<Vector3> ApproachLine(CityMap map, int gi, float lengthM)
+        {
+            var pts = new List<Vector3>();
+            if (map == null || gi < 0 || gi >= Gates.Count) return pts;
+            var g = Gates[gi];
+            var t = TrackCatalog.At(g.venue);
+            var route = t != null ? map.RouteById(t.cityRoute) : null;
+            int ei = -1; float s = 0f, best = float.MaxValue;
+            if (route != null && route.edges != null)
+                foreach (int e0 in route.edges)
+                {
+                    if (e0 < 0 || e0 >= map.edges.Length) continue;
+                    var e = map.edges[e0];
+                    for (int si = 0; si + 1 < e.pts.Length; si++)
+                    {
+                        Vector2 a = e.pts[si], b = e.pts[si + 1], d = b - a;
+                        float L2 = d.sqrMagnitude;
+                        float tt = L2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(g.plan - a, d) / L2) : 0f;
+                        float dd = Vector2.Distance(g.plan, a + d * tt);
+                        if (dd < best) { best = dd; ei = e0; s = e.s[si] + Mathf.Sqrt(L2) * tt; }
+                    }
+                }
+            if (ei < 0 || best > 30f)
+                if (!map.NearestRoadPoint(g.plan, 40f, false, out ei, out s, out _)) return pts;
+            // walking backwards: -1 = toward the edge's first point
+            var edge = map.edges[ei];
+            int dir = Vector2.Dot(edge.TangentAt(s), g.heading) > 0f ? -1 : 1;
+            const float Step = 2f;
+            float walked = 0f;
+            int guard = 0;
+            while (walked < lengthM && guard++ < 4000)
+            {
+                var back = edge.TangentAt(s) * dir;      // the way we walk (against travel)
+                var fwd = -back;                           // the way a car drives here
+                var c = edge.PointAt(s);
+                float off = edge.oneway ? 0f : Mathf.Min(edge.width * 0.25f, 3.5f);
+                var q = c + new Vector2(fwd.y, -fwd.x) * off;
+                pts.Add(new Vector3(q.x, edge.YAt(s), q.y));
+                float ns = s + dir * Step;
+                if (ns >= 0f && ns <= edge.length) { s = ns; walked += Step; continue; }
+                // the node at this end: the street that carries on straightest
+                int node = dir < 0 ? edge.a : edge.b;
+                // straightest first; with none within 40 degrees, a turn (up to 100) rather than a dead end
+                int bestE = -1, bestDir = 0; float bestDot = Mathf.Cos(100f * Mathf.Deg2Rad);
+                // (a second, looser pass where that finds nothing: any way along a one-way, a turn up to 150)
+                for (int pass = 0; pass < 2 && bestE < 0; pass++)
+                {
+                    if (pass == 1) bestDot = Mathf.Cos(150f * Mathf.Deg2Rad);
+                    if (map.nodeEdges == null || node < 0 || node >= map.nodeEdges.Length || map.nodeEdges[node] == null) break;
+                    foreach (int ci in map.nodeEdges[node])
+                    {
+                        if (ci == edge.index || ci < 0 || ci >= map.edges.Length) continue;
+                        var ce = map.edges[ci];
+                        if (ce.length < 1f) continue;
+                        // walking backwards out of the node along ce: +1 from its first point, -1 from its last
+                        int cdir = ce.a == node ? 1 : ce.b == node ? -1 : 0;
+                        if (cdir == 0) continue;
+                        if (pass == 0 && ce.oneway && cdir != -1) continue;   // a one-way is driven along its points
+                        var outDir = ce.TangentAt(cdir > 0 ? 0f : ce.length) * cdir;
+                        float dot = Vector2.Dot(outDir, back);
+                        if (dot > bestDot) { bestDot = dot; bestE = ci; bestDir = cdir; }
+                    }
+                }
+                if (bestE < 0) break;
+                walked += dir < 0 ? s : edge.length - s;
+                edge = map.edges[bestE];
+                dir = bestDir;
+                s = dir > 0 ? 0f : edge.length;
+            }
+            pts.Reverse();
+            return pts;
         }
 
         /// <summary>The race, with the car you are in, the hour it is now and

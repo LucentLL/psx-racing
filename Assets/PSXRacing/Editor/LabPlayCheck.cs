@@ -13,6 +13,9 @@ namespace PSXRacing.EditorTools
     ///   PSX_LAB_PLACE = city (Charlotte free roam, the default) | a stage id (LakeLure, BlueRidge...: its start)
     ///   PSX_LAB_HOUR = Night (default), PSX_LAB_WEATHER = Rain (default) | Clear | Fog..., PSX_LAB_VIEW = Chase | Cockpit...
     ///   PSX_LAB_SNAPS=1: each row's flipped and returned frames; PSX_LAB_OUT: the folder (default Screenshots/lab_check)
+    ///   PSX_LAB_ONLY=id,id: only those rows flipped (LabCheck)
+    ///   PSX_LAB_GATEM=380 (roadevents): the car stood on the road into the first race start gate, about that many
+    ///   metres short of it (the gates stand in the CITY edition's free roam: run with PSX_EDITION=CITY)
     ///   Unity.exe -batchmode -projectPath &lt;sandbox&gt; -executeMethod PSXRacing.EditorTools.LabPlayCheck.Run (no -quit)
     /// Writes &lt;out&gt;/labplay_&lt;place&gt;_lab.txt and PSXRacing_lab_play.txt.
     /// </summary>
@@ -97,10 +100,41 @@ namespace PSXRacing.EditorTools
             }
             if (car == null || Camera.main == null) { Write("FAIL: no car / camera came up at " + place); EditorApplication.Exit(1); yield break; }
             if (System.Enum.TryParse(LabPlayCheck.Env("PSX_LAB_VIEW", ""), true, out ChaseCamera.View v)) ChaseCamera.PreviewView(v);
+            bool standSet = false; Vector3 standPos = Vector3.zero; Quaternion standRot = Quaternion.identity;
+            // (roadevents) stood short of a start gate, facing it
+            if (float.TryParse(LabPlayCheck.Env("PSX_LAB_GATEM", ""), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float gateM)
+                && CityMode.Instance != null && CityRaceStarts.Gates.Count > 0)
+            {
+                int gi = 0;
+                int.TryParse(LabPlayCheck.Env("PSX_LAB_GATE", "0"), out gi);
+                gi = Mathf.Clamp(gi, 0, CityRaceStarts.Gates.Count - 1);
+                var pts = CityRaceStarts.ApproachLine(CityMode.Instance.world.Map, gi, gateM + 80f);
+                var gp = CityRaceStarts.Gates[gi].plan;
+                int bi = -1; float bd = float.MaxValue;
+                for (int i = 0; i + 4 < pts.Count; i++)
+                {
+                    float d = Mathf.Abs(Vector2.Distance(new Vector2(pts[i].x, pts[i].z), gp) - gateM);
+                    if (d < bd) { bd = d; bi = i; }
+                }
+                if (bi >= 0)
+                {
+                    var f = pts[bi + 4] - pts[bi]; f.y = 0f;
+                    var rot = Quaternion.LookRotation(f.normalized, Vector3.up);
+                    CityMode.Instance.world.EnsureRing(pts[bi], 1);
+                    car.ResetTo(pts[bi], rot, seated: true);
+                    standSet = true; standPos = pts[bi]; standRot = rot;
+                    var pin = car.GetComponent<PlayerCarInput>(); if (pin != null) { pin.inputEnabled = false; pin.enabled = false; }
+                    Debug.Log("[LabPlayCheck] stood " + Vector2.Distance(new Vector2(pts[bi].x, pts[bi].z), gp).ToString("0") + " m short of gate " + CityRaceStarts.Gates[gi].name);
+                }
+                else Debug.Log("[LabPlayCheck] no road into gate " + gi);
+            }
             // streaming and the lamp field settle; the car held still
             for (float t0 = Time.realtimeSinceStartup; Time.realtimeSinceStartup - t0 < 20f;)
             {
                 car.throttleInput = 0f; car.brakeInput = 1f;
+                // (roadevents) held on the stand while the tiles under it are built (a car set down before its
+                // road exists falls through and is recovered elsewhere)
+                if (standSet) car.ResetTo(standPos, standRot, seated: true);
                 yield return null;
             }
             // PSX_LAB_PARTS=<mask> (carparts): the parked car with those parts open, snapped open
@@ -123,6 +157,9 @@ namespace PSXRacing.EditorTools
                 report += "PARTS: asked " + partsMask + " on " + (cb != null ? cb.modelKey : "-") + ", open " + CarParts.MaskOf(cb != null ? cb.bodyFilter : null) + "\n";
                 for (int i = 0; i < 5; i++) yield return null;
             }
+            if (standSet)
+                Debug.Log("[LabPlayCheck] after the settle the car is " + Vector3.Distance(car.transform.position, standPos).ToString("0.0") + " m off the stand, the eye " +
+                          Vector2.Distance(new Vector2(Camera.main.transform.position.x, Camera.main.transform.position.z), CityRaceStarts.Gates[Mathf.Clamp(int.TryParse(LabPlayCheck.Env("PSX_LAB_GATE", "0"), out int g2) ? g2 : 0, 0, CityRaceStarts.Gates.Count - 1)].plan).ToString("0") + " m from the gate");
             bool snaps = LabPlayCheck.Env("PSX_LAB_SNAPS", "0") == "1";
             yield return LabCheck.Run(place, "labplay", LabPlayCheck.Env("PSX_LAB_WEATHER", "Rain"), snaps,
                                       (n, b) => System.IO.File.WriteAllBytes(System.IO.Path.Combine(outDir, n), b),
