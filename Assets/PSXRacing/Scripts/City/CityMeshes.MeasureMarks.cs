@@ -62,6 +62,7 @@ namespace PSXRacing.City
                         if (ln.paintOnly || ln.index > f.nRule)
                         {
                             if (ln.kind != JunctionMeasures.LkNone) { AddMark(new PaintMark { style = MkPick, edge = e.index, s0 = a, s1 = b, pick = ln, zone = -1, what = "pick: a line of paint" }); picks++; }
+                            if (ln.hatch && f.oneway && HatchPick(e, f, ln, a, b)) hatches++;
                             continue;
                         }
                         int k = f.oneway ? KOf(ln.index) : -1;
@@ -128,6 +129,42 @@ namespace PSXRacing.City
             foreach (float b in bps) if (u.Count == 0 || b - u[u.Count - 1] > 1e-3f) u.Add(b);
             var tg = e.TangentAt(0.5f * (s0 + s1));
             AddMark(new PaintMark { style = MkGlyph, edge = e.index, s0 = s0, s1 = s1, pieces = pieces, bps = u.ToArray(), side = 1, yellow = true, zone = -1, what = "fit: a painted median's hatching",
+                                    hdg = Mathf.Repeat(Mathf.Atan2(tg.x, tg.y) * Mathf.Rad2Deg, 360f) });
+            return true;
+        }
+
+        /// <summary>The bars of a striped buffer between the lanes' left line and a picked line over [s0, s1], as
+        /// (lat, s) quads (45 degrees, MeasHatchStepM apart); empty where the buffer is under 0.4 m wide.</summary>
+        static void BufferBars(JunctionMeasures.FitE f, JunctionMeasures.LineM ln, float s0, float s1, List<Vector2[]> into)
+        {
+            float h = MeasHatchBarW * 1.41421356f;
+            float Lo(float s) => BandL(f, s) + 0.2f;
+            float Hi(float s) => ln.At(s, out float off, out _) ? off - 0.2f : float.NaN;
+            for (float y = Mathf.Ceil((s0 + 0.5f) / MeasHatchStepM) * MeasHatchStepM; y < s1 - 0.5f; y += MeasHatchStepM)
+            {
+                float lo = Lo(y), hi = Hi(y);
+                if (float.IsNaN(hi) || float.IsNaN(lo)) continue;
+                float rise = hi - lo;
+                if (rise < 0.4f || y + rise + h > s1) continue;
+                var pc = new[] { new Vector2(lo, y), new Vector2(Lo(y + h), y + h), new Vector2(Hi(y + rise + h), y + rise + h), new Vector2(Hi(y + rise), y + rise) };
+                bool ok = true;
+                foreach (var v in pc) ok &= !float.IsNaN(v.x);
+                if (ok) into.Add(pc);
+            }
+        }
+
+        static bool HatchPick(CityMap.Edge e, JunctionMeasures.FitE f, JunctionMeasures.LineM ln, float s0, float s1)
+        {
+            var pieces = new List<Vector2[]>(16);
+            BufferBars(f, ln, s0, s1, pieces);
+            if (pieces.Count < 2) return false;
+            var bps = new List<float>(64);
+            foreach (var pc in pieces) foreach (var v in pc) bps.Add(v.y);
+            bps.Sort();
+            var u = new List<float>(bps.Count);
+            foreach (float b in bps) if (u.Count == 0 || b - u[u.Count - 1] > 1e-3f) u.Add(b);
+            var tg = e.TangentAt(0.5f * (s0 + s1));
+            AddMark(new PaintMark { style = MkGlyph, edge = e.index, s0 = s0, s1 = s1, pieces = pieces, bps = u.ToArray(), side = 1, zone = -1, what = "pick: a striped buffer",
                                     hdg = Mathf.Repeat(Mathf.Atan2(tg.x, tg.y) * Mathf.Rad2Deg, 360f) });
             return true;
         }

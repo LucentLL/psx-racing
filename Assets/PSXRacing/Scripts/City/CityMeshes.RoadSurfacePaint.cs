@@ -200,6 +200,12 @@ namespace PSXRacing.City
                         float Lp(float s) => l2.At(s, out float off, out _) ? off : float.NaN;
                         if (ln.kind == JunctionMeasures.LkYellow2) { RsLine(tm.origin, e, a, b, s => Lp(s) - 0.12f, true, false); RsLine(tm.origin, e, a, b, s => Lp(s) + 0.12f, true, false); }
                         else RsLine(tm.origin, e, a, b, Lp, ln.kind == JunctionMeasures.LkYellow, ln.kind == JunctionMeasures.LkBroken);
+                        if (ln.hatch)
+                        {
+                            rsBars.Clear();
+                            BufferBars(f, ln, a, b, rsBars);
+                            foreach (var pc in rsBars) RsPoly(tm.origin, e, pc, false);
+                        }
                     }
                 if (em == null || !JunctionMeasures.PicksOn) continue;
                 // arrows whose head lies inside the junction (the existing stamp's three pieces)
@@ -222,5 +228,6 @@ namespace PSXRacing.City
             }
         }
         static readonly List<float> rsLanes = new List<float>(8);
+        static readonly List<Vector2[]> rsBars = new List<Vector2[]>(16);
     }
 }

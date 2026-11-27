@@ -63,6 +63,9 @@ namespace PSXRacing.City
         public sealed class LineM
         {
             public int index; public byte kind; public bool paintOnly; public List<Vector2> st = new List<Vector2>();
+            /// <summary>A STRIPED BUFFER: the strip between the lanes' left line and this (paint-only) line carries white
+            /// diagonal bars.</summary>
+            public bool hatch;
             public bool At(float s, out float off, out float w)
             {
                 off = 0f; w = 0f;
@@ -144,7 +147,7 @@ namespace PSXRacing.City
         ///   provider hand|survey
         ///   edge ID [blend M] [hold a|b|ab] [shift M] [lanes N] [left kerb|shoulder M|paint M|line] [right kerb|shoulder M|line]
         ///                                               then lines:  s STATION LEFT RIGHT   ('-' = no measure on that side)
-        ///                                                            line INDEX broken|solid|yellow2|yellow|edge|none [paint]
+        ///                                                            line INDEX broken|solid|yellow2|yellow|edge|none [paint] [hatch]
         ///                                                            p STATION OFFSET   (rows of the line above)
         ///                                                            arrow STATION OFFSET left|right
         ///                                                            stop STATION
@@ -192,7 +195,7 @@ namespace PSXRacing.City
                         // line INDEX broken|solid|yellow2|yellow|edge|none [paint]
                         if (e == null) break;
                         ln = new LineM { index = int.Parse(t[1], inv), kind = t[2] == "solid" ? LkSolid : t[2] == "yellow2" ? LkYellow2 : t[2] == "yellow" ? LkYellow : t[2] == "edge" ? LkEdge : t[2] == "none" ? LkNone : LkBroken,
-                                         paintOnly = t.Length > 3 && t[3] == "paint" };
+                                         paintOnly = t.Length > 3 && t[3] == "paint", hatch = System.Array.IndexOf(t, "hatch") >= 3 };
                         e.lines.Add(ln); break;
                     case "p":
                         if (ln != null) ln.st.Add(new Vector2(F(t[1]), F(t[2])));
