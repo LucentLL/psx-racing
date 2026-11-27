@@ -546,6 +546,10 @@ Shader "PSX/Lit"
             float4 _PSXRainLookOff;   // (rainlook, RainLook.cs) w 0: the road's leaves in world metres
             float4 _PSXLookOff2;      // x 0: the foliage light falls with the sun (no glow at dusk and by day)
             #endif
+            float _PSXIdMask;         // (rainlook round 2, tools only) 1: the id pass (see the frag's end)
+            // (rainlook round 4) TREE COLOUR: CALMER BY DAY - the share of a leaf's brightness taken off by day and at
+            // dusk (none at night). THE ONE STRENGTH: RainLook.TreeCalmK may override it (0 = this).
+            #define TREE_CALM_K 0.30
             float4 _PSXFallPhase;   // global (SeasonDress): x 1 = live, y the fall's phase 0 early .. 0.5 peak .. 1 late
             // A leaf texel in another colour AT ITS OWN LUMINANCE (owner
             // 2026-11-11, the title's drone: the poplars "not following the
@@ -2520,6 +2524,19 @@ Shader "PSX/Lit"
                             tex.rgb = lerp(tex.rgb, LeafRecolour(float3(1.0, 0.292, 0.074), lumF) * 0.72, saturate(late * 1.25) * 0.85);
                     }
                 }
+                // (rainlook round 4, RainLook.TreeCalm; _PSXLookOff2.y 1 = OLD, z the strength, 0 = TREE_CALM_K)
+                // TREE COLOUR: CALMER BY DAY. The owner: trees "glowing like objects in a blacklight" at dusk and
+                // by day, night right. Measured: the light on the city's leaves at dusk is a third of the road's,
+                // yet they read brighter - their own colour gains (LeafVivid's brightness x1.6, the fall's gold
+                // gain) are what lift them. Their BRIGHTNESS only is eased by day and at dusk: the colour is
+                // scaled as a whole, so its hue and saturation (the fall's red, orange and gold) are kept.
+                // Off at night (_PSXNight 1): the night picture is the bit-for-bit same. The foliage path only
+                // (_LeafVivid.z): fences, signs, poles and bark are not touched.
+                if (_LeafVivid.z > 0.5 && _PSXLookOff2.y < 0.5)
+                {
+                    float calmK = _PSXLookOff2.z > 0.0 ? _PSXLookOff2.z : TREE_CALM_K;
+                    tex.rgb *= 1.0 - calmK * saturate((1.0 - _PSXNight) * 8.0);
+                }
                 clip(tex.a - _Cutoff);
             #ifdef PSX_LODFADE
                 // THE LOD HAND-OVER (MeshForest): one level dithers out over a
@@ -3441,6 +3458,26 @@ Shader "PSX/Lit"
                 // PSX/Blit's halation and PSX/Lens's dirt glow by. Any other
                 // camera's render texture (the mirror, the pizza cam) is shown
                 // by a RawImage that blends by alpha: the texel's, as ever.
+                // (rainlook round 2, tools only: Editor/RainLookShots.cs) THE ID PASS: _PSXIdMask 1 draws
+                // r = foliage (the foliage light, _LeafVivid.z), g = paved ground (wet-able, facing up, not a
+                // cutout), b = any PSX/Lit surface (alpha 1: the leaves draw alpha-to-coverage); never set in the game (a uniform branch, 0)
+                // 2: the light on THIS pixel, halved (r the sun as shadowed, g the sky and ambient as kept, b the
+                // lamps and beams), 3: r _Emission, g the albedo's luminance, b the exposure / 4
+                // (round 3: x 0.1 and no exposure, so the display's curve stays in its straight part)
+                // 2: r the street lamps' light arriving (lampD), g what this surface takes of it (x lampGain, roadN),
+                //    b the beams; 3: r the sun as shadowed, g the sky and ambient as kept, b the exposure
+                if (_PSXIdMask > 2.5)
+                {
+                    float3 lw3 = float3(0.2126, 0.7152, 0.0722);
+                    return fixed4(dot(sunIn * sunVis, lw3) * 0.1, dot(ambIn * skyKeep, lw3) * 0.1, expo * 0.1, 1.0);
+                }
+                if (_PSXIdMask > 1.5)
+                {
+                    float3 lw = float3(0.2126, 0.7152, 0.0722);
+                    return fixed4(dot(lampD, lw) * 0.1, dot(lampD * lampGain * roadN, lw) * 0.1, dot(headD * beamGain, lw) * 0.1, 1.0);
+                }
+                if (_PSXIdMask > 0.5)
+                    return fixed4(_LeafVivid.z > 0.5 ? 1.0 : 0.0, (N.y > 0.85 && _Wet > 0.001 && _Cutoff < 0.001) ? 1.0 : 0.0, 1.0, 1.0);
                 return fixed4(col, _PSXEmitWrite > 0.5 ? emit : tex.a);
             }
             ENDCG
