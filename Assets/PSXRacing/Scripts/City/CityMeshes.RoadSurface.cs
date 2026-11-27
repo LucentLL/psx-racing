@@ -388,9 +388,7 @@ namespace PSXRacing.City
                 {
                     // (round 2) the kerb's BACK, down into the ground: where the land falls away behind it the kerb is a
                     // closed solid from the land side too (the island gate's SEETHRU: its face seen from behind at 81)
-                    var o0 = back[k] + nr[k] * 0.4f; var o1 = back[k + 1] + nr[k + 1] * 0.4f;
-                    kerbBucket.Up(W(back[k], y2[k] + RsKerbH), W(back[k + 1], y2[k + 1] + RsKerbH), W(o1, y2[k + 1] - 0.25f), W(o0, y2[k] - 0.25f),
-                                  new Vector2(u0, 0.05f), new Vector2(u1, 0.05f), new Vector2(u1, 0.1f), new Vector2(u0, 0.1f));
+                    kerbBucket.WallSloped(W(back[k], 0f), W(back[k + 1], 0f), y2[k] - 0.4f, y2[k] + RsKerbH, y2[k + 1] - 0.4f, y2[k + 1] + RsKerbH, -into, u0, u1, 0f, 0.05f);
                     RsKerbTris += 2;
                     if (groundLog != null) groundTag = $"road-surface verge {js.name}";
                     EmitVergeLine(map, trims, tm, W(back[k], y2[k] + RsKerbH), W(back[k + 1], y2[k + 1] + RsKerbH), nr[k].normalized, nr[k + 1].normalized, 0.3f);
