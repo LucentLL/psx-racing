@@ -2001,7 +2001,7 @@ namespace PSXRacing.City
             BuildTurnPockets(map, t);
             // (road-surface stage 1) the measures feed the line model, once the rule's extents are final: a measured
             // edge's ribbon, lanes, paint and lane centre follow its measured pavement (JunctionMeasures.LineModel.cs)
-            if (RoadSurfaceOn) JunctionMeasures.FeedLineModel(map); else JunctionMeasures.Fed.Clear();
+            if (RoadSurfaceOn) JunctionMeasures.FeedLineModel(map); else { JunctionMeasures.Fed.Clear(); JunctionMeasures.Fits.Clear(); }
             // leftover item 4: the bulbs' necks, on the street's final extents
             BulbNecks(map, t);
             // plan A2: which parallel decks are drawn as one structure, where

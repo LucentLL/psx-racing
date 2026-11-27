@@ -32,7 +32,7 @@ namespace PSXRacing.City
         static Vector3 rsOrigin;
         static void RsTileBegin(TileMeshes tm, Vector2 min, Vector2 max)
         {
-            rsHere.Clear(); rsPaintLines.Clear(); RsMaskOn = false; RsPaintMaskOn = false; rsOwn = false; rsOrigin = tm.origin;
+            rsHere.Clear(); rsPaintLines.Clear(); rsShoulderLines.Clear(); RsMaskOn = false; RsPaintMaskOn = false; rsOwn = false; rsOrigin = tm.origin;
             if (!RoadSurfaceOn) return;
             foreach (var b in JunctionSurfaces.All)
             {

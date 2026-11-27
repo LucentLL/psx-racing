@@ -233,7 +233,17 @@ namespace PSXRacing.City
             for (int i = 0; i < r.arms.Count; i++)
             {
                 var a = r.arms[i];
-                b.rowOf[a.id] = Mathf.Abs(r.sR[i] - r.sL[i]) > 0.2f ? Mathf.Min(r.sR[i], r.sL[i]) : 0.5f * (r.sR[i] + r.sL[i]);
+                b.rowOf[a.id] = 0.5f * (r.sR[i] + r.sL[i]);
+                if (Mathf.Abs(r.sR[i] - r.sL[i]) > 0.2f)
+                {
+                    // a SKEW row (two arms abreast share one cut line): the ribbon's square end stands where the row's
+                    // nearer end falls on the edge's own line (the row's stations are its borders'), so the ribbon laps
+                    // the junction's fill in a wedge instead of leaving one unpaved
+                    var ea = map.edges[a.id]; bool atA = b.nodes.Contains(ea.a);
+                    CityElevation.ProjectOn(ea, r.rowR[i] + b.origin, out float pr); CityElevation.ProjectOn(ea, r.rowL[i] + b.origin, out float pl);
+                    float dR = atA ? pr : ea.length - pr, dL = atA ? pl : ea.length - pl;
+                    b.rowOf[a.id] = Mathf.Max(0.5f, Mathf.Min(dR, dL) - SkewLapM);
+                }
                 float w = (r.rowL[i] - r.rowR[i]).magnitude;
                 if (w > widest) { widest = w; b.mainEdge = a.id; var e = map.edges[a.id]; b.mainNode = b.nodes.Contains(e.a) ? e.a : e.b; }
             }
@@ -286,7 +296,8 @@ namespace PSXRacing.City
                     // other lanes go on along a link inside the junction)
                     if (string.IsNullOrEmpty(A.name) || A.name != B.name) continue;
                     float sA = b.nodes.Contains(A.a) ? 0f : A.length, sB = b.nodes.Contains(B.a) ? 0f : B.length;
-                    if (!JunctionMeasures.LaneCentres(A, sA, la, out _, out _) || !JunctionMeasures.LaneCentres(B, sB, lb, out _, out _)) continue;
+                    // (an arm the fit does not carry: the rule's lanes about its lane centre)
+                    if (!LanesOf(A, sA, la) || !LanesOf(B, sB, lb)) continue;
                     var tA = A.TangentAt(sA); var nA = new Vector2(-tA.y, tA.x); var tB = B.TangentAt(sB); var nB = new Vector2(-tB.y, tB.x);
                     var pA = A.PointAt(sA); var pB = B.PointAt(sB);
                     int lo = -1, hi = -1;
@@ -303,6 +314,17 @@ namespace PSXRacing.City
                         b.log.Add($"e{A.index}: lanes {lo + 1}-{hi + 1} of {la.Count} (from the right) go on across to e{B.index} ({lb.Count} lanes); the other{(la.Count - (hi - lo + 1) > 1 ? "s end" : " ends")} at the row (a turn lane whose exit is not in the map)");
                 }
             }
+        }
+
+        static bool LanesOf(CityMap.Edge e, float s, List<float> into)
+        {
+            if (JunctionMeasures.LaneCentres(e, s, into, out _, out _)) return true;
+            into.Clear();
+            int lanes = Mathf.Max(1, e.lanes);
+            if (lanes < 2 || !e.oneway) return false;
+            float lw = Mathf.Max(2.5f, (e.width - e.shl - e.shr) / lanes), c = LineModel.LaneCentre(e, s);
+            for (int k = 0; k < lanes; k++) into.Add(c + (k - 0.5f * (lanes - 1)) * lw);
+            return true;
         }
 
         /// <summary>(round 2) Inside a solved junction (between its row and its node), the lanes of a fitted arm that go on
@@ -355,6 +377,9 @@ namespace PSXRacing.City
 
         /// <summary>Half a car and a hand: a lane's centre nearer than this to a kerb (or on land) cannot be driven as laid.</summary>
         public const float LaneClearM = 1.1f;
+        /// <summary>(round 2) How far a ribbon laps the fill past a skew row's nearer end (the ribbon's end pieces are
+        /// laid on its own section grid: 1.6 m of a wedge stayed open at 81 with none).</summary>
+        public const float SkewLapM = 3f;
         /// <summary>(round 2) A point's distance to the junction's KERBS and islands (its free runs: an end row is a
         /// mouth, the ribbon goes on there), negative on land or on an island. A skew row (two arms abreast) passes
         /// within a metre of a lane's centre near its end without being a kerb.</summary>
@@ -420,8 +445,10 @@ namespace PSXRacing.City
                     if (off) run += JunctionOutline.Step;
                     continue;
                 }
+                bool someR = b.carried.TryGetValue(ei, out var crR);
                 for (int k = 0; k < lanes; k++)
                 {
+                    if (lanes > 1 && someR && (k < crR.lo || k > crR.hi)) continue;   // ends at the row: no receiving lane across
                     // a one-lane edge: the traffic's own point (a bay drives its host's aux lane: LineModel.LanePoint)
                     var p = lanes == 1 ? LineModel.LanePoint(e, s) : e.PointAt(s) + left * (LineModel.LaneCentre(e, s) + (k - 0.5f * (lanes - 1)) * lw);
                     // (round 2) a bay inside this junction: its own line through the opening (this junction is not yet

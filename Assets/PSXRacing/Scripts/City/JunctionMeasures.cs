@@ -73,7 +73,11 @@ namespace PSXRacing.City
                 if (s <= st[0].x) { off = st[0].y; return true; }
                 if (s >= st[n - 1].x) { off = st[n - 1].y; return true; }
                 int i = 0; while (i + 2 < n && st[i + 1].x < s) i++;
-                off = Mathf.Lerp(st[i].y, st[i + 1].y, (s - st[i].x) / Mathf.Max(1e-3f, st[i + 1].x - st[i].x));
+                float x0 = st[i].x, x1 = st[i + 1].x, h = Mathf.Max(1e-3f, x1 - x0), t = (s - x0) / h;
+                float m0 = i > 0 ? (st[i + 1].y - st[i - 1].y) / Mathf.Max(1e-3f, st[i + 1].x - st[i - 1].x) : (st[i + 1].y - st[i].y) / h;
+                float m1 = i + 2 < n ? (st[i + 2].y - st[i].y) / Mathf.Max(1e-3f, st[i + 2].x - st[i].x) : (st[i + 1].y - st[i].y) / h;
+                float t2 = t * t, t3 = t2 * t;
+                off = (2 * t3 - 3 * t2 + 1) * st[i].y + (t3 - 2 * t2 + t) * h * m0 + (-2 * t3 + 3 * t2) * st[i + 1].y + (t3 - t2) * h * m1;
                 return true;
             }
         }

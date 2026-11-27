@@ -71,7 +71,7 @@ namespace PSXRacing.City
             if (half < 0f) half = LineModel.LayoutOf(e).half;
             rsPts.Clear(); rsNrm.Clear();
             // a broken line: a point at every dash end (3.05 m paint / 9.14 m gap); a solid one every 2 m
-            float step = broken ? 3.048f : 2f;
+            float step = broken ? 3.048f : 1f;
             int n = Mathf.Max(1, Mathf.CeilToInt((s1 - s0) / step));
             for (int i = 0; i <= n; i++)
             {
