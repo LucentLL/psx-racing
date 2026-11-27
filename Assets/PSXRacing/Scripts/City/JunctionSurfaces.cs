@@ -1,0 +1,155 @@
+using System.Collections.Generic;
+using System.Linq;
+using UnityEngine;
+
+namespace PSXRacing.City
+{
+    /// <summary>
+    /// Road-surface stage 1: the junctions that are ONE PAVED SURFACE. For every junction the measures source
+    /// (JunctionMeasures) names, the cluster's arms are built from the map (line-model borders, replaced by the measured
+    /// pavement offsets), bays merged, the outline solved (JunctionOutline) and kept: its end rows become the arms'
+    /// ribbon trims, its fill the junction's pavement (CityMeshes.RoadSurface.cs draws it). Solved once per map load.
+    /// A junction with no measure keeps the rules and today's fan (the rules-provider clusters are still solved by the
+    /// editor prototype only: CityOutlineProto). A refused outline keeps the old fan and logs why.
+    /// </summary>
+    public static class JunctionSurfaces
+    {
+        public sealed class Built
+        {
+            public string name = ""; public HashSet<int> nodes = new HashSet<int>(); public int ownerNode;
+            public Vector2 origin; public JunctionOutline.Result res;
+            /// <summary>Per edge with one end in the junction: where its ribbon ends, metres from that end.</summary>
+            public Dictionary<int, float> rowOf = new Dictionary<int, float>();
+            /// <summary>Edges with both ends in the junction: no ribbon.</summary>
+            public HashSet<int> inside = new HashSet<int>();
+            public List<string> log = new List<string>();
+            public int mainEdge = -1, mainNode = -1;
+            public double ms;
+            public bool Solved => res != null && res.refused == null;
+        }
+
+        static CityMap forMap; static JunctionMeasures.Set forSet; static List<Built> all = new List<Built>(); static Dictionary<int, Built> byNode = new Dictionary<int, Built>();
+        public static IReadOnlyList<Built> All => all;
+        public static void Reset() { forMap = null; all = new List<Built>(); byNode = new Dictionary<int, Built>(); }
+
+        /// <summary>The junction that owns a node as one surface (null: the old fan).</summary>
+        public static Built AtNode(int n) => byNode.TryGetValue(n, out var b) && b.Solved ? b : null;
+
+        /// <summary>Solve every measured junction once for this map. farTrim(edge, node): the rule's trim of an edge at its
+        /// OTHER end (an arm is only as long as the ribbon the far junction leaves it).</summary>
+        public static List<Built> Ensure(CityMap map, System.Func<CityMap.Edge, int, float> farTrim)
+        {
+            var set = JunctionMeasures.Current;
+            if (ReferenceEquals(forMap, map) && ReferenceEquals(forSet, set)) return all;
+            forMap = map; forSet = set; all = new List<Built>(); byNode = new Dictionary<int, Built>();
+            if (set == null) return all;
+            foreach (var jm in set.junctions)
+            {
+                var b = new Built { name = jm.name };
+                foreach (int n in jm.nodes) if (n >= 0 && n < map.nodes.Length) b.nodes.Add(n);
+                foreach (var (ja, jb) in jm.join) { if (ja >= 0 && ja < map.nodes.Length) b.nodes.Add(ja); if (jb >= 0 && jb < map.nodes.Length) b.nodes.Add(jb); }
+                if (b.nodes.Count == 0) continue;
+                b.ownerNode = b.nodes.Min();
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                try { Solve(map, set, jm, b, farTrim); }
+                catch (System.Exception ex) { b.res = new JunctionOutline.Result { refused = "exception: " + ex.Message }; }
+                b.ms = sw.Elapsed.TotalMilliseconds;
+                all.Add(b);
+                foreach (int n in b.nodes) byNode[n] = b;
+                Debug.Log($"[JunctionSurfaces] {b.name} (nodes {string.Join(" ", b.nodes.OrderBy(x => x))}): {(b.Solved ? "solved" : "REFUSED: " + b.res.refused + " (the old fan stays)")}; provider {set.provider}; {b.res.outline.Count} outline vertices, {b.res.holes.Count} islands, {b.res.tris.Count / 3} triangles; solve {b.res.solveMs:0.0} ms, fill {b.res.fillMs:0.0} ms, in all {b.ms:0.0} ms; rows {string.Join(", ", b.rowOf.Select(kv => "e" + kv.Key + " " + kv.Value.ToString("0.0")))}; {string.Join("; ", b.log)}");
+            }
+            return all;
+        }
+
+        /// <summary>A cluster's arms (edges with one end in it: the line model's borders out to maxOut metres or to the far
+        /// end's trim, centre and profile heights), with the measured offsets applied, and its links (both ends in it).
+        /// About 'origin' (the cluster's first node): absolute metres lose half a millimetre in float.</summary>
+        public static void BuildCluster(CityMap map, HashSet<int> cluster, JunctionMeasures.Set set, ICollection<int> drop, System.Func<CityMap.Edge, int, float> farTrim,
+                                        out List<JunctionOutline.Arm> arms, out List<JunctionOutline.Link> links, out Vector2 origin, float maxOut = 80f)
+        {
+            arms = new List<JunctionOutline.Arm>(); links = new List<JunctionOutline.Link>();
+            origin = map.nodes[cluster.Min()]; var o0 = origin;
+            var seenE = new HashSet<int>();
+            foreach (int n in cluster.OrderBy(x => x))
+                foreach (int ei in map.nodeEdges[n])
+                {
+                    var e = map.edges[ei];
+                    if (e.a == e.b) continue;
+                    if (drop != null && drop.Contains(ei)) continue;
+                    bool inA = cluster.Contains(e.a), inB = cluster.Contains(e.b);
+                    if (inA && inB)
+                    {
+                        if (!seenE.Add(ei)) continue;
+                        var lk = new JunctionOutline.Link { id = ei };
+                        for (float d = 0f; d <= e.length + 1e-3f; d += JunctionOutline.Step)
+                        {
+                            var t = e.TangentAt(d); var left = new Vector2(-t.y, t.x);
+                            LineModel.Extents(e, d, out float eM, out float eP);
+                            var p = e.PointAt(d) - o0;
+                            lk.L.Add(p + left * eP); lk.R.Add(p - left * eM);
+                        }
+                        if (lk.L.Count >= 2) links.Add(lk);
+                        continue;
+                    }
+                    // radius by class: 15 link / 12 arterial / 9 collector / 6 local (the rule; a measured return replaces it)
+                    var arm = new JunctionOutline.Arm { id = ei, oneway = e.oneway, name = e.name ?? "", radius = e.link ? 15f : e.cls >= 3 ? 12f : e.cls >= 1 ? 9f : 6f, Y = new List<float>() };
+                    bool fwd = e.a == n;
+                    float far = farTrim != null ? Mathf.Max(0f, farTrim(e, fwd ? e.b : e.a)) : 0f;
+                    float outTo = Mathf.Min(Mathf.Max(e.length - far, 2f), maxOut);
+                    for (float d = 0f; d <= outTo + 1e-3f; d += JunctionOutline.Step)
+                    {
+                        float s = fwd ? d : e.length - d;
+                        var t = e.TangentAt(s); if (!fwd) t = -t;
+                        var left = new Vector2(-t.y, t.x);
+                        LineModel.Extents(e, s, out float eM, out float eP);
+                        var p = e.PointAt(s) - o0;
+                        arm.C.Add(p); arm.L.Add(p + left * (fwd ? eP : eM)); arm.R.Add(p - left * (fwd ? eM : eP)); arm.Y.Add(e.YAt(s));
+                    }
+                    if (arm.C.Count < 4) continue;
+                    if (set != null && set.edges.TryGetValue(ei, out var em)) JunctionMeasures.ApplyToArm(arm, fwd, e.length, em);
+                    arms.Add(arm);
+                }
+        }
+
+        static void Solve(CityMap map, JunctionMeasures.Set set, JunctionMeasures.JunctionM jm, Built b, System.Func<CityMap.Edge, int, float> farTrim)
+        {
+            BuildCluster(map, b.nodes, set, jm.drop, farTrim, out var arms, out var links, out b.origin);
+            var before = new List<JunctionOutline.Arm>(arms);
+            b.log.AddRange(JunctionOutline.MergeBays(arms, links));
+            var r = b.res = JunctionOutline.Solve(arms, null, links, JunctionMeasures.ToSolver(set, jm, b.origin));
+            foreach (var lk in links) if (map.edges[lk.id].a != map.edges[lk.id].b && b.nodes.Contains(map.edges[lk.id].a) && b.nodes.Contains(map.edges[lk.id].b)) b.inside.Add(lk.id);
+            if (r.refused != null || r.rowR == null) return;
+            float widest = 0f;
+            for (int i = 0; i < r.arms.Count; i++)
+            {
+                var a = r.arms[i];
+                b.rowOf[a.id] = 0.5f * (r.sR[i] + r.sL[i]);
+                float w = (r.rowL[i] - r.rowR[i]).magnitude;
+                if (w > widest) { widest = w; b.mainEdge = a.id; var e = map.edges[a.id]; b.mainNode = b.nodes.Contains(e.a) ? e.a : e.b; }
+            }
+            // a bay merged into its host: its ribbon ends where its line crosses the host's row
+            foreach (var x in before)
+            {
+                if (arms.Contains(x)) continue;
+                float best = float.MaxValue, at = -1f;
+                for (int i = 0; i < r.arms.Count; i++)
+                {
+                    var p = r.rowR[i]; var d = r.rowL[i] - r.rowR[i]; float len = d.magnitude; if (len < 0.1f) continue; d /= len;
+                    var nrm = new Vector2(-d.y, d.x);
+                    for (int k = 0; k + 1 < x.C.Count; k++)
+                    {
+                        float s0 = Vector2.Dot(x.C[k] - p, nrm), s1 = Vector2.Dot(x.C[k + 1] - p, nrm);
+                        if ((s0 > 0f) == (s1 > 0f)) continue;
+                        float t = s0 / (s0 - s1); var q = Vector2.Lerp(x.C[k], x.C[k + 1], t);
+                        float along = Vector2.Dot(q - p, d);
+                        float off = along < 0f ? -along : along > len ? along - len : 0f;   // how far past the row's ends
+                        if (off < best) { best = off; at = (k + t) * JunctionOutline.Step; }
+                        break;
+                    }
+                }
+                if (at >= 0f && best < 6f) { b.rowOf[x.id] = at; b.log.Add($"bay e{x.id}'s ribbon ends {at:0.0} m out (at its host's row)"); }
+                else { r.refused = $"bay e{x.id}: its line crosses no row of the junction"; return; }
+            }
+        }
+    }
+}

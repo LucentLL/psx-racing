@@ -42,6 +42,10 @@ namespace PSXRacing.City
             public float radius = 9f;          // the class's kerb-return radius
             public bool oneway; public string name = "";
             public int id;                     // the caller's (an edge index)
+            // (road-surface stage 1) a border taken from the MEASURES SOURCE (JunctionMeasures): MergeBays does not widen
+            // it (the measure is the pavement's own edge, bays included); the arm's row lies at or beyond measEnd, where
+            // the border is the rule's again (the ribbon's own width)
+            public bool measL, measR; public float measEnd;
             internal float ang, head;
             public float YAt(float s)
             {
@@ -53,8 +57,25 @@ namespace PSXRacing.City
         }
         /// <summary>An internal edge of the cluster (a median opening's crossover): its two borders, any direction.</summary>
         public sealed class Link { public List<Vector2> L = new List<Vector2>(), R = new List<Vector2>(); public int id; }
+        /// <summary>(road-surface stage 1) A MEASURED MEDIAN END between arm a's left border and arm b's right border: the
+        /// nose's front lies on the CAP line through capA and capB (two points of the front, read across the median), its
+        /// two shoulders are fillets of radius r onto the borders (r at or over half the median's width: a full round).
+        /// kind: 0 raised grass, 1 raised concrete (2, painted, is no nose at all: the measure widens the borders until
+        /// they touch and the arms are abreast).</summary>
+        public sealed class Nose { public int a, b; public Vector2 capA, capB; public float r = 1.2f; public int kind; }
+        /// <summary>A MEASURED ISLAND or channel strip the map lacks: a short closed polygon, each vertex rounded by its
+        /// own radius (a tangent arc; shrunk to fit its two edges), its top's kind and its kerb height.</summary>
+        public sealed class Island { public List<Vector2> pts = new List<Vector2>(); public List<float> r = new List<float>(); public int kind = 1; public float kerb = 0.15f; }
+        /// <summary>A MEASURED KERB RETURN between arm a's left border and arm b's right border.</summary>
+        public sealed class Return { public int a, b; public float r; }
+        public sealed class Measures
+        {
+            public List<Nose> noses = new List<Nose>(); public List<Island> islands = new List<Island>(); public List<Return> returns = new List<Return>();
+            public string provider = "rules";
+        }
         public sealed class Corner
         {
+            public int kind = -1;              // a measured nose's kind (-1: the rule's)
             public int a, b; public string shape = ""; public float r, deg, sA, sB; public Vector2 tA, tB;
             public List<Vector2> pts = new List<Vector2>(); public string note = "";
             public Vector2 lineP, lineD;       // a nose's cut line
@@ -70,6 +91,13 @@ namespace PSXRacing.City
             public List<Vector2> outline = new List<Vector2>();
             public List<string> outlineSrc = new List<string>();   // per outline vertex: which piece made it (a diagnosis)
             public List<List<Vector2>> holes = new List<List<Vector2>>();
+            public List<int> holeKind = new List<int>();          // per hole: -1 the map's island (the rule decides), 0 grass, 1 concrete
+            public List<float> holeKerb = new List<float>();      // per hole: its kerb height (m)
+            public string provider = "rules";                     // where the numbers came from (rules / hand / survey)
+            // the fill's own boundary vertices (the outline and each hole with every edge cut to EdgeM): kerbs, island
+            // solids and the ribbons' end rows are built on exactly these points (no T-junction against the pavement)
+            public List<Vector2> ringOuter = new List<Vector2>();           // anticlockwise
+            public List<List<Vector2>> ringHoles = new List<List<Vector2>>();   // clockwise, in the order of 'holes'
             public List<int> tris = new List<int>();     // into fillVerts, anticlockwise
             public List<Vector2> fillVerts = new List<Vector2>();
             public List<float> fillY = new List<float>();
@@ -166,10 +194,11 @@ namespace PSXRacing.City
             return x;
         }
 
-        public static Result Solve(List<Arm> arms, List<List<Vector2>> holes = null, List<Link> links = null)
+        public static Result Solve(List<Arm> arms, List<List<Vector2>> holes = null, List<Link> links = null, Measures meas = null)
         {
             var sw = System.Diagnostics.Stopwatch.StartNew();
             var res = new Result { arms = new List<Arm>(arms) };
+            if (meas != null) res.provider = meas.provider;
             if (arms.Count < 2) { res.refused = "fewer than two arms"; return res; }
             var centre = Vector2.zero; foreach (var a in arms) centre += a.C[0]; centre /= arms.Count;
             // arms that start together (one node, or side by side within a road's width) sort by their own heading;
@@ -188,7 +217,25 @@ namespace PSXRacing.City
             }
             res.arms.Sort((p, q) => p.ang.CompareTo(q.ang));
             var A = res.arms; int n = A.Count;
-            for (int i = 0; i < n; i++) res.corners.Add(SolveCorner(A[i], A[(i + 1) % n], links));
+            for (int i = 0; i < n; i++) res.corners.Add(SolveCorner(A[i], A[(i + 1) % n], links, meas));
+            // (road-surface stage 1) MEASURED ISLANDS: rounded here; an arm's row lies beyond every island point that
+            // stands in that arm's own pavement (an island is a hole: it may not cross a row), and beyond the arm's measure
+            var isl = new List<List<Vector2>>(); var reach = new float[n];
+            if (meas != null) foreach (var im in meas.islands) isl.Add(RoundedPolygon(im.pts, im.r));
+            for (int i = 0; i < n; i++)
+            {
+                var a = A[i]; reach[i] = a.measEnd;
+                foreach (var ring in isl) foreach (var p in ring)
+                {
+                    Project(a.C, p, out var f, out float st);
+                    if (st <= 0f || st >= (a.C.Count - 1) * Step) continue;
+                    int k = Mathf.Clamp(Mathf.RoundToInt(st / Step), 0, a.C.Count - 1);
+                    var t = Tangent(a.C, k); var left = new Vector2(-t.y, t.x);
+                    float lat = Vector2.Dot(p - a.C[k], left);
+                    if (lat <= Vector2.Dot(a.L[k] - a.C[k], left) + 0.5f && lat >= Vector2.Dot(a.R[k] - a.C[k], left) - 0.5f) reach[i] = Mathf.Max(reach[i], st + IslandRowM);
+                }
+                reach[i] = Mathf.Min(reach[i], (a.C.Count - 2) * Step);
+            }
             foreach (var c in res.corners) if (c.shape.EndsWith("not-found") || c.shape.EndsWith("did-not-fit")) { res.refused = $"corner {c.a}/{c.b}: {c.shape} ({c.note})"; }
             // END ROWS. An arm beside a nose: its row lies ON the nose's cut line (the farther, if two). Otherwise square
             // across the arm at the farther of its corners' tangent stations (at least MinRowM out).
@@ -200,7 +247,8 @@ namespace PSXRacing.City
             {
                 var c = res.corners[i]; if (c.shape != "abreast") continue;
                 var a = A[i]; var b = A[(i + 1) % n];
-                float s0 = Mathf.Max(c.sA, Mathf.Max(MinRowM, res.corners[(i - 1 + n) % n].sB));
+                float s0 = Mathf.Max(Mathf.Max(c.sA, reach[i]), Mathf.Max(MinRowM, res.corners[(i - 1 + n) % n].sB));
+                if (reach[(i + 1) % n] > 0f) { int kr = Mathf.Min(b.C.Count - 1, Mathf.CeilToInt(reach[(i + 1) % n] / Step)); Project(a.C, b.C[kr], out _, out float sr); s0 = Mathf.Max(s0, sr); }
                 var bl = res.corners[(i + 1) % n];   // b's left corner: its station on b, carried across to a
                 if (bl.sA > 0f) { int kb = Mathf.Min(b.C.Count - 1, Mathf.CeilToInt(bl.sA / Step) + 2); Project(a.C, b.C[kb], out _, out float sa2); s0 = Mathf.Max(s0, sa2 + Step); }
                 if (!AbreastLine(a, b, s0, c)) { c.shape = "abreast-not-found"; res.refused ??= $"corner {c.a}/{c.b}: abreast arms with no cut line across both"; }
@@ -235,7 +283,7 @@ namespace PSXRacing.City
                 }
                 else
                 {
-                    float s = Mathf.Max(MinRowM, Mathf.Max(left.sA, right.sB));
+                    float s = Mathf.Max(Mathf.Max(MinRowM, reach[i]), Mathf.Max(left.sA, right.sB));
                     int k = Mathf.Min(a.L.Count - 1, Mathf.CeilToInt(s / Step - 1e-4f));
                     res.rowR[i] = a.R[k]; res.rowL[i] = a.L[k]; res.sR[i] = res.sL[i] = k * Step;
                 }
@@ -273,7 +321,16 @@ namespace PSXRacing.City
             string cross = SelfCross(o, src);
             if (cross != null) res.refused ??= "the outline crosses itself: " + cross;
             // an island counts only if it lies wholly inside the outline (one reaching past it is the land beside the junction)
-            if (holes != null) foreach (var h in holes) { var hh = new List<Vector2>(h); Dedupe(hh); if (hh.Count < 3) continue; bool inside = true; foreach (var q in hh) if (!InPoly(o, q)) { inside = false; break; } if (inside && SelfCross(hh) == null) res.holes.Add(hh); else res.droppedHoles++; }
+            // (road-surface stage 1) with a measure the junction's islands are the measured ones: the raster's (land the
+            // rule's ribbons leave uncovered) describe the rule's pavement, not the measured one
+            if (holes != null && (meas == null || meas.provider == "rules")) foreach (var h in holes) { var hh = new List<Vector2>(h); Dedupe(hh); if (hh.Count < 3) continue; bool inside = true; foreach (var q in hh) if (!InPoly(o, q)) { inside = false; break; } if (inside && SelfCross(hh) == null) { res.holes.Add(hh); res.holeKind.Add(-1); res.holeKerb.Add(0.15f); } else res.droppedHoles++; }
+            for (int q = 0; q < isl.Count; q++)
+            {
+                var hh = new List<Vector2>(isl[q]); Dedupe(hh);
+                bool inside = hh.Count >= 3; foreach (var p in hh) if (!InPoly(o, p)) { inside = false; break; }
+                if (inside && SelfCross(hh) == null) { res.holes.Add(hh); res.holeKind.Add(meas.islands[q].kind); res.holeKerb.Add(meas.islands[q].kerb); }
+                else res.refused ??= $"measured island {q} does not lie inside the outline (its rows are too near or it crosses a kerb)";
+            }
             res.solveMs = sw.Elapsed.TotalMilliseconds;
             sw.Restart();
             if (res.refused == null) Fill(res);
@@ -366,9 +423,24 @@ namespace PSXRacing.City
         }
 
         // ---- corners ----
-        static Corner SolveCorner(Arm A, Arm B, List<Link> links)
+        static Corner SolveCorner(Arm A, Arm B, List<Link> links, Measures meas = null)
         {
             var c = new Corner { a = A.id, b = B.id };
+            // (road-surface stage 1) MEASURED: a median end (its cap line and radius) or a kerb return's radius
+            if (meas != null)
+            {
+                foreach (var ns in meas.noses) if (ns.a == A.id && ns.b == B.id)
+                {
+                    if (MeasuredNose(A, B, ns, c)) return c;
+                    c.shape = "nose-not-found"; c.note = "the measured cap line does not meet both borders"; c.tA = A.L[0]; c.tB = B.R[0]; return c;
+                }
+                foreach (var rt in meas.returns) if (rt.a == A.id && rt.b == B.id)
+                {
+                    c.deg = Mathf.Repeat(B.ang - A.ang, 360f);
+                    if (Fillet(A.L, B.R, rt.r, c)) { c.shape = "arc"; c.note = "measured"; return c; }
+                    c.shape = "arc-did-not-fit"; c.note = $"the measured radius {rt.r:0.0} m does not fit the borders"; c.tA = A.L[0]; c.tB = B.R[0]; return c;
+                }
+            }
             float dAng = Mathf.Repeat(B.ang - A.ang, 360f);
             float dHead = Mathf.Abs(Mathf.DeltaAngle(A.head, B.head));
             c.deg = dAng;
@@ -572,6 +644,75 @@ namespace PSXRacing.City
             return false;
         }
 
+        public const float IslandRowM = 2f;   // a row stands this far beyond an island's end
+        /// <summary>(road-surface stage 1) A measured median end: the cap line through the two measured points of the nose's
+        /// front, carried on to both borders; a fillet from A's left border onto it and one off it onto B's right border,
+        /// of the measured radius or the largest under it that keeps the two in order (half the width: a full round).</summary>
+        static bool MeasuredNose(Arm A, Arm B, Nose ns, Corner c)
+        {
+            var d = ns.capB - ns.capA; float len = d.magnitude; if (len < 0.05f) return false; d /= len;
+            const float Ext = 12f;
+            var X = new List<Vector2>();
+            for (float s = -Ext; s <= len + Ext + 1e-3f; s += Step) X.Add(ns.capA + d * s);
+            // from A's side to B's side
+            Project(A.L, X[0], out var fa0, out _); Project(A.L, X[X.Count - 1], out var fa1, out _);
+            if ((fa0 - X[0]).sqrMagnitude > (fa1 - X[X.Count - 1]).sqrMagnitude) X.Reverse();
+            var Xr = new List<Vector2>(X); Xr.Reverse();
+            float lo = 0.2f, hi = Mathf.Max(0.3f, ns.r); Corner best1 = null, best2 = null;
+            for (int it = 0; it < 20; it++)
+            {
+                float r = it == 0 ? hi : 0.5f * (lo + hi);
+                var f1 = new Corner(); var f2 = new Corner();
+                bool ok = Fillet(A.L, X, r, f1) && Fillet(Xr, B.R, r, f2);
+                float xl = (X.Count - 1) * Step;
+                if (ok && f1.sB <= xl - f2.sA + 1e-3f) { best1 = f1; best2 = f2; if (it == 0) break; lo = r; } else hi = r;
+            }
+            if (best1 == null) return false;
+            c.shape = "connector"; c.note = "measured nose"; c.kind = ns.kind; c.r = best1.r;
+            c.tA = best1.tA; c.sA = best1.sA; c.tB = best2.tB; c.sB = best2.sB;
+            c.pts.Clear(); c.pts.AddRange(best1.pts); c.pts.AddRange(best2.pts);
+            Dedupe(c.pts);
+            return true;
+        }
+
+        /// <summary>A closed polygon with each vertex rounded by a tangent arc of its radius (the tangent lengths of two
+        /// arcs sharing an edge are scaled to fit it), sampled to the 1 cm / 6 degree rule; anticlockwise.</summary>
+        public static List<Vector2> RoundedPolygon(List<Vector2> pts, List<float> radii)
+        {
+            var p = new List<Vector2>(pts); int n = p.Count;
+            var rr = new List<float>(); for (int i = 0; i < n; i++) rr.Add(radii != null && i < radii.Count ? radii[i] : 0.5f);
+            if (n < 3) return p;
+            if (Area(p) < 0f) { p.Reverse(); rr.Reverse(); }
+            var tl = new float[n]; var half = new float[n];
+            for (int i = 0; i < n; i++)
+            {
+                var u = (p[(i - 1 + n) % n] - p[i]).normalized; var v = (p[(i + 1) % n] - p[i]).normalized;
+                float th = Vector2.Angle(u, v) * Mathf.Deg2Rad;   // the interior angle between the two edges
+                half[i] = th * 0.5f;
+                tl[i] = th > 3.1f || th < 0.02f ? 0f : Mathf.Max(0.05f, rr[i]) / Mathf.Tan(th * 0.5f);
+            }
+            for (int pass = 0; pass < 3; pass++)
+                for (int i = 0; i < n; i++)
+                {
+                    int j = (i + 1) % n; float el = (p[j] - p[i]).magnitude, sum = tl[i] + tl[j];
+                    if (sum > el * 0.98f && sum > 1e-4f) { float k = el * 0.98f / sum; tl[i] *= k; tl[j] *= k; }
+                }
+            var o = new List<Vector2>();
+            for (int i = 0; i < n; i++)
+            {
+                if (tl[i] < 1e-3f) { o.Add(p[i]); continue; }
+                var u = (p[(i - 1 + n) % n] - p[i]).normalized; var v = (p[(i + 1) % n] - p[i]).normalized;
+                var t0 = p[i] + u * tl[i]; var t1 = p[i] + v * tl[i];
+                float r = tl[i] * Mathf.Tan(half[i]);
+                var bis = (u + v).normalized; var cc = p[i] + bis * (r / Mathf.Sin(half[i]));
+                // anticlockwise ring: a convex vertex turns left (the arc anticlockwise), a reflex one right
+                bool convex = u.x * v.y - u.y * v.x < 0f;
+                ArcThrough(cc, t0, t1, r, o, convex);
+            }
+            Dedupe(o);
+            return o;
+        }
+
         static void Hermite(Vector2 p0, Vector2 m0, Vector2 p1, Vector2 m1, List<Vector2> into)
         {
             // sampled until no joint breaks the 1 cm / 6 degree rule (by halving)
@@ -689,6 +830,7 @@ namespace PSXRacing.City
             if (Area(ring) < 0f) ring.Reverse();                                   // the outer ring anticlockwise
             var holes = new List<List<Vector2>>();
             foreach (var h in res.holes) { var hh = Densify(h, EdgeM); if (Area(hh) > 0f) hh.Reverse(); holes.Add(hh); }   // holes clockwise
+            res.ringOuter = new List<Vector2>(ring); res.ringHoles = new List<List<Vector2>>(); foreach (var h in holes) res.ringHoles.Add(new List<Vector2>(h));
             holes.Sort((p, q) => MaxX(q).CompareTo(MaxX(p)));                     // rightmost first
             foreach (var h in holes)
             {
@@ -1130,7 +1272,8 @@ namespace PSXRacing.City
                             }
                             var w0 = nb[k0] - hf[k0];
                             for (int k = 0; k < k0; k++) nb[k] = hf[k] + w0;
-                            if (side == 0) H.R = nb; else H.L = nb;
+                            // (road-surface stage 1) a MEASURED host border already holds the bay (the pavement's own edge)
+                            if (side == 0) { if (!H.measR) H.R = nb; } else { if (!H.measL) H.L = nb; }
                             // X's crossing before it comes alongside: a link (when it has any length)
                             if (s0 >= 2)
                             {

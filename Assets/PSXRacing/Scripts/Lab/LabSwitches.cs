@@ -244,6 +244,13 @@ namespace PSXRacing
                 look = "Opt-in, built into the city tiles (PSX_CITY_ISLANDSOLID=1): a junction's islands are closed curbed solids standing in one paved surface. Off by default: worse than the base on the line gate (round 2). A city bake.",
                 env = new[] { "PSX_CITY_ISLANDSOLID" }, requires = "CityMeshes.IslandSolidsOn",
             });
+            // road-surface stage 1 (11-26): a measured junction as one paved surface (CityMeshes.RoadSurface.cs)
+            Register(new LabRow
+            {
+                id = "roadsurface", group = LabGroup.World, name = "JUNCTIONS AS ONE SURFACE", when = LabWhen.BuiltIn,
+                look = "Opt-in (PSX_CITY_ROADSURFACE=1), built into the city tiles: a measured junction is one paved surface inside one smooth outline, with thick kerbs and its islands as solids. Off by default: stage 1, the owner's spots only. A city bake.",
+                env = new[] { "PSX_CITY_ROADSURFACE" }, requires = "CityMeshes.RoadSurfaceOn",
+            });
             Register(new LabRow
             {
                 id = "medianruns", group = LabGroup.World, name = "MEDIANS IN ONE PIECE", when = LabWhen.BuiltIn,

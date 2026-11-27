@@ -1598,7 +1598,11 @@ namespace PSXRacing.City
             return inside ? dMin : -dMin;
         }
 
-        public static Trims ComputeTrims(CityMap map)
+        /// <summary>(road-surface stage 1) The rules' trims, then every solved junction's end rows as its arms' ribbon
+        /// trims (CityMeshes.RoadSurface.cs; PSX_CITY_ROADSURFACE).</summary>
+        public static Trims ComputeTrims(CityMap map) => RoadSurfaceTrims(map, ComputeTrimsRules(map));
+
+        static Trims ComputeTrimsRules(CityMap map)
         {
             mitreFanEdge = null;
             MitreFanCount = 0; MitreFanAt.Clear(); MitreFanUnclipped = 0; CrossoverFans = 0;
@@ -10797,6 +10801,17 @@ namespace PSXRacing.City
                 yield return 0;   // WP-09: a junction a step
                 stepPhase = 3; stepItem = n; stepPart = 0;
                 var np = map.nodes[n];
+                // (road-surface stage 1) a junction solved as ONE SURFACE: its owner node's tile draws it whole; the old
+                // fan and everything it lays down (clips' fills, NoseFill, aprons, corner walks, chords) are skipped
+                if (RoadSurfaceOn)
+                {
+                    var js = JunctionSurfaces.AtNode(n);
+                    if (js != null)
+                    {
+                        if (js.ownerNode == n && !(np.x < min.x || np.x >= max.x || np.y < min.y || np.y >= max.y)) EmitRoadSurface(map, trims, tm, js);
+                        continue;
+                    }
+                }
                 if (!trims.patch[n])
                 {
                     // roads pass L8 (A17): a plain dead end's verge across its end
