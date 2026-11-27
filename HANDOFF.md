@@ -1,3 +1,34 @@
+# ROAD SURVEY, STAGE 4: THE SHALLOW-FORK CHECK, THE DECK START (agent "survey", 11-27 ~15:15-16:20; branch `road-survey`; NOT pushed by me, NOT merged)
+
+**State: Wendover NOT MET, the 17 nodes NOT MET. LAB row SHALLOW FORKS ONE ROAD stays default OLD.** Done: step 1 (the
+check, city totals), part of step 2 (SF2). Not done: the deck start fix that works (step 2), the paved gore with
+chevrons and a rounded nose (3), the four regressions (4), the classification (5). Proof: scratch `survey\proof4\`.
+- THE CHECK (`Editor/CityForkCheck.cs`, `-executeMethod PSXRacing.EditorTools.CityForkCheck.Run`, `PSX_FC_SPOTS`,
+  `PSX_FC_TAG`), read from the tiles built live: (a) FOREIGN, a painted line texel on the top sheet inside a lane of any
+  road (more than 0.45 m in from that lane's own LinesAt lines, where its ribbon is drawn, not on a branch's clipped
+  stretch); (b) two driving sheets on one 0.25 m cell of a road's own pavement: COPLANAR under 1 cm, LAYERED 6 cm -
+  2.5 m, MATERIAL concrete deck and asphalt within 0.5 m (1 - 6 cm under the top = the builders' hidden seam floors,
+  reported apart); (c) a bridge's end section inside another non-bridge road's drawn ribbon (line model, city-wide).
+  A place = a 4 m cell with 4+ cells (1 m of line, 0.25 m2).
+- CITY SIZE OF THE CLASS (OLD, the 649 pairs, places counted once): FOREIGN 1,406, COPLANAR 940, LAYERED 269,
+  MATERIAL 15; (c) deck ends inside a road, city-wide: 56. The island gate reads 0 OVERLAY / LINEUNDER / LAYERS at
+  Wendover: this check is the one that sees the class.
+- OLD | NEW (`forkcheck_old_new.txt`): the 649 pairs FOREIGN 1,406 | 1,402, COPLANAR 940 | 917, LAYERED 269 | 269,
+  MATERIAL 15 | 15; the 17 nodes FOREIGN 11 | 0, COPLANAR 45 | 21, LAYERED 16 | 16; WENDOVER COPLANAR 0 | 5, MATERIAL
+  2 | 3 (WORSE); (c) 56 | 56. Worse at n1900, n4898, n566, n7070 and Wendover.
+- SF2 (`CityElevation.UnionAbutments`, under PSX_CITY_SHALLOWFORK): a twin deck's end is not carried (plan L3, one
+  abutment line) onto a stretch whose pavement a shallow-fork partner still shares (`ForkShared`): 6 carries kept
+  city-wide. It does NOT fix Wendover: the frame (`wendover_deckstart.png`) shows Albemarle Rd's at-grade asphalt
+  (e2370, the branch) laid OVER Independence's deck e2301 with a straight cut: the branch's clip against its host
+  chain does not cut it where the host is a deck. That is the next fix (the branch clip onto a deck host, or one deck
+  under both while they overlap).
+- SPOT TABLE (`spot_table.txt`, the 17 nodes + Wendover): as stage 3 (OVERLAY 26 | 30, LINEUNDER 0 | 2, LAYERS 51 | 56,
+  KINK 260 | 292; Wendover OVERLAY 0 | 1, KINK 16 | 26). LINE GATE, box 3900,1650 - 4150,1800 (3 tiles):
+  20 | 23 places (SJOG 2 | 4, CONT 2 | 3, SURFACE 0 | 2, BARRIER 0 | 1; SHIFT 3 | 2, KINK 6 | 4). Cost on the same 137
+  gate tiles: 16,639 | 16,636 triangles, 211 | 204 ms a tile. Unity tests: as before (one failure, g44_slip). Typecheck OK.
+- PICTURES (EDITOR noon, OLD | NEW, faults circled): `wendover_plan40.png`, `wendover_plan160.png`, `wendover_chase.png`,
+  `wendover_deckstart.png`; `sheet_n3854 / n566 / n4898 / n8282.png`.
+
 # ROAD SURVEY, STAGE 3: SHALLOW SPLITS AND MERGES (agent "survey", 11-27 ~14:35-15:35; branch `road-survey`; NOT pushed by me, NOT merged)
 
 **State: Wendover NOT MET, the 20 longest NOT MET, the 30 others NOT MET. One partial rule built (SF1), opt-in, default
