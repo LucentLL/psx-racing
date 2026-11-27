@@ -853,7 +853,7 @@ namespace PSXRacing.City
                             ClipHalfPlane(cpB, L1, L0, true, cpA);
                             ClipHalfPlane(cpA, L0, R0, true, cpB);
                             if (cpB.Count >= 3 && PolyArea(cpB) > 1e-5f)
-                                EmitStripPiece(stripBk, cpB, st, qi, c0, c1);
+                                EmitStripPiece(buckets[st.slot], cpB, st, qi, c0, c1);   // (road-surface stage 1: each strip in its own slot; a fan's strips share one)
                             else if (cpB.Count < 3 || PolyArea(cpB) <= 1e-5f)
                             { cutNext.Add(piece); continue; }
                             // outside: what lies beyond each edge in turn

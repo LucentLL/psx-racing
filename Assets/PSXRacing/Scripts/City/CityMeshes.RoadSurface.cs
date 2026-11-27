@@ -20,7 +20,8 @@ namespace PSXRacing.City
         /// <summary>The kerb: a 6 in (0.15 m) face and a 6 in top (NCDOT standard 2 ft 6 in curb and gutter, std. dwg
         /// 846.01; the gutter pan is pavement here).</summary>
         public const float RsKerbH = 0.15f, RsKerbW = 0.15f;
-        public static int RsJunctions, RsTris, RsKerbTris, RsLandTris, RsMaskedTris; public static double RsBuildMs; public static float RsKerbM;
+        public static int RsJunctions, RsTris, RsKerbTris, RsLandTris, RsMaskedTris, RsThroughLines; public static double RsBuildMs; public static float RsKerbM;
+        static readonly List<Vector3> rsNoSteiner = new List<Vector3>(0);
 
         // ONE OWNER PER SURFACE (Docs/ROAD_RULES.md section 2): while the roads' own emitters run (gores and branches,
         // ribbons and their roadside, junction pieces, centre medians, corner pans, island solids), a quad or triangle
@@ -137,17 +138,51 @@ namespace PSXRacing.City
             // 1. THE PAVEMENT: the fill, at its own heights (no lift), in its main arm's surface
             var me = map.edges[js.mainEdge];
             var bk = buckets[(int)SlotOf(JunctionProfile, ArmSurface(map, trims, me, js.mainNode))];
-            int v0 = bk.v.Count, t0 = bk.t.Count;
-            for (int i = 0; i < r.fillVerts.Count; i++)
+            // THE LANE PAINT: where one road goes on through the junction (a through corner between two arms) its lines
+            // are carried from one arm's row to the other's (CityMeshes.Minor ThroughPair: lines of one kind within 0.3 m
+            // of each other, on the arms' own tangents; an edge line only on the side the kerb runs on) and CUT INTO the
+            // fill (EmitCutFan): paint lies only where the junction's own triangles are - none off the outline, none
+            // under an island
+            ReleaseStrips();
+            int na = r.arms.Count; var seen = new HashSet<long>();
+            for (int i = 0; i < na && na >= 2; i++)
             {
-                var p = r.fillVerts[i];
-                bk.v.Add(W(p, r.fillY[i])); bk.uv.Add(new Vector2((p.x + org.x) / 12f, (p.y + org.y) / 12f));
-                if (bk.col != null) bk.col.Add(Bucket.Tint);
-                if (bk.fac != null) bk.fac.Add(Vector4.zero);
+                var c = r.corners[i];
+                if (c.shape != "through" && c.shape != "through-taper") continue;
+                var A = map.edges[r.arms[i].id]; var B = map.edges[r.arms[(i + 1) % na].id];
+                long key = ((long)Mathf.Min(A.index, B.index) << 32) | (uint)Mathf.Max(A.index, B.index);
+                if (!seen.Add(key)) continue;
+                int nA = js.nodes.Contains(A.a) ? A.a : A.b, nB = js.nodes.Contains(B.a) ? B.a : B.b;
+                // this corner's side is the kerb's (closed); the other side is open unless the two arms are the whole junction
+                var other = r.corners[(i + 1) % na];
+                bool otherOpen = !(na == 2 && (other.shape == "through" || other.shape == "through-taper"));
+                var travel = -OutDir(A, nA);
+                var rel = (c.pts.Count > 0 ? c.pts[c.pts.Count / 2] + org : map.nodes[nA]) - map.nodes[nA];
+                bool closedLeft = travel.x * rel.y - travel.y * rel.x > 0f;
+                RsThroughLines += ThroughPair(map, trims, A, nA, B, nB, closedLeft ? false : otherOpen, closedLeft ? otherOpen : false, tm.origin, false, null);
             }
-            // anticlockwise in map view is clockwise seen from above: up (as the fan's)
-            for (int i = 0; i + 2 < r.tris.Count; i += 3) { bk.t.Add(v0 + r.tris[i]); bk.t.Add(v0 + r.tris[i + 2]); bk.t.Add(v0 + r.tris[i + 1]); }
-            ProvHook?.Invoke(bk, bk.t, t0);
+            int t0 = bk.t.Count;
+            if (throughStrips.Count > 0)
+            {
+                var fv = new List<FanCorner>(r.fillVerts.Count);
+                for (int i = 1; i < r.fillVerts.Count; i++) fv.Add(new FanCorner { pos = W(r.fillVerts[i], r.fillY[i]) });
+                EmitCutFan(tm, js.ownerNode, bk, fv, W(r.fillVerts[0], r.fillY[0]), rsNoSteiner, r.tris, out _, out _);
+                ReleaseStrips();
+            }
+            else
+            {
+                int v0 = bk.v.Count;
+                for (int i = 0; i < r.fillVerts.Count; i++)
+                {
+                    var p = r.fillVerts[i];
+                    bk.v.Add(W(p, r.fillY[i])); bk.uv.Add(new Vector2((p.x + org.x) / 12f, (p.y + org.y) / 12f));
+                    if (bk.col != null) bk.col.Add(Bucket.Tint);
+                    if (bk.fac != null) bk.fac.Add(Vector4.zero);
+                }
+                // anticlockwise in map view is clockwise seen from above: up (as the fan's)
+                for (int i = 0; i + 2 < r.tris.Count; i += 3) { bk.t.Add(v0 + r.tris[i]); bk.t.Add(v0 + r.tris[i + 2]); bk.t.Add(v0 + r.tris[i + 1]); }
+                ProvHook?.Invoke(bk, bk.t, t0);
+            }
             tm.patchCount++; RsJunctions++; RsTris += r.tris.Count / 3;
 
             // 2. THE FREE EDGES: the outer ring's runs between the end rows, each with its kerb

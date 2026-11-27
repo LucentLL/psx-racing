@@ -33,7 +33,7 @@ namespace PSXRacing.City
             var log = new System.Text.StringBuilder();
             foreach (var em in set.edges.Values)
             {
-                if (em.edge < 0 || em.edge >= map.edges.Length || em.st.Count == 0) continue;
+                if (em.edge < 0 || em.edge >= map.edges.Length || (em.st.Count == 0 && float.IsNaN(em.shift))) continue;
                 var e = map.edges[em.edge];
                 if (e.a == e.b || e.length < 2f) continue;
                 int n = Mathf.CeilToInt(e.length / FeedStepM) + 1;
@@ -44,6 +44,12 @@ namespace PSXRacing.City
                 // swerve after them; the widen takes whatever the pavement's edges do there
                 float c0 = Mathf.Max(l0, r0), c1 = Mathf.Min(l1, r1);
                 if (c0 > c1) c0 = c1 = 0.5f * (c0 + c1);
+                // the lanes' own measure: over every station the edge carries (none: its whole length)
+                bool lanesGiven = !float.IsNaN(em.shift);
+                if (lanesGiven)
+                {
+                    if (anyL && anyR) { c0 = Mathf.Min(l0, r0); c1 = Mathf.Max(l1, r1); } else if (anyL) { c0 = l0; c1 = l1; } else if (anyR) { c0 = r0; c1 = r1; } else { c0 = 0f; c1 = e.length; }
+                }
                 float maxS = 0f, maxW = 0f;
                 for (int k = 0; k < n; k++)
                 {
@@ -53,7 +59,16 @@ namespace PSXRacing.City
                     if (anyL && SideAt(em, true, s, out float oL, out float wL, e.length)) mL = Mathf.Lerp(eP, oL, wL);
                     if (anyR && SideAt(em, false, s, out float oR, out float wR, e.length)) mR = Mathf.Lerp(eM, oR, wR);
                     float S = 0f;
-                    if (anyL && anyR)
+                    if (lanesGiven)
+                    {
+                        float ws = s < c0 ? (em.holdA ? 1f : 1f - Mathf.SmoothStep(0f, 1f, (c0 - s) / Mathf.Max(1f, Mathf.Min(em.blend, c0 - 0.5f))))
+                                 : s > c1 ? (em.holdB ? 1f : 1f - Mathf.SmoothStep(0f, 1f, (s - c1) / Mathf.Max(1f, Mathf.Min(em.blend, e.length - 0.5f - c1)))) : 1f;
+                        S = em.shift * ws;
+                        // an unmeasured side rides the shift (no widen): its pavement edge moves with the lanes
+                        if (!anyL) mL = eP + S;
+                        if (!anyR) mR = eM - S;
+                    }
+                    else if (anyL && anyR)
                     {
                         float sc = Mathf.Clamp(s, c0, c1);
                         LineModel.Extents(e, sc, out float cM, out float cP);
