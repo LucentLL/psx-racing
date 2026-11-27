@@ -5643,7 +5643,7 @@ namespace PSXRacing.City
         /// </summary>
         static void UnionAbutments(CityMap map)
         {
-            AbutmentPairs = AbutmentEnds = AbutmentStations = AbutmentSkipped = 0; AbutmentMaxM = 0f;
+            AbutmentPairs = AbutmentEnds = AbutmentStations = AbutmentSkipped = 0; AbutmentMaxM = 0f; AbutmentForkSkips = 0;
             R10AbutReset();
             if (!TwinHoldsOn || map.deckPairs == null) return;
             for (int pass = 0; pass < 2; pass++)
@@ -5670,6 +5670,10 @@ namespace PSXRacing.City
                         if (Mathf.Abs(ta - tb) < 0.05f) continue;
                         var shortEnd = ta < tb ? ea : eb;
                         float target = Mathf.Max(ta, tb);
+                        // (road survey stage 4, SF2) a deck end is never carried onto a stretch whose pavement is still
+                        // shared with another road at a shallow fork (Wendover: Albemarle Rd's twin deck carried back
+                        // 12 m onto e2370 where it overlaps Independence Blvd e3521): its deck starts where the roads part
+                        if (CityMeshes.ShallowForkOn && ForkShared(map, shortEnd)) { AbutmentForkSkips++; continue; }
                         // (round 10) the twin's own deck end: the carry never passes it square to its road
                         int r = CarryDeckTo(map, shortEnd, u * end, target, ta < tb ? eb.p : ea.p);
                         if (r > 0) { AbutmentEnds++; moved = true; AbutmentMaxM = Mathf.Max(AbutmentMaxM, Mathf.Abs(ta - tb)); }
@@ -5680,6 +5684,46 @@ namespace PSXRacing.City
         }
 
         struct DeckEnd { public int edge; public float s; public int dir; public Vector2 p; }
+
+        /// <summary>(SF2) Deck ends a shallow fork kept from being carried (since the last solve).</summary>
+        public static int AbutmentForkSkips;
+        /// <summary>(SF2) The stretch a carry would put on structure (the deck end and up to TwinAlignMaxM on past it)
+        /// overlaps the class ribbon of another non-bridge one-way road sharing a node with this edge, running within
+        /// 12 degrees of it: the two are a shallow fork's one pavement there.</summary>
+        static bool ForkShared(CityMap map, DeckEnd d)
+        {
+            if (d.edge < 0) return false;
+            var e = map.edges[d.edge];
+            if (!e.oneway) return false;
+            // the edge and its continuations through two-arm nodes (the road the deck end lies on)
+            var road = new List<CityMap.Edge> { e };
+            foreach (int n in new[] { e.a, e.b })
+                if (map.nodeEdges[n].Count == 2) foreach (int oi in map.nodeEdges[n]) if (oi != e.index) road.Add(map.edges[oi]);
+            foreach (var x in road)
+                foreach (int n in new[] { x.a, x.b })
+                {
+                    if (map.nodeEdges[n].Count < 3) continue;
+                    var dx = (x.a == n ? x.PointAt(Mathf.Min(10f, x.length)) : x.PointAt(Mathf.Max(0f, x.length - 10f))) - map.nodes[n];
+                    foreach (int oi in map.nodeEdges[n])
+                    {
+                        if (oi == x.index) continue;
+                        var o = map.edges[oi];
+                        if (o.bridge || !o.oneway || o.a == o.b) continue;
+                        // a fork partner: leaves (or meets) the node on the same side within 12 degrees
+                        var dO = (o.a == n ? o.PointAt(Mathf.Min(10f, o.length)) : o.PointAt(Mathf.Max(0f, o.length - 10f))) - map.nodes[n];
+                        if (dx.sqrMagnitude < 1e-4f || dO.sqrMagnitude < 1e-4f || Vector2.Angle(dx, dO) > 12f) continue;
+                        for (float k = -TwinAlignMaxM; k <= TwinAlignMaxM + 0.01f; k += 5f)
+                        {
+                            float s = Mathf.Clamp(d.s + d.dir * k, 0f, e.length);
+                            var p = e.PointAt(s);
+                            ProjectOn(o, p, out float at);
+                            if (at < 0.5f || at > o.length - 0.5f) continue;
+                            if (Vector2.Distance(o.PointAt(at), p) < e.HalfMax + o.HalfMax - 0.5f) return true;
+                        }
+                    }
+                }
+            return false;
+        }
 
         /// <summary>From arc <paramref name="s"/> of <paramref name="e"/> (on
         /// structure), walking <paramref name="dir"/> (+1 toward b) to where the

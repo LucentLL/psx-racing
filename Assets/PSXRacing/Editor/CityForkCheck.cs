@@ -51,7 +51,7 @@ namespace PSXRacing.EditorTools
                 var buildings = CityBuildings.Precompute(map);
                 // (c) city-wide
                 var deckEnds = DeckEnds(map, trims);
-                log.Append($"(c) DECK END IN A ROAD, city-wide: {deckEnds.Count} deck ends\n");
+                log.Append($"(c) DECK END IN A ROAD, city-wide: {deckEnds.Count} deck ends; SF2 deck ends kept from being carried onto a fork: {CityElevation.AbutmentForkSkips}\n");
                 foreach (var d in deckEnds) log.Append(string.Format(inv, "  deck e{0} end at node {1} ({2:0.0}, {3:0.0}) inside e{4} '{5}'\n", d.deck, d.node, d.p.x, d.p.y, d.road, map.edges[d.road].name ?? ""));
                 if (string.IsNullOrEmpty(spotsCsv)) throw new System.Exception("PSX_FC_SPOTS not set");
                 var spots = CityIslandGate.ReadSpots(spotsCsv);
@@ -155,7 +155,7 @@ namespace PSXRacing.EditorTools
                 }
             }
             // the lane interiors of every drawn ribbon on the tile
-            var lane = new bool[N * N];
+            var lane = new bool[N * N]; var road = new bool[N * N];
             var segs = new HashSet<int>();
             var min = new Vector2(o.x, o.z); var max = min + Vector2.one * CityMeshes.TileSize;
             map.EdgeSegsInRect(min - Vector2.one * 10f, max + Vector2.one * 10f, segs);
@@ -168,6 +168,17 @@ namespace PSXRacing.EditorTools
                 float s0 = trims.atA[ei], s1 = e.length - trims.atB[ei];
                 for (float s = s0; s <= s1; s += 0.5f)
                 {
+                    {
+                        // the ROAD mask: (b) counts only on a map road's own drawn pavement, not on a lot or a yard
+                        LineModel.Extents(e, s, out float eM, out float eP);
+                        var pp = e.PointAt(s); var tt = e.TangentAt(s); var ll = new Vector2(-tt.y, tt.x);
+                        for (float l = -eM; l <= eP; l += Cell * 0.8f)
+                        {
+                            var w = pp + ll * l;
+                            int i = Mathf.FloorToInt((w.x - o.x - m0) / Cell), j = Mathf.FloorToInt((w.y - o.z - m0) / Cell);
+                            if (i >= 0 && j >= 0 && i < N && j < N) road[j * N + i] = true;
+                        }
+                    }
                     if (CityMeshes.AuditView.ClipAt(e, s, out _)) continue;   // a branch's clipped stretch: the host owns it
                     LineModel.LinesAt(e, s, lines);
                     if (lines.Count < 2) continue;
@@ -194,7 +205,7 @@ namespace PSXRacing.EditorTools
                     if (w.x < o.x || w.y < o.z || w.x >= o.x + CityMeshes.TileSize || w.y >= o.z + CityMeshes.TileSize) continue;
                     if (cnt[k] == 0) continue;
                     if (topP[k] && lane[k]) h.a.Add(w);
-                    if (cnt[k] >= 2 && !float.IsNegativeInfinity(sec[k]))
+                    if (road[k] && cnt[k] >= 2 && !float.IsNegativeInfinity(sec[k]))
                     {
                         float d = top[k] - sec[k];
                         if (d < 0.01f) h.cop.Add(w);
