@@ -1759,8 +1759,16 @@ Shader "PSX/Lit"
                     // sun's share by the canopy factor, so dusk and overcast stay their own).
                     if (_LeafFall.x > 0.5 && _PSXFallPhase.x > 0.5)
                     {
-                        crownAO = lerp(FALL2_AO_FLOOR, 1.0, crownAO);
-                        amb += (_PSXSkyAmbient.rgb * FALL2_THRU_SKY + _PSXLightColor.rgb * (FALL2_THRU_SUN * canopy)) * crownAO;
+                        // (rainlook 11-27, RainLook.DuskLeaves, _PSXLookOff2.x 0; the owner: "trees in daylight or
+                        // dusk seem to be glowing like objects in a blacklight") The light let THROUGH the canopy
+                        // and the shallower crown shade are a high sun's: they now fade as the sun goes down (a
+                        // forest at a low sun is lit at its edges, the leaves inside in each other's shade), and
+                        // not at all at night (_PSXNight 1), so the night look is the bit-for-bit same.
+                        float thruK = 1.0;
+                        if (_PSXLookOff2.x < 0.5)
+                            thruK = lerp(1.0, saturate(lDir.y / 0.5), saturate((1.0 - _PSXNight) * 8.0));
+                        crownAO = lerp(crownAO, lerp(FALL2_AO_FLOOR, 1.0, crownAO), thruK);
+                        amb += (_PSXSkyAmbient.rgb * FALL2_THRU_SKY + _PSXLightColor.rgb * (FALL2_THRU_SUN * canopy)) * (crownAO * thruK);
                     }
                     amb *= crownAO;
                     ndl *= sqrt(crownAO);
@@ -2797,6 +2805,22 @@ Shader "PSX/Lit"
                 float carVis;
                 float sunVis = PSXSunShadowCar(i.wpos, N, eyeDist, leaf, carVis);
                 float skyKeep = PSXSkyOpen(i.wpos, N, leaf);
+                // (rainlook 11-27, RainLook.DuskLeaves, _PSXLookOff2.x 0) A CROWN IN A LOW SUN. A cutout receiver
+                // (a tree's leaves) takes no shade from leaves (PSXSunShadow: a crown's cards would stripe each
+                // other), so every leaf of every tree held the whole sun - and past the shadow map's reach every
+                // tree did - while the ground beside it lay in the trees' and buildings' shade: at dusk (the sun
+                // 2.5 degrees up) a street's trees were lit, its road was not. The share of a crown's leaves the
+                // sun reaches is now taken as falling with the sun (the crown's own other side, the next tree),
+                // and the sky reaching a leaf inside a crown is the crown-interior's. Not the mountain forest's
+                // leaves (_LeafVivid.z: their vertex light already has its canopy term), and nothing at night
+                // (_PSXNight 1), so the night look is the bit-for-bit same.
+                if (_PSXLookOff2.x < 0.5 && leaf > 0.5 && _LeafVivid.z < 0.5)
+                {
+                    float dayK = saturate((1.0 - _PSXNight) * 8.0);
+                    float sunY = saturate(normalize(_PSXLightDir.xyz).y);
+                    sunVis *= lerp(1.0, lerp(0.30, 0.90, saturate(sunY / 0.5)), dayK);
+                    skyKeep *= lerp(1.0, 0.80, dayK);
+                }
             #ifdef PSX_BAKEDSKY
                 skyKeep = min(skyKeep, i.amb.w);
             #endif
