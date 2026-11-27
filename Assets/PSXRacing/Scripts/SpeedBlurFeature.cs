@@ -212,12 +212,18 @@ namespace PSXRacing
 
         /// <summary>The water's depth copy, for a camera whose water draws
         /// the HD tiers (<see cref="WaterLook.DepthCopyFor"/>).</summary>
+        static readonly int CabinDepthLiveId = Shader.PropertyToID("_PSXCabinDepthLive");
+
         void AddWaterDepth(ScriptableRenderer renderer, Camera cam)
         {
             // no water in this camera's view (or the HD water off): no copy,
             // and a copy texture nobody has drawn for a while is let go
             // (part B, item 14: it ran every frame in the garage and the home)
-            if (!WaterLook.DepthCopyFor(cam)) { waterDepthPass?.ReleaseIdle(); return; }
+            // (rainlook, RainLook.CabinMask) the cockpit's wet glass reads the copy too: a drop's bent picture
+            // must not come from the cabin (PSX/CabinGlass). Cleared for every camera, raised below.
+            Shader.SetGlobalFloat(CabinDepthLiveId, 0f);
+            bool cabin = RainLook.CabinDepthFor(cam);
+            if (!WaterLook.DepthCopyFor(cam) && !cabin) { waterDepthPass?.ReleaseIdle(); return; }
             if (waterCopyMaterial == null)
             {
                 var sh = Shader.Find(WaterLook.DepthCopyShader);
@@ -233,6 +239,7 @@ namespace PSXRacing
             waterDepthPass.camera = cam;
             renderer.EnqueuePass(waterDepthPass);
             WaterLook.DepthCopies++;
+            if (cabin) Shader.SetGlobalFloat(CabinDepthLiveId, 1f);
         }
 
         /// <summary>

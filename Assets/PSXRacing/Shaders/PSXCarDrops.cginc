@@ -54,6 +54,10 @@ float4 _PSXCarRun;
 //   * Moving, the larger beads creep back along the air with the car's clock; the small ones stay.
 // Snow is unchanged.
 float4 _PSXCarDrops2Off;   // x 1: a99a8ef1's body rain; y 1: a99a8ef1's lens drop size (PSXLens)
+#ifndef PSX_RAINLOOK_DECL
+#define PSX_RAINLOOK_DECL
+float4 _PSXRainLookOff;    // (rainlook, RainLook.cs) 0 = the new look per switch: x runs, y wiper glow, z cabin, w road leaves
+#endif
 static float cd2Wipe;      // the rivulets' wipe at this pixel (CarDropsH -> CarBeadLens, same invocation)
 
 #define CD2_CELL_S   0.0070   // small beads: cell (m) ...
@@ -194,6 +198,30 @@ float CD2Rivulets(float2 q, float2 dir, float t, float density, float seed, floa
     float wHalf = rHead * 1.2;
     wipe = on * (1.0 - smoothstep(wHalf, wHalf + fp + 0.0008, abs(dx))) * step(-rHead * 1.2, back)
          * (1.0 - smoothstep(len, len * 1.6, back));
+    // (rainlook 11-27, RainLook.SoftRuns, _PSXRainLookOff.x 0; the owner on PC82's rear glass: "I'm not a fan
+    // of these sliding rectangles to indicate water moving") The wipe above was the head's width PLUS a pixel
+    // and 0.8 mm each side, hard at the head and up to 1.6 track lengths long: from the chase camera (3-5 mm a
+    // pixel) a dark column nearly as wide as the 14 mm column itself, sliding down the glass where the beads'
+    // sheen was taken. Now the track is the run's own thin film: no wider than its head, narrowing behind it,
+    // soft at both ends, the beads coming back from the head on, and both the film and the wipe taken as their
+    // share of the pixel (a 3 mm track in a 5 mm pixel takes 60 % of that pixel's beads, not all of them).
+    if (_PSXRainLookOff.x < 0.5)
+    {
+        float backK = saturate(back / max(len, 1e-4));
+        float wander = sin(along * 13.0 + k.x * 6.28) * 0.0015;
+        float dxs = dx - wander;
+        float fpS = max(fp, 1e-5);
+        float wN = rHead * lerp(0.95, 0.45, backK);
+        float covW = saturate((wN + 0.5 * fpS - abs(dxs)) / fpS) * saturate(2.0 * wN / fpS);
+        wipe = on * covW * smoothstep(-rHead, rHead * 0.5, back) * (1.0 - smoothstep(0.15 * len, len, back)) * 0.85;
+        float tN = rHead * CD2_TRAIL * lerp(1.0, 0.55, backK);
+        float covT = saturate((tN + 0.5 * fpS - abs(dxs)) / fpS) * saturate(2.0 * tN / fpS);
+        trail = covT * tr * 0.55;
+        head = CDDome(float2(dxs, (f - headAt) * span), rHead);
+        float resH = saturate((rHead / fpS - 0.5) / 1.0);
+        head *= lerp(saturate(rHead * 2.0 / fpS), 1.0, resH);
+        return max(head, trail) * on;
+    }
     float hgt = max(head, trail) * on;
     // under a pixel wide: its average, not a crawling line
     float res = saturate((rHead / max(fp, 1e-6) - 0.5) / 1.0);

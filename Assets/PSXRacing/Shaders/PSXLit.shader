@@ -541,6 +541,11 @@ Shader "PSX/Lit"
             #define FALL2_WARM_LO 0.04
             #define FALL2_WARM_HI 0.24
             float4 _RoadLeaves;
+            #ifndef PSX_RAINLOOK_DECL
+            #define PSX_RAINLOOK_DECL
+            float4 _PSXRainLookOff;   // (rainlook, RainLook.cs) w 0: the road's leaves in world metres
+            float4 _PSXLookOff2;      // x 0: the foliage light falls with the sun (no glow at dusk and by day)
+            #endif
             float4 _PSXFallPhase;   // global (SeasonDress): x 1 = live, y the fall's phase 0 early .. 0.5 peak .. 1 late
             // A leaf texel in another colour AT ITS OWN LUMINANCE (owner
             // 2026-11-11, the title's drone: the poplars "not following the
@@ -1732,6 +1737,16 @@ Shader "PSX/Lit"
                     // without it the leaves held 1.95x the road at dusk (the
                     // old cards 1.73x, noon 1.03x for both).
                     float canopy = lerp(0.3, 1.0, saturate(lDir.y / 0.55));
+                    // (rainlook 11-27, RainLook.DuskLeaves, _PSXLookOff2.x 0; the owner: "trees in daylight or
+                    // dusk seem to be glowing like objects in a blacklight") The 0.3 floor kept a third of a
+                    // grazing sun on every leaf, wrapped round the crown, unshadowed (a cutout takes no leaf
+                    // shade): measured on West Trade at DUSK (the sun 2.5 degrees up) the crowns held 2.24x the
+                    // road's luminance and 1.33x the SKY's. A sun at the horizon reaches next to none of a
+                    // crown's leaves through the others: the share now goes to 0.05 there, rising smoothly to
+                    // the whole of it by 30 degrees (afternoon and noon as before). Not at night (_PSXNight 1):
+                    // the night look is the bit-for-bit same.
+                    if (_PSXLookOff2.x < 0.5)
+                        canopy = lerp(canopy, lerp(0.05, 1.0, smoothstep(0.0, 0.55, lDir.y)), saturate((1.0 - _PSXNight) * 8.0));
                     ndl = saturate(wrapL + transL) * canopy;
                     // DEFINITION where the sky is most of the light (dusk,
                     // overcast, shade - owner: "It all just blends to one
@@ -1754,8 +1769,16 @@ Shader "PSX/Lit"
                     // sun's share by the canopy factor, so dusk and overcast stay their own).
                     if (_LeafFall.x > 0.5 && _PSXFallPhase.x > 0.5)
                     {
-                        crownAO = lerp(FALL2_AO_FLOOR, 1.0, crownAO);
-                        amb += (_PSXSkyAmbient.rgb * FALL2_THRU_SKY + _PSXLightColor.rgb * (FALL2_THRU_SUN * canopy)) * crownAO;
+                        // (rainlook 11-27, RainLook.DuskLeaves, _PSXLookOff2.x 0; the owner: "trees in daylight or
+                        // dusk seem to be glowing like objects in a blacklight") The light let THROUGH the canopy
+                        // and the shallower crown shade are a high sun's: they now fade as the sun goes down (a
+                        // forest at a low sun is lit at its edges, the leaves inside in each other's shade), and
+                        // not at all at night (_PSXNight 1), so the night look is the bit-for-bit same.
+                        float thruK = 1.0;
+                        if (_PSXLookOff2.x < 0.5)
+                            thruK = lerp(1.0, saturate(lDir.y / 0.5), saturate((1.0 - _PSXNight) * 8.0));
+                        crownAO = lerp(crownAO, lerp(FALL2_AO_FLOOR, 1.0, crownAO), thruK);
+                        amb += (_PSXSkyAmbient.rgb * FALL2_THRU_SKY + _PSXLightColor.rgb * (FALL2_THRU_SUN * canopy)) * (crownAO * thruK);
                     }
                     amb *= crownAO;
                     ndl *= sqrt(crownAO);
@@ -2281,6 +2304,13 @@ Shader "PSX/Lit"
                 float dEdge = min(rm.x, _RoadLeaves.y - rm.x);
                 float dens = lerp(0.65, 0.03, saturate((dEdge - 0.25) / 1.0)) * lerp(0.35, 1.35, saturate(_PSXFallPhase.y));
                 const float RLCell = 0.35;
+                // (rainlook 11-27, RainLook.RoadLeaves, _PSXRainLookOff.w 0; the owner at Linn Cove: "Stretched
+                // road textures ... causes leaves to stretch into unsightly rectangles") The road's V counts the
+                // track's nominal station spacing, not the metres its points really lie apart, so where those
+                // differ the cells (and every leaf in them) were drawn out along the road. The leaves now lie on
+                // the ground itself, in world metres: square whatever the road's UV does. The edge distance
+                // (how thick they lie) still comes from U, which is exact across the road.
+                if (_PSXRainLookOff.w < 0.5) rm = float2(dot(i.wpos.xz, float2(0.8, 0.6)), dot(i.wpos.xz, float2(-0.6, 0.8)));
                 float pix = max(fwidth(rm.x), fwidth(rm.y));
                 float nearK = saturate(1.6 - pix * 12.0);
                 float3 farMix = lerp(tex.rgb, float3(0.38, 0.15, 0.03), dens * 0.16);
