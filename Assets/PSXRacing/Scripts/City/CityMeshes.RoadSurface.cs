@@ -111,12 +111,13 @@ namespace PSXRacing.City
         }
 
         static Trims surfFrom, surfTrims;
+        static Dictionary<int, bool> rsFresh;
         /// <summary>The tile build's trims: the rules' (control) trims with the rows of every solved junction as its
         /// arms' ribbon trims. The rules' trims themselves when the switch is off or no junction is solved. Cached per
         /// control trims.</summary>
         public static Trims SurfaceTrims(CityMap map, Trims rule)
         {
-            if (!RoadSurfaceOn || rule == null) return rule;
+            if (!RoadSurfaceOn || rule == null) { rsFresh = null; return rule; }
             if (rule.control != null) return rule;   // surface trims already
             if (ReferenceEquals(surfFrom, rule) && surfTrims != null) return surfTrims;
             var built = JunctionSurfaces.Ensure(map, (e, node) => e.a == node ? rule.atA[e.index] : rule.atB[e.index]);
@@ -150,6 +151,19 @@ namespace PSXRacing.City
                 }
                 foreach (int ei in b.inside) { var e = map.edges[ei]; t.atA[e.index] = e.length; t.atB[e.index] = 0f; }
             }
+            // (round 2) ONE PAVEMENT, ONE AGE: a junction's arms and inside edges take its main arm's asphalt age (the fill
+            // has it: the rule's age is per OSM way, and an arm of another way met the fill with a tone step at its row)
+            Dictionary<int, bool> fr = null;
+            foreach (var b in built)
+            {
+                if (!b.Solved || b.mainEdge < 0) continue;
+                var me = map.edges[b.mainEdge];
+                bool mf = IsFresh(me.hasAgeSeed ? me.ageSeed : me.pts[0]);
+                fr ??= new Dictionary<int, bool>();
+                foreach (int ei in b.rowOf.Keys) fr[ei] = mf;
+                foreach (int ei in b.inside) fr[ei] = mf;
+            }
+            rsFresh = fr;
             surfFrom = rule; surfTrims = t;
             return t;
         }

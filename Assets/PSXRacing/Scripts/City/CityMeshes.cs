@@ -498,6 +498,9 @@ namespace PSXRacing.City
         public static Surface SurfaceOf(CityMap.Edge e, bool elevated)
         {
             bool fresh = IsFresh(e.hasAgeSeed ? e.ageSeed : e.pts[0]);   // one age per chain (WP-11)
+            // (road-surface round 2) the arms of a junction built as one surface take its main arm's age: one pavement
+            var rf = rsFresh;
+            if (rf != null && rf.TryGetValue(e.index, out bool jf)) fresh = jf;
             return elevated ? (fresh ? Surface.ConcreteNew : Surface.ConcreteOld)
                             : (fresh ? Surface.AsphaltNew : Surface.AsphaltOld);
         }
