@@ -64,6 +64,8 @@ class Survey:
         self.eop = [g for g, a in zip(d["geoms"], d["attrs"]) if a[1] == "Edge-of-Pavement"]
         self.eop_attr = [a for a in d["attrs"] if a[1] == "Edge-of-Pavement"]
         self.tree = STRtree(self.eop)
+        self.sw = [g for g, a in zip(d["geoms"], d["attrs"]) if a[1] == "Sidewalk"]
+        self.swtree = STRtree(self.sw)
         self.lines = [LineString(e["pts"]) for e in self.E]
         self.ltree = STRtree(self.lines)
         self.adj = {}
@@ -110,6 +112,22 @@ class Survey:
             st = hi[owner]
             t0 = ((p0 - C[st]) * Nn[st]).sum(1); t1 = ((p1 - C[st]) * Nn[st]).sum(1)
             for j in range(len(st)): ivs[st[j]].append((min(t0[j], t1[j]), max(t0[j], t1[j]), pi))
+        # KK1 (stage 2): the county's SIDEWALK polygons on the same cut (the kerb-kind test reads how far outside the
+        # pavement edge the nearest one starts)
+        swi = [[] for _ in range(k)]
+        for i in self.swtree.query(shapely.box(x0, z0, x1, z1)):
+            poly_ = self.sw[i]
+            hit = shapely.intersects(segs, poly_)
+            if not hit.any(): continue
+            hi = np.nonzero(hit)[0]
+            parts, owner = shapely.get_parts(shapely.intersection(segs[hi], poly_), return_index=True)
+            if len(parts) == 0: continue
+            ln_ = shapely.get_type_id(parts) == 1; parts, owner = parts[ln_], owner[ln_]
+            if len(parts) == 0: continue
+            p0 = shapely.get_coordinates(shapely.get_point(parts, 0)); p1 = shapely.get_coordinates(shapely.get_point(parts, -1))
+            st = hi[owner]
+            t0 = ((p0 - C[st]) * Nn[st]).sum(1); t1 = ((p1 - C[st]) * Nn[st]).sum(1)
+            for j in range(len(st)): swi[st[j]].append((min(t0[j], t1[j]), max(t0[j], t1[j])))
         # S9: crossings of OPPOSING map lines (a two-way edge, or a one-way running against this one) on each section
         opp = [[] for _ in range(k)]
         for li in self.ltree.query(shapely.box(x0, z0, x1, z1)):
@@ -128,7 +146,7 @@ class Survey:
         shL = np.zeros(k, bool); shR = np.zeros(k, bool)
         openL = np.zeros(k, bool); openR = np.zeros(k, bool); off = np.zeros(k, bool)
         medL = np.full(k, np.nan); medR = np.full(k, np.nan); farL = np.full(k, np.nan); farR = np.full(k, np.nan)
-        poly = np.full(k, -1)
+        poly = np.full(k, -1); swL = np.full(k, np.nan); swR = np.full(k, np.nan)
         for j in range(k):
             iv = sorted(ivs[j])
             if not iv: off[j] = True; continue
@@ -149,10 +167,13 @@ class Survey:
                 if 0.5 < tq < hi_: shL[j] = True
                 if lo < tq < -0.5: shR[j] = True
             openL[j] = hi_ >= HALF - 0.5; openR[j] = lo <= -HALF + 0.5
+            gl = [a_ - hi_ for a_, b_ in swi[j] if b_ > hi_ - 0.5]; gr = [lo - b_ for a_, b_ in swi[j] if a_ < lo + 0.5]
+            if gl: swL[j] = max(0.0, min(gl))
+            if gr: swR[j] = max(0.0, min(gr))
             if ci + 1 < len(m) and m[ci + 1][0] - hi_ <= MEDMAX: medL[j] = m[ci + 1][0] - hi_; farL[j] = m[ci + 1][1]
             if ci > 0 and lo - m[ci - 1][1] <= MEDMAX: medR[j] = lo - m[ci - 1][1]; farR[j] = -m[ci - 1][0]
         return dict(s=s, C=C, T=T, left=left, right=right, onpave=onpave, openL=openL, openR=openR, off=off,
-                    medL=medL, medR=medR, farL=farL, farR=farR, poly=poly, L=L, shL=shL, shR=shR)
+                    medL=medL, medR=medR, farL=farL, farR=farR, poly=poly, L=L, shL=shL, shR=shR, swL=swL, swR=swR)
 
 def clean_side(v, opn, s, L):
     """S6 + S7 on one side. Returns (smoothed values, flags) flags: 0 clean, 1 bridged apron, 2 mouth at end (dropped),
