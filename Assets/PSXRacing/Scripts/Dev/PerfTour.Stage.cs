@@ -527,6 +527,7 @@ namespace PSXRacing
                 float dist = 0f; var last = car.transform.position;
                 bool onLap = false;
                 float slowFor = 0f; int nudges = 0; string end = "time";
+                bool noStuck = ShotLink.Query(Request() ?? "", "nostuck") == "1";
                 float nextSnap = snapEvery > 0f ? 2f : float.MaxValue; int snapN = 0;
                 double bSum = 0, sSum = 0, tSum = 0; long bMax = 0, tMax = 0; int rn = 0;
                 while (Time.realtimeSinceStartup - recT0 < maxSecs)
@@ -559,6 +560,9 @@ namespace PSXRacing
                     if (step < 60f) dist += step;
                     last = p;
                     if (Mathf.Abs(car.forwardSpeed) < 2f) slowFor += Time.unscaledDeltaTime; else slowFor = 0f;
+                    // (cityai round 6) &nostuck=1 on a field run: the tour car is neither set on nor the run ended when it
+                    // is held up (a jam under study must run its seconds; the car has the race's own recovery)
+                    if (noStuck) slowFor = 0f;
                     if (slowFor > 6f && nudges < 6)
                     {
                         int to = Mathf.Min(path.Count - 13, ai.PathIndex + Mathf.CeilToInt(50f / Mathf.Max(0.5f, path.spacing)));
@@ -624,6 +628,14 @@ namespace PSXRacing
                 sum1.AppendLine($"mean ms: scripts update {mUpd / dn:0.00} late {mLate / dn:0.00} fixed {mFix / dn:0.00} ui {mUi / dn:0.00}; render submit {mRend / dn:0.00}; outside the loop (present, GPU wait) {mOut / dn:0.00}");
                 sum1.AppendLine($"drawn: batches avg {(rn > 0 ? bSum / rn : 0):0} max {bMax}; set-pass avg {(rn > 0 ? sSum / rn : 0):0}; triangles avg {(rn > 0 ? tSum / rn / 1e6 : 0):0.00} M max {tMax / 1e6:0.00} M");
                 sum1.AppendLine($"gc collections {gcN}");
+                {
+                    // (cityai round 6) what the round 6 rules did this run
+                    var rr = new System.Text.StringBuilder();
+                    foreach (var kv in AIDriver.RoundRefused) rr.Append(rr.Length > 0 ? ", " : "").Append(kv.Key).Append(' ').Append(kv.Value);
+                    sum1.AppendLine($"round 6: crawls round a standing car begun {AIDriver.RoundsBegun} (judgements refused: {(rr.Length > 0 ? rr.ToString() : "none")}); recoveries by the held clock {AIDriver.RoundHeldRecoveries}; " +
+                                    $"knocks named by the racer touching {TrafficSystem.KnocksRenamed}, pushed from behind and drove on {TrafficSystem.PushedOn}; lane-end nose-ins {TrafficSystem.NoseIns}, creep-across steps {TrafficSystem.NoseCreeps}");
+                }
+                { string abl = Ab6Finish(); if (abl.Length > 0) { sum1.AppendLine(abl); Post(id + "_ab6.txt", abl); } }   // (cityai round 6)
                 sum1.Append(ExtraSummary(n));
                 // (PC71) the rivals' route plans of this run, measured in the exe: what a plan costs, and how many junction
                 // turns were laid on an arc (RacingTurns). Read and cleared here so each stage of a tour gets its own.
