@@ -284,8 +284,29 @@ namespace PSXRacing.City
                 }
             }
             RsKerbM += run;
+            // the run's two ends (at the rows): the kerb's own cross-section closed
+            for (int end = 0; end < 2; end++)
+            {
+                int k = end == 0 ? 0 : m - 1;
+                var dir = end == 0 ? (p2[0] - p2[1]).normalized : (p2[m - 1] - p2[m - 2]).normalized;
+                kerbBucket.WallSloped(W(p2[k], 0f), W(back[k], 0f), y2[k], y2[k] + RsKerbH, y2[k], y2[k] + RsKerbH, dir, 0f, RsKerbW * 0.3f, 0f, 0.05f);
+                RsKerbTris += 2;
+            }
             if (median && m >= 3)
             {
+                // the land's far end, across the median at the rows: a face down into the ground, so nothing behind the
+                // kerbs is seen from the ribbons' side (the island gate's SEETHRU)
+                {
+                    var ea = back[0]; var eb = back[m - 1]; var ed = eb - ea; float el = ed.magnitude;
+                    if (el > 0.05f)
+                    {
+                        var inner = Vector2.zero; foreach (var q in back) inner += q; inner /= back.Count;
+                        var outw = new Vector2(ed.y, -ed.x) / el; if (Vector2.Dot(outw, 0.5f * (ea + eb) - inner) < 0f) outw = -outw;
+                        float ya = y2[0] + RsKerbH, yb = y2[m - 1] + RsKerbH;
+                        kerbBucket.WallSloped(W(ea, 0f), W(eb, 0f), ya - 0.6f, ya, yb - 0.6f, yb, outw, 0f, el * 0.3f, 0f, 0.05f);
+                        RsKerbTris += 2;
+                    }
+                }
                 // the land between the two carriageways from the nose out to the rows: the kerb's back line, closed across
                 // the median at the rows (where the ribbons' own median takes over)
                 float w = (back[0] - back[m - 1]).magnitude;
