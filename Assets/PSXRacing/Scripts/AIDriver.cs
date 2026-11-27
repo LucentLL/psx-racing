@@ -2088,7 +2088,7 @@ namespace PSXRacing
         /// by the recovery (a clear station up its own road, in its lane). The waiting clocks gave a held car 20 s
         /// (stuck) or 40 s (under 12 m of road made). With <see cref="RoundStandingOn"/> only. And the clear
         /// road behind (m) a car nose to tail with a standing one needs to back off it (7 m otherwise).</summary>
-        const float RoundHeldMaxS = 8f, RoundBackBehindM = 3.5f;
+        const float RoundHeldMaxS = 8f, RoundBackBehindM = 3.5f, RoundBackMaxM = 2.5f;
         Rigidbody roundTarget, roundPassRb; bool roundCommitted, roundOk; float roundAt = -99f, roundPassUntil = -99f, standHeld;
         /// <summary>Metres up its road from which this car's recovery looks for a clear station (0: from where it is).
         /// Set only while the recovery of a held car runs (RaceManager.RespawnOn reads it).</summary>
@@ -2527,6 +2527,7 @@ namespace PSXRacing
                     var bo = obs[block];
                     standBlockZ = bo.rb != null && bo.rb.linearVelocity.sqrMagnitude < 1f ? bo.z : float.PositiveInfinity;
                     standBlockLat = bo.lat;
+                    standBlockOncoming = bo.oncoming;
                     // How far the pass runs: to the car, and a car's length
                     // and a second past it at the speed we pass it at.
                     float passEnd = bo.z + 6f + Mathf.Max(bo.closing, 3f) * 1f;
@@ -3026,6 +3027,7 @@ namespace PSXRacing
         /// (centre to centre; +infinity when none), where across the road, and
         /// the line round it (NaN when none is clear).</summary>
         float standBlockZ = float.PositiveInfinity, standBlockLat, standPick = float.NaN;
+        bool standBlockOncoming, backShort;   // (round 6) the standing car is of the oncoming stream; this back-up is the short one
         /// <summary>Half the length of a car, about: the room a nose and a
         /// boot take up between two centres.</summary>
         const float CarHalfLenM = 2.3f;
@@ -3074,7 +3076,7 @@ namespace PSXRacing
                     float moved = Vector3.Distance(transform.position, backFrom);
                     float roomNeed = BackUpRoomNeed();
                     bool roomy = standBlockZ >= roomNeed + 0.5f && !float.IsPositiveInfinity(standBlockZ);
-                    if (moved > BackUpMaxM || backT > BackUpMaxS || roomy || !BehindClear(2.5f) ||
+                    if (moved > (backShort ? RoundBackMaxM : BackUpMaxM) || backT > BackUpMaxS || roomy || !BehindClear(2.5f) ||
                         (backT > 1f && responder != null && responder.InSolidContact && car.forwardSpeed > -0.3f))
                     { backPhase = BackPhase.Settle; backT = 0f; }
                     car.allowReverse = true;
@@ -3116,9 +3118,13 @@ namespace PSXRacing
             // (round 6) nose to tail with a standing car and a queue behind: 7 m of clear road behind was never there (the
             // cars behind stand 10 m off), so the car pressed on a wreck's corner stood on the throttle until its
             // recovery. It backs into the room there is (the reverse stops 2.5 m short of the car behind).
-            float behindNeed = RoundStandingOn && standBlockZ < 2f * CarHalfLenM + 2.5f ? RoundBackBehindM : BackUpBehindM;
-            if ((backStand > BackUpAfterS || backPinned > BackUpPinnedS) && backTries < BackUpTries && BehindClear(behindNeed))
+            // Only off a car of its own direction (nose to nose with an oncoming car it swung its tail 6 m across the
+            // other lanes: the Viper at the East Good Samaritan Way kink, seed 0), and then only RoundBackMaxM back.
+            bool longOk = BehindClear(BackUpBehindM);
+            bool shortOk = !longOk && RoundStandingOn && !standBlockOncoming && standBlockZ < 2f * CarHalfLenM + 2.5f && BehindClear(RoundBackBehindM);
+            if ((backStand > BackUpAfterS || backPinned > BackUpPinnedS) && backTries < BackUpTries && (longOk || shortOk))
             {
+                backShort = shortOk;
                 // The side to go round on: the clear line, else away from it.
                 Vector3 r = Vector3.Cross(Vector3.up, path.GetTangent(nearestIdx)).normalized;
                 float myLat = Vector3.Dot(transform.position - path.GetPoint(nearestIdx), r);
