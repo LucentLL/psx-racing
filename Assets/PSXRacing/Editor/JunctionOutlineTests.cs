@@ -586,6 +586,119 @@ namespace PSXRacing.EditorTools
             Assert.AreEqual(0, fails, first);
         }
 
+        // ---------------- road-surface stage 1: the measures ----------------
+        [Test] public void MeasuredNoses()
+        {
+            // a 12 m median's opening with both ends MEASURED: the east end a flat front at x = 8 with 2 m shoulders
+            // (concrete), the west end at x = -10 with a radius over half the width (a full round, 6 m; grass)
+            var arms = Boulevard(6f, out var link, Half(2));
+            var meas = new JunctionOutline.Measures { provider = "hand" };
+            meas.noses.Add(new JunctionOutline.Nose { a = 2, b = 0, capA = new Vector2(8f, -3f), capB = new Vector2(8f, 3f), r = 2f, kind = 1 });
+            meas.noses.Add(new JunctionOutline.Nose { a = 1, b = 3, capA = new Vector2(-10f, 3f), capB = new Vector2(-10f, -3f), r = 20f, kind = 0 });
+            var r = JunctionOutline.Solve(arms, null, new List<JunctionOutline.Link> { link }, meas);
+            Assert0(r, "measured median ends (a flat front with 2 m shoulders, a full round)");
+            var e = r.corners.Find(c => c.a == 2 && c.b == 0); var w = r.corners.Find(c => c.a == 1 && c.b == 3);
+            Assert.IsTrue(e != null && e.note == "measured nose" && e.kind == 1 && Mathf.Abs(e.r - 2f) < 0.01f, $"east nose: {e?.shape} {e?.note} r {e?.r}");
+            Assert.IsTrue(w != null && w.note == "measured nose" && w.kind == 0 && Mathf.Abs(w.r - 6f) < 0.15f, $"west nose: a full round is half the median (6 m), got r {w?.r}");
+            float minX = float.MaxValue, maxX = float.MinValue;
+            foreach (var p in e.pts) minX = Mathf.Min(minX, p.x);
+            foreach (var p in w.pts) maxX = Mathf.Max(maxX, p.x);
+            Assert.IsTrue(Mathf.Abs(minX - 8f) < 0.02f, $"east nose: its front stands at x {minX:0.000}, measured 8");
+            Assert.IsTrue(Mathf.Abs(maxX + 10f) < 0.05f, $"west nose: its tip stands at x {maxX:0.000}, measured -10");
+            Assert.AreEqual("hand", r.provider, "the result names its provider");
+        }
+
+        [Test] public void MeasuredIslandAndRows()
+        {
+            // a concrete island in the opening and a channel strip standing in arm 0's pavement from x = 10 to x = 24:
+            // both are holes with their kinds; arm 0's row lies beyond the strip (an island may not cross a row)
+            float m = 6f;
+            var arms = Boulevard(m, out var link, Half(2));
+            var meas = new JunctionOutline.Measures { provider = "hand" };
+            var a = new JunctionOutline.Island { kind = 1, kerb = 0.15f };
+            a.pts.AddRange(new[] { new Vector2(-2f, -1.5f), new Vector2(2f, -1.5f), new Vector2(2f, 1.5f), new Vector2(-2f, 1.5f) }); a.r.AddRange(new[] { 1.2f, 1.2f, 1.2f, 1.2f });
+            float yc = m + Half(2);
+            var b = new JunctionOutline.Island { kind = 0, kerb = 0.2f };
+            b.pts.AddRange(new[] { new Vector2(10f, yc - 0.6f), new Vector2(24f, yc - 0.6f), new Vector2(24f, yc + 0.6f), new Vector2(10f, yc + 0.6f) }); b.r.AddRange(new[] { 0.55f, 0.55f, 0.55f, 0.55f });
+            meas.islands.Add(a); meas.islands.Add(b);
+            var r = JunctionOutline.Solve(arms, null, new List<JunctionOutline.Link> { link }, meas);
+            Assert0(r, "measured islands (one in the opening, a channel strip along an arm)");
+            Assert.AreEqual(2, r.holes.Count, "both measured islands are holes");
+            Assert.IsTrue(r.holeKind[0] == 1 && r.holeKind[1] == 0 && Mathf.Abs(r.holeKerb[1] - 0.2f) < 1e-4f, "the holes carry their kinds and kerb heights");
+            int i0 = r.arms.FindIndex(x => x.id == 0);
+            Assert.IsTrue(r.sL[i0] >= 24f + JunctionOutline.IslandRowM - 0.01f && r.sR[i0] >= 24f + JunctionOutline.IslandRowM - 0.01f, $"arm 0's row stands at {r.sL[i0]:0.0} m: not beyond the strip's end (24 m + {JunctionOutline.IslandRowM})");
+            foreach (var h in r.holes) for (int k = 0; k < h.Count; k++) Assert.IsTrue(!JunctionOutline.Kink(h[(k - 1 + h.Count) % h.Count], h[k], h[(k + 1) % h.Count]), "an island's outline has a kink");
+            Assert.AreEqual(r.holes.Count, r.ringHoles.Count, "the fill keeps each hole's own boundary vertices");
+            // the lane check: arm 0's rule ribbon has the strip standing in it
+            JunctionOutline.LaneCheck(r, r.arms[i0].L, r.arms[i0].R, r.sL[i0] - 1f, out float run, out float worst, out _);
+            Assert.IsTrue(run >= 13f && worst < 0f, $"the lane check misses a strip in the lanes: {run:0.0} m, worst {worst:0.00}");
+        }
+
+        [Test] public void RoundedPolygonKeepsRule4()
+        {
+            // an L-shaped strip (one reflex vertex, radius 8) with small corner radii: every joint keeps the 1 cm / 6 degree
+            // rule, the ring is anticlockwise and stays within 1 cm of its own polygon's hull corners' fillets
+            var pts = new List<Vector2> { new Vector2(0, 0), new Vector2(20, 0), new Vector2(20, 12), new Vector2(17, 12), new Vector2(17, 3), new Vector2(0, 3) };
+            var rr = new List<float> { 0.5f, 0.5f, 1.4f, 1.4f, 8f, 0.5f };
+            var ring = JunctionOutline.RoundedPolygon(pts, rr);
+            float area = 0f; for (int i = 0; i < ring.Count; i++) { var p = ring[i]; var q = ring[(i + 1) % ring.Count]; area += p.x * q.y - q.x * p.y; }
+            Assert.IsTrue(area > 0f, "a rounded polygon is anticlockwise");
+            for (int i = 0; i < ring.Count; i++) Assert.IsTrue(!JunctionOutline.Kink(ring[(i - 1 + ring.Count) % ring.Count], ring[i], ring[(i + 1) % ring.Count]), $"kink at {ring[i]}");
+            Assert.IsNull(JunctionOutline.SelfCross(ring), "a rounded polygon crosses itself");
+            // the reflex vertex (17, 3) gains land: the arc stands outside the L's notch corner; two radii sharing the 3 m edge are scaled to fit
+            Assert.IsTrue(JunctionOutline.InPoly(ring, new Vector2(16.8f, 3.2f)), "the reflex vertex's fillet is missing");
+            Assert.IsTrue(0.5f * area > 20f * 3f + 3f * 9f - 3f && 0.5f * area < 20f * 3f + 3f * 9f + 16f, $"area {0.5f * area:0.0} m2");
+        }
+
+        [Test] public void MeasuredBordersHeldAndBlended()
+        {
+            // a straight arm 3.66 / 3.66 m wide; its edge measured LEFT 6 m at 5 m and 8 m at 20 m (blend 10 m): the border
+            // is held at 6 m from the first station in to the junction, runs through 8 m at 20 m, is the rule's again
+            // from 30 m; no joint breaks rule 4; the arm's measEnd is 30 m. The same edge read from its b end swaps sides.
+            var em = new JunctionMeasures.EdgeM { edge = 1, blend = 10f };
+            em.st.Add(new JunctionMeasures.Station { s = 5f, left = 6f }); em.st.Add(new JunctionMeasures.Station { s = 20f, left = 8f });
+            var arm = JunctionOutline.StraightArm(1, Vector2.zero, Dir(0), 3.66f, 3.66f);
+            JunctionMeasures.ApplyToArm(arm, true, 80f, em);
+            float Off(JunctionOutline.Arm a, bool left, float d) { int k = Mathf.RoundToInt(d / JunctionOutline.Step); return ((left ? a.L[k] : a.R[k]) - a.C[k]).magnitude; }
+            Assert.IsTrue(Mathf.Abs(Off(arm, true, 0f) - 6f) < 1e-3f && Mathf.Abs(Off(arm, true, 5f) - 6f) < 1e-3f, $"held to the junction: {Off(arm, true, 0f):0.000}");
+            Assert.IsTrue(Mathf.Abs(Off(arm, true, 20f) - 8f) < 1e-3f, $"at the last station: {Off(arm, true, 20f):0.000}");
+            Assert.IsTrue(Mathf.Abs(Off(arm, true, 30f) - 3.66f) < 1e-3f && Mathf.Abs(Off(arm, true, 60f) - 3.66f) < 1e-3f, $"the rule's width beyond the blend: {Off(arm, true, 30f):0.000}");
+            Assert.IsTrue(Mathf.Abs(Off(arm, false, 10f) - 3.66f) < 1e-3f, "the unmeasured side keeps the rule");
+            Assert.IsTrue(arm.measL && !arm.measR && Mathf.Abs(arm.measEnd - 30f) < 1e-3f, $"measEnd {arm.measEnd}");
+            for (int k = 1; k + 1 < arm.L.Count; k++) Assert.IsTrue(!JunctionOutline.Kink(arm.L[k - 1], arm.L[k], arm.L[k + 1]), $"a kink in the measured border at {k * JunctionOutline.Step} m");
+            var back = JunctionOutline.StraightArm(1, Vector2.zero, Dir(0), 3.66f, 3.66f);
+            JunctionMeasures.ApplyToArm(back, false, 80f, em);   // leaves from the edge's b end: station 80 - d, the edge's left is its right
+            Assert.IsTrue(Mathf.Abs(Off(back, false, 60f) - 8f) < 1e-3f && Mathf.Abs(Off(back, false, 75f) - 6f) < 1e-3f, $"from the b end: {Off(back, false, 60f):0.000} / {Off(back, false, 75f):0.000}");
+            Assert.IsTrue(Mathf.Abs(Off(back, false, 0f) - 8f) < 1e-3f && back.measR && !back.measL, "from the b end: the station nearest the junction (8 m) is held to it, on the arm's right");
+        }
+
+        [Test] public void MeasuresParseAndSolver()
+        {
+            string text = "# hand\nprovider hand\nedge 7 blend 9\ns 4.5 - 3.25\ns 1.5 6 -\njunction j1 nodes 3 4\nnose 5 6 1 2 3 4 r 2.5 kind concrete\nreturn 8 9 r 18\nisland kind grass kerb 0.2 pts 0,0,1 4,0,1 4,3\ndrop 11\njoin 3 12\n";
+            var set = JunctionMeasures.Parse(text);
+            Assert.AreEqual("hand", set.provider, "provider");
+            Assert.IsTrue(set.edges.Count == 1 && set.edges[7].blend == 9f && set.edges[7].st.Count == 2 && set.edges[7].st[0].s == 1.5f && float.IsNaN(set.edges[7].st[0].right) && set.edges[7].st[1].right == 3.25f, "edge stations (sorted, '-' = no measure)");
+            var j = set.For(new HashSet<int> { 4, 99 });
+            Assert.IsTrue(j != null && j.name == "j1" && j.noses.Count == 1 && j.returns.Count == 1 && j.islands.Count == 1 && j.drop[0] == 11 && j.join[0] == (3, 12), "junction items");
+            Assert.IsNull(set.For(new HashSet<int> { 98 }), "a cluster the measures do not name keeps the rules");
+            var m = JunctionMeasures.ToSolver(set, j, new Vector2(1f, 1f));
+            Assert.IsTrue(m.noses[0].capA == new Vector2(0f, 1f) && m.noses[0].kind == 1 && m.returns[0].r == 18f && m.islands[0].kind == 0 && m.islands[0].pts[1] == new Vector2(3f, -1f) && m.islands[0].r[2] == 0.5f, "about the cluster's origin");
+        }
+
+        [Test] public void MeasuredReturnRadius()
+        {
+            // a T whose two kerb returns are measured 15 m and 4 m (the class says 9 m)
+            var arms = new List<JunctionOutline.Arm> {
+                JunctionOutline.StraightArm(0, Vector2.zero, Dir(0), Half(2), Half(2), name: "Main"), JunctionOutline.StraightArm(1, Vector2.zero, Dir(180), Half(2), Half(2), name: "Main"),
+                JunctionOutline.StraightArm(2, Vector2.zero, Dir(90), Half(1), Half(1), name: "Side") };
+            var meas = new JunctionOutline.Measures { provider = "hand" };
+            meas.returns.Add(new JunctionOutline.Return { a = 0, b = 2, r = 15f }); meas.returns.Add(new JunctionOutline.Return { a = 2, b = 1, r = 4f });
+            var r = JunctionOutline.Solve(arms, null, null, meas);
+            Assert0(r, "measured kerb returns (15 m and 4 m)");
+            var c0 = r.corners.Find(c => c.a == 0 && c.b == 2); var c1 = r.corners.Find(c => c.a == 2 && c.b == 1);
+            Assert.IsTrue(c0 != null && c0.shape == "arc" && Mathf.Abs(c0.r - 15f) < 1e-3f && c1 != null && c1.shape == "arc" && Mathf.Abs(c1.r - 4f) < 1e-3f, $"returns {c0?.shape} r{c0?.r} / {c1?.shape} r{c1?.r}");
+        }
+
         /// <summary>Batch entry (-executeMethod PSXRacing.EditorTools.JunctionOutlineTests.RunAll): every [Test] here, PASS / FAIL
         /// lines to Screenshots/c7/junction_outline_tests.txt (the same tests run in the Test Runner, EditMode).</summary>
         public static void RunAll()

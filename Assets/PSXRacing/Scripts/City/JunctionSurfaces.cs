@@ -29,6 +29,7 @@ namespace PSXRacing.City
             public List<string> laneConflicts = new List<string>();
             public double ms;
             public bool Solved => res != null && res.refused == null;
+            public Vector2 min, max;   // the outline's box, about origin
         }
 
         static CityMap forMap; static JunctionMeasures.Set forSet; static List<Built> all = new List<Built>(); static Dictionary<int, Built> byNode = new Dictionary<int, Built>();
@@ -37,6 +38,20 @@ namespace PSXRacing.City
 
         /// <summary>The junction that owns a node as one surface (null: the old fan).</summary>
         public static Built AtNode(int n) => byNode.TryGetValue(n, out var b) && b.Solved ? b : null;
+
+        /// <summary>The solved junction whose OUTLINE holds a map point (its pavement and its islands; null: none). For
+        /// emitters and readers that must keep out of a junction drawn as one surface.</summary>
+        public static Built Covering(Vector2 world)
+        {
+            foreach (var b in all)
+            {
+                if (!b.Solved) continue;
+                var p = world - b.origin;
+                if (p.x < b.min.x || p.x > b.max.x || p.y < b.min.y || p.y > b.max.y) continue;
+                if (JunctionOutline.InPoly(b.res.outline, p)) return b;
+            }
+            return null;
+        }
 
         /// <summary>Solve every measured junction once for this map. farTrim(edge, node): the rule's trim of an edge at its
         /// OTHER end (an arm is only as long as the ribbon the far junction leaves it).</summary>
@@ -57,6 +72,7 @@ namespace PSXRacing.City
                 try { Solve(map, set, jm, b, farTrim); }
                 catch (System.Exception ex) { b.res = new JunctionOutline.Result { refused = "exception: " + ex.Message }; }
                 b.ms = sw.Elapsed.TotalMilliseconds;
+                if (b.res != null && b.res.outline.Count > 0) { b.min = b.max = b.res.outline[0]; foreach (var q in b.res.outline) { b.min = Vector2.Min(b.min, q); b.max = Vector2.Max(b.max, q); } }
                 all.Add(b);
                 foreach (int n in b.nodes) byNode[n] = b;
                 Debug.Log($"[JunctionSurfaces] {b.name} (nodes {string.Join(" ", b.nodes.OrderBy(x => x))}): {(b.Solved ? "solved" : "REFUSED: " + b.res.refused + " (the old fan stays)")}; provider {set.provider}; {b.res.outline.Count} outline vertices, {b.res.holes.Count} islands, {b.res.tris.Count / 3} triangles; solve {b.res.solveMs:0.0} ms, fill {b.res.fillMs:0.0} ms, in all {b.ms:0.0} ms; rows {string.Join(", ", b.rowOf.Select(kv => "e" + kv.Key + " " + kv.Value.ToString("0.0")))}; {string.Join("; ", b.log)}; LANE CHECK: {(b.laneConflicts.Count == 0 ? "clear" : string.Join("; ", b.laneConflicts))}");
@@ -123,7 +139,8 @@ namespace PSXRacing.City
             b.log.AddRange(JunctionOutline.MergeBays(arms, links));
             // the measures AFTER the bays: a measured border is the pavement's own edge (bays included) and blends back,
             // where the measure ends, to the host's border with its bay
-            foreach (var arm in arms) if (set.edges.TryGetValue(arm.id, out var em)) JunctionMeasures.ApplyToArm(arm, arm.fromA, arm.edgeLength, em);
+            // (an edge the LINE MODEL carries has the measure in LineModel.Extents already: its ribbon, lanes and paint too)
+            foreach (var arm in arms) if (set.edges.TryGetValue(arm.id, out var em) && !JunctionMeasures.Fed.Contains(arm.id)) JunctionMeasures.ApplyToArm(arm, arm.fromA, arm.edgeLength, em);
             var r = b.res = JunctionOutline.Solve(arms, null, links, JunctionMeasures.ToSolver(set, jm, b.origin));
             foreach (var lk in links) if (map.edges[lk.id].a != map.edges[lk.id].b && b.nodes.Contains(map.edges[lk.id].a) && b.nodes.Contains(map.edges[lk.id].b)) b.inside.Add(lk.id);
             if (r.refused != null || r.rowR == null) return;

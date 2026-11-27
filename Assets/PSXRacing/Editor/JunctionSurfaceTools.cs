@@ -82,6 +82,23 @@ namespace PSXRacing.EditorTools
                 var rule = CityMeshes.ComputeTrims(map);
                 var trims = CityMeshes.SurfaceTrims(map, rule);
                 CityMeshes.RoadSurfaceOn = was;
+                // THE LINE MODEL FEED: LineModel.Extents against the measure at its own stations, and the lanes' centre
+                log.Append($"line model: {(JunctionMeasures.Fed.Count == 0 ? "not fed" : JunctionMeasures.FeedLog)}\n");
+                var mset = JunctionMeasures.Current;
+                if (mset != null) foreach (var em in mset.edges.Values)
+                {
+                    if (em.edge < 0 || em.edge >= map.edges.Length) continue;
+                    var e = map.edges[em.edge]; float worst = 0f; var sbe = new StringBuilder();
+                    foreach (var st in em.st)
+                    {
+                        float s = Mathf.Clamp(st.s, 0f, e.length);
+                        LineModel.Extents(e, s, out float eM, out float eP);
+                        if (!float.IsNaN(st.left)) worst = Mathf.Max(worst, Mathf.Abs(eP - st.left));
+                        if (!float.IsNaN(st.right)) worst = Mathf.Max(worst, Mathf.Abs(eM - st.right));
+                        sbe.Append(string.Format(inv, " s{0:0}: {1:0.00}/{2:0.00} (lanes {3:+0.00;-0.00})", s, eP, eM, LineModel.LaneCentre(e, s)));
+                    }
+                    log.Append(string.Format(inv, "  e{0} ({1:0.0} m): Extents left/right at its stations{2}; worst off the measure {3:0.00} m\n", em.edge, e.length, sbe, worst));
+                }
                 bool first = true;
                 foreach (var b in JunctionSurfaces.All)
                 {

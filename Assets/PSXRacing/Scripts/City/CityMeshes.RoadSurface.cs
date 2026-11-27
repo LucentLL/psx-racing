@@ -20,7 +20,39 @@ namespace PSXRacing.City
         /// <summary>The kerb: a 6 in (0.15 m) face and a 6 in top (NCDOT standard 2 ft 6 in curb and gutter, std. dwg
         /// 846.01; the gutter pan is pavement here).</summary>
         public const float RsKerbH = 0.15f, RsKerbW = 0.15f;
-        public static int RsJunctions, RsTris, RsKerbTris, RsLandTris; public static double RsBuildMs; public static float RsKerbM;
+        public static int RsJunctions, RsTris, RsKerbTris, RsLandTris, RsMaskedTris; public static double RsBuildMs; public static float RsKerbM;
+
+        // ONE OWNER PER SURFACE (Docs/ROAD_RULES.md section 2): while the roads' own emitters run (gores and branches,
+        // ribbons and their roadside, junction pieces, centre medians, corner pans, island solids), a quad or triangle
+        // whose centre lies inside a solved junction's outline is not laid - the junction's own pieces are (rsOwn).
+        // The lattice, the lots, the buildings and the closing pass are not masked.
+        static bool RsMaskOn, rsOwn;
+        static readonly List<JunctionSurfaces.Built> rsHere = new List<JunctionSurfaces.Built>(4);
+        static Vector3 rsOrigin;
+        static void RsTileBegin(TileMeshes tm, Vector2 min, Vector2 max)
+        {
+            rsHere.Clear(); RsMaskOn = false; rsOwn = false; rsOrigin = tm.origin;
+            if (!RoadSurfaceOn) return;
+            foreach (var b in JunctionSurfaces.All)
+            {
+                if (!b.Solved) continue;
+                var lo = b.min + b.origin; var hi = b.max + b.origin;
+                if (hi.x < min.x - 20f || lo.x > max.x + 20f || hi.y < min.y - 20f || lo.y > max.y + 20f) continue;
+                rsHere.Add(b);
+            }
+        }
+        static bool RsMasked(Vector3 localCentre)
+        {
+            if (rsOwn) return false;
+            var w = new Vector2(localCentre.x + rsOrigin.x, localCentre.z + rsOrigin.z);
+            for (int i = 0; i < rsHere.Count; i++)
+            {
+                var b = rsHere[i]; var p = w - b.origin;
+                if (p.x < b.min.x || p.x > b.max.x || p.y < b.min.y || p.y > b.max.y) continue;
+                if (JunctionOutline.InPoly(b.res.outline, p)) return true;
+            }
+            return false;
+        }
 
         static Trims surfFrom, surfTrims;
         /// <summary>The tile build's trims: the rules' (control) trims with the rows of every solved junction as its
@@ -90,6 +122,13 @@ namespace PSXRacing.City
         }
 
         static void EmitRoadSurface(CityMap map, Trims trims, TileMeshes tm, JunctionSurfaces.Built js)
+        {
+            rsOwn = true;
+            try { EmitRoadSurfaceCore(map, trims, tm, js); }
+            finally { rsOwn = false; }
+        }
+
+        static void EmitRoadSurfaceCore(CityMap map, Trims trims, TileMeshes tm, JunctionSurfaces.Built js)
         {
             var sw = System.Diagnostics.Stopwatch.StartNew();
             var r = js.res; var o = tm.origin; var org = js.origin;
