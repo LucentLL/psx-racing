@@ -137,13 +137,15 @@ def main(graph, stp, jp, mp, out):
     P("    rule's turn pockets live in the line model (a Unity job): NOT compared in this stage.")
     P("")
     # ---------------- T6 worst arterial junctions
-    P("T6. THE 30 WORST ARTERIAL JUNCTIONS (top arm trunk / primary / secondary): mean |rule - survey| over the arms' borders")
-    P("    (8 - 40 m out), at least 3 borders measured; with the worst kerb-return radius error and the median-end error")
+    P("T6. THE 30 WORST ARTERIAL JUNCTIONS (top arm trunk / primary / secondary): mean |rule - survey| over the NON-LINK arms'")
+    P("    borders (8 - 40 m out), at least 3 borders measured; with the worst kerb-return radius error and the median-end error.")
+    P("    (Link arms are left out of the score: a ramp or slip that runs inside its parent's pavement with no hole reads the")
+    P("    parent's far kerb as its own - S9 marks only OPPOSING carriageways as shared. Their radius errors stay in T5.)")
     rows = []
     for j in J:
         if "arms" not in j or not j["arms"]: continue
         if max(a["rank"] for a in j["arms"]) < 2 or max(a["rank"] for a in j["arms"]) == 5: continue
-        b = [abs(a["hw"] - v) for a in j["arms"] for v in (a["outL"], a["outR"]) if np.isfinite(v)]
+        b = [abs(a["hw"] - v) for a in j["arms"] if not a["link"] for v in (a["outL"], a["outR"]) if np.isfinite(v)]
         if len(b) < 3: continue
         rr = [abs(x["rule"] - x["r"]) for x in j["returns"] if x["status"] == "fit"]
         mm = [x["dR"] - x["dS"] for x in j["noses"] if x["status"] == "hole" and np.isfinite(x["dR"])]
@@ -161,7 +163,7 @@ def main(graph, stp, jp, mp, out):
     P("")
     # ---------------- T7 missing streets
     st = [m for m in M if m["street"]]
-    P("T7. STREETS THE COUNTY HAS AND THE MAP LACKS (survey M1-M3: county pavement with no map line within the class width + 4 m,")
+    P("T7. STREETS THE COUNTY HAS AND THE MAP LACKS (survey M1-M4: county pavement with no map line within the class width + 4 m,")
     P("    street-shaped). A fault class of the map's source (fetch_ways.mjs: tertiary and up outside the Uptown core box). Counted, not fixed.")
     P("    pieces: %d street-shaped (%.0f km), of them Public %d (%.0f km), Private %d (%.0f km)" % (
         len(st), sum(m["L"] for m in st) / 1000, sum(1 for m in st if m["asset"] == "Public"), sum(m["L"] for m in st if m["asset"] == "Public") / 1000,

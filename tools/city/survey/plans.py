@@ -54,7 +54,9 @@ def draw(gpkg, graph, outdir, name, box, stations=None, hand=None, rule=False, p
             a, b = q[len(q) // 2 - 2], q[len(q) // 2 + 1]; d.line([P(*a), P(*b)], fill=(0, 0, 0), width=3)
     if stations:
         R = pickle.load(open(stations, "rb"))
+        nearI = set(e["i"] for e in near)
         for ei, r in R.items():
+            if ei not in nearI: continue
             Nn = np.column_stack([-r["T"][:, 1], r["T"][:, 0]])
             for side, key, col in ((1, "Lc", (0, 150, 0)), (-1, "Rc", (0, 150, 0))):
                 v = r[key]

@@ -21,7 +21,8 @@ THE RULES (numbered on from survey.py):
      The SURVEY's median end = the first d (0.5 m steps, to 80 m) from which the midpoint lies off the pavement for
      4 m on. None: no hole (painted or concrete median, or no median: the layer does not separate a concrete one).
      The RULE's median end = the first d where the two class ribbons (width / 2 about each map line) are 0.5 m apart.
-     The nose's cap points are the two survey borders at the survey's median end; its radius = half the hole's width
+     The nose's cap points are the two ends of the hole's widest gap on the line between the carriageways' map points
+     r metres behind the tip (where a round nose of radius r meets the kerb lines); its radius = half the hole's width
      3 m beyond, at most 4 m; kind grass when that width is 1.8 m or more, else concrete (the spec's width rule).
 """
 import sys, os, math, pickle, json
@@ -104,10 +105,20 @@ class Junctions:
         out = dict(nodes=list(nodes), x=float(cx), z=float(cz), arms=arms, inner=inner, returns=[], noses=[],
                    onpave=bool(shapely.contains_xy(U, cx, cz)))
         n = len(arms)
+        # J3: median ends pair neighbouring NON-LINK arms (a bay or slip link between them is passed over)
+        main = [a for a in arms if not a["link"]]; paired = set()
+        for i in range(len(main) if len(main) > 1 else 0):
+            A, B = main[i], main[(i + 1) % len(main)]
+            if len(main) == 2 and i == 1: break
+            dirgap = math.acos(max(-1.0, min(1.0, float(A["t20"] @ B["t20"]))))   # the carriageways' own directions
+            if A["ow"] and B["ow"] and A["outbound"] != B["outbound"] and dirgap < math.radians(40):
+                out["noses"].append(self.median_end(A, B, U)); paired.add((A["e"], B["e"]))
         for i in range(n if n > 1 else 0):
             A, B = arms[i], arms[(i + 1) % n]
             gap = (B["ang"] - A["ang"]) % (2 * math.pi)
             if n == 2 and i == 1: break
+            if (A["e"], B["e"]) in paired: continue
+            if any(A["e"] in pr or B["e"] in pr for pr in paired) and (A["link"] or B["link"]): continue   # a bay inside a paired median
             if A["ow"] and B["ow"] and A["outbound"] != B["outbound"] and gap < math.radians(40):
                 out["noses"].append(self.median_end(A, B, U))
             elif gap > math.radians(150): continue
@@ -161,13 +172,19 @@ class Junctions:
             k = j + 8
             if k <= len(ds) and not on[j:k].any():
                 res["dS"] = float(ds[j]); res["status"] = "hole"
-                d0 = ds[j]; pa, ta = A["at"](d0); pb, tb = B["at"](d0)
-                if np.isfinite(A["outL"]) and np.isfinite(B["outR"]):
-                    res["capA"] = (pa + np.array([-ta[1], ta[0]]) * A["outL"]).tolist()
-                    res["capB"] = (pb + np.array([tb[1], -tb[0]]) * B["outR"]).tolist()
+                d0 = ds[j]
                 d3 = min(d0 + 3, lim); pa3, _ = A["at"](d3); pb3, _ = B["at"](d3)
                 seg = LineString([pa3, pb3]); hole = seg.length - shapely.intersection(seg, U).length
                 res["holeW"] = float(hole); res["r"] = float(min(4.0, hole / 2)); res["kind"] = "grass" if hole >= 1.8 else "concrete"
+                # the cap points: where the hole's front meets the kerb lines, taken r behind the tip, on the widest gap
+                # in the pavement along the line between the two carriageways' map points there
+                d1 = min(d0 + res["r"], lim); pa1, _ = A["at"](d1); pb1, _ = B["at"](d1)
+                seg = LineString([pa1, pb1]); gaps = shapely.difference(seg, U)
+                parts = [p for p in shapely.get_parts(gaps) if p.geom_type == "LineString"]
+                if parts:
+                    g = max(parts, key=lambda p: p.length); c = shapely.get_coordinates(g)
+                    if np.hypot(*(c[0] - pa1)) > np.hypot(*(c[-1] - pa1)): c = c[::-1]
+                    res["capA"] = c[0].tolist(); res["capB"] = c[-1].tolist()
                 break
         return res
 

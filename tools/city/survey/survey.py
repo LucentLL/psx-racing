@@ -88,6 +88,7 @@ class Survey:
         """S1-S5: raw intervals per station. Returns dict of arrays."""
         e = self.E[ei]; L = edge_len(e["pts"])
         s = np.arange(0.0, L, STEP)
+        if len(s) == 0: s = np.array([0.0])
         if L - s[-1] > 0.5: s = np.append(s, L)
         C, T, _ = polyline_frame(e["pts"], s); Nn = np.column_stack([-T[:, 1], T[:, 0]])   # left normal
         k = len(s)
@@ -224,6 +225,7 @@ def run(sv, edges):
     res = {}
     t0 = time.time()
     for n, ei in enumerate(edges):
+        if edge_len(sv.E[ei]["pts"]) < 1.0: continue          # a sliver edge: no stations
         r = sv.sections(ei)
         r["Lc"], r["fL"] = clean_side(r["left"], r["openL"] | r["off"] | r["shL"], r["s"], r["L"])
         r["Rc"], r["fR"] = clean_side(r["right"], r["openR"] | r["off"] | r["shR"], r["s"], r["L"])
@@ -242,7 +244,7 @@ def write_measures(sv, res, path, edges=None, title=""):
            "# Edge-of-Pavement polygons (Impervious_RightOfWay) by tools/city/survey/survey.py. Numbers only: no county",
            "# geometry is in the game or the repository. " + title, "provider survey"]
     cache = {}
-    for ei in (edges if edges is not None else sorted(res)):
+    for ei in [x for x in (edges if edges is not None else sorted(res)) if x in res]:
         r = res[ei]; e = sv.E[ei]
         kl = decimate(r["s"], r["Lc"]); kr = decimate(r["s"], r["Rc"])
         if len(kl) + len(kr) < 2: continue

@@ -41,9 +41,13 @@ def at(r, side, s):
     t = 0 if b == a else (s - S[a]) / (S[b] - S[a])
     return va + (vb - va) * t, why, raw
 
-def main(hand, pkl, out):
+def main(hand, pkl, out, inset=0.0):
+    """inset: metres taken off every survey value (S10: the county's line is the BACK of the kerb; a 2 ft 6 in curb
+    and gutter puts the gutter's lip 0.76 m inside it)."""
+    inset = float(inset)
     H = parse_hand(hand); R = pickle.load(open(pkl, "rb"))
     rows = []; lines = []
+    lines.append("INSET %.2f m taken off every survey value (S10)" % inset)
     lines.append("SURVEY vs HAND, station by station (metres; + = survey wider than the hand reading). 'raw' = the survey's")
     lines.append("uncleaned cut at the nearest 2 m station. kind = the hand file's side kind.")
     lines.append("%-6s %7s %-4s %-9s %7s %7s %7s %7s  %s" % ("edge", "s", "side", "kind", "hand", "survey", "diff", "raw", "survey note"))
@@ -53,7 +57,7 @@ def main(hand, pkl, out):
         for (s, L, Rr) in h["st"]:
             for side, hv in (("L", L), ("R", Rr)):
                 if hv is None: continue
-                sv, why, raw = at(r, side, s)
+                sv, why, raw = at(r, side, s); sv -= inset; raw -= inset
                 d = sv - hv if np.isfinite(sv) else float("nan")
                 kind = h["kind" + side]
                 rows.append((ei, s, side, kind, hv, sv, d, raw, why))
@@ -72,4 +76,4 @@ def main(hand, pkl, out):
     return rows
 
 if __name__ == "__main__":
-    main(*sys.argv[1:4])
+    main(*sys.argv[1:5])

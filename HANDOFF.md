@@ -1,3 +1,64 @@
+# ROAD SURVEY, STAGE 1 (agent "survey", 11-27; branch `road-survey` from mountain-nm 477ee277; NOT pushed, NOT merged)
+
+**State: A (the tool) MET. B (ground truth at 80 / 81) NOT MET: 35 of 66 kerb readings within 0.5 m. C (city scorecard) MET.**
+Code only, under `tools/city/survey/` (nothing under Assets/ changed; no Unity job run; no C#). The county file
+(`C:\Users\mcgee\PSXWork\county_pavement_2026-11-27\Impervious_RightOfWay.gpkg`) is read read-only with `py -I` and never
+enters the repository; outputs (measures files, tables, pictures) are in the agent's scratch `survey\proof\` (COMMANDS.txt
+re-runs everything). `Resources/charlotte_measures.bytes` is untouched.
+
+## The tool (A)
+- `graph_dump.mjs` (the shipped graph as JSON), `county.py` (the GeoPackage read-only; EPSG:2264 inverted; the game's own
+  mapping from export_osm.mjs), `survey.py` (stations), `junctions.py` (returns, median ends), `emit.py` (a measures file
+  for chosen junctions), `compare_gt.py` (vs the hand file), `missing.py` (streets the map lacks), `score.py` (scorecard),
+  `plans.py` (north-up plan pictures). Every rule is numbered in the module docstrings: S1-S9 (stations), J1-J5
+  (junctions), M1-M4 (missing streets).
+- Stations every 2 m, square cut 40 m each way through every Edge-of-Pavement polygon, pieces merged as 1-D intervals
+  (the UNION along the cut; gaps under 0.3 m = seams). Driveways / aprons (excursions of 12 m or less) bridged, junction
+  mouths dropped, mid-edge street mouths bridged, longer widenings kept; 3-station median; 1 cm; 2 cm decimation.
+  S9: a side whose pavement holds an OPPOSING map line is SHARED (painted or concrete median the layer cannot separate):
+  no measure. `hold` at an end whose node is on surveyed pavement. Whole city: 25,556 edges in about 8 min,
+  `measures_survey_all.txt` 452k lines (8.4 MB, scratch).
+
+## Ground truth (B) - `proof\gt_80_81_stations.txt`, `gt_summary.txt`, `s80_stations.png`, `s81_stations.png`
+- Kerb / shoulder readings: 84 in the hand file, 66 with a survey value, 35 within 0.5 m (80: 15 of 25; 81: 20 of 41).
+  Median survey - hand +0.40 m at 80, +0.26 at 81 (survey wider).
+- THE MAIN CAUSE IS A DEFINITION: the layer is IMPERVIOUS right of way. Its line is the BACK of the curb and gutter (photo
+  s80: on the grass side of the light curb band) and every CONCRETE piece (median curb bands, noses, channel strips,
+  barrier medians) is inside the polygon. The hand read the gutter / asphalt joint and the concrete's face. With a flat
+  0.45 m inset (read off these same stations, not independent) 80 goes to 20 of 25; 81 gets worse (16 of 41): no single
+  inset fits both. 81's big ones: 9393 L / 6287 L +1.9 to +2.2 (the grass median's concrete apron is pavement), 6286 R
+  +3 to +4 (NOT VERIFIED), 1464 R -1.0 to -1.4 (curved slip kerb; NOT VERIFIED), 3187 R -0.8 to -1.7 (the hand's own
+  assumption under tree canopy).
+- No survey value at: every concrete-median side (80's channel strip, 9713 / 9714 / 3166 left: SHARED), junction mouths.
+- Noses: grass ones found at 80 (3167/9712) and 81 (both), caps 1.5 - 4.3 m from the hand's (the hole is the grass only; the
+  concrete nose is pavement). The concrete nose at 80 cannot come from this layer. The hand file has no returns.
+
+## City scorecard (C) - `proof\scorecard.txt`
+- Coverage: 81 % of the map's 3,946 km lies on county pavement (motorway 86, primary 82, secondary 80, tertiary 72, local
+  88 %); 757 km not covered (outside the county or off the polygons). 5,268 of 6,192 junctions (85 %) on pavement.
+- Cuts: 80.7 % of sides clean, 11.2 % SHARED (motorway 22.5, primary 19.8, trunk 16.4, secondary 13.6: concrete / painted
+  medians), 3.4 % apron bridged; both sides clean at 68 % of stations.
+- Rule - survey mid-block per side (median, p10..p90): primary -0.34 (-3.1..+1.5), secondary -0.27, tertiary -0.51, local
+  -0.05, trunk +0.60, motorway -1.56; over 1 m off at 52-54 % of arterial stations (26 % local).
+- By kind of junction: kerb returns fitted at 1,296 of 2,164 local T corners (rule 6 m vs survey: median -0.7 m), arterial
+  T -1.6 m, arterial cross -0.4 m; link / slip corners -6 to -22 m (the rule's 15 m is far too tight at ramps); median ends
+  (grass holes) arterial cross divided -3.5 m, arterial multi divided -9.5 m (rule - survey). Bays not compared (the rule's
+  pockets are in the line model). 30 worst arterial junctions listed (T6) with coordinates; arterial median 1.64 m off.
+- Missing streets (M1-M4): 15,405 street-shaped pieces, 4,782 km (public 4,258 km), all but 14 km outside the Uptown core
+  box; 30 longest listed.
+- Survey-only today (every arm's borders measured, every corner one clean radius, every median a grass hole, on pavement):
+  1,567 of 6,191 junctions (arterial 442 of 2,726). Kerbs only; lanes still FIT from the map's counts; untested in Unity.
+
+## The owner's new spot (Wendover race h6, before checkpoint 7) - `proof\wendover_cp7_plan.png`, `wendover_note.txt`
+Node 3583 (x 3970.7 z 1763.0): Independence 13593 splits into 3521 and Albemarle Rd 2370 at about 7 degrees, so the rule's
+two ribbons overlap for 115 m (14.3 m at the node) and each paints its lines across the other. The survey shows one pavement
+with no kerb between them (and a concrete barrier median in the polygon). Survey numbers set the outer kerbs and prove it is
+one surface; they cannot place the gore (paint): survey alone does NOT fix it.
+
+## Not done / not verified
+D (the solver run in PSXRoadA) not done. Survey measures never loaded by Unity (the parser should take them: the same
+syntax; untested). The back-of-curb reading rests on two photo overlays. 6286 R, 1464 R, 10118 L at 81 not explained.
+
 # HANDOFF - ROADEVENTS STAGE 1: race start gates fade in from 450 m to 300 m instead of switching on (agent "roadevents", 11-26; branch `road-events` from mountain-nm e9a5caca; NOT pushed, NOT merged)
 
 What it does: a start gate in Charlotte's free roam (CITY edition / arcade; the career has none yet, that is stage 2) no longer switches on at 450 m. Its light rises from 0 at 450 m to full at 300 m (smoothstep), set every frame through a MaterialPropertyBlock per renderer (the gate materials stay shared and unwritten). The root is off only while the light is 0.
