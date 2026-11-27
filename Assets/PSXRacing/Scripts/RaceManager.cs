@@ -776,6 +776,8 @@ namespace PSXRacing
                                 : lastRespawnAt.TryGetValue(car, out var lp) && (lp - path.GetPoint(start)).sqrMagnitude < 24f * 24f;
             }
             if (samePlace) skip = Mathf.Min(repeats + 1, 8) * 3;
+            // (cityai round 6) a car held behind a standing one: from past that car (AIDriver.RecoveryAheadM)
+            if (ai != null && ai.RecoveryAheadM > 0f) skip = Mathf.Max(skip, Mathf.CeilToInt(ai.RecoveryAheadM / Mathf.Max(path.spacing, 0.5f)));
             lastRespawn[car] = (start, Time.time, skip / 3);
             lastRespawnAt[car] = path.GetPoint(start);
             for (int step = skip; step <= Search + skip; step++)

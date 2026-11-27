@@ -2090,6 +2090,9 @@ namespace PSXRacing
         /// road behind (m) a car nose to tail with a standing one needs to back off it (7 m otherwise).</summary>
         const float RoundHeldMaxS = 8f, RoundBackBehindM = 3.5f;
         Rigidbody roundTarget, roundPassRb; bool roundCommitted, roundOk; float roundAt = -99f, roundPassUntil = -99f, standHeld;
+        /// <summary>Metres up its road from which this car's recovery looks for a clear station (0: from where it is).
+        /// Set only while the recovery of a held car runs (RaceManager.RespawnOn reads it).</summary>
+        public float RecoveryAheadM { get; private set; }
         /// <summary>Cost meter (the dev tour's &amp;ab6): the avoidance's own time per rival tick, and the crawl judgement's.</summary>
         public static bool CostOn; public static double AvoidMs, RoundJudgeMs; public static long AvoidTicks, RoundJudges;
         static readonly System.Diagnostics.Stopwatch avoidSw = new System.Diagnostics.Stopwatch(), roundSw = new System.Diagnostics.Stopwatch();
@@ -3222,7 +3225,14 @@ namespace PSXRacing
                 laneInt = 0f;
                 backPhase = BackPhase.Off;
                 car.allowReverse = false;
+                // (round 6) HELD: the walk for a clear station starts past the car it stood behind. It started at the car's
+                // own waypoint, which is clear (the car itself is not an obstacle to itself), so a car held in a queue was
+                // set back where it stood, every 20 s of its waiting clock, for as long as the queue stood (the Supra,
+                // editor seed 0 behind a staged wreck: s 1416.1 at 80, 100, 120 and 140 s; the PC79 exe's FD and 180SX).
+                RecoveryAheadM = RoundStandingOn && (heldOut || LastRecoveryWhy == "stuck" || LastRecoveryWhy == "crawling")
+                    ? (float.IsPositiveInfinity(standBlockZ) ? (heldOut ? 8f : 0f) : standBlockZ + 5f) : 0f;
                 RaceManager.Instance?.RespawnCar(car);
+                RecoveryAheadM = 0f;
             }
         }
     }
