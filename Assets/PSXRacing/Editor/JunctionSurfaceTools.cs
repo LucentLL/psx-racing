@@ -37,6 +37,7 @@ namespace PSXRacing.EditorTools
             {
                 var map = CityMap.Get();
                 var trims = CityMeshes.ComputeTrims(map);
+                sb.Append($"SHALLOWFORK {(CityMeshes.ShallowForkOn ? 1 : 0)}: {CityMeshes.ShallowForkSwaps} through pairs changed, nodes {string.Join(",", CityMeshes.ShallowForkNodes)}\n");
                 foreach (var item in (System.Environment.GetEnvironmentVariable("PSX_RS_DUMP") ?? "").Split(';'))
                 {
                     var nv = item.Split(':'); if (nv.Length < 2) continue;

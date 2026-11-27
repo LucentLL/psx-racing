@@ -1698,6 +1698,7 @@ namespace PSXRacing.City
             var arms = new List<(CityMap.Edge e, Vector2 dir, float hw)>(8);
             var clipped = new List<int>(8);     // arm index -> arm it clips against, or -1
             HostMoves.Clear();
+            ShallowForkSwaps = 0; ShallowForkNodes.Clear();
             var clipFirst = new List<int>(8);   // the first pair's host (the before): the crossing test and the fan trims read it
             int crossingCount = 0;
             var crossFlags = new bool[nn];
@@ -1727,6 +1728,8 @@ namespace PSXRacing.City
                             if (d < best) { best = d; tA = i; tB = j; }
                         }
                 bool through = tA >= 0 && best < ThroughCos;
+                // (road survey stage 3, SF1) at a shallow fork the bigger road goes through (CityMeshes.ShallowFork.cs)
+                if (through) ShallowForkThrough(arms, n, ref tA, ref tB);
 
                 // Where the lane count (or the shoulder) changes at a mitred
                 // node - a plain continuation OR a merge, where the mainline
