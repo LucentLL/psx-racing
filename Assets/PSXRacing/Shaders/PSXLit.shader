@@ -854,11 +854,11 @@ Shader "PSX/Lit"
             #define LEAF_RY         0.36    // its half height
             #define LEAF_BOX_GROW   1.10    // (round 2) the leaf bounds' half sizes to the spheroid's (a box's corners lie past its inscribed spheroid)
             #define LEAF_WRAP       0.10
-            #define LEAF_AMB_LO     0.90    // (round 3) the shade's light under a sun 37 degrees up and lower ...
-            #define LEAF_AMB_HI     1.70    // ... and under a sun 68 degrees up (noon on Blue Ridge)
-            #define LEAF_SUN_LO     0.90    // the lit side's, the same
-            #define LEAF_CARD_MID   0.50    // (round 3) a far card's pixel: the mid-plane leaf's share of its sun
-            #define LEAF_DENS       0.90    // the crown's leaf density: the sun through a crown's whole width (2 units) x exp(-2.8)
+            #define LEAF_AMB_LO     0.85    // (round 3) the shade's light under a sun 37 degrees up and lower ...
+            #define LEAF_AMB_HI     2.30    // ... and under a sun 68 degrees up (noon on Blue Ridge)
+            #define LEAF_SUN_LO     0.85    // the lit side's, the same
+            #define LEAF_CARD_MID   0.70    // (round 3) a far card's pixel: the mid-plane leaf's share of its sun
+            #define LEAF_DENS       0.60    // the crown's leaf density: the sun through a crown's whole width (2 units) x exp(-2.8)
             #define LEAF_CORE_SKY   0.25    // the sky reaching a leaf at the crown's centre, 1 at the shell
             #define LEAF_LOW_SKY    0.35    // the sky at the foot of the crown, 1 at its top
             #define LEAF_THRU       0.65    // light through a leaf straight toward the sun
