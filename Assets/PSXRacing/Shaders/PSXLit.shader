@@ -146,8 +146,8 @@ Shader "PSX/Lit"
         // the card's own origin is the mesh's (TREE MATCH: a far card shares its
         // mesh's origin, so both draw the same per-tree colour). 0 = the origin.
         [HideInInspector] _PSXGrowFoot ("Grow foot", Vector) = (0,0,0,0)
-        // (leaflight) the species' height per unit of instance scale (MeshForest sets it on its draw copies); 0 = LEAF_H_M
-        [HideInInspector] _PSXCrownH ("Crown height", Float) = 0
+        // (leaflight) the crown's frame (MeshForest sets it on its draw copies): xyz the plant's foot in object space, w its height per unit of the matrix scale; w 0 = the origin and LEAF_H_M
+        [HideInInspector] _PSXCrownFrame ("Crown frame", Vector) = (0,0,0,0)
         // x > 0: a tree's far card, lit as its crown (the vertex light's normal is
         // x times the direction to the eye from the tree, plus y straight up);
         // z = n > 0 (PSX_LODFADE): the card turns to the eye, its sheet n views in a row
@@ -491,7 +491,7 @@ Shader "PSX/Lit"
             float4 _PSXLodThin;
             float4 _PSXFarGrow;
             float4 _PSXGrowFoot;
-            float _PSXCrownH;
+            float4 _PSXCrownFrame;
             float4 _PSXCrownCard;
             // the pop measure's LOD eye (MeshForest.LodEyeOn, a global): w > 0.5 =
             // the forest's levels and rings as seen from xyz, not from the camera
@@ -1619,7 +1619,8 @@ Shader "PSX/Lit"
                         float lfS = length(float3(unity_ObjectToWorld._m01, unity_ObjectToWorld._m11, unity_ObjectToWorld._m21));
                         float lfG = (_PSXFarGrow.z > 1.0 && _PSXFarGrow.y > _PSXFarGrow.x)
                                   ? lerp(1.0, _PSXFarGrow.z, saturate((o.lodD.x - _PSXFarGrow.x) / (_PSXFarGrow.y - _PSXFarGrow.x))) : 1.0;
-                        o.crownF = float4(it, (_PSXCrownH > 0.0 ? _PSXCrownH : LEAF_H_M) * lfS * lfG);
+                        float3 lfFoot = _PSXCrownFrame.w > 0.0 ? mul(unity_ObjectToWorld, float4(_PSXCrownFrame.xyz, 1.0)).xyz : it;
+                        o.crownF = float4(lfFoot, (_PSXCrownFrame.w > 0.0 ? _PSXCrownFrame.w : LEAF_H_M) * lfS * lfG);
                     }
                     // TREE MATCH: a tree's FAR CARD TURNS TO THE EYE about the tree's
                     // own upright (_PSXCrownCard.z = n > 0), wearing the nearest of the
