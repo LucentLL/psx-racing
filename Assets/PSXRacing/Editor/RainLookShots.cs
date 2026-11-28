@@ -531,6 +531,7 @@ namespace PSXRacing.EditorTools
                     }
                 SetAll(true); yield return Settle();
                 var pBack = Grab();
+                if (RainLookShots.Env("RL_CONTROL", "0") == "1") File.WriteAllBytes(b + "_NEW2.png", pBack);   // (leaflight round 4) NEW again after OLD: the frame's own noise
                 if (custom) { if (chaseCam != null) chaseCam.enabled = true; Camera.main.fieldOfView = fovWas; }
                 Say($"{v}: frames written (wiper s {CockpitInterior.WiperS:0.00}, cockpit glass {CockpitInterior.GlassShowing}, eye {Camera.main.transform.position.x:0.0},{Camera.main.transform.position.y:0.0},{Camera.main.transform.position.z:0.0})");
 
