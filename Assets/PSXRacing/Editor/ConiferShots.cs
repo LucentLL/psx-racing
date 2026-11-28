@@ -834,7 +834,7 @@ namespace PSXRacing.EditorTools
             if (leafRow != null) LabSwitches.Set(leafRow, leafRow.Default, false);
             foreach (var rr in hidden) if (rr != null) rr.enabled = true;
             forest.enabled = true;
-            Say("BESIDE: done (frames EDITOR_BESIDE_<form>_<hour>_LL<ON|OFF>_<m>m.jpg; the conifer at the centre, beech_tree_00_A 5 m to its right, beech_tree_02 14 m to its right)");
+            Say("BESIDE: done (frames EDITOR_BESIDE_<form>_<hour>_LL<ON|OFF>_<m>m.jpg; the conifer at the centre, beech_tree_00_A 5 m and beech_tree_02 14 m along the road from it (left in the frames))");
         }
     }
 }
