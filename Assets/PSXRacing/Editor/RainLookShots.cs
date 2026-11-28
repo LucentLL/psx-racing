@@ -368,6 +368,72 @@ namespace PSXRacing.EditorTools
             }
             IEnumerator Settle() { for (int i = 0; i < 4; i++) yield return null; float t1 = Time.realtimeSinceStartup; while (Time.realtimeSinceStartup - t1 < 0.3f) yield return null; }
 
+            // (leaflight round 3) RL_APPROACH=1: ONE TREE FROM 400 m TO 5 m. A canopy tree of the mesh forest about
+            // RL_APPROACH_M (40) metres to the side of the car; the camera comes in on it from the road's side, high
+            // enough to look down onto its crown over the trees between (12 degrees), and at each distance writes the
+            // row OLD, NEW and the id pass: EDITOR_<tag>_AP<metres>_{OLD,NEW,ID}.png
+            if (RainLookShots.Env("RL_APPROACH", "0") == "1")
+            {
+                var forest = FindAnyObjectByType<MeshForest>();
+                Vector3 target = Vector3.zero; bool found = false;
+                if (forest != null && forest.inst != null)
+                {
+                    float.TryParse(RainLookShots.Env("RL_APPROACH_M", "40"), NumberStyles.Float, CultureInfo.InvariantCulture, out float sideM);
+                    if (sideM == 0f) sideM = 40f;
+                    var root = forest.transform.localToWorldMatrix;
+                    var want = car.transform.position + car.transform.right * sideM;
+                    float best = float.MaxValue;
+                    for (int k = 0; k < forest.inst.Length; k++)
+                    {
+                        int vi = (int)forest.instScaleVar[k].y;
+                        if (vi < 0 || vi >= forest.variants.Length || forest.variants[vi] == null || forest.variants[vi].height < 8f || forest.variants[vi].maxDist > 0f) continue;
+                        var wp = root.MultiplyPoint3x4((Vector3)forest.inst[k]);
+                        float dd = (wp - want).sqrMagnitude;
+                        if (dd < best) { best = dd; target = wp; found = true; }
+                    }
+                }
+                if (!found) Say("APPROACH: no canopy tree found");
+                else
+                {
+                    var chaseCam = Camera.main.GetComponent<ChaseCamera>();
+                    if (chaseCam == null) chaseCam = FindAnyObjectByType<ChaseCamera>();
+                    if (chaseCam != null) chaseCam.enabled = false;
+                    Camera.main.fieldOfView = 50f;
+                    Time.timeScale = 0f; VolumetricClouds.Paused = true;
+                    var from = car.transform.position - target; from.y = 0f; from = from.normalized;
+                    var aim = target + Vector3.up * 9f;
+                    Say($"APPROACH: tree at {target.x:0},{target.y:0},{target.z:0}, {Vector3.Distance(target, car.transform.position):0} m from the car");
+                    foreach (var ds in RainLookShots.Env("RL_APPROACH_D", "400,300,260,235,215,190,165,150,135,120,105,90,70,50,35,20,10,5").Split(','))
+                    {
+                        if (!float.TryParse(ds, NumberStyles.Float, CultureInfo.InvariantCulture, out float dm)) continue;
+                        float down = dm > 12f ? 12f : 0f;
+                        var pos = aim + from * dm * Mathf.Cos(down * Mathf.Deg2Rad) + Vector3.up * dm * Mathf.Sin(down * Mathf.Deg2Rad);
+                        Camera.main.transform.position = pos;
+                        Camera.main.transform.rotation = Quaternion.LookRotation(aim - pos, Vector3.up);
+                        string ab = Path.Combine(outDir, "EDITOR_" + tag + "_AP" + ((int)dm).ToString("000"));
+                        SetAll(true); yield return Settle(); yield return Settle();
+                        File.WriteAllBytes(ab + "_NEW.png", Grab());
+                        if (RainLookShots.Env("RL_LEAFDIAG", "0") == "1")
+                        {
+                            for (int k = 1; k <= 9; k++) { Shader.SetGlobalFloat("_PSXLeafDiag", k); yield return Settle(); File.WriteAllBytes(ab + "_LD" + k + ".png", Grab()); }
+                            Shader.SetGlobalFloat("_PSXLeafDiag", 0f);
+                        }
+                        SetAll(false); yield return Settle();
+                        File.WriteAllBytes(ab + "_OLD.png", Grab());
+                        Shader.SetGlobalFloat("_PSXIdMask", 1f); yield return Settle();
+                        File.WriteAllBytes(ab + "_ID.png", Grab());
+                        Shader.SetGlobalFloat("_PSXIdMask", 0f);
+                    }
+                    SetAll(true);
+                    if (chaseCam != null) chaseCam.enabled = true;
+                }
+                Say("muted line count: " + muted);
+                Flush();
+                Time.timeScale = 1f;
+                yield return null;
+                EditorApplication.Exit(0);
+                yield break;
+            }
             foreach (var vname in RainLookShots.Env("RL_VIEWS", "Chase").Split(','))
             {
                 // (leaflight round 2) TreeL / TreeR / TreeSun / Far40 / Far300: the chase camera stood still at the car,
@@ -399,8 +465,8 @@ namespace PSXRacing.EditorTools
                     var sf = new Vector3(sun.x, 0f, sun.z); sf = sf.sqrMagnitude > 1e-6f ? sf.normalized : car.transform.forward;
                     float sunEl = Mathf.Asin(Mathf.Clamp(sun.normalized.y, -1f, 1f)) * Mathf.Rad2Deg;
                     Vector3 side = Vector3.Cross(Vector3.up, sf);
-                    Vector3 dir = vn == "TreeL" ? side : vn == "TreeR" ? -side : vn == "TreeSun" ? sf : side;
-                    float pitch = vn == "TreeSun" ? Mathf.Clamp(sunEl * 0.6f, 2f, 20f) : vn.StartsWith("Far") ? 2f : 14f;
+                    Vector3 dir = vn == "TreeL" ? side : vn == "TreeR" ? -side : vn == "TreeSun" ? sf : vn == "TreeAnti" ? -sf : side;
+                    float pitch = (vn == "TreeSun" || vn == "TreeAnti") ? Mathf.Clamp(sunEl * 0.6f, 2f, 20f) : vn.StartsWith("Far") ? 2f : 14f;
                     float fov = vn == "Far300" ? 6f : vn == "Far40" ? 24f : 60f;
                     float.TryParse(RainLookShots.Env("RL_TVPITCH", ""), NumberStyles.Float, CultureInfo.InvariantCulture, out float pOv);
                     if (pOv != 0f) pitch = pOv;

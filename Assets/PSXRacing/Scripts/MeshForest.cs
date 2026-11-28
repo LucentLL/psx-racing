@@ -715,6 +715,7 @@ namespace PSXRacing
         {
             int di = dress >= 0 && dress < 5 ? dress : 2;
             MatchBCards(di);
+            int bare = 0, leafy = 0;
             for (int v = 0; v < variants.Length; v++)
             {
                 var vr = variants[v];
@@ -726,7 +727,11 @@ namespace PSXRacing
                     m[s] = vr.leafSub[s] ? leaf : vr.mats[s];
                 matsNow[v] = m;
                 impNow[v] = vr.impostorDress != null && vr.impostorDress.Length == 5 ? vr.impostorDress[di] : null;
+                if (leaf == null) bare++; else leafy++;
             }
+            // (leaflight round 3) a dress whose broadleaves are bare (winter, snow): PSX/Lit's bark under its crown
+            // takes no crown shade then (a leafless tree's trunk is in the open)
+            Shader.SetGlobalFloat("_PSXBareDress", bare > leafy ? 1f : 0f);
         }
 
         Vector3 bucketCam;   // the eye the lists were last made for
