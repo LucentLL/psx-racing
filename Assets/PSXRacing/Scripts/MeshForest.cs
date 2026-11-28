@@ -209,8 +209,8 @@ namespace PSXRacing
         float[] maxD2;
         Vector4[][] fadeOf;                        // [variant][lod]: _PSXLodFade
         bool[][] handOver;                         // [variant][lod]: dithers into lod + 1
-        readonly System.Collections.Generic.Dictionary<(Material, Vector4, float), Material> faded =
-            new System.Collections.Generic.Dictionary<(Material, Vector4, float), Material>();
+        readonly System.Collections.Generic.Dictionary<(Material, Vector4, float, Vector4, Vector4), Material> faded =
+            new System.Collections.Generic.Dictionary<(Material, Vector4, float, Vector4, Vector4), Material>();
 
         void Awake() => Init();
 
@@ -799,13 +799,56 @@ namespace PSXRacing
             }
         }
 
+        /// <summary>(leaflight round 2) THE CROWN'S SHAPE, from the species' own leaves: their bounds (the leaf submeshes
+        /// of its first level, under its pre-transform: metres from the foot) as a spheroid, each number a share of the
+        /// species' height - x the centre's height, y the half width, z the half height. A spheroid set by guess (a
+        /// centre at 0.6 of the height, half widths 0.30 and 0.36) left nearly every leaf of the mountain beeches
+        /// OUTSIDE its crown: no crown shade at all (the round-1 flat crowns).</summary>
+        static int crownLogs;
+        Vector4 CrownBox(Variant vr)
+        {
+            var mesh = vr.lods != null && vr.lods.Length > 0 ? vr.lods[0] : null;
+            if (mesh == null || vr.height <= 0f) return Vector4.zero;
+            bool any = false; var b = new Bounds();
+            for (int s = 0; s < mesh.subMeshCount; s++)
+            {
+                if (vr.leafSub != null && s < vr.leafSub.Length && !vr.leafSub[s]) continue;
+                var sb = mesh.GetSubMesh(s).bounds;
+                for (int k = 0; k < 8; k++)
+                {
+                    var p = vr.pre.MultiplyPoint3x4(sb.center + Vector3.Scale(sb.extents, new Vector3((k & 1) == 0 ? -1 : 1, (k & 2) == 0 ? -1 : 1, (k & 4) == 0 ? -1 : 1)));
+                    if (!any) { b = new Bounds(p, Vector3.zero); any = true; } else b.Encapsulate(p);
+                }
+            }
+            if (!any || b.extents.y <= 1e-3f) return Vector4.zero;
+            float h = vr.height;
+            return new Vector4(b.center.y / h, Mathf.Max(b.extents.x, b.extents.z) / h, b.extents.y / h, 0f);
+        }
+
         /// <summary>This material with a level's fade band (a copy, made once).</summary>
-        Material Faded(Material m, Vector4 f, float thin = 0f)
+        Material Faded(Material m, Vector4 f, float thin = 0f, int variant = -1, int lod = 0)
         {
             if (m == null) return null;
             if (f == Vector4.zero) return m;
-            if (faded.TryGetValue((m, f, thin), out var c) && c != null) return c;
+            // (leaflight) THE CROWN'S FRAME for its light (PSX/Lit PSXLeafLight): the tree's foot in this level's own
+            // object space (xyz: the plant's point, under the mesh's pre-transform or the far card's matrix) and the
+            // species' height per unit of this level's matrix scale (w; PSX/Lit reads the scale off the whole matrix),
+            // so the mesh and its far card put one crown on one spot
+            var crown = Vector4.zero; var box = Vector4.zero;
+            if (variant >= 0 && variants != null && variant < variants.Length && variants[variant] != null)
+            {
+                var vr = variants[variant];
+                var mx = lod >= 3 && impFix != null && variant < impFix.Length ? FarMatrix(vr.pre, variant) : vr.pre;
+                float sy = ((Vector3)mx.GetColumn(1)).magnitude;
+                Vector3 foot = mx.inverse.MultiplyPoint3x4(Vector3.zero);
+                if (sy > 1e-6f) crown = new Vector4(foot.x, foot.y, foot.z, vr.height / sy);
+                box = CrownBox(vr);
+            }
+            if (faded.TryGetValue((m, f, thin, crown, box), out var c) && c != null) return c;
             c = new Material(m) { name = m.name + "_fade", enableInstancing = true };
+            if (crown.w > 0f) c.SetVector("_PSXCrownFrame", crown);
+            if (box.y > 0f) c.SetVector("_PSXCrownBox", box);
+            if (crownLogs < 8 && variant >= 0 && crown.w > 0f) { crownLogs++; Debug.Log($"[MeshForest] crown of variant {variant} level {lod}: foot {(Vector3)crown:F2}, height {variants[variant].height:0.0} m ({crown.w:0.00} per unit scale), crown centre {box.x:0.00}, half width {box.y:0.00}, half height {box.z:0.00} of it"); }
             // (the far cards' growth with distance as this process asks: PSX_FOREST_FARGROW)
             if (FarGrowZ >= 1f && m.HasProperty("_PSXFarGrow"))
             {
@@ -815,7 +858,7 @@ namespace PSXRacing
             c.SetVector("_PSXLodFade", f);
             c.SetVector("_PSXLodThin", new Vector4(thin, 0f, 0f, 0f));
             c.EnableKeyword("PSX_LODFADE");
-            faded[(m, f, thin)] = c;
+            faded[(m, f, thin, crown, box)] = c;
             return c;
         }
 
@@ -840,7 +883,7 @@ namespace PSXRacing
                     int subs = imp ? mesh.subMeshCount : Mathf.Min(mesh.subMeshCount, mats.Length);
                     for (int s = 0; s < subs; s++)
                     {
-                        var mat = Faded(imp ? impNow[v] : mats[s], fadeOf[v][lod], ThinFor(v, lod));
+                        var mat = Faded(imp ? impNow[v] : mats[s], fadeOf[v][lod], ThinFor(v, lod), v, lod);
                         if (mat == null) continue;   // bare: no leaves
                         var rp = new RenderParams(mat)
                         {
@@ -862,7 +905,7 @@ namespace PSXRacing
                 for (int v = 0; v < variants.Length; v++)
                 {
                     var arr = lists[v];
-                    var mat = Faded(impNow[v], fadeOf[v][3]);
+                    var mat = Faded(impNow[v], fadeOf[v][3], 0f, v, 3);
                     if (arr == null || mat == null) continue;
                     var mesh = variants[v].lods[3];
                     var rp = new RenderParams(mat)
