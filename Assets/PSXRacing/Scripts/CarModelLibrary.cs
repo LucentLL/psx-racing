@@ -175,6 +175,10 @@ namespace PSXRacing
             new Model { key = "lux_coupe_97",     name = "Lux Coupe 97 (Z30)",    region = Region.Japan,   year = 1997, body = Body.GT,     kg = 1522, handOnly = true, widthMm = 1805 },
             new Model { key = "gt_liftback_88",   name = "GT Liftback 88 (A70)",  region = Region.Japan,   year = 1988, body = Body.GT,     kg = 1533, handOnly = true, widthMm = 1745 },
             new Model { key = "pony_coupe_67",    name = "Pony Coupe 67 (F-body)", region = Region.America, year = 1967, body = Body.Muscle, kg = 1380, handOnly = true, widthMm = 1842 },
+            // 2026-11-27 (cars-1127, owner: "You can add/update the models 11/26 and 11/27"):
+            // the owner's 1996 pony coupe (SN95_AtlanticBlue_HD_v10) on its own NEW catalog
+            // row, Pony Coupe GT `96 (a neutral name: no real brand where a player sees it).
+            new Model { key = "pony_coupe_96",    name = "Pony Coupe 96 (SN95)", region = Region.America, year = 1996, body = Body.Muscle, kg = 1488, handOnly = true, widthMm = 1824 },
         };
 
         static Dictionary<string, Model> byKey;
@@ -573,6 +577,8 @@ namespace PSXRacing
             (@"^Lexus\ SC300\ `97$",                                    "lux_coupe_97"),
             (@"^Toyota\ SUPRA\ (3\.0GT\ Turbo\ A\ `88|2\.5GT\ Twin\ Turbo\ R\ `90)$", "gt_liftback_88"),
             (@"^Chevrolet\ Camaro\ SS\ 350\ `67$",                      "pony_coupe_67"),
+            // cars-1127 (2026-11-27): the owner's 1996 pony coupe on its own new row.
+            (@"^Pony\ Coupe\ GT\ `96$",                                "pony_coupe_96"),
             // 2026-10-06, the owner's Car Models Tracker remap (approved "all look good"):
             // 38 cars moved onto the existing shell closest to the real car. Exact names,
             // first so they win; review page https://claude.ai/artifact/MvczJsa8sF44Jj2YkECfAw

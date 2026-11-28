@@ -201,6 +201,8 @@ eng("Chrysler 426 Hemi", "chain", 0, "no", "points", "carb", 2, 0.5)
 eng("Chrysler 420A", "belt", 60000, "yes", "dis", "efi", 1, 0.4, "", "interference")
 eng("Viper V10 8.0", "chain", 0, "no", "dis", "efi", 2, 0.5, "", "interference")
 eng("Ford 289 HiPo", "chain", 0, "no", "points", "carb", 2, 0.5)
+eng("Ford 4.6 SOHC 2V", "chain", 0, "unknown", "dis", "efi", 2, 0.5,
+    "plastic intake manifold cracks at the coolant crossover", "interference")
 eng("Ford 302 GT40", "chain", 0, "no", "points", "carb", 3, 0.0)
 eng("Ford 390 FE", "chain", 0, "no", "points", "carb", 2, 0.5)
 eng("Ford 427 FE", "chain", 0, "no", "points", "carb", 2, 0.5)
@@ -487,6 +489,8 @@ R("toyota_supra_2_5gt_twin_turbo_r__90", "JDM", "1JZ-GTE", "none", "disc")
 R("chevrolet_camaro_ss__69", "US", "SBC 350 L48", "none", "drum", ac="none", lo="ac")
 R("chevrolet_camaro_ss_350__67", "US", "SBC 350 L48", "none", "drum", ac="none", lo="ac",
   note="cars-1116: the owner's 1967 SS 350 model; not a GT4 row")
+R("pony_coupe_gt__96", "US", "Ford 4.6 SOHC 2V", "dual", "disc",
+  note="cars-1127: the owner's 1996 SN95 GT coupe model (neutral name); not a GT4 row")
 R("lexus_is200__j___98", "JDM", "3S-GE BEAMS", "dual", "disc", lo="airbags",
   note=NOTE_JDM_US_NAME + " (Toyota Altezza RS200, 3S-GE)")
 R("lexus_is200__98", "EUR", "1G-FE BEAMS", "dual+side", "disc", lo="market,airbags",

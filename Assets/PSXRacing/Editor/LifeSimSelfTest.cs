@@ -10070,6 +10070,7 @@ namespace PSXRacing.EditorTools
                         { "lux_coupe_97", @"^Lexus SC300 `97$" },
                         { "gt_liftback_88", @"^Toyota SUPRA (3\.0GT Turbo A `88|2\.5GT Twin Turbo R `90)$" },
                         { "pony_coupe_67", @"^Chevrolet Camaro SS 350 `67$" },
+                        { "pony_coupe_96", @"^Pony Coupe GT `96$" },   // cars-1127: the owner's 1996 pony coupe, new row
                     };
                     var rows = new System.Collections.Generic.Dictionary<string, int>();
                     int stray = 0;
@@ -10085,9 +10086,9 @@ namespace PSXRacing.EditorTools
                     }
                     int Rows(string k) => rows.TryGetValue(k, out int n) ? n : 0;
                     Check(stray == 0 && Rows("coupe_88") == 4 && Rows("rotary_coupe_87") == 3 && Rows("lux_coupe_97") == 1 &&
-                          Rows("gt_liftback_88") == 2 && Rows("pony_coupe_67") == 1,
-                          "cars-1116: the S13 notchback, FC, Z30, A70 and `67 pony coupe dress exactly their rows",
-                          $"S13 {Rows("coupe_88")}/4 FC {Rows("rotary_coupe_87")}/3 Z30 {Rows("lux_coupe_97")}/1 A70 {Rows("gt_liftback_88")}/2 67 {Rows("pony_coupe_67")}/1, stray {stray}");
+                          Rows("gt_liftback_88") == 2 && Rows("pony_coupe_67") == 1 && Rows("pony_coupe_96") == 1,
+                          "cars-1116/1127: the S13 notchback, FC, Z30, A70, `67 and `96 pony coupes dress exactly their rows",
+                          $"S13 {Rows("coupe_88")}/4 FC {Rows("rotary_coupe_87")}/3 Z30 {Rows("lux_coupe_97")}/1 A70 {Rows("gt_liftback_88")}/2 67 {Rows("pony_coupe_67")}/1 96 {Rows("pony_coupe_96")}/1, stray {stray}");
                 }
                 // The owner's 2026-10-02 set.
                 int integra = 0, integraOk = 0, s2k = 0, s2kOk = 0, prelude = 0, preludeOk = 0;

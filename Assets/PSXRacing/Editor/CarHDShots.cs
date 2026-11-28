@@ -59,7 +59,9 @@ namespace PSXRacing.EditorTools
                 // cars2 (11-11 afternoon): the baker's roof-fixture rule re-measures their cowl
                 "fullsize_police", "fullsize_taxi", "fullsize_trooper",
                 // cars-1116 (11-16): the NSX v31, Type X v13 and the five new shells (S13, FC, Z30, A70, 67 pony coupe)
-                "midship_coupe", "fastback_96", "coupe_88", "rotary_coupe_87", "lux_coupe_97", "gt_liftback_88", "pony_coupe_67" };
+                "midship_coupe", "fastback_96", "coupe_88", "rotary_coupe_87", "lux_coupe_97", "gt_liftback_88", "pony_coupe_67",
+                // cars-1127 (11-27): the S13 v07, the Impreza 22B v12 (its first HD set) and the new 1996 pony coupe
+                "rally_coupe_98", "pony_coupe_96" };
             foreach (var m in CarModelLibrary.Models)
                 if (File.Exists("Assets/PSXRacing/Art/Car/Models/" + m.key + "/" + m.key + "_covers.obj")) keys.Add(m.key);
             sb.AppendLine("baking: " + string.Join(" ", keys));
