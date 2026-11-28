@@ -41,7 +41,7 @@ foreach ($sp in $species) {
     $forms = @(Get-ChildItem $Dir -Filter "EDITOR_BESIDE_${sp}_*_Noon_LLOFF_03m.jpg" | ForEach-Object { ($_.Name -replace "^EDITOR_BESIDE_", "") -replace "_Noon_LLOFF_03m.jpg$", "" } | Sort-Object)
     if ($forms.Count -eq 0) { continue }
     foreach ($hour in "Noon", "Dusk", "Night") {
-        $s = New-Sheet 4 ($forms.Count * 2) "EDITOR  $sp beside NM beech_tree_00_A (right of the conifer) and beech_tree_02 (left), $hour, stage slope; rows: form x TREES: SUN AND SHADE off / on"
+        $s = New-Sheet 4 ($forms.Count * 2) "EDITOR  $sp beside NM beech_tree_00_A (5 m right) and beech_tree_02 (14 m right), $hour, stage slope; rows: form x TREES: SUN AND SHADE off / on"
         $r = 0
         foreach ($f in $forms) {
             foreach ($ll in "OFF", "ON") {

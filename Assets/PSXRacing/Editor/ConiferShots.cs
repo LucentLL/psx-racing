@@ -733,10 +733,31 @@ namespace PSXRacing.EditorTools
             for (int v = 0; v < forest.variants.Length; v++) if (forest.variants[v] != null && forest.variants[v].conifer) forms.Add(v);
             Say($"BESIDE: {forms.Count} forms; beech_tree_00_A variant {beechA} ({(beechA >= 0 ? forest.variants[beechA].height : 0):0.0} m), canopy beech_tree_02 {beechBig} ({(beechBig >= 0 ? forest.variants[beechBig].height : 0):0.0} m)");
             // the spot: 14 m right of the road at 30 % of the stage, on its own slope; the forest hidden
-            int at = path.Count * 3 / 10;
+            // a spot with a clear sight line: the trees 10 m off one verge, the ground between them and 80 m back
+            // across the road nowhere above the eye's line (no cut bank, no rise in the way)
+            int at = path.Count * 3 / 10; float sideSign = 1f;
+            for (int c = 0; c < path.Count - 20; c += 15)
+            {
+                int ci = (path.Count / 5 + c) % (path.Count - 20) + 10;
+                foreach (float sg in new[] { 1f, -1f })
+                {
+                    var t0 = path.GetTangent(ci); t0.y = 0f; t0.Normalize();
+                    var r0 = Vector3.Cross(Vector3.up, t0).normalized * sg;
+                    var p0 = path.GetPoint(ci) + r0 * 10f; float g0 = GroundY(p0, float.NaN);
+                    if (float.IsNaN(g0) || Mathf.Abs(g0 - path.GetPoint(ci).y) > 2.5f) continue;
+                    bool clear = true;
+                    for (float dd = 3f; dd <= 80f && clear; dd += 4f)
+                    {
+                        float gy = GroundY(p0 - r0 * dd, float.NaN);
+                        if (float.IsNaN(gy) || gy > g0 + 1.0f + dd * 0.05f || gy < g0 - 6f) clear = false;
+                    }
+                    if (clear) { at = ci; sideSign = sg; c = path.Count; break; }
+                }
+            }
             var tg = path.GetTangent(at); tg.y = 0f; tg.Normalize();
-            var right = Vector3.Cross(Vector3.up, tg).normalized;
-            var P = path.GetPoint(at) + right * 14f; P.y = GroundY(P, P.y);
+            var right = Vector3.Cross(Vector3.up, tg).normalized * sideSign;
+            var P = path.GetPoint(at) + right * 10f; P.y = GroundY(P, P.y);
+            Say($"BESIDE spot: wp {at}, side {sideSign:+0;-0}, ground {P.y:0.0} m");
             var hidden = new List<Renderer>();
             foreach (var rr in FindObjectsByType<Renderer>(FindObjectsInactive.Exclude))
                 if (rr.enabled && rr.gameObject.layer == 10 && rr.GetComponentInParent<CarController>() == null) { rr.enabled = false; hidden.Add(rr); }
@@ -768,11 +789,11 @@ namespace PSXRacing.EditorTools
                 string vn = VName(v);
                 float hgt = forest.variants[v].height;
                 var cg = Spawn(v, P, 200f, 1f);
-                var bpos = P + tg * 7f; bpos.y = GroundY(bpos, P.y);
+                var bpos = P + tg * 5f; bpos.y = GroundY(bpos, P.y);
                 var bA = beechA >= 0 ? Spawn(beechA, bpos, 30f, 1f) : null;
-                var bpos2 = P - tg * 12f; bpos2.y = GroundY(bpos2, P.y);
+                var bpos2 = P + tg * 14f; bpos2.y = GroundY(bpos2, P.y);
                 var bB = beechBig >= 0 ? Spawn(beechBig, bpos2, 75f, 1f) : null;
-                var mid = P + tg * 3.5f;
+                var mid = P + tg * 2.5f;
                 foreach (int h in hours)
                 {
                     Hour(h);
@@ -797,7 +818,7 @@ namespace PSXRacing.EditorTools
             if (leafRow != null) LabSwitches.Set(leafRow, leafRow.Default, false);
             foreach (var rr in hidden) if (rr != null) rr.enabled = true;
             forest.enabled = true;
-            Say("BESIDE: done (frames EDITOR_BESIDE_<form>_<hour>_LL<ON|OFF>_<m>m.jpg; the conifer left of centre, beech_tree_00_A right of it, beech_tree_02 at left)");
+            Say("BESIDE: done (frames EDITOR_BESIDE_<form>_<hour>_LL<ON|OFF>_<m>m.jpg; the conifer at the centre, beech_tree_00_A 5 m to its right, beech_tree_02 14 m to its right)");
         }
     }
 }
