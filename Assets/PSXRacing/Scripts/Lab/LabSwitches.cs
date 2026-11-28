@@ -249,6 +249,13 @@ namespace PSXRacing
                 look = "Leaves by day and at dusk a little less bright, the fall's reds, oranges and golds kept. Night unchanged.",
                 env = new[] { "PSX_RAINLOOK_CALM" }, members = new[] { "RainLook.TreeCalm" },
             });
+            // leaflight (11-27): "The tree leaves are the same color top to bottom" (PSX/Lit PSXLeafLight)
+            Register(new LabRow
+            {
+                id = "leaflight", group = LabGroup.World, name = "TREES: SUN AND SHADE", when = LabWhen.Now,
+                look = "Every crown has a sun side and a shade side, a dark core and underside, light through back-lit leaves, a neighbour's shade; near and far trees alike. Night unchanged.",
+                env = new[] { "PSX_LEAFLIGHT" }, members = new[] { "RainLook.LeafLight" },
+            });
             Register(new LabRow
             {
                 id = "tunnel2", group = LabGroup.World, name = "PARKWAY TUNNELS", when = LabWhen.BuiltIn,

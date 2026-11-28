@@ -692,7 +692,7 @@ namespace PSXRacing
                 var cm = cmds[c];
                 Material mat;
                 if (cm.lod == 4) mat = impNow[cm.variant];
-                else mat = Faded(cm.lod == 3 ? impNow[cm.variant] : matsNow[cm.variant][cm.sub], fadeOf[cm.variant][cm.lod], ThinFor(cm.variant, cm.lod));
+                else mat = Faded(cm.lod == 3 ? impNow[cm.variant] : matsNow[cm.variant][cm.sub], fadeOf[cm.variant][cm.lod], ThinFor(cm.variant, cm.lod), cm.variant);
                 cmdOn[c] = mat != null;
                 if (mat == null) continue;
                 cmdRp[c] = new RenderParams(mat)

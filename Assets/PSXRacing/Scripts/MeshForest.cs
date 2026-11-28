@@ -209,8 +209,8 @@ namespace PSXRacing
         float[] maxD2;
         Vector4[][] fadeOf;                        // [variant][lod]: _PSXLodFade
         bool[][] handOver;                         // [variant][lod]: dithers into lod + 1
-        readonly System.Collections.Generic.Dictionary<(Material, Vector4, float), Material> faded =
-            new System.Collections.Generic.Dictionary<(Material, Vector4, float), Material>();
+        readonly System.Collections.Generic.Dictionary<(Material, Vector4, float, float), Material> faded =
+            new System.Collections.Generic.Dictionary<(Material, Vector4, float, float), Material>();
 
         void Awake() => Init();
 
@@ -800,12 +800,21 @@ namespace PSXRacing
         }
 
         /// <summary>This material with a level's fade band (a copy, made once).</summary>
-        Material Faded(Material m, Vector4 f, float thin = 0f)
+        Material Faded(Material m, Vector4 f, float thin = 0f, int variant = -1)
         {
             if (m == null) return null;
             if (f == Vector4.zero) return m;
-            if (faded.TryGetValue((m, f, thin), out var c) && c != null) return c;
+            // (leaflight) the species' own height for the crown's light (PSX/Lit _PSXCrownH, per unit of the
+            // instance's scale, its mesh's pre-transform taken out: PSX/Lit reads the scale off the whole matrix)
+            float crownH = 0f;
+            if (variant >= 0 && variants != null && variant < variants.Length && variants[variant] != null)
+            {
+                float preY = ((Vector3)variants[variant].pre.GetColumn(1)).magnitude;
+                crownH = variants[variant].height / Mathf.Max(preY, 1e-4f);
+            }
+            if (faded.TryGetValue((m, f, thin, crownH), out var c) && c != null) return c;
             c = new Material(m) { name = m.name + "_fade", enableInstancing = true };
+            if (crownH > 0f) c.SetFloat("_PSXCrownH", crownH);
             // (the far cards' growth with distance as this process asks: PSX_FOREST_FARGROW)
             if (FarGrowZ >= 1f && m.HasProperty("_PSXFarGrow"))
             {
@@ -815,7 +824,7 @@ namespace PSXRacing
             c.SetVector("_PSXLodFade", f);
             c.SetVector("_PSXLodThin", new Vector4(thin, 0f, 0f, 0f));
             c.EnableKeyword("PSX_LODFADE");
-            faded[(m, f, thin)] = c;
+            faded[(m, f, thin, crownH)] = c;
             return c;
         }
 
@@ -840,7 +849,7 @@ namespace PSXRacing
                     int subs = imp ? mesh.subMeshCount : Mathf.Min(mesh.subMeshCount, mats.Length);
                     for (int s = 0; s < subs; s++)
                     {
-                        var mat = Faded(imp ? impNow[v] : mats[s], fadeOf[v][lod], ThinFor(v, lod));
+                        var mat = Faded(imp ? impNow[v] : mats[s], fadeOf[v][lod], ThinFor(v, lod), v);
                         if (mat == null) continue;   // bare: no leaves
                         var rp = new RenderParams(mat)
                         {
@@ -862,7 +871,7 @@ namespace PSXRacing
                 for (int v = 0; v < variants.Length; v++)
                 {
                     var arr = lists[v];
-                    var mat = Faded(impNow[v], fadeOf[v][3]);
+                    var mat = Faded(impNow[v], fadeOf[v][3], 0f, v);
                     if (arr == null || mat == null) continue;
                     var mesh = variants[v].lods[3];
                     var rp = new RenderParams(mat)
