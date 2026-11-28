@@ -857,6 +857,7 @@ Shader "PSX/Lit"
             #define LEAF_AMB_LO     0.85    // (round 3) the shade's light under a sun 37 degrees up and lower ...
             #define LEAF_AMB_HI     2.60    // ... and under a sun 68 degrees up (noon on Blue Ridge)
             #define LEAF_SUN_LO     0.85    // the lit side's, the same
+            #define LEAF_SUN_HI     1.10
             #define LEAF_CARD_SUN   1.15    // (round 4) a far card's sun: its leaves at every depth catch the sun's glints its mesh shows (far/near 0.74 -> the haze's 0.84)
             #define LEAF_CARD_MID   0.70    // (round 3) a far card's pixel: the mid-plane leaf's share of its sun
             #define LEAF_DENS       0.60    // the crown's leaf density: the sun through a crown's whole width (2 units) x exp(-2.8)
@@ -1020,7 +1021,7 @@ Shader "PSX/Lit"
                 float hiSun = smoothstep(0.60, 0.93, L.y);
                 ambL *= lerp(LEAF_AMB_LO, LEAF_AMB_HI, hiSun);
                 bounce *= lerp(LEAF_AMB_LO, LEAF_AMB_HI, hiSun);
-                sunL *= lerp(LEAF_SUN_LO, 1.0, hiSun);
+                sunL *= lerp(LEAF_SUN_LO, LEAF_SUN_HI, hiSun);
                 gLeafDbg[0] = selfT; gLeafDbg[1] = sd; gLeafDbg[2] = skyK; gLeafDbg[3] = nbr * tree;
                 gLeafDbg[4] = thru; gLeafDbg[5] = saturate(r); gLeafDbg[6] = hN; gLeafDbg[7] = crown.w > 0.0 ? (card > 0.5 ? 0.5 : 1.0) : 0.0;
             }
