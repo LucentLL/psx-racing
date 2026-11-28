@@ -631,14 +631,30 @@ namespace PSXRacing.EditorTools
                 if (lat < 8f || lat > 30f) continue;
                 done.Add(sp);
                 float hgt = forest.variants[v].height * forest.instScaleVar[k].x;
-                var from = path.GetPoint(pi) - q; from.y = 0f; from.Normalize();
                 var aim = q + Vector3.up * hgt * 0.5f;
+                // the bearing and ONE pitch whose sight line clears the ground all the way out to 420 m (the first run
+                // went in from the road side at 10 degrees and was under the hillside past 45 m)
+                Vector3 from = Vector3.forward; float bestPitch = 90f;
+                for (int b = 0; b < 16; b++)
+                {
+                    var dir = Quaternion.Euler(0f, b * 22.5f, 0f) * Vector3.forward;
+                    float need = 10f;
+                    for (float sd = 6f; sd <= 430f; sd += 8f)
+                    {
+                        float gy = GroundY(aim + dir * sd, float.NegativeInfinity);
+                        if (float.IsNegativeInfinity(gy)) continue;
+                        need = Mathf.Max(need, Mathf.Atan2(gy + 2f - aim.y, sd) * Mathf.Rad2Deg);
+                    }
+                    if (need < bestPitch) { bestPitch = need; from = dir; }
+                }
+                float pitchDeg = Mathf.Clamp(bestPitch, 10f, 50f);
+                Say($"  sight line: bearing {Mathf.Atan2(from.x, from.z) * Mathf.Rad2Deg:0}, pitch {pitchDeg:0.0} deg down at every distance");
                 Say($"APPROACH {vn} x{forest.instScaleVar[k].x:0.00} ({hgt:0.0} m), {lat:0} m off the road at wp {pi}; swaps at {edges[0]:0} / {edges[1]:0} / {edges[2]:0} m (bands {bands[0]:0}/{bands[1]:0}/{bands[2]:0})");
                 Say("  dist m | level | foliage cover in the tree's box | mean luma of foliage | step cover | step luma");
                 float pc = -1f, pl = -1f;
                 foreach (float dm in ds)
                 {
-                    float down = dm > 12f ? 10f : 0f;
+                    float down = pitchDeg;
                     var pos = aim + from * dm * Mathf.Cos(down * Mathf.Deg2Rad) + Vector3.up * dm * Mathf.Sin(down * Mathf.Deg2Rad);
                     cam.transform.position = pos;
                     cam.transform.rotation = Quaternion.LookRotation(aim - pos, Vector3.up);
