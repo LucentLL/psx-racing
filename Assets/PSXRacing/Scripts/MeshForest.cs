@@ -95,6 +95,9 @@ namespace PSXRacing
             public Material[] matchDress;
             /// <summary>The match card's node transform (its origin the mesh's own).</summary>
             public Matrix4x4 matchPre = Matrix4x4.identity;
+            /// <summary>A mountain conifer model (PSX_CONIFER_MODELS, a scene build): <see cref="ConiferCardsAB"/>
+            /// can put its old crossed card back in its place.</summary>
+            public bool conifer;
 
             /// <summary>This species with its match card as its far level.</summary>
             public Variant WithMatch()
@@ -133,6 +136,31 @@ namespace PSXRacing
         /// they were. Null (a scene built before it, or PSX_TREE_MATCH=0 / PSX_TREE_MATCH_CARDS=0): the
         /// retro billboards, as before.</summary>
         public Texture2D[] matchCardAtlas;
+        /// <summary>CONIFERS AS MODELS (a scene built with PSX_CONIFER_MODELS): per chunk, the conifer models' old
+        /// crossed cards, hidden; drawn instead of the models while <see cref="ConiferCardsAB"/> (frames and cost).</summary>
+        public Renderer[] coniferCardsAB;
+
+        /// <summary>A/B for the conifer models (tools only, never saved): true = the conifer sites drawn as their old
+        /// crossed cards, the models hidden. Applied by <see cref="ApplyConiferCards"/>.</summary>
+        public static bool ConiferCardsAB;
+        /// <summary>What the loaded stage has (the LAB row "conifers"): null until a stage forest wakes.</summary>
+        public static string ConiferModelsBuilt;
+        /// <summary>The LAB row's member: present in a build that can take conifer models.</summary>
+        public static bool ConiferModels => true;
+        float[] coniferD2;
+
+        /// <summary>Hide (cards = true) or show the conifer models and show or hide their old cards, now.</summary>
+        public void ApplyConiferCards(bool cards)
+        {
+            ConiferCardsAB = cards;
+            if (!inited || variants == null || maxD2 == null) return;
+            if (coniferD2 == null) coniferD2 = (float[])maxD2.Clone();
+            for (int v = 0; v < variants.Length; v++)
+                if (variants[v] != null && variants[v].conifer) maxD2[v] = cards ? 0f : coniferD2[v];
+            GpuConiferReach();
+            if (coniferCardsAB != null)
+                foreach (var r in coniferCardsAB) if (r != null) r.enabled = cards;
+        }
 
         // The MEDIUM distances (ForestDetailPrefs scales them): the 100/200/320
         // of the pop-in round dropped the owner under 20 FPS with leaves on.
@@ -354,6 +382,17 @@ namespace PSXRacing
             // THE GPU PATH (MeshForest.Gpu.cs) where the machine has compute
             // shaders and the scene carries the cull; the old per-frame
             // re-bucket everywhere else, and its tables only when it runs.
+            {
+                var cn = new System.Collections.Generic.List<string>();
+                foreach (var vr in variants)
+                {
+                    if (vr == null || !vr.conifer || vr.lods == null || vr.lods.Length == 0 || vr.lods[0] == null) continue;
+                    string sp = vr.lods[0].name.Split('_')[0];
+                    if (!cn.Contains(sp)) cn.Add(sp);
+                }
+                if (cn.Count > 0) ConiferModelsBuilt = "MODELS: " + string.Join(", ", cn).ToUpperInvariant();
+                else if (!pooled) ConiferModelsBuilt = "CARDS";
+            }
             bool gpu = GpuDriven && InitGpu();
             if (!gpu && !pooled) EnsureLegacy();
             Debug.Log($"[MeshForest] {inst.Length} plants in {chunks.Length} chunks, {variants.Length} variants; " +

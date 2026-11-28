@@ -56,7 +56,7 @@ namespace PSXRacing
         /// <summary>The value at the right of a row.</summary>
         public static string Value(LabRow r)
         {
-            if (r.when == LabWhen.BuiltIn) return "BUILT IN";
+            if (r.when == LabWhen.BuiltIn) return (r.builtValue != null ? r.builtValue() : null) ?? "BUILT IN";
             string s = r.StateWord(r.Chosen);
             if (r.EnvHeld) return s + " · LOCKED";
             if (LabSwitches.Pending(r)) return s + " · NEXT LOAD";

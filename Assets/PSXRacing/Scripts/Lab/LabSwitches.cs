@@ -44,6 +44,8 @@ namespace PSXRacing
         public string requires;
         /// <summary>Run after the members are written (a shader global push, a material re-mark...).</summary>
         public Action apply;
+        /// <summary>For a BUILT IN row: what this build has, in place of "BUILT IN" (null: "BUILT IN").</summary>
+        public Func<string> builtValue;
 
         // ---- resolved at boot --------------------------------------------
         internal MemberInfo[] resolved;
@@ -256,6 +258,14 @@ namespace PSXRacing
                 option = true, def = () => false,
                 look = "Every crown has a sun side and a shade side, a dark core and underside, light through back-lit leaves, a neighbour's shade; near and far trees alike. Night unchanged.",
                 env = new[] { "PSX_LEAFLIGHT" }, members = new[] { "RainLook.LeafLight" },
+            });
+            // conifers (11-27): the Codex conifer models in place of the crossed cards, per species (PSXRacingBuilder.Conifers)
+            Register(new LabRow
+            {
+                id = "conifers", group = LabGroup.World, name = "MOUNTAIN CONIFERS AS MODELS", when = LabWhen.BuiltIn, pcOnly = true,
+                look = "Built into the stage scenes: hemlock, white pine, spruce and fir as 3D trees instead of crossed cards (shows what the last stage loaded had). A scene build.",
+                env = new[] { "PSX_CONIFER_MODELS" }, requires = "MeshForest.ConiferModels",
+                builtValue = () => MeshForest.ConiferModelsBuilt,
             });
             Register(new LabRow
             {

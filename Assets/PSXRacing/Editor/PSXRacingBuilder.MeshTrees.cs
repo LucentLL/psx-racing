@@ -385,6 +385,11 @@ namespace PSXRacing.EditorTools
             public Material[] leafByDress;
             /// <summary>TREE MATCH: the B cards' atlas per dress (TMStageCardAtlas); null entries = the dress's own.</summary>
             public Texture2D[] matchCardAtlas;
+            /// <summary>CONIFERS AS MODELS (PSX_CONIFER_MODELS, PSXRacingBuilder.Conifers): per species (hemlock, white
+            /// pine, red spruce, Fraser fir) the young / mature / edge variants, null where the switch leaves it a card;
+            /// the hemlock and Fraser fir snags (-1: none).</summary>
+            public int[][] conifer;
+            public int[] coniferSnag;
         }
 
         static MeshTreeKit meshTreeKit;
@@ -718,6 +723,8 @@ namespace PSXRacing.EditorTools
             kit.fences = LoadFences(list);
             kit.smallBeech = small.ToArray();
             kit.bushes = bushes.ToArray();
+            // CONIFERS AS MODELS (PSX_CONIFER_MODELS; off: nothing added, every index as it was)
+            var conifers = AddConiferVariants(kit, list);
             kit.variants = list.ToArray();
             // TREE MATCH: the canopy's far cards made from their own LOW meshes, in each dress (PSX_TREE_MATCH=0: none)
             {
@@ -726,6 +733,7 @@ namespace PSXRacing.EditorTools
                 TreeMatchKit(kit.variants, tmNames, "stage", kit.leafByDress, false);
                 kit.matchCardAtlas = TMStageCardAtlas();
             }
+            ConiferMatchCards(conifers);
             Log($"Mesh forest kit: {kit.treeCount} canopy beeches (+impostors), {small.Count} small beeches, {bushes.Count} cherry bushes, poplar {(kit.poplar >= 0 ? "yes" : "no")}, {cover.Count} ground-cover plants, debris " +
                 $"{debris[0].Count} litter / {debris[1].Count} branches / {debris[2].Count} stones / {debris[3].Count} logs / {debris[4].Count} stumps.");
             meshTreeKit = kit;

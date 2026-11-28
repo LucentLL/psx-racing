@@ -89,3 +89,7 @@ Assets/StreamingAssets/CityMap.meta
 Assets/PSXRacing/Resources/charlotte_citymap.txt
 Assets/PSXRacing/Resources/charlotte_citymap.txt.meta
 tools/city/tracks/out/
+
+# The owner's mountain conifer models (tools/mountain-conifers.ps1 copies them in; his art, public repo)
+/Assets/MountainConifers/
+/Assets/MountainConifers.meta

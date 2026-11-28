@@ -552,6 +552,7 @@ namespace PSXRacing
                 metaBuf.SetData(meta);
                 meta.Dispose();
                 varBuf.SetData(infos);
+                gpuInfos = infos;
                 bucketBuf.SetData(buckets);
                 var cb = new uint[cmds.Length];
                 var args = new GraphicsBuffer.IndirectDrawIndexedArgs[cmds.Length];
@@ -671,6 +672,17 @@ namespace PSXRacing
                 chunkWorld[ci] = root.MultiplyPoint3x4(chunks[ci].centre);
                 chunkRad[ci] = chunks[ci].radius * scale;
             }
+        }
+
+        /// <summary>The species table as uploaded (the conifer A/B rewrites its reach).</summary>
+        VarInfo[] gpuInfos;
+
+        /// <summary>The conifer A/B (<see cref="ApplyConiferCards"/>): each species' reach as maxD2 says now.</summary>
+        void GpuConiferReach()
+        {
+            if (gpuInfos == null || varBuf == null || maxD2 == null) return;
+            for (int v = 0; v < gpuInfos.Length && v < maxD2.Length; v++) gpuInfos[v].a.x = maxD2[v];
+            varBuf.SetData(gpuInfos);
         }
 
         void ReleaseGpu()

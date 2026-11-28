@@ -8310,6 +8310,9 @@ namespace PSXRacing.EditorTools
             var mfInst = new List<Vector4>();
             var mfScaleVar = new List<Vector2>();
             int meshTrees = 0, understory = 0, extraCanopy = 0, coverN = 0, debrisN = 0, ledgeN = 0, cliffN = 0, fenceN = 0;
+            int coniferModels = 0;
+            var coniferBySpecies = new Dictionary<int, int>();
+            var coniferCardsAB = new List<Renderer>();
             ResetPlantFit();
             PlantShape.ClearCache();
             // the decks, piers, walls and rock faces built so far, for the planting rule
@@ -8330,6 +8333,7 @@ namespace PSXRacing.EditorTools
                 var bv = new List<Vector3>(); var bu = new List<Vector2>(); var bt = new List<int>();
                 var bfv = new List<Vector3>(); var bfu = new List<Vector2>(); var bft = new List<int>();
                 var bcv = new List<Vector3>(); var bcu = new List<Vector2>(); var bct = new List<int>();
+                var abv = new List<Vector3>(); var abu = new List<Vector2>(); var abt = new List<int>();
                 int mfStart = mfInst.Count;
                 float ySum = 0f;
 
@@ -8456,7 +8460,18 @@ namespace PSXRacing.EditorTools
                         }
 
                         float yaw = (float)R.NextDouble() * 360f;
-                        bool asMesh = kit != null && !sp.conifer;   // the bare late-fall species too: a winter beech is bare
+                        // CONIFERS AS MODELS (PSX_CONIFER_MODELS, off by default: kit.conifer empty, -1 everywhere)
+                        int coniferVi = -1; float coniferSc = 1f;
+                        if (kit != null && sp.conifer && kit.conifer != null)
+                        {
+                            int chsh = (int)(((uint)(Mathf.FloorToInt(wx * 7.31f) * 73856093) ^
+                                              (uint)(Mathf.FloorToInt(wz * 5.17f) * 19349663)) % 1000003u);
+                            bool young = d <= 90f && storyRoll < ForestUnderstory;
+                            coniferVi = PickConifer(kit, idx, stageBaseM + ground, h * MeshTreeHeightScale, d, young, chsh, out coniferSc, out bool edgeForm);
+                            if (edgeForm && foot.s0 >= 0 && foot.s1 < stageWp.Count)
+                                yaw = EdgeYawToward(wx, wz, Vector3.Lerp(stageWp[foot.s0], stageWp[foot.s1], foot.t), yaw);
+                        }
+                        bool asMesh = kit != null && (!sp.conifer || coniferVi >= 0);   // the bare late-fall species too: a winter beech is bare
                         // THE TREE'S SITE once the solids rule has had it (PlantClear):
                         // moved out from the road, shortened, or - a mesh tree - swapped
                         // for a smaller kind, which then has no card and no trunk
@@ -8466,15 +8481,18 @@ namespace PSXRacing.EditorTools
                         {
                             int hsh = (int)(((uint)(Mathf.FloorToInt(wx * 7.31f) * 73856093) ^
                                              (uint)(Mathf.FloorToInt(wz * 5.17f) * 19349663)) % 1000003u);
-                            int vi = PickMeshTree(kit, h * MeshTreeHeightScale, hsh, out float sc);
-                            if (kit.poplar >= 0 && PoplarSite(ox, oz, gx, gz, wx, wz))
+                            int vi; float sc;
+                            if (coniferVi >= 0) { vi = coniferVi; sc = coniferSc; }
+                            else vi = PickMeshTree(kit, h * MeshTreeHeightScale, hsh, out sc);
+                            if (coniferVi < 0 && kit.poplar >= 0 && PoplarSite(ox, oz, gx, gz, wx, wz))
                             {
                                 vi = kit.poplar;
                                 sc = Mathf.Clamp(h * MeshTreeHeightScale / kit.variants[vi].height, 0.85f, 1.25f);
                             }
                             float sc0 = sc, ty = ground - 0.25f - SlopeSink(wx, wz, 0.8f * sc);
+                            // (a conifer is shortened or moved, never swapped for a beech sapling or a bush)
                             var fit = FitPlant(PlantClass.Canopy, kit, ref tx, ref tz, ref ty, ref sc, ref vi,
-                                               CanopyBaseAt, 0.45f, CanopySwaps(kit), yaw);
+                                               CanopyBaseAt, 0.45f, coniferVi >= 0 ? new PlantSwap[0] : CanopySwaps(kit), yaw);
                             if (fit != PlantFit.Dropped)
                             {
                                 if (fit == PlantFit.Moved && StageCorridor(tx, tz, ForestBand + 10f, out RoadFoot mvf))
@@ -8487,7 +8505,15 @@ namespace PSXRacing.EditorTools
                                 meshTrees++;
                             }
                             else treeStands = false;
+                            if (coniferVi >= 0)
+                            {
+                                // the stand the cards drew: no understory, no extra beech round a conifer
+                                if (!treeStands) continue;
+                                coniferModels++;
+                                coniferBySpecies[vi] = (coniferBySpecies.TryGetValue(vi, out int cn) ? cn : 0) + 1;
+                            }
                             int before = mfInst.Count;
+                            if (coniferVi < 0) {
                             AddUnderstory(kit, wx, wz, d, hsh, mfInst, mfScaleVar, ref understory);
                             ySum += ground * (mfInst.Count - before);
                             // DENSITY (owner: "increase tree density (use lower
@@ -8512,6 +8538,7 @@ namespace PSXRacing.EditorTools
                                 (fill ? fillTrunks : trunks).Add(new Vector4(ex, ey + SlopeSink(ex, ez, 0.8f * esc), ez, StageTreeWidth(sp, h * esc / esc0)));
                                 (fill ? fillCells : trunkCells).Add((byte)idx);
                             }
+                            }
                             if (!treeStands) continue;   // dropped, or a bush in its place: no card, crown or trunk
                         }
                         else
@@ -8522,6 +8549,9 @@ namespace PSXRacing.EditorTools
                             if (cfit == PlantFit.Dropped) continue;
                         }
                         var basePos = new Vector3(tx - ox, tGround - 0.25f, tz - oz);
+                        // (conifer models: the same card again in the A/B chunk - MeshForest.ConiferCardsAB draws the
+                        // stage's conifers as their old crossed cards, in one process, for the frames and the cost)
+                        if (coniferVi >= 0) AddTreeQuads(abv, abu, abt, sp, basePos, h, yaw);
                         if (fill)
                         {
                             filled++;
@@ -8576,6 +8606,14 @@ namespace PSXRacing.EditorTools
                         if (r != null) cardsB.Add(r);
                     }
                     B(root.transform, "ForestB", bv, bu, bt, mat);
+                    if (abv.Count > 0)
+                    {
+                        var ab = ChunkGO(root.transform, "ConiferCardsAB_" + cx + "_" + cz, ForestMesh(abv, abu, abt), new[] { mat },
+                                         ox, oz, "StageConiferCardsAB_" + cx + "_" + cz);
+                        ab.layer = FoliageLayer;
+                        var abr = ab.GetComponent<Renderer>();
+                        if (abr != null) { abr.enabled = false; coniferCardsAB.Add(abr); }
+                    }
                     if (fillRoot != null) B(fillRoot.transform, "ForestFillB", bfv, bfu, bft, mat);
                     if (crownRoot != null) B(crownRoot.transform, "ForestCrownsB", bcv, bcu, bct, crownMat);
                     mfChunks.Add(new MeshForest.Chunk
@@ -8618,6 +8656,18 @@ namespace PSXRacing.EditorTools
                 mfc.instScaleVar = mfScaleVar.ToArray();
                 // the GPU cull (MeshForest.Gpu.cs): PC scene pass only, as this whole component is
                 mfc.cullShader = ForestGpuBuild.Cull();
+                mfc.coniferCardsAB = coniferCardsAB.ToArray();
+                if (coniferModels > 0)
+                {
+                    var per = new List<string>();
+                    foreach (var kv in coniferBySpecies)
+                    {
+                        var lv = kit.variants[kv.Key].lods[0];
+                        per.Add((lv != null ? lv.name : "variant " + kv.Key) + " " + kv.Value);
+                    }
+                    Log($"Stage forest, CONIFER MODELS: {coniferModels} conifers as models ({string.Join(", ", per)}), " +
+                        $"{coniferCardsAB.Count} A/B card chunks.");
+                }
                 if (mfTilt.Count > 0)
                 {
                     var tl = new Vector2[mfInst.Count];
