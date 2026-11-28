@@ -174,6 +174,8 @@ namespace PSXRacing.LifeSim
                 "rx7_fd_93", "rx7_fd_99", "rx7_fd_nowing", "sedan_98", "viper_gts",
                 // cars-1116: the owner's five new shells (S13 painted, A70 modelled on the body, Z30, F-body, FC painted)
                 "coupe_88", "gt_liftback_88", "lux_coupe_97", "pony_coupe_67", "rotary_coupe_87",
+                // cars-1127: the owner's 1996 pony coupe (rotor + caliper modelled on the body)
+                "pony_coupe_96",
             };
 
         readonly MeshRenderer[] brakeRenderers = new MeshRenderer[4];

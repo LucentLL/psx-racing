@@ -19,7 +19,7 @@ namespace PSXRacing
             new Row("classic_roadster", -0.0163f, 1.1896f, 0.7246f, 0.7773f),
             new Row("classic_van", 1.3864f, 1.9323f, 0.8046f, 1.3132f),
             new Row("coupe_03", 0.0610f, 1.3225f, 0.7607f, 0.8170f),
-            new Row("coupe_88", 0.1121f, 1.2066f, 0.7336f, 0.7393f),
+            new Row("coupe_88", 0.1163f, 1.2020f, 0.7321f, 0.7380f),
             new Row("coupe_99", 0.0378f, 1.2566f, 0.7346f, 0.8416f),
             new Row("crown_victoria", 0.0048f, 1.4260f, 0.8258f, 0.7964f),
             new Row("daytona_69", 0.2708f, 1.3664f, 0.8363f, 0.9132f),
@@ -52,7 +52,7 @@ namespace PSXRacing
             new Row("nissan_180sx", 0.0607f, 1.2422f, 0.7681f, 0.7499f),
             new Row("pony_coupe_67", 0.2201f, 1.2515f, 0.7844f, 0.7900f),
             new Row("pony_fastback_69", 0.0375f, 1.2574f, 0.7359f, 0.8578f),
-            new Row("rally_coupe_98", -0.0678f, 1.2996f, 0.6999f, 0.7759f),
+            new Row("rally_coupe_98", -0.0662f, 1.2988f, 0.7013f, 0.7651f),
             new Row("rally_sedan_99", 0.0190f, 1.3650f, 0.7431f, 0.8091f),
             new Row("roadster_99", -0.1182f, 1.2435f, 0.7183f, 0.7655f),
             new Row("roadster_na_popup", 0.0408f, 1.1801f, 0.6758f, 0.7557f),
@@ -66,6 +66,7 @@ namespace PSXRacing
             new Row("supra_a80", -0.2479f, 1.2641f, 0.7597f, 0.8168f),
             new Row("viper_gts", -0.3690f, 1.1483f, 0.7486f, 0.7246f),
             new Row("volvo_estate", 0.3310f, 1.3941f, 0.7558f, 0.8440f),
+            new Row("pony_coupe_96", -0.0786f, 1.2820f, 0.7662f, 0.7842f),
         };
         /// <summary>The catalogue's median windscreen against his pane (57 shells): his cabin's own
         /// proportion, so the fit moves each car from the middle of the catalogue, not from the probe's header line.</summary>

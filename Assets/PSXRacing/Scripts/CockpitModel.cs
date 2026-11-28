@@ -94,6 +94,20 @@ namespace PSXRacing
             public Vector3 bladePivot, bladeAxis;
             public Quaternion bladeRot;
             public float[] hingeArmDeg, hingeDeg;
+            /// <summary>(cars-1127, cockpit v25) the blade in halves, each on its own hinge on the
+            /// arm with its own table; empty for the one-blade form above.</summary>
+            public BladeDef[] blades;
+        }
+
+        /// <summary>One blade half of a modelled wiper (v25): rest pivot and rotation in the model
+        /// frame, turned about its own local <see cref="axis"/> by its table (arm angle -&gt; hinge angle).</summary>
+        [System.Serializable]
+        public class BladeDef
+        {
+            public string part;
+            public Vector3 pivot, axis;
+            public Quaternion rot;
+            public float[] hingeArmDeg, hingeDeg;
         }
 
         [System.Serializable]

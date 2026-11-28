@@ -304,9 +304,14 @@ const MODELS = [
   // tris), converted/rally_coupe_98_v05.
   // 2026-11-01: Impreza_22B_Independent_Textured_v06, converted/rally_coupe_98_v06;
   // its clear Headlight_Lenses are left off.
-  { key: 'rally_coupe_98', obj: `${here}/converted/rally_coupe_98_v06/rally_coupe_98_v06.obj`,
-    tex: `${here}/converted/rally_coupe_98_v06`, skins: /^rally_coupe_98_blue_512x256$/,
-    gt4LengthM: 4.365, parts: ['Body', 'MirrorGlass_L', 'MirrorGlass_R'] },
+  // 2026-11-27 (cars-1127): Impreza_22B_HD_v12, the HD delivery (9,996 tris,
+  // 2048x1024 PBR, box-filtered to 512x256), converted/rally_coupe_98_v12. The
+  // mirrors are separate assemblies now (foot + housing + glass), all kept; the
+  // clear "headlight overcover" goes to the covers by the material rule.
+  { key: 'rally_coupe_98', obj: `${here}/converted/rally_coupe_98_v12/rally_coupe_98_v12.obj`,
+    tex: `${here}/converted/rally_coupe_98_v12`, skins: /^rally_coupe_98_blue_512x256$/,
+    gt4LengthM: 4.365,
+    parts: ['Body', 'MirrorFoot_L', 'MirrorFoot_R', 'MirrorHousing_L', 'MirrorHousing_R', 'MirrorGlass_L', 'MirrorGlass_R'] },
 
   // The owner's 2026-10-10 set, three NEW shells (unbadged, Y-up, nose -Z,
   // Body + Wheel_FL/FR/RL/RR, one 512x256 atlas, underbody right), each GLB
@@ -365,8 +370,10 @@ const MODELS = [
   //                   v03 is a texture set without a model): a NEW catalog
   //                   row, the `67 SS 350 (no `67 in the GT4 sheet). Kept at
   //                   its delivered 4.670 m (108 in wheelbase).
-  { key: 'coupe_88', obj: `${here}/converted/coupe_88_v03/coupe_88_v03.obj`,
-    tex: `${here}/converted/coupe_88_v03`, skins: /^coupe_88_green_512x256$/,
+  // 2026-11-27 (cars-1127): Silvia_S13_HD_v07 (9,992 tris: front bumper and
+  // sills re-sectioned, twin tips; README + Validation.json), converted/coupe_88_v07.
+  { key: 'coupe_88', obj: `${here}/converted/coupe_88_v07/coupe_88_v07.obj`,
+    tex: `${here}/converted/coupe_88_v07`, skins: /^coupe_88_green_512x256$/,
     gt4LengthM: 4.470, parts: ['Body', 'MirrorGlass_L', 'MirrorGlass_R'], cover: /glazing/i },
   { key: 'rotary_coupe_87', obj: `${here}/converted/rotary_coupe_87_v03/rotary_coupe_87_v03.obj`,
     lampsUp: `${here}/converted/rotary_coupe_87_v03/rotary_coupe_87_v03_up.obj`,
@@ -384,6 +391,17 @@ const MODELS = [
   { key: 'pony_coupe_67', obj: `${here}/converted/pony_coupe_67_v02/pony_coupe_67_v02.obj`,
     tex: `${here}/converted/pony_coupe_67_v02`, skins: /^pony_coupe_67_blue_512x256$/,
     parts: ['Body', 'MirrorGlass_L', 'MirrorGlass_R'] },
+  // THE OWNER'S 2026-11-26/27 SN95 (cars-1127, "You can add/update the models
+  // 11/26 and 11/27"): SN95_AtlanticBlue_HD_v10, an unbadged 1996 pony coupe
+  // (9,992 tris, 2048x1024 HD PBR box-filtered to 512x256, 19-inch authored
+  // wheels, 668 mm tyres). Its nose is Blender -Y, so the conversion turned it
+  // 180 deg about the vertical (scratch conv.py) before the usual OBJ export.
+  // The mirror housings are separate objects (Mirror_L/R), kept; the clear
+  // fluted headlamp covers go to the covers by the material rule. A NEW catalog
+  // row (no SN95 in the GT4 sheet); length to the published 181.5 in (4.610 m).
+  { key: 'pony_coupe_96', obj: `${here}/converted/pony_coupe_96_v10/pony_coupe_96_v10.obj`,
+    tex: `${here}/converted/pony_coupe_96_v10`, skins: /^pony_coupe_96_blue_512x256$/,
+    gt4LengthM: 4.610, parts: ['Body', 'Mirror_L', 'Mirror_R', 'MirrorGlass_L', 'MirrorGlass_R'] },
 
   // The owner's 2026-10-02 set ("Integra, S2000, and Prelude have been
   // added"), same layout (Body + Wheel_FL/FR/RL/RR, nose -Z, matte alpha 128),

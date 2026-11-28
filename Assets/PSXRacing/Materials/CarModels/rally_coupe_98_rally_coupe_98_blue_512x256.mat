@@ -23,6 +23,14 @@ Material:
   m_SavedProperties:
     serializedVersion: 3
     m_TexEnvs:
+    - _CarHDNormal:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _CarHDORM:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
     - _LightMask:
         m_Texture: {fileID: 0}
         m_Scale: {x: 1, y: 1}
@@ -42,7 +50,18 @@ Material:
     - _LensLayer: 0
     - _MainTexRaw: 0
     - _PSXCabinOwn: 0
+    - _PSXColorMask: 15
+    - _PSXCull: 2
     - _PSXGloss: 1
+    - _PSXHoleMode: 0
+    - _PSXInside: 0
+    - _PSXStComp: 8
+    - _PSXStPass: 0
+    - _PSXStRead: 255
+    - _PSXStRef: 0
+    - _PSXStWrite: 255
+    - _PSXZTest: 4
+    - _PSXZWrite: 1
     - _RunningLights: 0
     m_Colors:
     - _Color: {r: 1, g: 1, b: 1, a: 1}

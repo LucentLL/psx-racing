@@ -30,7 +30,10 @@ EG = 'EG_Independent_Textured_v21/'
 S2K = 'S2000_Independent_Textured_v12/'
 NSX = 'NSX_Yellow_HD_v31/'
 TYPEX = 'TypeX_White_HD_v13/'
-S13 = 'Silvia_S13_HD_v03/'
+# 2026-11-27 (cars-1127): S13 v07, Impreza 22B v12 (first HD set for rally_coupe_98), SN95 v10 (new).
+S13 = 'Silvia_S13_HD_v07/'
+IMP = 'Impreza_22B_HD_v12/'
+SN95 = 'SN95_AtlanticBlue_HD_v10/'
 FC = 'FC_1987_Bronze_HD_v03/'
 SC = 'Soarer_1998_HD_v03/'
 MA70 = 'MA70_TurboA_HD_v03/'
@@ -55,6 +58,8 @@ SETS = [
     ('lux_coupe_97', 'lux_coupe_97_garnet_512x256', SC + 'Soarer_Garnet', 'ormA'),
     ('gt_liftback_88', 'gt_liftback_88_black_512x256', MA70 + 'MA70_Black', 'ormA'),
     ('pony_coupe_67', 'pony_coupe_67_blue_512x256', CAM + 'Camaro67_Blue', 'orm'),
+    ('rally_coupe_98', 'rally_coupe_98_blue_512x256', IMP + 'impreza_22b_blue', 'surface'),
+    ('pony_coupe_96', 'pony_coupe_96_blue_512x256', SN95 + 'SN95_AtlanticBlue', 'orm'),
 ]
 LAMPMAPS = {
     'rx7_fd_93': FD + 'FD_LightMask_RGB.png', 'rx7_fd_99': FD + 'FD_LightMask_RGB.png', 'rx7_fd_nowing': FD + 'FD_LightMask_RGB.png',
@@ -71,6 +76,8 @@ LAMPMAPS = {
     'lux_coupe_97': SC + 'Lighting/Soarer_LightMask_RGB.png',
     'gt_liftback_88': MA70 + 'Lighting/MA70_LightMask_RGB.png',
     'pony_coupe_67': CAM + 'Lighting/Camaro67_LightMask_RGBA.png',
+    'rally_coupe_98': IMP + 'Lighting/Impreza_LightMask_RGB.png',
+    'pony_coupe_96': SN95 + 'Lighting/SN95_LightMask_RGB.png',
 }
 
 def load(p, mode=None):

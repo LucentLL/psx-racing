@@ -174,6 +174,8 @@ namespace PSXRacing.EditorTools
                 { "Pontiac", "usa" }, { "RUF", "ger" }, { "Renault", "fra" }, { "SILEIGHTY", "jpn" }, { "Sauber", "ger" },
                 { "Shelby", "usa" }, { "Spoon", "jpn" }, { "Subaru", "jpn" }, { "Suzuki", "jpn" }, { "TVR", "gbr" },
                 { "Toyota", "jpn" }, { "Volkswagen", "ger" }, { "Volvo", "eur" },
+                // cars-1127: the neutral make of the owner's 1996 pony coupe row ("Pony Coupe GT `96")
+                { "Pony", "usa" },
             };
             // Built by the make's European arm, or under another make's badge.
             bool OriginException(CarSpec x) =>
