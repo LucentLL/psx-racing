@@ -140,6 +140,9 @@ def wiper_parts(obs, integ, parts):
     """The arms and blades as parts, their layout entries, and the phase maps copied. [] before v10."""
     block = _find(integ, "wipers") or {}
     entries = block if isinstance(block, list) else [v for v in block.values() if isinstance(v, dict)] if isinstance(block, dict) else []
+    # (cars-1127) the v25 form: wipers.arms[] (one entry per arm, its stroke and its blades)
+    if isinstance(block, dict) and isinstance(block.get("arms"), list):
+        entries = [e for e in block["arms"] if isinstance(e, dict)] + entries
     out = []
     for side in WIPER_SIDES:
         arm = obs.get("Wiper_%s_Arm" % side)
@@ -174,6 +177,40 @@ def wiper_parts(obs, integ, parts):
              "armPivot": v3(origin), "armAxis": v3(axis_local),
              "armRot": {"x": round(qa.x, 6), "y": round(qa.y, 6), "z": round(qa.z, 6), "w": round(qa.w, 6)},
              "strokeDeg": round(stroke, 4), "armSign": -1.0, "phaseLag": round(lag, 4)}
+        # (cars-1127, v25) the blade in HALVES: wipers.arms[].blades[] = {node, axis_blender,
+        # angle_table_deg ["arm hinge", ...]}; each half is its own part on its own hinge (the
+        # node's origin, parented to the arm), turned like the arm (game = -Blender) by its table.
+        halves = ent.get("blades") if isinstance(ent, dict) and isinstance(ent.get("blades"), list) else []
+        for be in halves:
+            node = obs.get(str(be.get("node", "")))
+            if node is None or node.type != 'MESH':
+                print("[V08] WARNING: blade half %s missing in the blend" % be.get("node"))
+                continue
+            bo, BR = frame_of(node)
+            hb = _axis_letter(_find(be, "hinge_axis_blender", "axis_blender") or "Z")
+            HB = (node.matrix_world.to_3x3().normalized() @ hb).normalized()
+            suffix = node.name.split("_")[-1].lower()
+            name_b = "wiper_%s_blade_%s" % (side.lower(), suffix)
+            parts.append(pack_part(name_b, mesh_tris(node, pivot_map(bo, BR), uv_for)))
+            qb = BR.to_quaternion()
+            pairs = []
+            for row in (_find(be, "angle_table_deg", "hinge_table", "table") or []):
+                if isinstance(row, str):
+                    f = row.replace(",", " ").split()
+                    if len(f) >= 2:
+                        pairs.append((float(f[0]), float(f[1])))
+                elif isinstance(row, dict):
+                    a_, h_ = _find(row, "arm_deg", "arm", "arm_angle"), _find(row, "hinge_deg", "hinge", "hinge_angle")
+                    if a_ is not None and h_ is not None:
+                        pairs.append((float(a_), float(h_)))
+                elif isinstance(row, (list, tuple)) and len(row) >= 2:
+                    pairs.append((float(row[0]), float(row[1])))
+            pairs.sort()
+            d.setdefault("blades", []).append({
+                "part": name_b, "pivot": v3(bo), "axis": v3((BR.transposed() @ B2U(HB)).normalized()),
+                "rot": {"x": round(qb.x, 6), "y": round(qb.y, 6), "z": round(qb.z, 6), "w": round(qb.w, 6)},
+                "hingeArmDeg": [round(a_, 4) for a_, _ in pairs], "hingeDeg": [round(-h_, 4) for _, h_ in pairs]})
+            print("[V08] wiper %-9s blade half %s: hinge table %d rows, %d tris" % (side, suffix, len(pairs), len(node.data.polygons)))
         blade = obs.get("Wiper_%s_Blade" % side)
         if blade is not None and blade.type == 'MESH':
             bo, BR = frame_of(blade)

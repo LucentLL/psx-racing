@@ -406,7 +406,7 @@ namespace PSXRacing
         static Texture2D phaseTex;
         static readonly int PhaseTexId = Shader.PropertyToID("_WiperPhase"), WiperDrawId = Shader.PropertyToID("_WiperDraw");
         /// <summary>The modelled wipers (v10 Wiper_* nodes), when the cockpit has them.</summary>
-        struct ModelWiper { public Transform arm, blade; public CockpitModel.WiperDef def; public Quaternion bladeRest; }
+        struct ModelWiper { public Transform arm, blade; public CockpitModel.WiperDef def; public Quaternion bladeRest; public Transform[] halves; public Quaternion[] halfRest; }
         ModelWiper[] modelWipers;
         /// <summary>True when this cabin draws modelled wipers (and the glass no blades).</summary>
         public bool HasModelWipers => modelWipers != null && modelWipers.Length > 0;
@@ -442,6 +442,15 @@ namespace PSXRacing
                     Vector3 ba = d.bladeAxis.sqrMagnitude > 1e-6f ? d.bladeAxis.normalized : Vector3.up;
                     m.blade.localRotation = m.bladeRest * Quaternion.AngleAxis(h, ba);
                 }
+                // (cars-1127) v25: the blade's two halves, each on its own hinge and table
+                if (m.halves != null)
+                    for (int i = 0; i < m.halves.Length; i++)
+                    {
+                        var bd = d.blades[i];
+                        if (m.halves[i] == null || bd.hingeArmDeg == null || bd.hingeDeg == null || bd.hingeArmDeg.Length == 0 || bd.hingeArmDeg.Length != bd.hingeDeg.Length) continue;
+                        Vector3 ha = bd.axis.sqrMagnitude > 1e-6f ? bd.axis.normalized : Vector3.up;
+                        m.halves[i].localRotation = m.halfRest[i] * Quaternion.AngleAxis(Hinge(bd.hingeArmDeg, bd.hingeDeg, deg), ha);
+                    }
             }
         }
 
@@ -487,7 +496,26 @@ namespace PSXRacing
                     blade.localRotation = bladeRest;
                     Place(parts, d.bladePart, blade);
                 }
-                list.Add(new ModelWiper { arm = arm, blade = blade, def = d, bladeRest = bladeRest });
+                Transform[] halves = null; Quaternion[] halfRest = null;
+                if (d.blades != null && d.blades.Length > 0)
+                {
+                    halves = new Transform[d.blades.Length]; halfRest = new Quaternion[d.blades.Length];
+                    var inv = Quaternion.Inverse(d.armRot);
+                    for (int i = 0; i < d.blades.Length; i++)
+                    {
+                        var bd = d.blades[i];
+                        if (bd == null || string.IsNullOrEmpty(bd.part) || !parts.ContainsKey(bd.part)) continue;
+                        var h = new GameObject("Wiper_" + d.key + "_Hinge" + i).transform;
+                        h.gameObject.layer = gameObject.layer;
+                        h.SetParent(arm, false);
+                        h.localPosition = inv * (bd.pivot - d.armPivot);
+                        halfRest[i] = inv * bd.rot;
+                        h.localRotation = halfRest[i];
+                        Place(parts, bd.part, h);
+                        halves[i] = h;
+                    }
+                }
+                list.Add(new ModelWiper { arm = arm, blade = blade, def = d, bladeRest = bladeRest, halves = halves, halfRest = halfRest });
             }
             if (list.Count == 0) return;
             modelWipers = list.ToArray();

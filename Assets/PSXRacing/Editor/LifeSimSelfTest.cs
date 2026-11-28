@@ -12083,7 +12083,8 @@ namespace PSXRacing.EditorTools
                     foreach (var n in need) if (parts.ContainsKey(n)) have++;
                 if (parts != null && parts.TryGetValue("cabin", out var cab))
                     for (int sm = 0; sm < cab.mesh.subMeshCount; sm++) cabinTris += (int)cab.mesh.GetIndexCount(sm) / 3;
-                Check(have == need.Length && cabinTris > 50000 && lay != null,
+                // cars-1127: the v25 cockpit (11-26) draws its cabin in 25,218 tris (v09: 55,169); a cabin under 20,000 is a lost part
+                Check(have == need.Length && cabinTris > 20000 && lay != null,
                       "cockpit v08: every part of the owner's model loads (cabin, mirror, wheel, hands, 4 gauges, 4 panes)",
                       have + "/" + need.Length + " parts, cabin " + cabinTris + " tris");
                 Check(Shader.Find("PSX/Cabin") != null && Shader.Find("PSX/CabinGauge") != null && Shader.Find("PSX/CabinGlass") != null
