@@ -68,11 +68,13 @@ namespace PSXRacing
             // player does not contain; held at 0 here as well, at boot and on every flip
             Shader.SetGlobalFloat(IdMaskId, 0f);
             Shader.SetGlobalFloat(CabinSplitId, 0f);
+            Shader.SetGlobalFloat(LeafDiagId, 0f);
 #endif
         }
 #if !UNITY_EDITOR
         static readonly int IdMaskId = Shader.PropertyToID("_PSXIdMask");
         static readonly int CabinSplitId = Shader.PropertyToID("_PSXCabinSplit");
+        static readonly int LeafDiagId = Shader.PropertyToID("_PSXLeafDiag");
 #endif
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]

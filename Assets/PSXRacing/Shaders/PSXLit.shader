@@ -148,6 +148,8 @@ Shader "PSX/Lit"
         [HideInInspector] _PSXGrowFoot ("Grow foot", Vector) = (0,0,0,0)
         // (leaflight) the crown's frame (MeshForest sets it on its draw copies): xyz the plant's foot in object space, w its height per unit of the matrix scale; w 0 = the origin and LEAF_H_M
         [HideInInspector] _PSXCrownFrame ("Crown frame", Vector) = (0,0,0,0)
+        // (leaflight round 2) the crown's shape from the species' leaf bounds, shares of its height: x centre, y half width, z half height
+        [HideInInspector] _PSXCrownBox ("Crown box", Vector) = (0,0,0,0)
         // x > 0: a tree's far card, lit as its crown (the vertex light's normal is
         // x times the direction to the eye from the tree, plus y straight up);
         // z = n > 0 (PSX_LODFADE): the card turns to the eye, its sheet n views in a row
@@ -492,6 +494,7 @@ Shader "PSX/Lit"
             float4 _PSXFarGrow;
             float4 _PSXGrowFoot;
             float4 _PSXCrownFrame;
+            float4 _PSXCrownBox;
             float4 _PSXCrownCard;
             // the pop measure's LOD eye (MeshForest.LodEyeOn, a global): w > 0.5 =
             // the forest's levels and rings as seen from xyz, not from the camera
@@ -849,30 +852,76 @@ Shader "PSX/Lit"
             #define LEAF_CY         0.60    // the crown's centre, a share of the height
             #define LEAF_RX         0.30    // its half width, a share of the height
             #define LEAF_RY         0.36    // its half height
+            #define LEAF_BOX_GROW   1.10    // (round 2) the leaf bounds' half sizes to the spheroid's (a box's corners lie past its inscribed spheroid)
             #define LEAF_WRAP       0.10
             #define LEAF_DENS       1.40    // the crown's leaf density: the sun through a crown's whole width (2 units) x exp(-2.8)
-            #define LEAF_CORE_SKY   0.30    // the sky reaching a leaf at the crown's centre, 1 at the shell
-            #define LEAF_LOW_SKY    0.45    // the sky at the foot of the crown, 1 at its top
+            #define LEAF_CORE_SKY   0.25    // the sky reaching a leaf at the crown's centre, 1 at the shell
+            #define LEAF_LOW_SKY    0.35    // the sky at the foot of the crown, 1 at its top
             #define LEAF_THRU       0.65    // light through a leaf straight toward the sun
             #define LEAF_CARD_CORE  0.88    // a far card's crown: the mean core term its mesh's SEEN leaves take
-            #define LEAF_GAIN       1.30    // the sunlit side's gain (a leaf square to the sun at the shell)
-            #define LEAF_SKY_SEEN   0.60    // the share of the sky a crown's leaf sees (the rest is its crown and its neighbours); a road sees it all
+            #define LEAF_GAIN       1.50    // the sunlit side's gain (a leaf square to the sun at the shell)
+            #define LEAF_BARK_SKY   0.50    // (round 2) a trunk's sky under the canopy
+            #define LEAF_BARK_SUN   0.35    // and its sun through the canopy, past the shadow map
+            #define LEAF_ALBEDO_CUT 0.30    // (round 2) by day the leaf colour gains' lift taken out (the rows TREE COLOUR / NO GLOW inert)
+            #define LEAF_BACK_SKY   0.30    // (round 2) the sky left on a crown seen against a low sun
+            #define LEAF_SKY_SEEN   0.30    // the share of the sky a crown's leaf sees (the rest is its crown and its neighbours); a road sees it all
             #define LEAF_FAR_SHADE  0.25    // the share of trees standing in a neighbour's shade (sun x LEAF_NBR_SUN), more at a low sun
             #define LEAF_NBR_SUN    0.45
-            #define LEAF_BOUNCE     0.07    // the sun let through and between the leaves into a crown's shade: it takes the LEAVES' colour
+            #define LEAF_BOUNCE     0.020    // the sun let through and between the leaves into a crown's shade: it takes the LEAVES' colour
                                             // (his photographs: shaded leaves deep red and copper, sat 0.78-0.83, never blue-grey)
 
             // sunL, ambL out: the leaf's sun and sky light (the hour's colours in them; the shadow map still acts on sunL).
             // wpos the pixel, nLeaf its face's normal, crown xyz the tree's foot (w its height in m; 0 = no crown frame:
             // a merged card mesh, lit as the mean of a crown), card 1 = a far card turned to the eye, rnd the tree's number.
-            void PSXLeafLight(float3 wpos, float3 nLeaf, float4 crown, float card, float rnd, out float3 sunL, out float3 ambL, out float bounce)
+            // (leaflight round 2) THE TERMS APART for the tools' false-colour pass (_PSXLeafDiag, Editor only):
+            // [0] the crown's own shade (selfT, or the map where it reaches), [1] the facing, [2] the sky share,
+            // [3] the neighbours (nbr x tree), [4] the light through, [5..7] the frame (shell r, height hN, has a frame)
+            static float gLeafDbg[8];
+            float _PSXLeafDiag;
+            // (leaflight round 2) THE SUN'S SHADOW MAP ON A LEAF: leaf on leaf, tree on tree, near the eye. PSXSunShadow
+            // gives a cutout receiver no shade from leaves (a tree card in its own shadow); here a crown's leaf takes it,
+            // tested a little toward the sun (LEAF_MAP_LIFT: past its own card's plane, so a crown is not acne) and
+            // through the leaves at LEAF_MAP_THRU. Only the LEAF channel: the solids are PSXSunShadow's already.
+            // w out: how much to trust it (the map's strength and rim, faded out by LEAF_MAP_FAR to the crown's model).
+            #define LEAF_MAP_LIFT   1.20
+            #define LEAF_MAP_THRU   0.10
+            #define LEAF_MAP_NEAR   100.0
+            #define LEAF_MAP_FAR    150.0
+            float PSXLeafMapVis(float3 wpos, float eyeDist, out float w)
+            {
+                w = 0.0;
+                float strength = _PSXShadowParams.x;
+                if (strength <= 0.001) return 1.0;
+                float3 L = normalize(_PSXLightDir.xyz);
+                float3 s = mul(_PSXShadowMatrix, float4(wpos + L * LEAF_MAP_LIFT, 1.0)).xyz;
+                float2 fromMid = abs(s.xy - 0.5) * 2.0;
+                float rim = saturate((1.0 - max(fromMid.x, fromMid.y)) * PSX_SHADOW_RIM);
+                if (rim <= 0.0 || s.z >= 1.0 || s.z <= 0.0) return 1.0;
+                float res = _PSXShadowParams.y;
+                float2 tt = s.xy * res - 0.5;
+                float2 f = frac(tt);
+                float2 uv0 = (floor(tt) + 0.5) / res;
+                float st = 1.0 / res;
+                float z = s.z - _PSXShadowParams.w;
+                float a = lerp(LEAF_MAP_THRU, 1.0, step(z, PSXShadowTexel(_PSXShadowMap, uv0).y));
+                float b = lerp(LEAF_MAP_THRU, 1.0, step(z, PSXShadowTexel(_PSXShadowMap, uv0 + float2(st, 0.0)).y));
+                float c = lerp(LEAF_MAP_THRU, 1.0, step(z, PSXShadowTexel(_PSXShadowMap, uv0 + float2(0.0, st)).y));
+                float d = lerp(LEAF_MAP_THRU, 1.0, step(z, PSXShadowTexel(_PSXShadowMap, uv0 + float2(st, st)).y));
+                w = strength * rim * (1.0 - smoothstep(LEAF_MAP_NEAR, LEAF_MAP_FAR, eyeDist));
+                return lerp(lerp(a, b, f.x), lerp(c, d, f.x), f.y);
+            }
+
+            void PSXLeafLight(float3 wpos, float3 nLeaf, float4 crown, float card, float rnd, float mapVis, float mapW, out float3 sunL, out float3 ambL, out float bounce)
             {
                 float3 L = normalize(_PSXLightDir.xyz);
                 float3 eye = _WorldSpaceCameraPos;
                 float3 vDir = normalize(wpos - eye);
                 float H = max(crown.w, 1.0);
                 float3 rel = wpos - crown.xyz;
-                float3 q = float3(rel.x / (LEAF_RX * H), (rel.y - LEAF_CY * H) / (LEAF_RY * H), rel.z / (LEAF_RX * H));
+                // (round 2) the species' own crown (MeshForest: its leaves' bounds) where it is known
+                float cy = LEAF_CY, rx = LEAF_RX, ry = LEAF_RY;
+                if (_PSXCrownBox.y > 0.0) { cy = _PSXCrownBox.x; rx = _PSXCrownBox.y * LEAF_BOX_GROW; ry = _PSXCrownBox.z * LEAF_BOX_GROW; }
+                float3 q = float3(rel.x / (rx * H), (rel.y - cy * H) / (ry * H), rel.z / (rx * H));
                 float hN = saturate(rel.y / H);
                 if (crown.w <= 0.0)
                 {
@@ -900,7 +949,7 @@ Shader "PSX/Lit"
                 float qL = dot(q, L), qq = dot(q, q);
                 float disc = qL * qL - (qq - 1.0);
                 float path = qq <= 1.0 ? (-qL + sqrt(max(disc, 0.0))) : ((qL < 0.0 && disc > 0.0) ? 2.0 * sqrt(disc) : 0.0);
-                float selfT = exp(-LEAF_DENS * path);
+                float selfT = lerp(exp(-LEAF_DENS * path), mapVis, mapW);
                 // the low sun: the lower crown in the neighbours' shade, the forest lit at its tops
                 float lowSun = 1.0 - smoothstep(0.08, 0.65, L.y);
                 float nbr = lerp(1.0, smoothstep(0.15, 0.95, hN), lerp(0.35, 1.0, lowSun));
@@ -913,7 +962,9 @@ Shader "PSX/Lit"
                 float VL = saturate(dot(vDir, L));
                 float rim = 1.0 - abs(dot(cN, -vDir));
                 float thru = VL * VL * VL * VL * (0.2 + 0.8 * rim * rim) * LEAF_THRU;
-                float sunK = (selfT * lerp(0.55, 1.0, sd) + thru * shell) * nbr * tree * grazing * LEAF_GAIN;
+                // (round 2) the facing at its full range: the crown's far side has no sun (it had 0.55 of it - with the sky
+                // and the bounce that was round 1's flat crown: a spread of 3 where his photographs read 16-24)
+                float sunK = (selfT * sd + thru * shell) * nbr * tree * grazing * LEAF_GAIN;
                 sunL = _PSXLightColor.rgb * sunK;
                 // the shade's own light: the sun through and off the sunlit leaves round it (a share of the sun's
                 // luminance; the caller tints it by the leaf's colour), none where the leaf is in the sun itself
@@ -921,7 +972,13 @@ Shader "PSX/Lit"
                 // the sky: the sky's colour from above, the plain ambient from the side and below (as every surface),
                 // less inside the crown and low on it
                 float up = saturate(cN.y * 0.5 + 0.5);
-                ambL = lerp(_PSXAmbient.rgb, _PSXSkyAmbient.rgb, up) * LEAF_SKY_SEEN * (lerp(LEAF_CORE_SKY, 1.0, shell) * lerp(LEAF_LOW_SKY, 1.0, hN) * lerp(0.45, 1.0, up));
+                // (round 2) a crown between the eye and a low sun: the face the eye sees is the one the sky behind it
+                // does not light - toward a silhouette (the sky's glow is what the eye sees round it)
+                float backK = lerp(1.0, LEAF_BACK_SKY, lowSun * smoothstep(0.3, 0.9, VL));
+                float skyK = LEAF_SKY_SEEN * (lerp(LEAF_CORE_SKY, 1.0, shell) * lerp(LEAF_LOW_SKY, 1.0, hN) * lerp(0.45, 1.0, up)) * backK;
+                ambL = lerp(_PSXAmbient.rgb, _PSXSkyAmbient.rgb, up) * skyK;
+                gLeafDbg[0] = selfT; gLeafDbg[1] = sd; gLeafDbg[2] = skyK; gLeafDbg[3] = nbr * tree;
+                gLeafDbg[4] = thru; gLeafDbg[5] = saturate(r); gLeafDbg[6] = hN; gLeafDbg[7] = crown.w > 0.0 ? (card > 0.5 ? 0.5 : 1.0) : 0.0;
             }
 
             // THE WET ROAD (the NIGHT PASS in the header): its numbers, the
@@ -2643,7 +2700,11 @@ Shader "PSX/Lit"
                 // scaled as a whole, so its hue and saturation (the fall's red, orange and gold) are kept.
                 // Off at night (_PSXNight 1): the night picture is the bit-for-bit same. The foliage path only
                 // (_LeafVivid.z): fences, signs, poles and bark are not touched.
-                if (_LeafVivid.z > 0.5 && _PSXLookOff2.y < 0.5)
+                // (leaflight round 2) with TREES: SUN AND SHADE on, this row is inert: the leaf light decides, and the
+                // colour gains' lift by day is taken out here by its own LEAF_ALBEDO_CUT (night: x1, the same picture)
+                if (_LeafVivid.z > 0.5 && _PSXLookOff2.w < 0.5)
+                    tex.rgb *= 1.0 - LEAF_ALBEDO_CUT * saturate((1.0 - _PSXNight) * 8.0);
+                else if (_LeafVivid.z > 0.5 && _PSXLookOff2.y < 0.5)
                 {
                     float calmK = _PSXLookOff2.z > 0.0 ? _PSXLookOff2.z : TREE_CALM_K;
                     tex.rgb *= 1.0 - calmK * saturate((1.0 - _PSXNight) * 8.0);
@@ -2967,7 +3028,20 @@ Shader "PSX/Lit"
                 #endif
                     float3 lfSun, lfAmb;
                     float lfBounce;
-                    PSXLeafLight(i.wpos, normalize(i.wnrm), lfCrown, lfCard, lfRnd, lfSun, lfAmb, lfBounce);
+                    float lfMapW;
+                    float lfMap = PSXLeafMapVis(i.wpos, eyeDist, lfMapW);
+                    PSXLeafLight(i.wpos, normalize(i.wnrm), lfCrown, lfCard, lfRnd, lfMap, lfMapW, lfSun, lfAmb, lfBounce);
+                    // (round 2, tools only) one term alone in false colour: 1 the crown's shade, 2 the facing, 3 the sky
+                    // share, 4 the neighbours, 5 the light through (x4), 6 the frame (r shell, g height, b 1 mesh /
+                    // 0.5 far card / 0 none), 7 the map's say (r its sun, g its weight)
+                    if (_PSXLeafDiag > 0.5)
+                    {
+                        int dm = (int)(_PSXLeafDiag + 0.5);
+                        if (dm == 6) return fixed4(gLeafDbg[5], gLeafDbg[6], gLeafDbg[7], 1.0);
+                        if (dm == 7) return fixed4(lfMap, lfMapW, 0.0, 1.0);
+                        float dv = dm == 1 ? gLeafDbg[0] : dm == 2 ? gLeafDbg[1] : dm == 3 ? gLeafDbg[2] : dm == 4 ? gLeafDbg[3] : saturate(gLeafDbg[4] * 4.0);
+                        return fixed4(dv, dv, dv, 1.0);
+                    }
                     // the shade's light in the leaf's own colour (its chroma at unit luminance, held to 2.2x a channel)
                     float lfLum = max(dot(tex.rgb, float3(0.2126, 0.7152, 0.0722)), 0.02);
                     lfAmb += min(tex.rgb / lfLum, 2.2) * lfBounce;
@@ -2976,6 +3050,18 @@ Shader "PSX/Lit"
                     sunIn = lerp(sunIn, lfSun * lfVar, lfDay);
                     ambIn = lerp(ambIn, lfAmb * lfVar, lfDay);
                 }
+            #ifdef PSX_LODFADE
+                // (leaflight round 2) A TRUNK UNDER ITS CROWN: a forest tree's bark (the same draw's frame, not a leaf)
+                // sees the sky round its crown and its neighbours' (LEAF_BARK_SKY), and past the leaf shadow map's
+                // reach the sun as the forest's mean through the leaves (near the eye the map already patterns it)
+                if (_LeafVivid.z < 0.5 && i.crownF.w > 0.0 && _PSXLookOff2.w < 0.5 && _PSXSunModel > 0.5 && _PSXNight < 0.999)
+                {
+                    float bkW; PSXLeafMapVis(i.wpos, eyeDist, bkW);
+                    float bkDay = saturate((1.0 - _PSXNight) * 8.0);
+                    ambIn *= lerp(1.0, LEAF_BARK_SKY, bkDay);
+                    sunIn *= lerp(1.0, LEAF_BARK_SUN, (1.0 - bkW) * bkDay);
+                }
+            #endif
             #ifdef PSX_HD
                 // the sun at THIS pixel's normal: the vertex's sun, scaled by how
                 // much more (or less) the mapped normal faces it than the face

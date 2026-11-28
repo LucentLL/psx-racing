@@ -370,7 +370,12 @@ namespace PSXRacing.EditorTools
 
             foreach (var vname in RainLookShots.Env("RL_VIEWS", "Chase").Split(','))
             {
-                if (!System.Enum.TryParse(vname.Trim(), true, out ChaseCamera.View v)) continue;
+                // (leaflight round 2) TreeL / TreeR / TreeSun / Far40 / Far300: the chase camera stood still at the car,
+                // 1.6 m up, looking square to the sun (L, R), toward it, or square to it through a narrow lens
+                string vn = vname.Trim();
+                bool custom = vn.StartsWith("Tree") || vn.StartsWith("Far");
+                ChaseCamera.View v = ChaseCamera.View.Chase;
+                if (!custom && !System.Enum.TryParse(vn, true, out v)) continue;
                 Time.timeScale = 1f; VolumetricClouds.Paused = false;
                 ChaseCamera.PreviewView(v);
                 for (float t1 = Time.realtimeSinceStartup; Time.realtimeSinceStartup - t1 < 4f;) { if (standSet) car.ResetTo(standPos, standRot, seated: true); car.brakeInput = 1f; yield return null; }
@@ -384,9 +389,40 @@ namespace PSXRacing.EditorTools
                     }
                 Time.timeScale = 0f; VolumetricClouds.Paused = true;
                 yield return Settle();
-                string b = Path.Combine(outDir, "EDITOR_" + tag + "_" + v);
+                MonoBehaviour chaseCam = null; float fovWas = Camera.main.fieldOfView;
+                if (custom)
+                {
+                    chaseCam = Camera.main.GetComponent<ChaseCamera>();
+                    if (chaseCam == null) chaseCam = FindAnyObjectByType<ChaseCamera>();
+                    if (chaseCam != null) chaseCam.enabled = false;
+                    Vector3 sun = Shader.GetGlobalVector("_PSXLightDir");
+                    var sf = new Vector3(sun.x, 0f, sun.z); sf = sf.sqrMagnitude > 1e-6f ? sf.normalized : car.transform.forward;
+                    float sunEl = Mathf.Asin(Mathf.Clamp(sun.normalized.y, -1f, 1f)) * Mathf.Rad2Deg;
+                    Vector3 side = Vector3.Cross(Vector3.up, sf);
+                    Vector3 dir = vn == "TreeL" ? side : vn == "TreeR" ? -side : vn == "TreeSun" ? sf : side;
+                    float pitch = vn == "TreeSun" ? Mathf.Clamp(sunEl * 0.6f, 2f, 20f) : vn.StartsWith("Far") ? 2f : 14f;
+                    float fov = vn == "Far300" ? 6f : vn == "Far40" ? 24f : 60f;
+                    float.TryParse(RainLookShots.Env("RL_TVPITCH", ""), NumberStyles.Float, CultureInfo.InvariantCulture, out float pOv);
+                    if (pOv != 0f) pitch = pOv;
+                    Camera.main.transform.position = car.transform.position + Vector3.up * 1.6f;
+                    Camera.main.transform.rotation = Quaternion.LookRotation(dir, Vector3.up) * Quaternion.Euler(-pitch, 0f, 0f);
+                    Camera.main.fieldOfView = fov;
+                    Say($"{vn}: sun elevation {sunEl:0.0}, azimuth {Mathf.Atan2(sf.x, sf.z) * Mathf.Rad2Deg:0}, view {Mathf.Atan2(dir.x, dir.z) * Mathf.Rad2Deg:0} pitch {pitch:0} fov {fov:0}");
+                    yield return Settle();
+                }
+                string b = Path.Combine(outDir, "EDITOR_" + tag + "_" + (custom ? vn : v.ToString()));
                 SetAll(true); yield return Settle();
                 var pNew = Grab(); File.WriteAllBytes(b + "_NEW.png", pNew);
+                // (leaflight round 2) RL_LEAFDIAG=1: each term of the leaf light alone in false colour (PSX/Lit _PSXLeafDiag)
+                if (RainLookShots.Env("RL_LEAFDIAG", "0") == "1")
+                {
+                    for (int k = 1; k <= 7; k++)
+                    {
+                        Shader.SetGlobalFloat("_PSXLeafDiag", k); yield return Settle();
+                        File.WriteAllBytes(b + "_LD" + k + ".png", Grab());
+                    }
+                    Shader.SetGlobalFloat("_PSXLeafDiag", 0f); yield return Settle();
+                }
                 // (round 4) RL_CALMKS=0.15,0.6: NEW again at those TREE COLOUR strengths (the range)
                 foreach (var ks in RainLookShots.Env("RL_CALMKS", "").Split(','))
                 {
@@ -429,6 +465,7 @@ namespace PSXRacing.EditorTools
                     }
                 SetAll(true); yield return Settle();
                 var pBack = Grab();
+                if (custom) { if (chaseCam != null) chaseCam.enabled = true; Camera.main.fieldOfView = fovWas; }
                 Say($"{v}: frames written (wiper s {CockpitInterior.WiperS:0.00}, cockpit glass {CockpitInterior.GlassShowing}, eye {Camera.main.transform.position.x:0.0},{Camera.main.transform.position.y:0.0},{Camera.main.transform.position.z:0.0})");
 
                 // THE COST: each row OLD and NEW in alternating blocks, one process, the frame waited for
