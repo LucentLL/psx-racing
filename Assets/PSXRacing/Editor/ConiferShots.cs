@@ -27,6 +27,7 @@ namespace PSXRacing.EditorTools
         internal static string OutDir => Env("CS_OUT", Path.Combine(Path.GetDirectoryName(Application.dataPath), "Screenshots", "conifers"));
         internal static string Stage => Env("CS_STAGE", "BeechGap");
         const string Dir = "Assets/MountainConifers";
+        internal static readonly Dictionary<string, Vector3[]> FoliageVerts = new Dictionary<string, Vector3[]>();
 
         /// <summary>The files against the brief, then the one stage built with the switch.</summary>
         public static void BuildStage()
@@ -259,6 +260,26 @@ namespace PSXRacing.EditorTools
                 return;
             }
             EditorSceneManager.OpenScene(scenes[s].path);
+            // the conifers' LOD0 needle vertices, read now (edit mode) for the road-clearance check in play
+            FoliageVerts.Clear();
+            var mfo = Object.FindAnyObjectByType<MeshForest>();
+            if (mfo != null && mfo.variants != null)
+                foreach (var vr in mfo.variants)
+                {
+                    if (vr == null || !vr.conifer || vr.lods == null || vr.lods[0] == null) continue;
+                    int leaf = System.Array.IndexOf(vr.leafSub, true);
+                    if (leaf < 0 || FoliageVerts.ContainsKey(vr.lods[0].name)) continue;
+                    using (var arr = Mesh.AcquireReadOnlyMeshData(vr.lods[0]))
+                    {
+                        var d0 = arr[0];
+                        var vs = new NativeArray<Vector3>(d0.vertexCount, Allocator.Temp); d0.GetVertices(vs);
+                        var ix = new NativeArray<int>(d0.GetSubMesh(leaf).indexCount, Allocator.Temp); d0.GetIndices(ix, leaf);
+                        var used = new HashSet<int>(ix.ToArray());
+                        var list = new List<Vector3>(); foreach (int k in used) list.Add(vs[k]);
+                        FoliageVerts[vr.lods[0].name] = list.ToArray();
+                        vs.Dispose(); ix.Dispose();
+                    }
+                }
             RaceHandoff.ClearAll();
             RaceHandoff.FromLifeSim = true;
             RaceHandoff.FreeRoam = false;
@@ -305,7 +326,8 @@ namespace PSXRacing.EditorTools
         void Update() { if (hardStop > 0f && Time.realtimeSinceStartup > hardStop) { Say("TIMEOUT"); Flush(); EditorApplication.Exit(1); } }
         void Say(string s) { rep.AppendLine(s); Debug.Log("[ConiferShots] " + s); }
         void Flush() { try { File.WriteAllText(Path.Combine(outDir, "report.txt"), rep.ToString()); } catch { } }
-        void OnLog(string msg, string stack, LogType type) { if (msg != null && msg.Contains("[MasterOut] test run: the sound is muted")) muted++; }
+        void OnLog(string msg, string stack, LogType type) { if (msg != null && msg.Contains("[MasterOut] test run: the sound is muted")) muted++; if (type == LogType.Exception && !failed && stack != null && stack.Contains("ConiferShots")) { failed = true; Say("EXCEPTION: " + msg + " " + stack); Flush(); EditorApplication.Exit(1); } }
+        bool failed;
         void Awake() { Application.logMessageReceived += OnLog; }
 
         IEnumerator Settle() { for (int i = 0; i < 4; i++) yield return null; float t1 = Time.realtimeSinceStartup; while (Time.realtimeSinceStartup - t1 < 0.25f) yield return null; }
@@ -356,7 +378,7 @@ namespace PSXRacing.EditorTools
         IEnumerator Start()
         {
             DontDestroyOnLoad(gameObject);
-            hardStop = Time.realtimeSinceStartup + 2400f;
+            hardStop = Time.realtimeSinceStartup + 1800f;
             outDir = ConiferShots.OutDir;
             Directory.CreateDirectory(outDir);
             for (float t0 = Time.realtimeSinceStartup; Time.realtimeSinceStartup - t0 < 200f;)
@@ -446,7 +468,7 @@ namespace PSXRacing.EditorTools
             // road clearance: LOD0 foliage of every conifer within 20 m of the centre line
             float half = path.roadWidth * 0.5f;
             int nearN = 0, intrude = 0; float lowest = 99f;
-            var meshCache = new Dictionary<Mesh, (Vector3[] v, int[] t)>();
+
             foreach (int i in conInst)
             {
                 var p = InstPos(i);
@@ -458,20 +480,9 @@ namespace PSXRacing.EditorTools
                 var mesh = vr.lods[0];
                 int leaf = System.Array.IndexOf(vr.leafSub, true);
                 if (mesh == null || leaf < 0) continue;
-                if (!meshCache.TryGetValue(mesh, out var md))
-                {
-                    using (var arr = Mesh.AcquireReadOnlyMeshData(mesh))
-                    {
-                        var d0 = arr[0];
-                        var vs = new NativeArray<Vector3>(d0.vertexCount, Allocator.Temp); d0.GetVertices(vs);
-                        var ix = new NativeArray<int>(d0.GetSubMesh(leaf).indexCount, Allocator.Temp); d0.GetIndices(ix, leaf);
-                        var used = new HashSet<int>(ix.ToArray());
-                        var list = new List<Vector3>(); foreach (int k in used) list.Add(vs[k]);
-                        md = (list.ToArray(), null);
-                        vs.Dispose(); ix.Dispose();
-                    }
-                    meshCache[mesh] = md;
-                }
+                // (read in edit mode before play: a non-readable mesh's data is closed in play mode)
+                if (!ConiferShots.FoliageVerts.TryGetValue(mesh.name, out var fv)) continue;
+                var md = (v: fv, t: (int[])null);
                 var M = InstMatrix(i);
                 bool hit = false;
                 for (int k = 0; k < md.v.Length; k += 2)
