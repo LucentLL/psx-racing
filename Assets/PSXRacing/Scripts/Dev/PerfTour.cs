@@ -183,6 +183,9 @@ namespace PSXRacing
         // ------------------------------------------------------------------
         static LifeState S => LifeSimManager.State;
 
+        /// <summary>The tours' own car (the one the seeded starter roll gave up to PC86).</summary>
+        public const string TourCarId = "sileighty__98";
+
         static void SeedCareer()
         {
             Random.InitState(1104);   // the same starter car (the coin flip in CarMarket.PickStarters) every run
@@ -190,7 +193,16 @@ namespace PSXRacing
                 LifeSimManager.StartNewGame("PERF TOUR", 30, LifeRules.DefaultJobIndex);
             if (S.cars.Count == 0)
             {
+                // (cars-1127 round 3) THE TOUR'S CAR BY KEY, NOT BY POSITION. StartNewGame's draws
+                // depend on the catalogue's size, so a catalogue row appended (the `96 pony coupe)
+                // moved the seeded starter from the SILEIGHTY `98 to a Silvia Q's `88 and every
+                // later draw with it. Reseeded here, after the career exists, and the car named:
+                // PSX_TOUR_CAR=<catalog id> picks another; a missing id keeps the rolled lane.
+                Random.InitState(1104);
                 var lanes = CarMarket.RollStartingLanes(S.basePay, S.creditScore);
+                string want = System.Environment.GetEnvironmentVariable("PSX_TOUR_CAR");
+                var pinned = CarCatalog.Get(string.IsNullOrEmpty(want) ? TourCarId : want);
+                if (lanes.Count > 0 && pinned != null) lanes[0].spec = pinned;
                 if (lanes.Count > 0) CarMarket.ApplyStartingLane(S, lanes[0]);
                 else LifeRules.SeedFallbackCar(S);
             }
