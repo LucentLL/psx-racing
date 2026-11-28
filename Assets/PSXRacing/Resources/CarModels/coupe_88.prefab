@@ -54,28 +54,28 @@ MonoBehaviour:
   - coupe_88_green_512x256
   wheelMaterial: {fileID: 0}
   skinColors:
-  - {r: 0.3564474, g: 0.38808268, b: 0.3631242, a: 1}
+  - {r: 0.36260465, g: 0.39368066, b: 0.3687697, a: 1}
   bodyYaw: 180
-  bodyYOffset: -0.020965647
+  bodyYOffset: -0.020929543
   bodyZOffset: 0
-  wheelbase: 2.462799
-  trackWidth: 1.4607639
-  wheelRadius: 0.27855036
+  wheelbase: 2.4585
+  trackWidth: 1.4582131
+  wheelRadius: 0.27806395
   wheelMeshScale: 0.93
-  trackRear: 1.458773
-  tyreRadiusRear: 0.2995165
-  tyreWidthRear: 0.19901502
-  lowerBodyWidth: 1.686852
-  cowlZ: 0.8121296
-  cowlY: 0.8192767
-  noseZ: 2.195036
-  roofY: 1.2337891
-  headLamp: {x: 0.5805438, y: 0.573546, z: 1.9842293}
-  headLampNormal: {x: 0.33188823, y: -0.531379, z: 0.77941424}
-  headLampSize: {x: 0.48690772, y: 0.28}
-  tailLamp: {x: 0.56950104, y: 0.65694594, z: -2.1367004}
-  tailLampNormal: {x: 0.2389391, y: -0.024434019, z: -0.97072715}
-  tailLampSize: {x: 0.37135, y: 0.12585863}
+  trackRear: 1.4562271
+  tyreRadiusRear: 0.2989935
+  tyreWidthRear: 0.19866699
+  lowerBodyWidth: 1.71757
+  cowlZ: 0.8163339
+  cowlY: 0.81799394
+  noseZ: 2.1992402
+  roofY: 1.2316647
+  headLamp: {x: 0.5795308, y: 0.5725442, z: 1.9807653}
+  headLampNormal: {x: 0.3319003, y: -0.5313643, z: 0.77941906}
+  headLampSize: {x: 0.48605803, y: 0.28}
+  tailLamp: {x: 0.56737065, y: 0.65438306, z: -2.133211}
+  tailLampNormal: {x: 0.23894978, y: -0.024755642, z: -0.9707163}
+  tailLampSize: {x: 0.38042006, y: 0.11714545}
   lampsUpMesh: {fileID: 0}
   headLampUp: {x: 0, y: 0, z: 0}
   headLampUpNormal: {x: 0, y: 0, z: 1}
@@ -88,6 +88,17 @@ MonoBehaviour:
   coverMesh: {fileID: -2432090755550338912, guid: c7783d86390327c4987f558b0181bea0, type: 3}
   coverUpMesh: {fileID: 0}
   coverMaterial: {fileID: 2100000, guid: ad6887a3879287b4698b40c8a975559d, type: 2}
-  colliderCenter: {x: 0, y: 0.70361483, z: -0.03996408}
-  colliderSize: {x: 1.7135407, y: 0.99062014, z: 4.2688503}
-  blobSize: {x: 2.284721, y: 4.7829003}
+  bodyOpenMesh: {fileID: 0}
+  openingParts: []
+  coverOpenMesh: {fileID: 0}
+  hasEngineMount: 0
+  engineMountPos: {x: 0, y: 0, z: 0}
+  engineMountRot: {x: 0, y: 0, z: 0, w: 1}
+  engineLayout: 0
+  engineClearBox: []
+  engineDownpipe: {x: 0, y: 0, z: 0}
+  engineDownpipeSide: 0
+  kitMounts: []
+  colliderCenter: {x: 0, y: 0.70242095, z: -0.035760045}
+  colliderSize: {x: 1.7105504, y: 0.98889023, z: 4.2688503}
+  blobSize: {x: 2.280734, y: 4.7829003}

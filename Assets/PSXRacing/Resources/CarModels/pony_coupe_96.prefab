@@ -1,0 +1,104 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &4469503212368353371
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 8247706275973374746}
+  - component: {fileID: 8053253853206255125}
+  m_Layer: 0
+  m_Name: pony_coupe_96
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &8247706275973374746
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4469503212368353371}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &8053253853206255125
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4469503212368353371}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9003aa5af5df0914a836bf189308f6ae, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PSXRacing.CarModelDef
+  key: pony_coupe_96
+  displayName: Pony Coupe 96 (SN95)
+  bodyMesh: {fileID: -2432090755550338912, guid: a396436403b3e454aac347599c6c6dd2, type: 3}
+  wheelMesh: {fileID: 4300000, guid: f2f122f659e66594b9e95427d30cdd17, type: 2}
+  skinMaterials:
+  - {fileID: 2100000, guid: cccfdcf3c46b28e46a1675914fa4222f, type: 2}
+  skinNames:
+  - pony_coupe_96_blue_512x256
+  wheelMaterial: {fileID: 0}
+  skinColors:
+  - {r: 0.17023736, g: 0.26880115, b: 0.41087925, a: 1}
+  bodyYaw: 180
+  bodyYOffset: -0.025271766
+  bodyZOffset: 0
+  wheelbase: 2.576119
+  trackWidth: 1.517215
+  wheelRadius: 0.30954072
+  wheelMeshScale: 0.93
+  trackRear: 1.529196
+  tyreRadiusRear: 0.3328395
+  tyreWidthRear: 0.28646803
+  lowerBodyWidth: 1.839074
+  cowlZ: 0.8814363
+  cowlY: 0.9041912
+  noseZ: 2.307655
+  roofY: 1.3114772
+  headLamp: {x: 0.6133975, y: 0.5899467, z: 2.0927057}
+  headLampNormal: {x: 0.17611402, y: 0.46369773, z: 0.8683135}
+  headLampSize: {x: 0.3265972, y: 0.091884166}
+  tailLamp: {x: 0.62177753, y: 0.7715194, z: -2.1287417}
+  tailLampNormal: {x: 0.22225858, y: 0.00041517138, z: -0.9749876}
+  tailLampSize: {x: 0.30983323, y: 0.13848293}
+  lampsUpMesh: {fileID: 0}
+  headLampUp: {x: 0, y: 0, z: 0}
+  headLampUpNormal: {x: 0, y: 0, z: 1}
+  headLampUpSize: {x: 0, y: 0}
+  lensBodyMesh: {fileID: 0}
+  lensHeadMesh: {fileID: 0}
+  lensTailMesh: {fileID: 0}
+  lensHeadMaterial: {fileID: 0}
+  lensTailMaterial: {fileID: 0}
+  coverMesh: {fileID: -2432090755550338912, guid: 26ccff572f4832c44bf50e800b9ed280, type: 3}
+  coverUpMesh: {fileID: 0}
+  coverMaterial: {fileID: 2100000, guid: b6f5b03f6c252aa43a295d00cfb73b5a, type: 2}
+  bodyOpenMesh: {fileID: 0}
+  openingParts: []
+  coverOpenMesh: {fileID: 0}
+  hasEngineMount: 0
+  engineMountPos: {x: 0, y: 0, z: 0}
+  engineMountRot: {x: 0, y: 0, z: 0, w: 1}
+  engineLayout: 0
+  engineClearBox: []
+  engineDownpipe: {x: 0, y: 0, z: 0}
+  engineDownpipeSide: 0
+  kitMounts: []
+  colliderCenter: {x: 0, y: 0.7151417, z: 0.0026550293}
+  colliderSize: {x: 1.807147, y: 1.109825, z: 4.40255}
+  blobSize: {x: 2.4095292, y: 4.9327}
